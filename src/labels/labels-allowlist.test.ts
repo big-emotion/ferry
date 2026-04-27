@@ -3,7 +3,7 @@ import { readFileSync, readdirSync, statSync } from 'fs';
 import { join } from 'path';
 import { LABELS_ALLOWLIST } from './allowlist.js';
 
-const LABEL_PATTERN = /['"`]((?:ferry:|agent:|needs-human|status:stale|critical)[^'"`\s,)]+)['"`]/g;
+const LABEL_PATTERN = /['"`]((?:ferry:|agent:|needs-human|status:|critical)[^'"`\s]+)['"`]/g;
 
 function walkTs(dir: string): string[] {
   const files: string[] = [];

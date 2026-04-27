@@ -29,17 +29,18 @@ export async function emitAudit(payload: AuditPayload, opts: AuditOpts): Promise
 
   const marker = `[ferry:audit:${runId}]`;
 
-  const existing = await octokit.rest.issues.listComments({
-    owner,
-    repo,
-    issue_number: auditIssue,
-    per_page: 50,
-  });
-
-  const alreadyPosted = existing.data.some(
-    (c) => typeof c.body === 'string' && c.body.startsWith(marker),
-  );
-  if (alreadyPosted) return;
+  const MAX_PAGES = 10;
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    const existing = await octokit.rest.issues.listComments({
+      owner,
+      repo,
+      issue_number: auditIssue,
+      per_page: 100,
+      page,
+    });
+    if (existing.data.some((c) => typeof c.body === 'string' && c.body.startsWith(marker))) return;
+    if (existing.data.length < 100) break;
+  }
 
   const auditLine = {
     ticket,

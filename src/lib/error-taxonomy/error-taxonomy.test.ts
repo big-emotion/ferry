@@ -17,7 +17,7 @@ describe('mapError', () => {
     expect(result).toEqual({
       labels: ['ferry:paused', 'ferry:spend-cap'],
       outcome: 'spend-cap',
-      jiraCommentTemplate: expect.stringContaining('budget'),
+      jiraCommentTemplate: expect.stringContaining('billing'),
     });
   });
 
@@ -44,7 +44,7 @@ describe('mapError', () => {
     expect(result).toEqual({
       labels: ['needs-human'],
       outcome: 'unknown',
-      jiraCommentTemplate: expect.stringContaining('unexpected'),
+      jiraCommentTemplate: expect.stringContaining('Unexpected'),
     });
   });
 
@@ -53,7 +53,7 @@ describe('mapError', () => {
     expect(result).toEqual({
       labels: ['needs-human'],
       outcome: 'unknown',
-      jiraCommentTemplate: expect.stringContaining('unexpected'),
+      jiraCommentTemplate: expect.stringContaining('Unexpected'),
     });
   });
 

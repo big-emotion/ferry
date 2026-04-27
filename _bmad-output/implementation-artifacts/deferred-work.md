@@ -3,6 +3,15 @@
 ## Deferred from: code review of 1-4-cross-workflow-concurrency-action-and-freshness-check (2026-04-27)
 
 - W1: `emit-audit` job runs on `gate-envelope` failure due to `if: always()` — produces misleading audit records for rejected envelopes. Placeholder jobs in `.github/workflows/*.yml`; Story 1.5 implements proper audit logic with correct condition guards.
+
+## Deferred from: code review of 1-5-error-taxonomy-audit-writer-and-labels-allowlist (2026-04-28)
+
+- `start_ms: ${{ github.run_id }}` produces nonsensical `duration_ms` (~55 years) — known per spec Dev Notes; real epoch ms will be passed from agent entry points in Stories 3.1, 4.1, 5.1, 6.1 [.github/workflows/]
+- `jiraCommentTemplate` placeholders `{role}`, `{runId}`, `{runUrl}` never substituted — caller (agent entry point) responsible for substitution in Stories 3.1+ [src/lib/error-taxonomy/index.ts]
+- FerryError `context` JSON-serialised into Jira comment template without sanitisation — injection risk; caller responsibility in Stories 3.1+ [src/lib/error-taxonomy/index.ts:12]
+- Reconciler `run_id: ${{ github.run_id }}` is numeric, not a ULID — fix when reconciler fully implemented in Story 8.3 [.github/workflows/reconciler.yml:37]
+- `npm ci` in composite action on cold cache causes audit step failure — consider pre-bundling in a later infrastructure story [.github/actions/ferry-emit-audit/action.yml:49]
+- Multi-repo `github.run_id` marker collision risk — not relevant to current single-repo deployment; revisit if Ferry deployed to multiple repos
 - W2: `assertFreshOrSupersede` not wired to audit emit or `process.exit(0)` — caller integration deferred by design to agent entry-point stories (3.1, 4.1, 5.1, 6.1).
 
 ## Deferred from: code review of 1-2 + 1-3 (2026-04-27)

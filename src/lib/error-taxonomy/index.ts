@@ -24,7 +24,7 @@ export function mapError(e: unknown): ErrorMapping {
         labels: ['ferry:paused', 'ferry:spend-cap'],
         outcome: 'spend-cap',
         jiraCommentTemplate:
-          '[ferry:{role}:{runId}] Paused — spend cap or provider rate limit reached. Resolve billing issue and remove ferry:paused to resume. budget',
+          '[ferry:{role}:{runId}] Paused — spend cap or provider rate limit reached. Resolve billing issue and remove ferry:paused to resume.',
       };
     case 'state-invariant':
       return {
@@ -44,7 +44,7 @@ export function mapError(e: unknown): ErrorMapping {
       return {
         labels: ['needs-human'],
         outcome: 'unknown',
-        jiraCommentTemplate: `[ferry:{role}:{runId}] unexpected error — human triage required. See GHA run: {runUrl}${contextStr}`,
+        jiraCommentTemplate: `[ferry:{role}:{runId}] Unexpected error — human triage required. See GHA run: {runUrl}${contextStr}`,
       };
   }
 }
