@@ -1,0 +1,38 @@
+{
+  "name": "ferry",
+  "version": "0.0.1",
+  "description": "Ferry — GitHub Actions–native agent pipeline for Jira-driven automated development",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src",
+    "lint:fix": "eslint src --fix",
+    "format:check": "prettier --check 'src/**/*.ts'"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "eslint": "^9.0.0",
+    "eslint-config-prettier": "^9.0.0",
+    "prettier": "^3.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "@google/genai": "^1.0.0",
+    "@octokit/rest": "^21.0.0",
+    "ajv": "^8.0.0",
+    "ajv-formats": "^3.0.1",
+    "openai": "^4.0.0",
+    "ulid": "^2.3.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

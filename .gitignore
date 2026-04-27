@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+*.js.map
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.idea/
+*.swp
+*.swo
+
+# Test coverage
+coverage/
+
+# Temporary files
+*.tmp
+*.log
+
+# BMAD
+_bmad/
+_bmad-output/
+
+# Claude Code
+.claude/
+
+# Docs (drafts)
+docs/prd.md
+
+# Lockfile
+package-lock.json

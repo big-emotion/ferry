@@ -1,0 +1,43 @@
+name: Ferry — Review
+
+on:
+  repository_dispatch:
+    types: [ferry-review]
+
+# cancel-in-progress: false — writes fingerprints to state.iteration_history[] + PR review body; must complete atomically
+concurrency:
+  group: ferry-${{ github.workflow }}-${{ startsWith(github.event.client_payload.ticket_key, 'CHAN-') && github.event.client_payload.ticket_key || 'ferry-invalid-payload-sinkhole' }}
+  cancel-in-progress: false
+
+jobs:
+  gate-envelope:
+    name: Validate event envelope
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Validate event envelope
+        uses: ./.github/actions/ferry-envelope-validate
+        with:
+          payload: ${{ toJson(github.event.client_payload) }}
+
+  run-agent:
+    name: Run Reviewer agent
+    needs: [gate-envelope]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Placeholder — Reviewer agent (Story 5.1)
+        run: echo "Reviewer placeholder"
+
+  emit-audit:
+    name: Emit audit line
+    needs: [run-agent]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Placeholder — audit emission (Story 1.5)
+        run: echo "Audit placeholder"

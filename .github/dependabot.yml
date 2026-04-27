@@ -1,0 +1,35 @@
+version: 2
+
+updates:
+  # GitHub Actions — keep all workflow action SHAs up to date
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "chore(deps)"
+
+  # npm — keep Node.js dependencies up to date
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "chore(deps)"
+    # Keep devDependencies updates grouped
+    groups:
+      typescript-toolchain:
+        patterns:
+          - "typescript"
+          - "@types/*"
+          - "tsx"
+          - "vitest"
+          - "eslint*"
+          - "@typescript-eslint/*"
+          - "prettier*"

@@ -1,0 +1,22 @@
+name: Ferry — Validate Event Envelope
+description: Validates repository_dispatch payload against event.v1.schema.json. No payload content is logged on failure.
+inputs:
+  payload:
+    description: JSON-encoded github.event.client_payload
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Set up Node.js
+      uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af  # v4.1.0
+      with:
+        node-version: '20'
+        cache: npm
+    - name: Install dependencies
+      shell: bash
+      run: npm ci --prefer-offline
+    - name: Validate envelope
+      shell: bash
+      run: npx tsx src/lib/envelope/validate-action.ts
+      env:
+        FERRY_ENVELOPE_PAYLOAD: ${{ inputs.payload }}
