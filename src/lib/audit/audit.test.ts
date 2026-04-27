@@ -44,7 +44,8 @@ describe('emitAudit', () => {
   it('comment body is valid JSON with all required fields', async () => {
     const octokit = makeMockOctokit();
     await emitAudit(PAYLOAD, { ...OPTS, octokit });
-    const call = (octokit.rest.issues.createComment as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    const call = (octokit.rest.issues.createComment as unknown as ReturnType<typeof vi.fn>).mock
+      .calls[0][0];
     const lines = call.body.split('\n');
     const json = JSON.parse(lines[1]);
     expect(json).toMatchObject({
@@ -64,14 +65,16 @@ describe('emitAudit', () => {
   it('comment body starts with idempotency marker on first line', async () => {
     const octokit = makeMockOctokit();
     await emitAudit(PAYLOAD, { ...OPTS, octokit });
-    const call = (octokit.rest.issues.createComment as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    const call = (octokit.rest.issues.createComment as unknown as ReturnType<typeof vi.fn>).mock
+      .calls[0][0];
     expect(call.body).toMatch(new RegExp(`^\\[ferry:audit:${RUN_ID}\\]\\n`));
   });
 
   it('duration_ms is a non-negative integer', async () => {
     const octokit = makeMockOctokit();
     await emitAudit(PAYLOAD, { ...OPTS, octokit });
-    const call = (octokit.rest.issues.createComment as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    const call = (octokit.rest.issues.createComment as unknown as ReturnType<typeof vi.fn>).mock
+      .calls[0][0];
     const json = JSON.parse(call.body.split('\n')[1]);
     expect(json.duration_ms).toBeGreaterThanOrEqual(0);
     expect(Number.isInteger(json.duration_ms)).toBe(true);
@@ -80,7 +83,8 @@ describe('emitAudit', () => {
   it('timestamp is a valid ISO-8601 string', async () => {
     const octokit = makeMockOctokit();
     await emitAudit(PAYLOAD, { ...OPTS, octokit });
-    const call = (octokit.rest.issues.createComment as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    const call = (octokit.rest.issues.createComment as unknown as ReturnType<typeof vi.fn>).mock
+      .calls[0][0];
     const json = JSON.parse(call.body.split('\n')[1]);
     expect(() => new Date(json.timestamp).toISOString()).not.toThrow();
     expect(json.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
@@ -96,7 +100,8 @@ describe('emitAudit', () => {
   it('defaults tokens and cost to 0 when usage is null', async () => {
     const octokit = makeMockOctokit();
     await emitAudit({ ...PAYLOAD, usage: null }, { ...OPTS, octokit });
-    const call = (octokit.rest.issues.createComment as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    const call = (octokit.rest.issues.createComment as unknown as ReturnType<typeof vi.fn>).mock
+      .calls[0][0];
     const json = JSON.parse(call.body.split('\n')[1]);
     expect(json.input_tokens).toBe(0);
     expect(json.output_tokens).toBe(0);

@@ -1,0 +1,73 @@
+name: Ferry — Emit Audit Line
+description: Posts exactly one JSON audit comment to the ferry-audit GitHub Issue. Idempotent via [ferry:audit:<run_id>] marker.
+inputs:
+  ticket:
+    description: Jira ticket key (e.g. CHAN-27)
+    required: true
+  phase:
+    description: Workflow phase — one of refine, dev, review, iterate, reconcile
+    required: true
+  run_id:
+    description: ULID event_id from the envelope (used as idempotency marker)
+    required: true
+  model:
+    description: Model identifier (e.g. gemini-2.5-flash) or "none" for no-LLM runs
+    required: true
+  outcome:
+    description: Run outcome (success, transient, spend-cap, state-invariant, oscillation, unknown, ...)
+    required: true
+  input_tokens:
+    description: Input tokens consumed by the LLM call (0 if no call)
+    required: false
+    default: '0'
+  output_tokens:
+    description: Output tokens produced by the LLM call (0 if no call)
+    required: false
+    default: '0'
+  cost_eur:
+    description: Cost in EUR (0 if no LLM call)
+    required: false
+    default: '0'
+  start_ms:
+    description: Epoch milliseconds when the agent began (used for duration_ms)
+    required: true
+  audit_issue:
+    description: GitHub Issue number that serves as the canonical ferry-audit issue
+    required: true
+  owner:
+    description: GitHub repository owner
+    required: true
+  repo:
+    description: GitHub repository name
+    required: true
+  github_token:
+    description: GITHUB_TOKEN with issues:write on the audit repository
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Set up Node.js
+      uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af  # v4.1.0
+      with:
+        node-version: '20'
+        cache: npm
+    - name: Install dependencies
+      shell: bash
+      run: npm ci --prefer-offline
+    - name: Emit audit line
+      shell: bash
+      run: npx tsx src/lib/audit/emit-audit-action.ts
+      env:
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+        FERRY_AUDIT_ISSUE: ${{ inputs.audit_issue }}
+        FERRY_OWNER: ${{ inputs.owner }}
+        FERRY_REPO: ${{ inputs.repo }}
+        FERRY_RUN_ID: ${{ inputs.run_id }}
+        FERRY_TICKET: ${{ inputs.ticket }}
+        FERRY_PHASE: ${{ inputs.phase }}
+        FERRY_MODEL: ${{ inputs.model }}
+        FERRY_OUTCOME: ${{ inputs.outcome }}
+        FERRY_INPUT_TOKENS: ${{ inputs.input_tokens }}
+        FERRY_OUTPUT_TOKENS: ${{ inputs.output_tokens }}
+        FERRY_COST_EUR: ${{ inputs.cost_eur }}
+        FERRY_START_MS: ${{ inputs.start_ms }}

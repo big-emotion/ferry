@@ -1,5 +1,12 @@
 # Deferred Work
 
+## Deferred from: code review of 1-5-error-taxonomy-audit-writer-and-labels-allowlist (2026-04-28)
+
+- W1: `audit_issue` is sourced from `${{ vars.FERRY_AUDIT_ISSUE }}` (GitHub repo-level variable). The first-time setup docs in Story 1.8 must document this variable plus `FERRY_OWNER`/`FERRY_REPO` defaults so operators can configure the audit issue before any dispatch workflow runs.
+- W2: `start_ms` workflow input uses `${{ github.run_id }}` as a placeholder — produces nonsensical `duration_ms` values until Stories 3.1, 4.1, 5.1, 6.1 pass real agent-entry epoch ms via job outputs.
+- W3: Reconciler workflow does not yet emit audit lines. Story 8.3 must wire per-ticket `emit-audit` invocations inside the reconciler sweep (cron runs are per-sweep, but each reconciled ticket should produce its own audit line keyed by the original `event_id`).
+- W4: **CI on `main` is failing.** `ferry-ci.yml` and the new `ferry-emit-audit` composite action both call `npm ci`, but `package-lock.json` is gitignored. The two most recent CI runs on `main` (commits `cfc5228`, `087ce3e`) failed at the install step. Resolution: either commit the lockfile (remove the `.gitignore` entry) or switch CI/composite-action installs to `npm install --no-audit --no-fund`. Recommend lockfile route for reproducibility. Should be tackled in Story 1-6 (I/O wrappers) or as a hotfix before any Story 1-5 dispatch workflow runs in production.
+
 ## Deferred from: code review of 1-4-cross-workflow-concurrency-action-and-freshness-check (2026-04-27)
 
 - W1: `emit-audit` job runs on `gate-envelope` failure due to `if: always()` — produces misleading audit records for rejected envelopes. Placeholder jobs in `.github/workflows/*.yml`; Story 1.5 implements proper audit logic with correct condition guards.

@@ -1,6 +1,6 @@
 # Story 1.5: Error Taxonomy, Audit Writer & Labels Allowlist
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -351,20 +351,48 @@ src/
 
 ### Agent Model Used
 
-_to be filled_
+claude-sonnet-4-6 (DS continuation + CR self-loop on 2026-04-28).
 
 ### Debug Log References
 
-_to be filled_
+- Initial baseline (commit `cfc5228`): `npm test` 92/92 green; `npm run typecheck` failed with 5x TS2352 in `src/lib/audit/audit.test.ts` due to stricter Octokit method overload typing; `npm run lint` failed with 2x unused-import errors in `src/lib/ulid/ulid.test.ts`; `npm run format:check` green.
+- After fixes: all four gates green; 92/92 tests pass.
 
 ### Completion Notes List
 
-_to be filled_
+- Tasks 1–6 were already implemented in commit `cfc5228` (error-taxonomy module, audit writer, labels allowlist + tests). This continuation completes Tasks 7–11.
+- **Task 7** — `src/lib/audit/emit-audit-action.ts` thin GHA entrypoint added. Required env vars validated up-front; numeric env vars parsed defensively; Octokit instantiated only at the entrypoint boundary (library code stays testable).
+- **Task 8** — `.github/actions/ferry-emit-audit/action.yml` composite action added, mirroring `ferry-envelope-validate/action.yml` (same `actions/setup-node` SHA `39370e3970a6d050c480ffad4ff0ed4d3fdee5af`, `cache: npm`, `npm ci --prefer-offline`, `npx tsx`). Resolved an internal spec inconsistency: Task 7 lists `FERRY_OWNER`/`FERRY_REPO` as required env vars, but Task 8 omits `owner`/`repo` from action inputs. Action now exposes both, sourced from `github.repository_owner` and `github.event.repository.name` in workflow callers.
+- **Task 9** — `refine.yml`, `dev.yml`, `review.yml`, `iterate.yml` updated: placeholder `emit-audit` jobs replaced with real action call, `if: always()` → `if: needs.run-agent.result != 'skipped'` (resolves W1 from 1.4). `outcome` is sourced from `needs.run-agent.result` (success/failure/cancelled) rather than `job.status` because audit job's own status would always be `success` at the point the expression evaluates. `reconciler.yml` is intentionally NOT updated: it has no placeholder emit-audit job (cron runs are per-sweep, not per-ticket), and Story 8.3 will wire its per-ticket audit emissions. This deviation from the story's "5 workflows" wording is documented; the spec's intent (every dispatch workflow emits one audit line) is satisfied.
+- **Task 10** — `validateEnvelope` error code remains `state-invariant`. Per D11 taxonomy, a malformed envelope = state invariant violation → `status:stale` label → human re-dispatches. `mapError('state-invariant')` returns `{ labels: ['status:stale'], outcome: 'state-invariant', ... }`, which is the correct action. No code change needed.
+- **Task 11** — `npm run typecheck`, `npm run lint`, `npm run format:check`, `npm test` all green. Two pre-existing baseline failures fixed inline as part of finishing Story 1.5 because they were introduced by the same commit (`cfc5228`):
+  - `src/lib/audit/audit.test.ts`: changed `as ReturnType<typeof vi.fn>` casts to `as unknown as ReturnType<typeof vi.fn>` to satisfy TS strict type-overlap rule for Octokit method signatures.
+  - `src/lib/ulid/ulid.test.ts`: removed unused `beforeEach`, `afterEach` imports.
+- **CI infrastructure note** — `package-lock.json` is gitignored by project convention. `ferry-ci.yml` and the new `ferry-emit-audit` composite action both invoke `npm ci`, which requires a committed lockfile. The two most recent CI runs on `main` (commits `cfc5228`, `087ce3e`) failed for this reason. This is out of scope for Story 1-5 — logged as deferred-work W4 for resolution in Story 1-6 (CI/IO wrappers) or 1-1 hardening.
 
 ### File List
 
-_to be filled_
+**Added:**
+- `src/lib/audit/emit-audit-action.ts`
+- `.github/actions/ferry-emit-audit/action.yml`
+
+**Modified:**
+- `src/lib/audit/audit.test.ts` (typecheck fix)
+- `src/lib/ulid/ulid.test.ts` (lint fix)
+- `.github/workflows/refine.yml`
+- `.github/workflows/dev.yml`
+- `.github/workflows/review.yml`
+- `.github/workflows/iterate.yml`
+- `_bmad-output/implementation-artifacts/sprint-status.yaml`
+- `_bmad-output/implementation-artifacts/deferred-work.md`
 
 ### Review Findings
 
-_to be filled_
+Self-review (CR phase) on 2026-04-28:
+
+- **(info) Reconciler workflow not updated** — Story spec says "5 workflows"; only 4 dispatch workflows have placeholder `emit-audit` jobs to replace. Reconciler emits its audit per-ticket inside Story 8.3 logic. This is the correct call. Documented above.
+- **(info) `outcome` source** — Story spec example uses `outcome: ${{ job.status }}`. I used `${{ needs.run-agent.result }}` instead because at the time `emit-audit`'s steps execute, `job.status` refers to the `emit-audit` job (always `success` so far) — not the agent run outcome the audit is supposed to record. Using `needs.run-agent.result` correctly captures the upstream agent's outcome.
+- **(info) `start_ms` placeholder** — Story acknowledges this; `github.run_id` is a workflow run ID, not epoch ms, so `duration_ms` will be nonsensical until Stories 3.1+ pass real values from agent entrypoint outputs. No bug, just placeholder.
+- **(W) `audit_issue` requires repo variable** — Workflow uses `${{ vars.FERRY_AUDIT_ISSUE }}` (GitHub Actions repo-level variable). When this is unset, the entrypoint will throw a clear error at install time. Recommendation: add a setup step in Story 1.8 (README / first-time setup docs) covering the required vars: `FERRY_AUDIT_ISSUE`. Logged below in deferred-work.
+- **No security findings** — `GITHUB_TOKEN` flows only through composite action input → entrypoint env; no payload values are echoed; failures only log sanitized messages.
+- **All ACs pass** — 1, 2, 3, 4 verified by tests + manual workflow inspection.
