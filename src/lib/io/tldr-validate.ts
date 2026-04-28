@@ -32,6 +32,14 @@ export function validateTldrBlock(
   const seen: string[] = [];
   let m: RegExpExecArray | null;
   while ((m = labelRe.exec(block)) !== null) seen.push(m[1]);
+  // Distinguish missing fields from misordered fields so authors get an actionable message.
+  const missing = TLDR_FIELD_ORDER.filter((f) => !seen.includes(f));
+  if (missing.length > 0) {
+    return {
+      ok: false,
+      message: `TL;DR block missing required field(s): ${missing.join(', ')}.`,
+    };
+  }
   for (let i = 0; i < TLDR_FIELD_ORDER.length; i++) {
     if (seen[i] !== TLDR_FIELD_ORDER[i]) {
       return {

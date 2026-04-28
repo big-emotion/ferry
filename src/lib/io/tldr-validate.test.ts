@@ -56,4 +56,23 @@ describe('validateTldrBlock', () => {
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.skipped).toBe(true);
   });
+
+  it('reports missing fields with their names (not "out of order") when fewer than 6 fields present', () => {
+    const partial = `<!-- ferry:tldr -->
+| Field | Value |
+|---|---|
+| Ships | x |
+| Touches | 1 file / +1 |
+| Risk | low |
+<!-- /ferry:tldr -->`;
+    const r = validateTldrBlock(partial, FERRY_BOT, FERRY_BOT);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.message).toMatch(/missing required field/i);
+      expect(r.message).toContain('Tests');
+      expect(r.message).toContain('Rollback');
+      expect(r.message).toContain('Reviewer verdict');
+      expect(r.message).not.toMatch(/out of order/i);
+    }
+  });
 });
