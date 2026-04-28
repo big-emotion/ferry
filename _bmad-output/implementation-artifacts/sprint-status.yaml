@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: "2026-04-27T00:00:00Z"
-last_updated: "2026-04-28T12:53:00Z"  # 1-6c merged (PR #17); rebased onto main; bulk session: epics 2-9
+last_updated: "2026-04-28T12:53:00Z"  # rebased onto main after PR #17 merged; bulk session: epics 2-9 all stories review
 project: ferry
 project_key: NOKEY
 tracking_system: file-system
@@ -132,7 +132,7 @@ development_status:
   # ─────────────────────────────────────────────────────────────
   # Epic 9: Human-Reader Experience
   # ─────────────────────────────────────────────────────────────
-  epic-9: backlog
-  9-1-mandated-tldr-block-in-pr-body: backlog
-  9-2-ci-check-for-tldr-format-and-length: backlog
+  epic-9: in-progress
+  9-1-mandated-tldr-block-in-pr-body: review
+  9-2-ci-check-for-tldr-format-and-length: review
   epic-9-retrospective: optional
