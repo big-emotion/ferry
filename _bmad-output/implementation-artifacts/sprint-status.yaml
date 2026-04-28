@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: "2026-04-27T00:00:00Z"
-last_updated: "2026-04-28T12:44:00Z"  # 1-6c implementation complete (review); rebased onto main
+last_updated: "2026-04-28T12:53:00Z"  # 1-6c merged (PR #17); rebased onto main; bulk session: epics 2-9
 project: ferry
 project_key: NOKEY
 tracking_system: file-system
@@ -56,7 +56,7 @@ development_status:
   1-6b-gitleaks-secret-scan-integration: done
   1-6c-gitleaks-harness-runtime-scanning: review
   1-7-llm-harness-model-routing-and-configuration-loading: done
-  1-8-readme-examples-and-first-time-setup-documentation: review
+  1-8-readme-examples-and-first-time-setup-documentation: done
   epic-1-retrospective: optional
 
   # ─────────────────────────────────────────────────────────────
