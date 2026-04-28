@@ -28,6 +28,11 @@ await Promise.all([
     entryPoints: ['src/lib/dispatch/skip-task-type-action.ts'],
     outfile: '.ferry/skip-task-type-action.js',
   }),
+  build({
+    ...shared,
+    entryPoints: ['src/agents/developer/dev-action.ts'],
+    outfile: '.ferry/dev-action.js',
+  }),
 ]);
 
 // The schema is loaded at runtime via createRequire(import.meta.url).
@@ -53,6 +58,7 @@ writeFileSync('.ferry/package.json', JSON.stringify({
     'ajv': '^8.0.0',
     'ajv-formats': '^3.0.1',
     '@octokit/rest': '^22.0.1',
+    '@anthropic-ai/sdk': '^0.91.1',
   },
 }, null, 2) + '\n');
 

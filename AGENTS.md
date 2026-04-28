@@ -16,7 +16,13 @@ Run a single test file with Vitest:
 npx vitest run src/lib/envelope/validate.test.ts
 ```
 
-There is no dedicated build script yet. CI on `main` runs typecheck, lint, format check, tests, and a gitleaks secret scan.
+Build the `.ferry/` action bundles (including `dev-action.js`) with:
+
+```bash
+npm run build:ferry
+```
+
+CI on `main` runs typecheck, lint, format check, tests, and a gitleaks secret scan.
 
 ## Architecture
 
@@ -28,7 +34,7 @@ Per-ticket durable state lives in `.ferry/state.json` on the `ferry/<ticket-key>
 
 Idempotency and freshness are implemented through audit issue comments, not a separate datastore. `src/lib/envelope/dedupe.ts` claims events with `[ferry:dedupe] <eventId> <ticketKey> <runId>` comments, and `src/lib/preflight/freshness.ts` uses ULID lexical ordering to detect when a newer event has already superseded the current run.
 
-Most real behavior currently lives in `src/lib/**` and the workflow wiring. `src/agents/*` entrypoints are still placeholders.
+The developer agent runs as an agentic tool-use loop (`src/agents/developer/loop.ts`). It receives a Jira ticket, explores the repo with tools (`read_file`, `write_file`, `str_replace`, `bash`, etc.), and calls `done` when finished. The entry point is `src/agents/developer/dev-action.ts`, which bundles to `.ferry/dev-action.js`. Path safety and bash restrictions are enforced in `src/agents/developer/sandbox.ts`.
 
 ## Conventions
 

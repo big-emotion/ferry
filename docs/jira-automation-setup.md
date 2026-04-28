@@ -83,7 +83,7 @@ curl -X POST \
     "event_type": "ferry-dev",
     "client_payload": {
       "version": "v1",
-      "event_id": "01JABCDEF01JABCDEF01JABCDE",
+      "event_id": "1745876263000-TEST-1",
       "ticket_key": "TEST-1",
       "phase": "dev",
       "source": "jira-column",
@@ -133,9 +133,6 @@ X-GitHub-Api-Version: 2022-11-28
 
 ### Per-stage payloads
 
-> **Important — `event_id` format:** Ferry's envelope schema expects a 26-character ULID. The `{{now.toMillis}}-{{issue.key}}` expression used below is **not** a valid ULID — the gate-envelope step will reject it. See the callout box after the payloads for your options.
-
----
 
 #### Refine
 
@@ -223,15 +220,6 @@ Trigger: ticket moved to **"Changes Requested"** (or "Iterate").
 
 ---
 
-> **`event_id` mismatch — pick one option before going live:**
->
-> **Option A (recommended):** Relax `event_id` validation in `src/schemas/event.v1.schema.json` to accept any non-empty string instead of the strict ULID pattern. This is the simplest fix and has no functional impact — `event_id` is used only for deduplication ordering, and uniqueness is preserved by the millis+key combination.
->
-> **Option B:** Add a middleware step between Jira and GitHub (e.g., a Cloudflare Worker or AWS Lambda) that receives the Jira webhook and generates a proper ULID before calling the GitHub Dispatches API. More infrastructure, but keeps the schema strict.
->
-> **Option C:** In the Jira automation rule, use a "Create variable" action to pad `{{now.toMillis}}` to 26 characters with a fixed prefix (e.g., `0000000000{{now.toMillis}}` — 10 zeros + 13-digit millis = 23 chars, then append 3 chars from `{{issue.key}}`). Fragile and not recommended.
-
----
 
 ## 3. Name and enable each rule
 
@@ -266,7 +254,6 @@ Trigger: ticket moved to **"Changes Requested"** (or "Iterate").
 | `401` from Jira automation action | PAT expired or wrong scope | Regenerate PAT with Contents + Actions + Pull requests write |
 | `404` from GitHub API | Wrong `OWNER/REPO` in URL | Double-check the exact org/repo path (case-sensitive) |
 | `422` from GitHub API | Malformed JSON body | Open Jira automation audit log → expand the failed run → inspect the rendered payload |
-| Workflow starts but gate-envelope fails with invalid `event_id` | `{{now.toMillis}}-{{issue.key}}` is not a ULID | Apply Option A or B from the `event_id` callout above |
 | Automation fires but nothing happens in GitHub | `event_type` string doesn't match `types:` in the workflow | Compare character by character — `ferry-dev` not `ferry_dev` |
 | Duplicate workflow runs for the same ticket move | Jira automation fires on self-transition when Ferry writes a comment | Add condition: `Initiator → email → is not → ferry-bot@your-org.com` |
 | Loop: Ferry moves ticket column → Jira fires automation again | Same as above | Same fix |

@@ -116,8 +116,10 @@ describe('event.v1.schema.json', () => {
     }
   });
 
-  it('event_id pattern matches ULID pattern', () => {
-    expect(eventSchema.properties.event_id.pattern).toBe('^[0-9A-HJKMNP-TV-Z]{26}$');
+  it('event_id pattern accepts ULID and Jira millis-key format', () => {
+    expect(eventSchema.properties.event_id.pattern).toBe(
+      '^([0-9A-HJKMNP-TV-Z]{26}|\\d{13}-[A-Z][A-Z0-9_]+-\\d+)$',
+    );
   });
 
   it('a minimal valid event envelope passes validation', () => {
@@ -128,6 +130,18 @@ describe('event.v1.schema.json', () => {
       phase: 'refine',
       source: 'jira-column',
       ts: '2026-04-27T00:00:00.000Z',
+    };
+    expect(validateEvent(valid)).toBe(true);
+  });
+
+  it('accepts Jira millis-key event_id format', () => {
+    const valid = {
+      version: 'v1',
+      event_id: '1745876263000-CHAN-42',
+      ticket_key: 'CHAN-42',
+      phase: 'refine',
+      source: 'jira-column',
+      ts: '2026-04-28T00:00:00.000Z',
     };
     expect(validateEvent(valid)).toBe(true);
   });

@@ -82,7 +82,7 @@ Jira column move / label / @mention
 Each agent has an `index.ts` entry point plus focused sub-modules:
 
 - **refiner**: `refine.ts` (ticket decomposition), `batch.ts` (atomic sub-task creation), `idempotency.ts`, `empty.ts` (no-story escalation), `locale.ts`
-- **developer**: `context.ts` (repo context loading), `diff.ts` (scope-enforced diff), `pr.ts` (draft PR open), `commit.ts`
+- **developer**: `sandbox.ts` (path safety + bash deny-list), `tools.ts` (tool schemas + executors), `loop.ts` (agentic tool-use loop), `dev-action.ts` (entry point — explore → implement → commit → PR), `pr.ts`, `commit.ts`
 - **reviewer**: `ci-gate.ts` (waits for green CI or injects synthetic finding), `schema.ts` (finding structure), `verdict.ts` (pass/needs-work/needs-human), `transition.ts` (post-review Jira column move)
 - **iterator**: `prompt.ts` (builds prompt from review history), `cap.ts` (3-round cap), `transition.ts`
 
