@@ -84,8 +84,8 @@ development_status:
   epic-4: in-progress
   4-1-developer-reads-ticket-and-builds-file-context: review
   4-2-branch-creation-code-generation-and-scope-enforced-diff-application: review
-  4-3-critical-model-routing-on-critical-label: backlog
-  4-4-draft-pr-open-and-auto-transition-to-in-review: backlog
+  4-3-critical-model-routing-on-critical-label: review
+  4-4-draft-pr-open-and-auto-transition-to-in-review: review
   epic-4-retrospective: optional
 
   # ─────────────────────────────────────────────────────────────
