@@ -1,6 +1,6 @@
 # Story 1.6b: Gitleaks Secret-Scan Integration
 
-Status: backlog
+Status: review
 
 ## Story
 
@@ -22,6 +22,8 @@ so that secret leakage is prevented at the harness level.
    **When** the CI gate executes
    **Then** a gitleaks scan runs as part of the quality gates.
 
+   Status: Done (Option A — pinned GitHub Action + deterministic `.gitleaks.toml` ruleset).
+
 ## Architectural decision required (blocker for implementation)
 
 We must decide how the gitleaks binary is provided in CI and in workflows:
@@ -38,16 +40,19 @@ We must decide how the gitleaks binary is provided in CI and in workflows:
   - Pros: simple.
   - Cons: violates reproducibility/pinning requirements.
 
-Recommendation: **Option A for CI gate** plus **a separate follow-up story** to decide runtime invocation (if we need secret scanning inside agent harness rather than CI-only). If we require harness-level scanning, prefer a pinned download of release artifacts with checksums.
+Recommendation: **Option A for CI gate** plus **a separate follow-up story** to decide harness-level runtime invocation.
+
+Follow-up: `1-6c-gitleaks-harness-runtime-scanning` (deferred). Architectural decision remains open between **Option B (vendored binary)** vs **Option D (pinned-download + checksums)**.
 
 ## Tasks / Subtasks
 
-- [ ] Decide gitleaks delivery method (A/B/C) and update architecture notes
-- [ ] Implement `src/lib/secret-scan/index.ts` with deterministic gitleaks invocation
-- [ ] Add `.gitleaks.toml` (if missing) or document which ruleset is used
-- [ ] Wire secret scan into IO wrappers/harness before any write
-- [ ] Add CI gate integration for gitleaks
-- [ ] Add unit tests for scanForSecrets and a negative control case
+- [ ] Defer harness runtime scanning to `1-6c-gitleaks-harness-runtime-scanning` (AC #1 and #2).
+- [x] Add `.gitleaks.toml` that deterministically extends upstream defaults.
+- [x] Add CI gate integration for gitleaks (pinned GitHub Action; blocks merges).
+- [x] Add unit test that asserts `.gitleaks.toml` exists and is valid TOML.
+- [ ] Implement `src/lib/secret-scan/index.ts` with deterministic gitleaks invocation (deferred to 1-6c).
+- [ ] Wire secret scan into IO wrappers/harness before any write (deferred to 1-6c).
+- [ ] Add unit tests for scanForSecrets and a negative control case (deferred to 1-6c).
 
 ## Dev Notes
 
