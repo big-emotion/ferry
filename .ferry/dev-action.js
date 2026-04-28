@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, appendFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import path from 'path';
 import { execSync, spawnSync } from 'child_process';
@@ -39,6 +39,17 @@ const promptPath =
   process.env.FERRY_PROMPT_PATH ?? path.join(repoRoot, 'prompts', 'dev.md');
 
 // ── helpers ───────────────────────────────────────────────────────────────────
+
+/** Returns true if any existing Jira comment body contains the given prefix. */
+async function jiraCommentExists(key, prefix) {
+  const res = await fetch(
+    `${jiraBaseUrl}/rest/api/3/issue/${key}/comment?maxResults=50`,
+    { method: 'GET', headers: jiraHeaders() },
+  );
+  if (!res.ok) return false;
+  const data = await res.json();
+  return (data.comments ?? []).some((c) => adfToText(c.body).includes(prefix));
+}
 
 function jiraHeaders() {
   const token = Buffer.from(`${jiraEmail}:${jiraToken}`).toString('base64');
@@ -107,9 +118,15 @@ const comments = (fields.comment?.comments ?? [])
 
 // ── 2. fetch subtasks ─────────────────────────────────────────────────────────
 
-const jql = encodeURIComponent(`parent=${ticketKey} ORDER BY created ASC`);
-const subtasksUrl = `${jiraBaseUrl}/rest/api/3/search?jql=${jql}&fields=summary,description&maxResults=20`;
-const subtasksRes = await fetch(subtasksUrl, { method: 'GET', headers: jiraHeaders() });
+const subtasksRes = await fetch(`${jiraBaseUrl}/rest/api/3/search/jql`, {
+  method: 'POST',
+  headers: jiraHeaders(),
+  body: JSON.stringify({
+    jql: `parent=${ticketKey} ORDER BY created ASC`,
+    fields: ['summary', 'description'],
+    maxResults: 20,
+  }),
+});
 if (!subtasksRes.ok) {
   console.error(`[ferry:dev] Jira subtask search failed: ${subtasksRes.status}`);
   process.exit(1);
@@ -172,17 +189,22 @@ const userMessage = [
 const anthropic = new Anthropic();
 const completion = await anthropic.messages.create({
   model,
-  max_tokens: 8192,
+  max_tokens: 32768,
   system: systemPrompt,
   messages: [{ role: 'user', content: userMessage }],
 });
 
 const rawText = completion.content.find((b) => b.type === 'text')?.text ?? '';
 
+const ghOutput = process.env.GITHUB_OUTPUT;
+if (ghOutput) {
+  appendFileSync(ghOutput, `input_tokens=${completion.usage.input_tokens}\noutput_tokens=${completion.usage.output_tokens}\n`);
+}
+
 // ── 7. parse JSON from fenced block ──────────────────────────────────────────
 
-const fenceMatch = rawText.match(/```(?:json)?\s*([\s\S]*?)```/);
-const jsonStr = fenceMatch ? fenceMatch[1].trim() : rawText.trim();
+const fences = [...rawText.matchAll(/```(?:json)?\s*([\s\S]*?)```/g)];
+const jsonStr = fences.length ? fences[fences.length - 1][1].trim() : rawText.trim();
 let parsed;
 try {
   parsed = JSON.parse(jsonStr);
@@ -195,15 +217,18 @@ try {
 
 if (!parsed.actionable) {
   const reason = parsed.reason_if_not_actionable ?? 'No reason provided.';
-  const commentText = `[ferry:dev:${eventId}] Cannot implement — ${reason}`;
-  const commentRes = await fetch(`${jiraBaseUrl}/rest/api/3/issue/${ticketKey}/comment`, {
-    method: 'POST',
-    headers: jiraHeaders(),
-    body: JSON.stringify({ body: adfDoc(commentText) }),
-  });
-  if (!commentRes.ok) {
-    console.error(`[ferry:dev] Failed to post non-actionable comment: ${commentRes.status}`);
-    process.exit(1);
+  const commentPrefix = `[ferry:dev:${eventId}]`;
+  const commentText = `${commentPrefix} Cannot implement — ${reason}`;
+  if (!await jiraCommentExists(ticketKey, commentPrefix)) {
+    const commentRes = await fetch(`${jiraBaseUrl}/rest/api/3/issue/${ticketKey}/comment`, {
+      method: 'POST',
+      headers: jiraHeaders(),
+      body: JSON.stringify({ body: adfDoc(commentText) }),
+    });
+    if (!commentRes.ok) {
+      console.error(`[ferry:dev] Failed to post non-actionable comment: ${commentRes.status}`);
+      process.exit(1);
+    }
   }
   console.log(`[ferry:dev] Ticket ${ticketKey} not actionable — comment posted.`);
   process.exit(0);
@@ -226,10 +251,18 @@ if (!files.length) {
 
 // ── 10. write files ───────────────────────────────────────────────────────────
 
+const DENIED_PREFIXES = ['.github', '.ferry', 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml'];
+
 for (const file of files) {
   const filePath = path.resolve(repoRoot, file.path);
   if (!filePath.startsWith(repoRoot + path.sep)) {
     console.error(`[ferry:dev] Skipping path outside repo root: ${file.path}`);
+    continue;
+  }
+  const rel = path.relative(repoRoot, filePath);
+  const topSegment = rel.split(path.sep)[0];
+  if (DENIED_PREFIXES.some((d) => topSegment === d)) {
+    console.error(`[ferry:dev] Skipping denied path: ${file.path}`);
     continue;
   }
   mkdirSync(path.dirname(filePath), { recursive: true });
@@ -298,20 +331,23 @@ const transitionRes = await fetch(`${jiraBaseUrl}/rest/api/3/issue/${ticketKey}/
 if (!transitionRes.ok) {
   const errText = await transitionRes.text();
   console.error(`[ferry:dev] Jira transition failed: ${transitionRes.status} — ${errText}`);
-  // Non-fatal: PR already exists, log and continue
+  process.exit(1);
 }
 
-// ── 14. post summary comment ──────────────────────────────────────────────────
+// ── 14. post summary comment (idempotent) ─────────────────────────────────────
 
-const commentText = `[ferry:dev:${eventId}] Implementation complete — PR: ${prUrl}. Moved to Review.`;
-const commentRes = await fetch(`${jiraBaseUrl}/rest/api/3/issue/${ticketKey}/comment`, {
-  method: 'POST',
-  headers: jiraHeaders(),
-  body: JSON.stringify({ body: adfDoc(commentText) }),
-});
-if (!commentRes.ok) {
-  console.error(`[ferry:dev] Failed to post summary comment: ${commentRes.status}`);
-  process.exit(1);
+const summaryPrefix = `[ferry:dev:${eventId}]`;
+if (!await jiraCommentExists(ticketKey, summaryPrefix)) {
+  const summaryText = `${summaryPrefix} Implementation complete — PR: ${prUrl}. Moved to Review.`;
+  const commentRes = await fetch(`${jiraBaseUrl}/rest/api/3/issue/${ticketKey}/comment`, {
+    method: 'POST',
+    headers: jiraHeaders(),
+    body: JSON.stringify({ body: adfDoc(summaryText) }),
+  });
+  if (!commentRes.ok) {
+    console.error(`[ferry:dev] Failed to post summary comment: ${commentRes.status}`);
+    process.exit(1);
+  }
 }
 
 console.log(`[ferry:dev] ${ticketKey} — ${files.length} file(s) written, PR opened, moved to Review.`);
