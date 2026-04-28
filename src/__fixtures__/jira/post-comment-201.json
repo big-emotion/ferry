@@ -1,0 +1,13 @@
+{
+  "id": "10002",
+  "body": {
+    "version": 1,
+    "type": "doc",
+    "content": [
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "[ferry:developer:run-1] new comment body" }]
+      }
+    ]
+  }
+}

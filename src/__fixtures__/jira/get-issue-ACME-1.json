@@ -1,0 +1,38 @@
+{
+  "id": "10001",
+  "key": "ACME-1",
+  "fields": {
+    "summary": "Implement feature X",
+    "description": {
+      "version": 1,
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [{ "type": "text", "text": "This is the ticket description." }]
+        }
+      ]
+    },
+    "comment": {
+      "comments": [
+        {
+          "id": "10001",
+          "body": {
+            "version": 1,
+            "type": "doc",
+            "content": [
+              {
+                "type": "paragraph",
+                "content": [{ "type": "text", "text": "[ferry:refiner:run-abc] refiner comment" }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "labels": ["feature", "backend"],
+    "issuetype": {
+      "name": "Story"
+    }
+  }
+}
