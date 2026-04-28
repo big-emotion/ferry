@@ -50,7 +50,20 @@ describe('iterator prompt', () => {
     });
     expect(p).toContain('aaa');
     expect(p).toContain('bbb');
+    expect(p).toContain('ccc');
     expect(p).toContain('Iteration: 2');
+  });
+
+  it('still emits the Latest findings section header when findings list is empty', () => {
+    const p = buildIteratorPrompt({
+      ticket_key: 'CHAN-27',
+      iteration_history: [],
+      latest_findings: [],
+      touch_paths: ['src/foo.test.ts'],
+      branch_head_sha: 'abc123',
+    });
+    expect(p).toContain('Latest findings:');
+    expect(p).toContain('Branch HEAD: abc123');
   });
 
   it('formats iterator commit message with run_id marker', () => {
