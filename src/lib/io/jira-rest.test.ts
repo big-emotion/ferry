@@ -73,6 +73,13 @@ describe('JiraRestClient', () => {
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue(makeMockResponse(402)));
       await expect(client.getIssue('ACME-1')).rejects.toMatchObject({ code: 'spend-cap' });
     });
+
+    it('throws FerryError("unknown") on HTTP 403/404 instead of auto-pausing the ticket', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(makeMockResponse(403)));
+      await expect(client.getIssue('ACME-1')).rejects.toMatchObject({ code: 'unknown' });
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(makeMockResponse(404)));
+      await expect(client.getIssue('ACME-1')).rejects.toMatchObject({ code: 'unknown' });
+    });
   });
 
   describe('postComment', () => {
@@ -124,9 +131,7 @@ describe('JiraRestClient', () => {
       await client.putComment('ACME-1', '10001', adfBody);
 
       const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
-      expect(url).toBe(
-        'https://acme-corp.atlassian.net/rest/api/3/issue/ACME-1/comment/10001',
-      );
+      expect(url).toBe('https://acme-corp.atlassian.net/rest/api/3/issue/ACME-1/comment/10001');
       expect(init.method).toBe('PUT');
     });
   });
@@ -154,7 +159,12 @@ describe('JiraRestClient', () => {
       expect(url).toBe('https://acme-corp.atlassian.net/rest/api/3/issue');
       expect(init.method).toBe('POST');
       const body = JSON.parse(init.body as string) as {
-        fields: { project: { key: string }; parent: { key: string }; summary: string; issuetype: { name: string } };
+        fields: {
+          project: { key: string };
+          parent: { key: string };
+          summary: string;
+          issuetype: { name: string };
+        };
       };
       expect(body.fields.project.key).toBe('ACME');
       expect(body.fields.parent.key).toBe('ACME-1');
@@ -174,7 +184,9 @@ describe('JiraRestClient', () => {
       const adfDesc = {
         version: 1 as const,
         type: 'doc' as const,
-        content: [{ type: 'paragraph' as const, content: [{ type: 'text' as const, text: 'desc' }] }],
+        content: [
+          { type: 'paragraph' as const, content: [{ type: 'text' as const, text: 'desc' }] },
+        ],
       };
 
       const result = await client.createSubtask('ACME-1', 'My subtask', adfDesc);
@@ -214,9 +226,7 @@ describe('JiraRestClient', () => {
       const result = await client.getTransitions('ACME-1');
 
       const [url] = mockFetch.mock.calls[0] as [string];
-      expect(url).toBe(
-        'https://acme-corp.atlassian.net/rest/api/3/issue/ACME-1/transitions',
-      );
+      expect(url).toBe('https://acme-corp.atlassian.net/rest/api/3/issue/ACME-1/transitions');
       expect(result.transitions).toHaveLength(5);
       expect(result.transitions.find((t) => t.name === 'In Review')?.id).toBe('31');
     });
@@ -230,9 +240,7 @@ describe('JiraRestClient', () => {
       await expect(client.postTransition('ACME-1', '31')).resolves.toBeUndefined();
 
       const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
-      expect(url).toBe(
-        'https://acme-corp.atlassian.net/rest/api/3/issue/ACME-1/transitions',
-      );
+      expect(url).toBe('https://acme-corp.atlassian.net/rest/api/3/issue/ACME-1/transitions');
       expect(init.method).toBe('POST');
       const body = JSON.parse(init.body as string) as { transition: { id: string } };
       expect(body.transition.id).toBe('31');

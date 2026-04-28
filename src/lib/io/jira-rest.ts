@@ -57,6 +57,9 @@ export class JiraRestClient {
     const cls = classifyHttpStatus(status);
     if (cls === 'spend-cap') throw new FerryError('spend-cap', { status });
     if (cls === 'transient') throw new FerryError('transient', { status });
+    // Non-pause 4xx (400/401/403/404/...): surface as unknown so callers
+    // do not silently treat the response body as a successful payload.
+    if (cls === 'unknown') throw new FerryError('unknown', { status });
   }
 
   async getIssue(key: string): Promise<JiraIssueResponse> {
@@ -79,14 +82,11 @@ export class JiraRestClient {
   }
 
   async putComment(key: string, commentId: string, adfBody: AdfDoc): Promise<JiraCommentResponse> {
-    const response = await fetch(
-      `${this.baseUrl}/rest/api/3/issue/${key}/comment/${commentId}`,
-      {
-        method: 'PUT',
-        headers: { ...this.baseHeaders, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ body: adfBody }),
-      },
-    );
+    const response = await fetch(`${this.baseUrl}/rest/api/3/issue/${key}/comment/${commentId}`, {
+      method: 'PUT',
+      headers: { ...this.baseHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ body: adfBody }),
+    });
     this.throwForStatus(response.status);
     return response.json() as Promise<JiraCommentResponse>;
   }

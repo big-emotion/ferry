@@ -17,6 +17,20 @@ describe('spend-cap classifier', () => {
   it('200 is classified as ok', () => {
     expect(classifyHttpStatus(200)).toBe('ok');
   });
+
+  it('non-pause 4xx (400/401/403/404) are classified as unknown, NOT spend-cap', () => {
+    expect(classifyHttpStatus(400)).toBe('unknown');
+    expect(classifyHttpStatus(401)).toBe('unknown');
+    expect(classifyHttpStatus(403)).toBe('unknown');
+    expect(classifyHttpStatus(404)).toBe('unknown');
+    expect(classifyHttpStatus(418)).toBe('unknown');
+  });
+
+  it('1xx and 3xx are classified as unknown (no auto-pause)', () => {
+    expect(classifyHttpStatus(100)).toBe('unknown');
+    expect(classifyHttpStatus(301)).toBe('unknown');
+    expect(classifyHttpStatus(304)).toBe('unknown');
+  });
 });
 
 describe('buildSpendCapPause', () => {

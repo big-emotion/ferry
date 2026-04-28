@@ -4,16 +4,20 @@
  * pause globally, only the affected ticket.
  */
 
-export type HttpClass = 'ok' | 'transient' | 'spend-cap';
+export type HttpClass = 'ok' | 'transient' | 'spend-cap' | 'unknown';
 
 export function classifyHttpStatus(status: number): HttpClass {
+  // 429 (rate-limit) and 402 (payment required) are the only auto-pause signals.
   if (status === 429 || status === 402) return 'spend-cap';
+  // 5xx — retry with backoff.
   if (status >= 500) return 'transient';
+  // 2xx — success.
   if (status >= 200 && status < 300) return 'ok';
-  // 4xx other than the above is non-retryable but not a spend-cap; treat as
-  // unknown (caller should error out, not auto-pause).
-  if (status >= 400) return 'spend-cap';
-  return 'transient';
+  // Other 4xx (400/401/403/404/...) is non-retryable but NOT a spend-cap.
+  // Caller must surface the error, not auto-pause the ticket.
+  if (status >= 400) return 'unknown';
+  // 1xx and 3xx — not expected from provider APIs but we don't auto-pause on them either.
+  return 'unknown';
 }
 
 export interface SpendCapPauseInput {
