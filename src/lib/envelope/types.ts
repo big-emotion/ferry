@@ -10,4 +10,5 @@ export interface EventEnvelopeV1 {
   source: EventSource;
   ts: string;
   instructions?: string;
+  issue_type?: string;
 }

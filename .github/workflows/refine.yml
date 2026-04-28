@@ -30,6 +30,22 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
+      - name: Set up Node.js
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af  # v4.1.0
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        shell: bash
+        run: npm ci --prefer-offline
+
+      - name: Skip Task tickets (FR6)
+        shell: bash
+        run: npx tsx src/lib/dispatch/skip-task-type-action.ts
+        env:
+          FERRY_ENVELOPE_PAYLOAD: ${{ toJson(github.event.client_payload) }}
+
       - name: Placeholder — Refiner agent (Story 3.1)
         run: echo "Refiner placeholder"
 

@@ -12,6 +12,7 @@
       "enum": ["jira-column", "jira-label", "jira-mention", "reconciler"]
     },
     "instructions": { "type": "string" },
+    "issue_type": { "type": "string" },
     "ts": { "type": "string", "format": "date-time" }
   },
   "additionalProperties": false
