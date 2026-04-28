@@ -49,7 +49,10 @@ interface ScanForMergeCalls {
 const impl = async (rootDir: string): Promise<MergeOffender[]> => {
   const offenders: MergeOffender[] = [];
   for await (const file of walk(rootDir)) {
-    // Skip the policy module itself (regex literal would self-match) and tests.
+    // Skip this module and its test; the test file contains a literal snippet
+    // (`octokit.pulls.merge({ pull_number: 1 });`) that would self-match. The
+    // policy module itself only contains the escaped regex `\.merge`, which does
+    // not match the detector's own pattern, but is skipped for symmetry.
     if (file.endsWith('no-auto-merge.ts') || file.endsWith('no-auto-merge.test.ts')) {
       continue;
     }
