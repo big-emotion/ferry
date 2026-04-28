@@ -6,6 +6,8 @@
  * chars. The Reviewer updates only the verdict field.
  */
 
+import { FerryError } from '../error.js';
+
 export type RiskLevel = 'low' | 'medium' | 'high';
 
 export interface TldrInput {
@@ -19,17 +21,12 @@ export interface TldrInput {
   reviewer_verdict: string;
 }
 
-export class TldrError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'TldrError';
-  }
-}
-
 export const TLDR_OPEN = '<!-- ferry:tldr -->';
 export const TLDR_CLOSE = '<!-- /ferry:tldr -->';
 export const TLDR_MAX_LEN = 500;
 export const TLDR_MAX_VERDICT_LEN = 40;
+/** Cap for the Risk cell value: "<level> \u2014 <justification>" — covers the longest level prefix 'medium \u2014 ' (9 chars) plus an 80-char justification. */
+export const TLDR_RISK_CELL_MAX = 89;
 
 export const TLDR_FIELD_ORDER = [
   'Ships',
@@ -45,7 +42,7 @@ function escCell(s: string): string {
 }
 
 export function buildTldrBlock(input: TldrInput): string {
-  const risk = `${input.risk_level} — ${input.risk_justification}`.slice(0, 80 + 8);
+  const risk = `${input.risk_level} — ${input.risk_justification}`.slice(0, TLDR_RISK_CELL_MAX);
   const touches = `${input.touches_files} files / +${input.touches_lines}`;
   const lines: string[] = [];
   lines.push(TLDR_OPEN);
@@ -63,7 +60,11 @@ export function buildTldrBlock(input: TldrInput): string {
   lines.push(TLDR_CLOSE);
   const block = lines.join('\n');
   if (block.length > TLDR_MAX_LEN) {
-    throw new TldrError(`TL;DR block too long (${block.length} > ${TLDR_MAX_LEN} chars)`);
+    throw new FerryError('state-invariant', {
+      reason: 'tldr-too-long',
+      length: block.length,
+      max: TLDR_MAX_LEN,
+    });
   }
   return block;
 }
@@ -75,8 +76,11 @@ export const TLDR_SLOT = new RegExp(`${ESC_OPEN}[\\s\\S]*?${ESC_CLOSE}`);
 export function upsertTldrInBody(body: string, input: TldrInput): string {
   const block = buildTldrBlock(input);
   if (TLDR_SLOT.test(body)) return body.replace(TLDR_SLOT, block);
-  const sep = body.length === 0 ? '' : body.endsWith('\n') ? '\n' : '\n\n';
-  return `${block}\n${sep}${body}`;
+  if (body.length === 0) return block;
+  // Always emit exactly one blank line between the TL;DR block and the existing body,
+  // regardless of whether the body already had a leading newline.
+  const trimmed = body.replace(/^\n+/, '');
+  return `${block}\n\n${trimmed}`;
 }
 
 export function updateReviewerVerdictField(body: string, verdict: string): string {

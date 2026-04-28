@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { buildTldrBlock, upsertTldrInBody, updateReviewerVerdictField, TldrError } from './tldr.js';
+import {
+  TLDR_FIELD_ORDER,
+  buildTldrBlock,
+  updateReviewerVerdictField,
+  upsertTldrInBody,
+} from './tldr.js';
+import { FerryError } from '../error.js';
 
 const baseInput = {
   ships: 'replace flaky session refresh with explicit revoke endpoint',
@@ -25,13 +31,35 @@ describe('TL;DR block', () => {
     expect(block).toContain('| Reviewer verdict |');
   });
 
-  it('rejects blocks longer than 500 characters', () => {
-    expect(() =>
-      buildTldrBlock({
-        ...baseInput,
-        ships: 'x'.repeat(600),
-      }),
-    ).toThrow(TldrError);
+  it('rejects blocks longer than 500 characters with FerryError(state-invariant)', () => {
+    let caught: unknown;
+    try {
+      buildTldrBlock({ ...baseInput, ships: 'x'.repeat(600) });
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(FerryError);
+    expect((caught as FerryError).code).toBe('state-invariant');
+    expect((caught as FerryError).context).toMatchObject({ reason: 'tldr-too-long' });
+  });
+
+  it('emits the six fields in the canonical order (Ships, Touches, Risk, Tests, Rollback, Reviewer verdict)', () => {
+    const block = buildTldrBlock(baseInput);
+    const positions = TLDR_FIELD_ORDER.map((name) => block.indexOf(`| ${name} |`));
+    for (const p of positions) expect(p).toBeGreaterThan(-1);
+    const sorted = [...positions].sort((a, b) => a - b);
+    expect(positions).toEqual(sorted);
+  });
+
+  it('upsertTldrInBody yields exactly one blank line before existing body, regardless of trailing newline', () => {
+    const withTrailingNl = upsertTldrInBody('existing body\n', baseInput);
+    const withoutTrailingNl = upsertTldrInBody('existing body', baseInput);
+    // Both should end with: <close>\n\nexisting body[\n]
+    expect(withTrailingNl).toContain('<!-- /ferry:tldr -->\n\nexisting body');
+    expect(withoutTrailingNl).toContain('<!-- /ferry:tldr -->\n\nexisting body');
+    // Never 3 consecutive newlines after the close marker.
+    expect(withTrailingNl).not.toContain('<!-- /ferry:tldr -->\n\n\n');
+    expect(withoutTrailingNl).not.toContain('<!-- /ferry:tldr -->\n\n\n');
   });
 
   it('upsertTldrInBody is idempotent on re-write', () => {
