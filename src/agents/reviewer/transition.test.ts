@@ -18,6 +18,8 @@ describe('reviewer transition', () => {
     expect(t.remove_labels).toContain('ferry:reviewing');
     // Ferry must not self-trigger Iterator (FR40)
     expect(t.self_dispatch).toBe(false);
+    // No label additions on changes-requested; iteration loop is driven by Jira Automation
+    expect(t.add_labels).toEqual([]);
   });
 
   it('needs-human escalates without changing the column', () => {
@@ -25,5 +27,8 @@ describe('reviewer transition', () => {
     expect(t.jira_status).toBeUndefined();
     expect(t.add_labels).toContain('needs-human');
     expect(t.next_phase).toBe('escalated');
+    // Ferry must not self-trigger downstream phases (story doc invariant)
+    expect(t.self_dispatch).toBe(false);
+    expect(t.remove_labels).toContain('ferry:reviewing');
   });
 });
