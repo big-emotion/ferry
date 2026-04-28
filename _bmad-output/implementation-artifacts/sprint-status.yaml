@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: "2026-04-27T00:00:00Z"
-last_updated: "2026-04-28T12:44:00Z"  # 1-6c implementation complete (review); rebased onto main
+last_updated: "2026-04-28T12:53:00Z"  # rebased onto main after PR #17 merged; bulk session: epics 2-9 all stories review
 project: ferry
 project_key: NOKEY
 tracking_system: file-system
@@ -56,7 +56,7 @@ development_status:
   1-6b-gitleaks-secret-scan-integration: done
   1-6c-gitleaks-harness-runtime-scanning: review
   1-7-llm-harness-model-routing-and-configuration-loading: done
-  1-8-readme-examples-and-first-time-setup-documentation: review
+  1-8-readme-examples-and-first-time-setup-documentation: done
   epic-1-retrospective: optional
 
   # ─────────────────────────────────────────────────────────────
@@ -64,75 +64,75 @@ development_status:
   # ─────────────────────────────────────────────────────────────
   epic-2: in-progress
   2-1-column-transition-dispatch-and-workflow-routing: review
-  2-2-label-based-and-mention-re-trigger-dispatch: backlog
-  2-3-per-ticket-daily-trigger-cap: backlog
-  2-4-phase-labels-jira-phase-comments-and-ferry-audit-emission: backlog
+  2-2-label-based-and-mention-re-trigger-dispatch: review
+  2-3-per-ticket-daily-trigger-cap: review
+  2-4-phase-labels-jira-phase-comments-and-ferry-audit-emission: review
   epic-2-retrospective: optional
 
   # ─────────────────────────────────────────────────────────────
   # Epic 3: Refiner Agent — Automated Planning
   # ─────────────────────────────────────────────────────────────
-  epic-3: backlog
-  3-1-refiner-reads-ticket-and-produces-sub-task-plan: backlog
-  3-2-atomic-batch-sub-task-creation-with-cap: backlog
-  3-3-idempotent-re-run-and-empty-ticket-escalation: backlog
+  epic-3: in-progress
+  3-1-refiner-reads-ticket-and-produces-sub-task-plan: review
+  3-2-atomic-batch-sub-task-creation-with-cap: review
+  3-3-idempotent-re-run-and-empty-ticket-escalation: review
   epic-3-retrospective: optional
 
   # ─────────────────────────────────────────────────────────────
   # Epic 4: Developer Agent — Automated Implementation
   # ─────────────────────────────────────────────────────────────
-  epic-4: backlog
-  4-1-developer-reads-ticket-and-builds-file-context: backlog
-  4-2-branch-creation-code-generation-and-scope-enforced-diff-application: backlog
-  4-3-critical-model-routing-on-critical-label: backlog
-  4-4-draft-pr-open-and-auto-transition-to-in-review: backlog
+  epic-4: in-progress
+  4-1-developer-reads-ticket-and-builds-file-context: review
+  4-2-branch-creation-code-generation-and-scope-enforced-diff-application: review
+  4-3-critical-model-routing-on-critical-label: review
+  4-4-draft-pr-open-and-auto-transition-to-in-review: review
   epic-4-retrospective: optional
 
   # ─────────────────────────────────────────────────────────────
   # Epic 5: Reviewer Agent — Quality Gate
   # ─────────────────────────────────────────────────────────────
-  epic-5: backlog
-  5-1-ci-status-gate-green-proceeds-red-produces-synthetic-finding: backlog
-  5-2-code-review-with-fingerprinted-findings-and-rule-taxonomy: backlog
-  5-3-structured-reviewer-summary-and-verdict: backlog
-  5-4-auto-transition-based-on-review-outcome: backlog
+  epic-5: in-progress
+  5-1-ci-status-gate-green-proceeds-red-produces-synthetic-finding: review
+  5-2-code-review-with-fingerprinted-findings-and-rule-taxonomy: review
+  5-3-structured-reviewer-summary-and-verdict: review
+  5-4-auto-transition-based-on-review-outcome: review
   epic-5-retrospective: optional
 
   # ─────────────────────────────────────────────────────────────
   # Epic 6: Iterator Agent — Closed-Loop Delivery
   # ─────────────────────────────────────────────────────────────
-  epic-6: backlog
-  6-1-iterator-reads-review-history-and-applies-findings: backlog
-  6-2-resurgent-finding-detection-and-immediate-escalation: backlog
-  6-3-3-iteration-cap-with-needs-human-escalation: backlog
-  6-4-escalation-summary-block-on-pr-body: backlog
-  6-5-auto-transition-to-in-review-after-iterator-commit: backlog
+  epic-6: in-progress
+  6-1-iterator-reads-review-history-and-applies-findings: review
+  6-2-resurgent-finding-detection-and-immediate-escalation: review
+  6-3-3-iteration-cap-with-needs-human-escalation: review
+  6-4-escalation-summary-block-on-pr-body: review
+  6-5-auto-transition-to-in-review-after-iterator-commit: review
   epic-6-retrospective: optional
 
   # ─────────────────────────────────────────────────────────────
   # Epic 7: Human Control & Override
   # ─────────────────────────────────────────────────────────────
-  epic-7: backlog
-  7-1-manual-cancel-via-github-actions-ui: backlog
-  7-2-label-re-trigger-and-mention-re-trigger-with-context: backlog
-  7-3-pause-and-needs-human-label-handling: backlog
-  7-4-human-only-merge-and-column-transition-invariants: backlog
+  epic-7: in-progress
+  7-1-manual-cancel-via-github-actions-ui: review
+  7-2-label-re-trigger-and-mention-re-trigger-with-context: review
+  7-3-pause-and-needs-human-label-handling: review
+  7-4-human-only-merge-and-column-transition-invariants: review
   epic-7-retrospective: optional
 
   # ─────────────────────────────────────────────────────────────
   # Epic 8: Observability, Cost Governance & Webhook Resilience
   # ─────────────────────────────────────────────────────────────
-  epic-8: backlog
-  8-1-daily-provider-spend-check-and-50-soft-alert: backlog
-  8-2-http-429-402-auto-pause-on-provider-rate-limits: backlog
-  8-3-15-minute-reconciler-cron-with-ulid-dedupe: backlog
-  8-4-comment-volume-ceiling-via-in-place-editing: backlog
+  epic-8: in-progress
+  8-1-daily-provider-spend-check-and-50-soft-alert: review
+  8-2-http-429-402-auto-pause-on-provider-rate-limits: review
+  8-3-15-minute-reconciler-cron-with-ulid-dedupe: review
+  8-4-comment-volume-ceiling-via-in-place-editing: review
   epic-8-retrospective: optional
 
   # ─────────────────────────────────────────────────────────────
   # Epic 9: Human-Reader Experience
   # ─────────────────────────────────────────────────────────────
-  epic-9: backlog
-  9-1-mandated-tldr-block-in-pr-body: backlog
-  9-2-ci-check-for-tldr-format-and-length: backlog
+  epic-9: in-progress
+  9-1-mandated-tldr-block-in-pr-body: review
+  9-2-ci-check-for-tldr-format-and-length: review
   epic-9-retrospective: optional

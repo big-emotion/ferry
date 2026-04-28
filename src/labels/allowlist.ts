@@ -1,7 +1,7 @@
 export const LABELS_ALLOWLIST = [
   // Agent re-triggers (user-applied to trigger a phase)
   'agent:refiner',
-  'agent:dev',
+  'agent:developer',
   'agent:reviewer',
   'agent:iterator',
   // Ferry phase status labels
