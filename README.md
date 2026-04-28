@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="logos/ferry-lockup-stacked.svg" alt="Ferry" width="240">
+</p>
+
 # Ferry
 
 > **GitHub Actions–native agent pipeline for Jira-driven automated development.**

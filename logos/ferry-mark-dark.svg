@@ -1,0 +1,35 @@
+<svg width="512" height="512" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <title>Ferry — dark mode mark</title>
+  <desc>The Ferry mark on a dark navy background, with adjusted contrast for the deck and waves.</desc>
+
+  <!-- background -->
+  <rect width="200" height="200" rx="24" fill="#0F1F33"/>
+
+  <!-- containers -->
+  <g>
+    <rect x="32" y="72" width="32" height="46" rx="3" fill="#F5B638"/>
+    <rect x="32" y="72" width="32" height="7" rx="3" fill="#000000" opacity="0.22"/>
+  </g>
+  <g>
+    <rect x="68" y="72" width="32" height="46" rx="3" fill="#3FB8AF"/>
+    <rect x="68" y="72" width="32" height="7" rx="3" fill="#000000" opacity="0.22"/>
+  </g>
+  <g>
+    <rect x="104" y="72" width="32" height="46" rx="3" fill="#9B7BD4"/>
+    <rect x="104" y="72" width="32" height="7" rx="3" fill="#000000" opacity="0.22"/>
+  </g>
+  <g>
+    <rect x="140" y="72" width="32" height="46" rx="3" fill="#F08A8A"/>
+    <rect x="140" y="72" width="32" height="7" rx="3" fill="#000000" opacity="0.22"/>
+  </g>
+
+  <!-- deck (lighter on dark) -->
+  <rect x="26" y="118" width="152" height="6" rx="2" fill="#FFE9DC"/>
+
+  <!-- hull -->
+  <path d="M 22 124 L 182 124 Q 182 158 150 158 L 54 158 Q 22 158 22 124 Z" fill="#E8553F"/>
+
+  <!-- waves (brighter teal, white-ish second wave) -->
+  <path d="M 12 172 Q 30 166 48 172 T 84 172 T 120 172 T 156 172 T 188 172" stroke="#3FB8AF" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+  <path d="M 18 186 Q 36 180 54 186 T 90 186 T 126 186 T 162 186 T 188 186" stroke="#FFE9DC" stroke-width="3" fill="none" stroke-linecap="round" opacity="0.45"/>
+</svg>

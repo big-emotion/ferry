@@ -1,0 +1,15 @@
+<svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+  <title>Ferry favicon</title>
+
+  <!-- four containers, simplified to flat blocks -->
+  <rect x="3" y="8" width="6" height="9" rx="1" fill="#F5B638"/>
+  <rect x="10" y="8" width="6" height="9" rx="1" fill="#3FB8AF"/>
+  <rect x="17" y="8" width="6" height="9" rx="1" fill="#9B7BD4"/>
+  <rect x="24" y="8" width="6" height="9" rx="1" fill="#F08A8A"/>
+
+  <!-- hull -->
+  <path d="M 2 17 L 30 17 Q 30 24 24 24 L 8 24 Q 2 24 2 17 Z" fill="#E8553F"/>
+
+  <!-- single wave -->
+  <path d="M 1 28 Q 6 26 11 28 T 21 28 T 31 28" stroke="#1E3A5F" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+</svg>

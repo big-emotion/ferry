@@ -1,0 +1,33 @@
+<svg width="900" height="280" viewBox="0 0 450 140" xmlns="http://www.w3.org/2000/svg">
+  <title>Ferry — horizontal lockup</title>
+  <desc>The ferry mark on the left, the "ferry" wordmark on the right, baseline aligned to the deck.</desc>
+
+  <!-- mark, scaled into the left -->
+  <g transform="translate(10,10)">
+    <g>
+      <rect x="22" y="34" width="22" height="32" rx="2.5" fill="#F5B638"/>
+      <rect x="22" y="34" width="22" height="5" rx="2.5" fill="#000000" opacity="0.18"/>
+    </g>
+    <g>
+      <rect x="46" y="34" width="22" height="32" rx="2.5" fill="#3FB8AF"/>
+      <rect x="46" y="34" width="22" height="5" rx="2.5" fill="#000000" opacity="0.18"/>
+    </g>
+    <g>
+      <rect x="70" y="34" width="22" height="32" rx="2.5" fill="#9B7BD4"/>
+      <rect x="70" y="34" width="22" height="5" rx="2.5" fill="#000000" opacity="0.18"/>
+    </g>
+    <g>
+      <rect x="94" y="34" width="22" height="32" rx="2.5" fill="#F08A8A"/>
+      <rect x="94" y="34" width="22" height="5" rx="2.5" fill="#000000" opacity="0.18"/>
+    </g>
+
+    <rect x="18" y="66" width="104" height="4" rx="1.5" fill="#1E3A5F"/>
+    <path d="M 16 70 L 124 70 Q 124 92 102 92 L 38 92 Q 16 92 16 70 Z" fill="#E8553F"/>
+
+    <path d="M 8 102 Q 22 98 36 102 T 62 102 T 88 102 T 114 102 T 132 102" stroke="#3FB8AF" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+    <path d="M 12 112 Q 26 108 40 112 T 66 112 T 92 112 T 118 112 T 132 112" stroke="#1E3A5F" stroke-width="2.5" fill="none" stroke-linecap="round" opacity="0.55"/>
+  </g>
+
+  <!-- wordmark -->
+  <text x="170" y="92" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="74" font-weight="500" fill="#1E3A5F" letter-spacing="3">ferry</text>
+</svg>
