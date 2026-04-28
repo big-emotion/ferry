@@ -66,7 +66,7 @@ development_status:
   2-1-column-transition-dispatch-and-workflow-routing: review
   2-2-label-based-and-mention-re-trigger-dispatch: review
   2-3-per-ticket-daily-trigger-cap: review
-  2-4-phase-labels-jira-phase-comments-and-ferry-audit-emission: backlog
+  2-4-phase-labels-jira-phase-comments-and-ferry-audit-emission: review
   epic-2-retrospective: optional
 
   # ─────────────────────────────────────────────────────────────
