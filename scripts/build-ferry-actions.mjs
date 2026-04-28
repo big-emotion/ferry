@@ -39,7 +39,7 @@ await Promise.all([
 // Copy it alongside the bundle and fix the relative path so the bundle
 // resolves it from .ferry/schemas/ instead of the source tree.
 copyFileSync('src/schemas/event.v1.schema.json', '.ferry/schemas/event.v1.schema.json');
-for (const f of ['validate-action.js', 'skip-task-type-action.js']) {
+for (const f of ['validate-action.js', 'skip-task-type-action.js', 'dev-action.js']) {
   const p = `.ferry/${f}`;
   writeFileSync(p, readFileSync(p, 'utf8').replaceAll(
     '"../../schemas/event.v1.schema.json"',
