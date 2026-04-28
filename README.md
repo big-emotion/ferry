@@ -94,6 +94,8 @@ Ferry **never merges** and **never moves Jira columns** autonomously except for 
 
 > **Fast path:** Steps 1–2 take ~5 minutes (GitHub App creation). Steps 3–7 are copy-paste — no local CLI, no script execution. A Jira+GitHub user familiar with both tools can complete everything in under 30 minutes.
 >
+> 📋 **Installing Ferry in your own repo?** See [`INSTALL.md`](INSTALL.md) for a self-contained guide covering exactly which files to copy and how to configure secrets.
+>
 > 💡 **Pilot example:** see [`examples/acme-corp-setup.md`](examples/acme-corp-setup.md) for a concrete, end-to-end walkthrough using a sample pilot project.
 
 ### Step 1 — Create a GitHub App with scoped permissions
