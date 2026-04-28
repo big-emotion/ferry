@@ -101,12 +101,12 @@ development_status:
   # ─────────────────────────────────────────────────────────────
   # Epic 6: Iterator Agent — Closed-Loop Delivery
   # ─────────────────────────────────────────────────────────────
-  epic-6: backlog
-  6-1-iterator-reads-review-history-and-applies-findings: backlog
-  6-2-resurgent-finding-detection-and-immediate-escalation: backlog
-  6-3-3-iteration-cap-with-needs-human-escalation: backlog
-  6-4-escalation-summary-block-on-pr-body: backlog
-  6-5-auto-transition-to-in-review-after-iterator-commit: backlog
+  epic-6: in-progress
+  6-1-iterator-reads-review-history-and-applies-findings: review
+  6-2-resurgent-finding-detection-and-immediate-escalation: review
+  6-3-3-iteration-cap-with-needs-human-escalation: review
+  6-4-escalation-summary-block-on-pr-body: review
+  6-5-auto-transition-to-in-review-after-iterator-commit: review
   epic-6-retrospective: optional
 
   # ─────────────────────────────────────────────────────────────
