@@ -185,14 +185,21 @@ Ferry's design budget is **≤ 200€/provider/month** with an average **≤ 1.5
 
 Ferry's daily cost-governance cron warns at **50%** of the cap.
 
-### Step 7 — Copy workflows and CODEOWNERS into the target repo
+### Step 7 — Copy Ferry files into the target repo
 
-From this Ferry repository, copy:
+From this Ferry repository, copy the following into the corresponding paths of the target repo:
 
-- All files from `.github/workflows/*.yml`
-- The file `.github/CODEOWNERS`
+| What to copy | Destination in target repo | Purpose |
+|---|---|---|
+| `.ferry/` (entire directory) | `.ferry/` | Pre-built action bundles + minimal deps |
+| `.github/workflows/*.yml` | `.github/workflows/` | Agent workflow definitions |
+| `.github/actions/ferry-envelope-validate/` | `.github/actions/ferry-envelope-validate/` | Composite action — envelope validation |
+| `.github/actions/ferry-emit-audit/` | `.github/actions/ferry-emit-audit/` | Composite action — audit logging |
+| `.github/CODEOWNERS` | `.github/CODEOWNERS` | Code ownership rules |
 
-…into the corresponding paths of the target repo. Commit and push.
+> **Note:** The `.ferry/` directory contains pre-built JavaScript bundles and a minimal `package-lock.json`. Do not edit these files by hand — they are regenerated from Ferry's source by running `npm run build:ferry` in this repository.
+
+Commit and push all copied files.
 
 The first dispatch (e.g. moving a ticket to **Refinement**) will trigger `refine.yml`. Watch the **Actions** tab on the target repo for the run, then check the Jira ticket for the refiner's comment.
 

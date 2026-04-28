@@ -45,12 +45,14 @@ runs:
       with:
         node-version: '20'
         cache: npm
-    - name: Install dependencies
+        cache-dependency-path: .ferry/package-lock.json
+    - name: Install Ferry action dependencies
       shell: bash
       run: npm ci --prefer-offline
+      working-directory: .ferry
     - name: Emit audit line
       shell: bash
-      run: npx tsx src/lib/audit/emit-audit-action.ts
+      run: node .ferry/emit-audit-action.js
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
         FERRY_AUDIT_ISSUE: ${{ inputs.audit_issue }}

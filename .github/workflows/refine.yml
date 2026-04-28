@@ -35,14 +35,16 @@ jobs:
         with:
           node-version: '20'
           cache: npm
+          cache-dependency-path: .ferry/package-lock.json
 
-      - name: Install dependencies
+      - name: Install Ferry action dependencies
         shell: bash
         run: npm ci --prefer-offline
+        working-directory: .ferry
 
       - name: Skip Task tickets (FR6)
         shell: bash
-        run: npx tsx src/lib/dispatch/skip-task-type-action.ts
+        run: node .ferry/skip-task-type-action.js
         env:
           FERRY_ENVELOPE_PAYLOAD: ${{ toJson(github.event.client_payload) }}
 

@@ -12,11 +12,13 @@ runs:
       with:
         node-version: '20'
         cache: npm
-    - name: Install dependencies
+        cache-dependency-path: .ferry/package-lock.json
+    - name: Install Ferry action dependencies
       shell: bash
       run: npm ci --prefer-offline
+      working-directory: .ferry
     - name: Validate envelope
       shell: bash
-      run: npx tsx src/lib/envelope/validate-action.ts
+      run: node .ferry/validate-action.js
       env:
         FERRY_ENVELOPE_PAYLOAD: ${{ inputs.payload }}
