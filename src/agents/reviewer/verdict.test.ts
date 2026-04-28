@@ -52,6 +52,36 @@ describe('reviewer verdict', () => {
     expect(truncateVerdict(v)).toEqual(v);
   });
 
+  it('promotes ci-failure to top-risk even when listed after other findings', () => {
+    const v = buildVerdict({
+      findings: [
+        { rule_id: 'no-co-authored-by', message: 'remove trailer' },
+        { rule_id: 'ci-failure', message: 'lint job failed' },
+      ],
+      diffLines: 50,
+    });
+    expect(v.decision).toBe('changes-requested');
+    expect(v['top-risk']).toMatch(/^ci-failure:/);
+  });
+
+  it('writes a needs-human verdict block into PR body unchanged', () => {
+    const verdict = {
+      decision: 'needs-human' as const,
+      'top-risk': 'oscillation: 3 iterations exhausted',
+      'reading-time-estimate': 4,
+    };
+    const body = writeVerdictToBody('PR description.', verdict);
+    expect(body).toContain('<!-- ferry:reviewer-verdict -->');
+    expect(body).toContain('<!-- /ferry:reviewer-verdict -->');
+    expect(body).toContain('decision: needs-human');
+    expect(body).toContain('top-risk: oscillation: 3 iterations exhausted');
+    expect(body).toContain('reading-time-estimate: 4');
+    // idempotent re-write
+    const body2 = writeVerdictToBody(body, verdict);
+    const occurrences = body2.match(/<!-- ferry:reviewer-verdict -->/g) ?? [];
+    expect(occurrences.length).toBe(1);
+  });
+
   it('writes idempotent ferry:reviewer-verdict block into PR body', () => {
     const verdict = {
       decision: 'merge-ready' as const,
