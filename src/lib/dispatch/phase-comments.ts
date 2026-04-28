@@ -22,6 +22,20 @@ const PHASE_LABEL: Readonly<Record<AgentPhase, string>> = Object.freeze({
   iterate: 'ferry:iterating',
 });
 
+/**
+ * Maps each agent phase to the agent name used inside the canonical idempotency
+ * marker `[ferry:<agent>:<run_id>]`.
+ *
+ * NOTE (Story 2-4 epic-2 review nit): only `refine` is renamed to `refiner`.
+ * `dev`, `review`, and `iterate` deliberately use the phase verbatim here, while
+ * `triggers.ts` uses the longer `developer`/`reviewer`/`iterator` form for
+ * `agent:*` Jira labels and `@agent-*` mention parsing. The two conventions
+ * coexist intentionally for now: marker length matters for Jira comment
+ * truncation and operator-visible diff readability, while label/mention names
+ * favor unambiguous role nouns. Aligning the two is tracked as a follow-up
+ * (operator-facing rename, requires migration of historical comments) and
+ * deferred from this PR per the epic-2 review recommendation.
+ */
 const PHASE_AGENT: Readonly<Record<AgentPhase, string>> = Object.freeze({
   refine: 'refiner',
   dev: 'dev',

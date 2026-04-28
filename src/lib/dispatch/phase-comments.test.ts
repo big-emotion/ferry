@@ -25,6 +25,17 @@ describe('phaseStatusMarker (Story 2-4)', () => {
   ] as const)('%s/%s → %s', (phase, runId, marker) => {
     expect(phaseStatusMarker(phase, runId)).toBe(marker);
   });
+
+  // Story 2-4 epic-2 review nit (Finding 1): the agent-name convention here
+  // (verbatim phase for dev/review/iterate, refiner for refine) intentionally
+  // differs from triggers.ts (developer/reviewer/iterator). This test pins
+  // the current behavior so any future rename is intentional and reviewed.
+  it('uses the abbreviated phase verbatim for dev/review/iterate (NOT developer/reviewer/iterator) per the documented convention gap', () => {
+    expect(phaseStatusMarker('dev', 'x')).not.toContain('developer');
+    expect(phaseStatusMarker('review', 'x')).not.toContain('reviewer');
+    expect(phaseStatusMarker('iterate', 'x')).not.toContain('iterator');
+    expect(phaseStatusMarker('refine', 'x')).toContain('refiner');
+  });
 });
 
 describe('formatPhaseStatusComment (Story 2-4 FR42)', () => {
