@@ -6,7 +6,7 @@ on:
 
 # cancel-in-progress: true — Refiner is pure read + audit comment; latest human edit wins
 concurrency:
-  group: ferry-${{ github.workflow }}-${{ startsWith(github.event.client_payload.ticket_key, 'CHAN-') && github.event.client_payload.ticket_key || 'ferry-invalid-payload-sinkhole' }}
+  group: ferry-${{ github.workflow }}-${{ github.event.client_payload.ticket_key || 'ferry-invalid-payload-sinkhole' }}
   cancel-in-progress: true
 
 jobs:
@@ -48,8 +48,16 @@ jobs:
         env:
           FERRY_ENVELOPE_PAYLOAD: ${{ toJson(github.event.client_payload) }}
 
-      - name: Placeholder — Refiner agent (Story 3.1)
-        run: echo "Refiner placeholder"
+      - name: Run Refiner agent
+        shell: bash
+        run: node .ferry/refiner-action.js
+        env:
+          FERRY_ENVELOPE_PAYLOAD: ${{ toJson(github.event.client_payload) }}
+          FERRY_JIRA_BASE_URL: ${{ secrets.FERRY_JIRA_BASE_URL }}
+          FERRY_JIRA_EMAIL: ${{ secrets.FERRY_JIRA_EMAIL }}
+          FERRY_JIRA_API_TOKEN: ${{ secrets.FERRY_JIRA_API_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          FERRY_MODEL: claude-sonnet-4-6
 
   emit-audit:
     name: Emit audit line
@@ -65,7 +73,7 @@ jobs:
           ticket: ${{ github.event.client_payload.ticket_key }}
           phase: refine
           run_id: ${{ github.event.client_payload.event_id }}
-          model: placeholder
+          model: claude-sonnet-4-6
           outcome: ${{ needs.run-agent.result }}
           input_tokens: '0'
           output_tokens: '0'

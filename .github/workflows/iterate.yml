@@ -6,7 +6,7 @@ on:
 
 # cancel-in-progress: false — same as dev; writes state.json and branch commits
 concurrency:
-  group: ferry-${{ github.workflow }}-${{ startsWith(github.event.client_payload.ticket_key, 'CHAN-') && github.event.client_payload.ticket_key || 'ferry-invalid-payload-sinkhole' }}
+  group: ferry-${{ github.workflow }}-${{ github.event.client_payload.ticket_key || 'ferry-invalid-payload-sinkhole' }}
   cancel-in-progress: false
 
 jobs:
