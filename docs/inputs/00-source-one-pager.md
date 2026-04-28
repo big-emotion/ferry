@@ -9,7 +9,7 @@ date: 2026-04-23
 
 **How might we turn a Jira board into a semi-autonomous delivery pipeline, where humans only decide *what must be done* and *what is acceptable*, and AI agents handle everything in between — at a sustainable cost and without depending on a local machine?**
 
-Target user: a small team (2–5 people) shipping projects where the specs already exist (BMad output, Jira tickets) and execution is the bottleneck. Pilot project: `~/Documents/Dev/chancellerie` — Next.js greenfield, planning artifacts complete, ~40 stories to ship.
+Target user: a small team (2–5 people) shipping projects where the specs already exist (BMad output, Jira tickets) and execution is the bottleneck. Pilot project: `~/Documents/Dev/acme-corp` — Next.js greenfield, planning artifacts complete, ~40 stories to ship.
 
 ## Recommended Direction
 
@@ -19,7 +19,7 @@ Jira column transitions fire webhooks through a Cloudflare Worker proxy (signatu
 
 No VPS, no daemon, no database. State lives entirely in the PR (body block as structured YAML, labels for phase, comments for audit trail) and in Jira (columns + custom fields). One branch per ticket, one PR per ticket, max 3 dev↔review iterations before escalation to `Needs Human`.
 
-Model routing is per role, not per ticket: **Refiner = Gemini 2.5 Flash** (cheap, simple decomposition), **Developer & Iterator = Gemini 2.5 Pro** (large context, good quality at ~12× lower cost than Codex API), **Reviewer = Claude Sonnet 4.6** (quality gate at the step that matters most). Opus reserved for tickets labeled `critical`. Total estimated cost for chancellerie: **~45–60€ for all 40 stories**.
+Model routing is per role, not per ticket: **Refiner = Gemini 2.5 Flash** (cheap, simple decomposition), **Developer & Iterator = Gemini 2.5 Pro** (large context, good quality at ~12× lower cost than Codex API), **Reviewer = Claude Sonnet 4.6** (quality gate at the step that matters most). Opus reserved for tickets labeled `critical`. Total estimated cost for acme-corp: **~45–60€ for all 40 stories**.
 
 Triggers are hybrid: **column transitions drive the default path**, but a human can override by assigning `agent:refiner` / `agent:dev` / `agent:reviewer` to any ticket to re-run a phase, or by `@agent-name` in a Jira comment to relaunch with extra instructions.
 
@@ -64,7 +64,7 @@ Rationale: the Refiner is the lowest-risk, highest-learning slice. It validates 
 - **No human validation of sub-tasks** — user chose to trust the Refiner; any correction happens by re-running the phase or editing sub-tasks manually in Jira.
 - **No Codex API as Developer** — Gemini 2.5 Pro offers comparable quality at ~12× lower token cost for this use case; Codex API pricing disqualifies it at volume.
 - **No parallel specialist reviewers (security/perf/style)** — user specified a single Reviewer for coherence. Keep simple until single-reviewer weakness is proven.
-- **No multi-project support in v0** — chancellerie is the pilot; generalizing to other projects is v1 work once the pattern is proven once.
+- **No multi-project support in v0** — acme-corp is the pilot; generalizing to other projects is v1 work once the pattern is proven once.
 
 ## Open Questions
 
@@ -72,12 +72,12 @@ Rationale: the Refiner is the lowest-risk, highest-learning slice. It validates 
 - Does the CHAN project already have a custom field for `ai.iteration` and `ai.phase`, or do we create them?
 - What naming conventions are already in place on the CHAN board for branches and PR titles? (The pipeline should match existing team habits.)
 - What's the acceptable merge latency — i.e., when a PR gets `reviewer-approved`, how long before a human will see it and merge? This sets the rhythm of the pipeline.
-- Will other projects beyond chancellerie use this system later? If yes, the workflow files should live in a reusable template repo from day 1; if no, inline them in chancellerie.
+- Will other projects beyond acme-corp use this system later? If yes, the workflow files should live in a reusable template repo from day 1; if no, inline them in acme-corp.
 
 ## Next Steps
 
 1. Validate Jira plan + automation capability (5 min, user).
-2. Create GitHub App + install on chancellerie repo (15 min, user).
+2. Create GitHub App + install on acme-corp repo (15 min, user).
 3. Write `refine.yml` workflow + Cloudflare Worker proxy (1–2 days, pair with agent).
 4. Run on 3 real tickets, measure: latency, token cost, sub-task quality.
 5. Review results, decide whether to extend to Developer phase or adjust the Refiner first.

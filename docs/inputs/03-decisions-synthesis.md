@@ -28,7 +28,7 @@ Source: Synthesis of `00-source-one-pager.md` + `01-review-adversarial.md` + `02
 | 7 | Human merges final PR; human moves tickets between columns |
 | 8 | Jira **tasks** (not stories) handled manually |
 | 9 | Jira plan upgradable if needed |
-| 10 | Pilot project: chancellerie (~40 stories) |
+| 10 | Pilot project: acme-corp (~40 stories) |
 
 ## Model routing (finalized)
 
@@ -82,7 +82,7 @@ Branch namespace prefix · force-push detection · PR closed mid-loop clean exit
 
 ## Cost expectations
 
-- **Announced budget in v0**: 120–180€ for chancellerie pilot (40 stories × ~1.4–4€/story)
+- **Announced budget in v0**: 120–180€ for acme-corp pilot (40 stories × ~1.4–4€/story)
 - **Hard kill switch**: 200€ per provider via console cap
 - **Soft alert**: 50% of kill switch
 - **Telemetry**: per-run token + cost JSON line to `ferry-audit`
@@ -95,7 +95,7 @@ Branch namespace prefix · force-push detection · PR closed mid-loop clean exit
 4. Functional requirements: 4 agents × phases + shared (auth, secrets, state, observability)
 5. Non-functional requirements: security (C1, C2, I9), cost (C3), concurrency (C4, I5, I6), resilience (C5, C6, C7)
 6. Success metrics: convergence rate, cost per story, escape defect rate, human touch time
-7. MVP scope (v0.0.1): all 4 agents end-to-end on chancellerie
+7. MVP scope (v0.0.1): all 4 agents end-to-end on acme-corp
 8. Explicit non-goals (VPS, multi-reviewer, multi-project, hard quality gate automation)
 9. Open questions to resolve during implementation
 10. Model routing table (above) + model ID pinning policy

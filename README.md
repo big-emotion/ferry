@@ -54,7 +54,7 @@ Ferry **never merges** and **never moves Jira columns** autonomously except for 
 
 A user familiar with Jira and GitHub can complete this in under 30 minutes (NFR-M2). All steps are clickable UI work — no local CLI, no script execution.
 
-> 💡 **Pilot example:** see [`examples/chancellerie-setup.md`](examples/chancellerie-setup.md) for a concrete, end-to-end walkthrough using the chancellerie pilot project.
+> 💡 **Pilot example:** see [`examples/acme-corp-setup.md`](examples/acme-corp-setup.md) for a concrete, end-to-end walkthrough using a sample pilot project.
 
 ### Step 1 — Create a GitHub App with scoped permissions
 
@@ -162,7 +162,7 @@ The first dispatch (e.g. moving a ticket to **Refinement**) will trigger `refine
 
 The [`examples/`](examples/) directory ships reference artifacts you can copy into your install:
 
-- [`chancellerie-setup.md`](examples/chancellerie-setup.md) — concrete end-to-end pilot setup
+- [`acme-corp-setup.md`](examples/acme-corp-setup.md) — concrete end-to-end pilot setup
 - [`state.v1.schema.json`](examples/state.v1.schema.json) — schema for the per-ticket state envelope
 - [`event.v1.schema.json`](examples/event.v1.schema.json) — schema for `repository_dispatch` payloads
 - [`ferry-audit.jsonl`](examples/ferry-audit.jsonl) — sample audit log lines (≥ 20 lines, all phases)
@@ -196,13 +196,17 @@ npm run format:check # prettier
 
 All gates must pass before opening a PR against `main`.
 
-This project is developed using the [BMad Method](https://github.com/bmadcode/BMAD-METHOD) — an AI-driven agile workflow with structured epics, stories, and agent-assisted implementation. Planning artifacts live in `_bmad-output/planning-artifacts/` and story files in `_bmad-output/implementation-artifacts/`.
+This project is developed using the [BMad Method](https://github.com/bmadcode/BMAD-METHOD) — an AI-driven agile workflow with structured epics, stories, and agent-assisted implementation.
+
+Ferry was inspired by [OpenAI Symphony](https://github.com/openai/symphony) — an exploration of agentic software development pipelines. Ferry takes the same idea and makes it GitHub Actions–native, Jira-driven, and multi-provider.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) to contribute.
 
 ---
 
 ## Cost governance
 
-Ferry is designed for the chancellerie pilot budget: **≤ 200€/provider/month**, **≤ 1.50€ average per story**. A daily cron checks provider usage and warns at 50% of the cap. HTTP 429/402 responses auto-pause affected tickets via the `ferry:paused` label.
+Ferry is designed for a typical pilot budget: **≤ 200€/provider/month**, **≤ 1.50€ average per story**. A daily cron checks provider usage and warns at 50% of the cap. HTTP 429/402 responses auto-pause affected tickets via the `ferry:paused` label.
 
 ---
 

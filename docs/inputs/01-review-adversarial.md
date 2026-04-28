@@ -16,7 +16,7 @@
 
 **PR-body-as-YAML state.** A human edits PR body typo → breaks YAML → next run crashes parsing. **Alt:** bot-owned GH issue comment marked `<!-- symphony:state v1 -->` or `.symphony/state.json` in-branch.
 
-**Ephemeral runners + cold start.** 20–60s boot + Node/pnpm/Playwright install (~2–4 min on chancellerie) × 3 iterations = 15+ min of install overhead/story. **Alt:** aggressive `actions/cache` + pre-warmed container image. Or reconsider "no VPS" — one 5€/mo docker-hosted runner has near-zero ops burden and solves half the race conditions.
+**Ephemeral runners + cold start.** 20–60s boot + Node/pnpm/Playwright install (~2–4 min on acme-corp) × 3 iterations = 15+ min of install overhead/story. **Alt:** aggressive `actions/cache` + pre-warmed container image. Or reconsider "no VPS" — one 5€/mo docker-hosted runner has near-zero ops burden and solves half the race conditions.
 
 ## Challenges to model routing
 
@@ -48,7 +48,7 @@ No token budget table, no assumptions for prompt size / completion size / contex
 - Cost anomaly detection (spend caps are hard cliffs; no 50% alert, no per-ticket outlier).
 - Observability (no Jira field `ai.iterations_count`; Actions logs do not answer aggregate questions).
 - LLM 5xx / rate-limit / content-filter retry policy.
-- Chancellerie-specific risks: design tokens, graphic charter, i18n, a11y — the pilot's actual difficulty is not scoped.
+- Acme Corp-specific risks: design tokens, graphic charter, i18n, a11y — the pilot's actual difficulty is not scoped.
 - CI-fail-after-review loop: dev↔review only, ignoring CI signal.
 - Merge conflicts on 40 overlapping greenfield stories.
 - "No VPS" dismissal is too fast; one docker container solves the reconciler + queue.
@@ -60,7 +60,7 @@ No token budget table, no assumptions for prompt size / completion size / contex
 3. Column-transition webhooks are exactly-once (they are not; Jira retries).
 4. `cancel-in-progress: true` is safe (only for idempotent phases — these are not).
 5. Human merger absorbs reviewer misses (unbudgeted time).
-6. Chancellerie stories are independent enough to parallelize (share layout, tokens, route tree).
+6. Acme Corp stories are independent enough to parallelize (share layout, tokens, route tree).
 7. Sonnet 4.6 API is available at planned latency during pilot.
 8. BMad stories are uniformly sized → 3-iteration cap is a dumb constant.
 9. Dev can fetch enough repo context via API to write correct code (no strategy specified).
