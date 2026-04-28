@@ -12,7 +12,6 @@ describe('reconciler', () => {
           last_audit_minutes_ago: 30,
         },
       ],
-      now_iso: '2026-04-28T14:00:00Z',
     });
     expect(out.dispatched).toHaveLength(1);
     expect(out.dispatched[0].ticket_key).toBe('CHAN-1');
@@ -30,7 +29,6 @@ describe('reconciler', () => {
           last_audit_minutes_ago: 30,
         },
       ],
-      now_iso: '2026-04-28T14:00:00Z',
     });
     expect(out.dispatched).toEqual([]);
   });
@@ -45,7 +43,6 @@ describe('reconciler', () => {
           last_audit_minutes_ago: 25,
         },
       ],
-      now_iso: '2026-04-28T14:00:00Z',
     });
     expect(out.dispatched).toHaveLength(1);
   });
@@ -60,7 +57,37 @@ describe('reconciler', () => {
           last_audit_minutes_ago: 5,
         },
       ],
-      now_iso: '2026-04-28T14:00:00Z',
+    });
+    expect(out.dispatched).toEqual([]);
+  });
+
+  it('does NOT dispatch tickets in terminal/holding columns when no state file (Paused, Cancelled, Ready to Merge, Needs Human)', () => {
+    const terminal = ['Paused', 'Cancelled', 'Ready to Merge', 'Needs Human'];
+    for (const col of terminal) {
+      const out = reconcileTickets({
+        tickets: [
+          {
+            ticket_key: 'CHAN-T',
+            jira_column: col,
+            state_phase: undefined,
+            last_audit_minutes_ago: 999,
+          },
+        ],
+      });
+      expect(out.dispatched, `terminal column ${col} must not be dispatched`).toEqual([]);
+    }
+  });
+
+  it('does NOT dispatch tickets in unknown columns when no state file', () => {
+    const out = reconcileTickets({
+      tickets: [
+        {
+          ticket_key: 'CHAN-U',
+          jira_column: 'Some Custom Column',
+          state_phase: undefined,
+          last_audit_minutes_ago: 999,
+        },
+      ],
     });
     expect(out.dispatched).toEqual([]);
   });
@@ -81,7 +108,6 @@ describe('reconciler', () => {
           last_audit_minutes_ago: 30,
         },
       ],
-      now_iso: '2026-04-28T14:00:00Z',
     });
     expect(out.scanned).toBe(2);
   });

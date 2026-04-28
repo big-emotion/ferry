@@ -27,6 +27,11 @@ const COLUMN_TO_PHASE: Record<string, string> = {
   'Changes Requested': 'iterate',
 };
 
+// Terminal/holding columns: Ferry must not dispatch a phase when a ticket
+// sits here without a state file. Listed explicitly so unknown columns
+// stay unknown (and skipped) instead of silently mapping to 'refine'.
+const TERMINAL_COLUMNS = new Set<string>(['Paused', 'Cancelled', 'Ready to Merge', 'Needs Human']);
+
 const FRESH_AUDIT_WINDOW_MIN = 20;
 
 export interface TicketSnapshot {
@@ -38,7 +43,6 @@ export interface TicketSnapshot {
 
 export interface ReconcileInput {
   tickets: TicketSnapshot[];
-  now_iso: string;
 }
 
 export interface DispatchDirective {
@@ -59,22 +63,28 @@ function isMismatch(t: TicketSnapshot): boolean {
     if (expected === undefined) return false;
     return expected !== t.jira_column;
   }
-  // No state file: only dispatch if last audit is older than the fresh window.
+  // No state file: only consider tickets whose column actually maps to a
+  // dispatchable phase, AND whose last audit is older than the fresh window.
+  // Terminal/unknown columns are never auto-dispatched.
+  if (TERMINAL_COLUMNS.has(t.jira_column)) return false;
+  if (COLUMN_TO_PHASE[t.jira_column] === undefined) return false;
   return t.last_audit_minutes_ago >= FRESH_AUDIT_WINDOW_MIN;
 }
 
-function inferPhase(column: string): string {
-  return COLUMN_TO_PHASE[column] ?? 'refine';
+function inferPhase(column: string): string | undefined {
+  return COLUMN_TO_PHASE[column];
 }
 
 export function reconcileTickets(input: ReconcileInput): ReconcileOutcome {
   const dispatched: DispatchDirective[] = [];
   for (const t of input.tickets) {
     if (!isMismatch(t)) continue;
+    const phase = inferPhase(t.jira_column);
+    if (phase === undefined) continue; // defensive: terminal/unknown columns never dispatch
     dispatched.push({
       ticket_key: t.ticket_key,
       source: 'reconciler',
-      phase: inferPhase(t.jira_column),
+      phase,
       event_id: generateULID(),
     });
   }
