@@ -33,7 +33,8 @@ export function createLlmCall(route: LlmRoute): LlmCall {
   if (route.provider === 'anthropic') {
     const apiKey = requireEnv('FERRY_ANTHROPIC_KEY');
     return retry(
-      (prompt: string) => invokeAnthropic({ apiKey, model: route.model, prompt, maxTokens: MAX_TOKENS }),
+      (prompt: string) =>
+        invokeAnthropic({ apiKey, model: route.model, prompt, maxTokens: MAX_TOKENS }),
       { baseDelayMs: 2000, maxAttempts: 3 },
     );
   }
@@ -41,17 +42,18 @@ export function createLlmCall(route: LlmRoute): LlmCall {
   if (route.provider === 'openai') {
     const apiKey = requireEnv('FERRY_OPENAI_KEY');
     return retry(
-      (prompt: string) => invokeOpenAI({ apiKey, model: route.model, prompt, maxTokens: MAX_TOKENS }),
+      (prompt: string) =>
+        invokeOpenAI({ apiKey, model: route.model, prompt, maxTokens: MAX_TOKENS }),
       { baseDelayMs: 2000, maxAttempts: 3 },
     );
   }
 
   if (route.provider === 'google') {
     const apiKey = requireEnv('FERRY_GOOGLE_AI_KEY');
-    return retry(
-      (prompt: string) => invokeGoogle({ apiKey, model: route.model, prompt }),
-      { baseDelayMs: 2000, maxAttempts: 3 },
-    );
+    return retry((prompt: string) => invokeGoogle({ apiKey, model: route.model, prompt }), {
+      baseDelayMs: 2000,
+      maxAttempts: 3,
+    });
   }
 
   throw new FerryError('state-invariant', { reason: 'unknown-provider', provider: route.provider });

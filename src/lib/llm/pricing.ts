@@ -14,7 +14,7 @@ const RATES: Record<string, TokenRates> = {
   'openai/gpt-4.': { inputPer1M: 2.79, outputPer1M: 8.37 },
   'openai/gpt-5.': { inputPer1M: 2.79, outputPer1M: 8.37 },
   'google/gemini-2.5-flash': { inputPer1M: 0.07, outputPer1M: 0.28 },
-  'google/gemini-2.5-pro': { inputPer1M: 1.05, outputPer1M: 4.20 },
+  'google/gemini-2.5-pro': { inputPer1M: 1.05, outputPer1M: 4.2 },
 };
 
 const PROVIDER_FALLBACK: Record<LlmProvider, TokenRates> = {
@@ -28,7 +28,11 @@ function lookupRates(provider: LlmProvider, model: string): TokenRates {
   if (RATES[exactKey]) return RATES[exactKey]!;
 
   for (const key of Object.keys(RATES)) {
-    if (key !== exactKey && key.startsWith(`${provider}/`) && model.startsWith(key.slice(provider.length + 1))) {
+    if (
+      key !== exactKey &&
+      key.startsWith(`${provider}/`) &&
+      model.startsWith(key.slice(provider.length + 1))
+    ) {
       return RATES[key]!;
     }
   }
@@ -43,6 +47,7 @@ export function computeCostEur(
   outputTokens: number,
 ): number {
   const rates = lookupRates(provider, model);
-  const cost = (inputTokens / 1_000_000) * rates.inputPer1M + (outputTokens / 1_000_000) * rates.outputPer1M;
+  const cost =
+    (inputTokens / 1_000_000) * rates.inputPer1M + (outputTokens / 1_000_000) * rates.outputPer1M;
   return Math.round(cost * 10_000) / 10_000;
 }

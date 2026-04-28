@@ -38,10 +38,7 @@ export interface JiraTicket {
 }
 
 async function scanStringPayload(text: string): Promise<void> {
-  const tmpFile = join(
-    tmpdir(),
-    `ferry-scan-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-  );
+  const tmpFile = join(tmpdir(), `ferry-scan-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   try {
     await writeFile(tmpFile, text, 'utf8');
     const result = await scanWithGitleaks({
@@ -84,7 +81,11 @@ export async function postComment(params: PostCommentParams): Promise<PostCommen
   const run = retry(
     async () => {
       if (directive.action === 'update') {
-        await c.putComment(params.ticketKey, String(directive.target_id), textToAdf(directive.body));
+        await c.putComment(
+          params.ticketKey,
+          String(directive.target_id),
+          textToAdf(directive.body),
+        );
       } else {
         await c.postComment(params.ticketKey, textToAdf(directive.body));
       }
