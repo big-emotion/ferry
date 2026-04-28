@@ -95,7 +95,7 @@ development_status:
   5-1-ci-status-gate-green-proceeds-red-produces-synthetic-finding: review
   5-2-code-review-with-fingerprinted-findings-and-rule-taxonomy: review
   5-3-structured-reviewer-summary-and-verdict: review
-  5-4-auto-transition-based-on-review-outcome: backlog
+  5-4-auto-transition-based-on-review-outcome: review
   epic-5-retrospective: optional
 
   # ─────────────────────────────────────────────────────────────
