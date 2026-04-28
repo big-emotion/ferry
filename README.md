@@ -2,15 +2,41 @@
 
 > **GitHub Actions–native agent pipeline for Jira-driven automated development.**
 
+[![CI](https://github.com/big-emotion/ferry/actions/workflows/ferry-ci.yml/badge.svg)](https://github.com/big-emotion/ferry/actions/workflows/ferry-ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org)
+
+```
+Jira board  ──▶  repository_dispatch  ──▶  GitHub Actions  ──▶  draft PR
+   (you)              (automatic)           (autonomous)        (you merge)
+```
+
 Ferry connects your Jira board to a fully autonomous dev loop — Refiner, Developer, Reviewer, and Iterator agents run as GitHub Actions workflows, triggered by column transitions and labels on your Jira tickets.
 
-> ⚠️ **Privacy notice — read before first use.** Ferry transmits the following data to third-party LLM providers (Anthropic, Google AI, OpenAI):
->
-> - Jira ticket titles, descriptions, comments, and sub-tasks
-> - File contents and diffs from the target GitHub repository
-> - Code review feedback and re-prompts
->
-> No customer data is stored by Ferry itself, but each provider's data-retention policy applies. Review provider terms and obtain organisational approval before pointing Ferry at any repo containing confidential code or PII.
+---
+
+## What Ferry is — and isn't
+
+**Ferry is:**
+- A set of GitHub Actions workflows you copy into your repo — no server, no daemon, no infra to own
+- An autonomous loop that goes from Jira ticket to reviewed draft PR without you writing a line of code
+- Designed for teams that already use Jira + GitHub and want AI-assisted development without leaving those tools
+
+**Ferry is not:**
+- A replacement for human review — it opens draft PRs, it never merges
+- A general-purpose AI coding assistant — it only acts on explicit Jira column transitions
+- Vendor-locked — the LLM provider per phase (Anthropic / Google AI / OpenAI) is configurable
+
+---
+
+## Agent phases at a glance
+
+| Phase | Jira column | What the agent does |
+|---|---|---|
+| **Refiner** | Refinement | Reads the ticket, creates sub-tasks, awaits human approval |
+| **Developer** | In Development | Reads approved sub-tasks, opens a draft PR on `ferry/<ticket>` |
+| **Reviewer** | In Review | Reads PR diff (green CI only), posts fingerprinted findings |
+| **Iterator** | Iteration | Applies findings, re-triggers Reviewer (max 3 rounds) |
 
 ---
 
@@ -41,6 +67,16 @@ Ferry **never merges** and **never moves Jira columns** autonomously except for 
 
 ---
 
+> ⚠️ **Privacy notice — read before first use.** Ferry transmits the following data to third-party LLM providers (Anthropic, Google AI, OpenAI):
+>
+> - Jira ticket titles, descriptions, comments, and sub-tasks
+> - File contents and diffs from the target GitHub repository
+> - Code review feedback and re-prompts
+>
+> No customer data is stored by Ferry itself, but each provider's data-retention policy applies. Review provider terms and obtain organisational approval before pointing Ferry at any repo containing confidential code or PII.
+
+---
+
 ## Requirements
 
 - GitHub repository (target repo where Ferry runs)
@@ -52,8 +88,8 @@ Ferry **never merges** and **never moves Jira columns** autonomously except for 
 
 ## Setup — 7 steps to first autonomous PR
 
-A user familiar with Jira and GitHub can complete this in under 30 minutes (NFR-M2). All steps are clickable UI work — no local CLI, no script execution.
-
+> **Fast path:** Steps 1–2 take ~5 minutes (GitHub App creation). Steps 3–7 are copy-paste — no local CLI, no script execution. A Jira+GitHub user familiar with both tools can complete everything in under 30 minutes.
+>
 > 💡 **Pilot example:** see [`examples/acme-corp-setup.md`](examples/acme-corp-setup.md) for a concrete, end-to-end walkthrough using a sample pilot project.
 
 ### Step 1 — Create a GitHub App with scoped permissions
@@ -207,6 +243,20 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) to contribute.
 ## Cost governance
 
 Ferry is designed for a typical pilot budget: **≤ 200€/provider/month**, **≤ 1.50€ average per story**. A daily cron checks provider usage and warns at 50% of the cap. HTTP 429/402 responses auto-pause affected tickets via the `ferry:paused` label.
+
+---
+
+## Contributors
+
+| Role | GitHub |
+|---|---|
+| Creator & maintainer | [@jean-noe](https://github.com/jean-noe) |
+
+---
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=big-emotion/ferry&type=date)](https://star-history.com/#big-emotion/ferry&Date)
 
 ---
 
