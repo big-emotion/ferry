@@ -29,7 +29,7 @@ const PHASE_LABEL: Readonly<Record<AgentPhase, string>> = Object.freeze({
  * NOTE (Story 2-4 epic-2 review nit): only `refine` is renamed to `refiner`.
  * `dev`, `review`, and `iterate` deliberately use the phase verbatim here, while
  * `triggers.ts` uses the longer `developer`/`reviewer`/`iterator` form for
- * `agent:*` Jira labels and `@agent-*` mention parsing. The two conventions
+ * agent:<role> Jira labels and @agent-<role> mention parsing. The two conventions
  * coexist intentionally for now: marker length matters for Jira comment
  * truncation and operator-visible diff readability, while label/mention names
  * favor unambiguous role nouns. Aligning the two is tracked as a follow-up
