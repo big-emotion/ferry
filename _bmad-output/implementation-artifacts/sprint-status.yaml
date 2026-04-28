@@ -52,7 +52,7 @@ development_status:
   1-3-event-envelope-schema-ulid-generation-and-deduplication: done
   1-4-cross-workflow-concurrency-action-and-freshness-check: done
   1-5-error-taxonomy-audit-writer-and-labels-allowlist: done
-  1-6-secret-scanning-codeowners-path-filter-and-io-wrappers: review
+  1-6-secret-scanning-codeowners-path-filter-and-io-wrappers: done
   1-6b-gitleaks-secret-scan-integration: review
   1-6c-gitleaks-harness-runtime-scanning: backlog
   1-7-llm-harness-model-routing-and-configuration-loading: backlog
