@@ -8,6 +8,7 @@
  */
 
 import type { EventPhase } from '../envelope/types.js';
+import { FerryError } from '../error.js';
 
 export type WorkflowFile = 'refine.yml' | 'dev.yml' | 'review.yml' | 'iterate.yml';
 export type DispatchType = 'ferry-refine' | 'ferry-dev' | 'ferry-review' | 'ferry-iterate';
@@ -26,12 +27,23 @@ export const PHASE_TO_WORKFLOW: RoutingTable = Object.freeze({
   iterate: Object.freeze({ workflow: 'iterate.yml', dispatchType: 'ferry-iterate' }),
 }) as RoutingTable;
 
+function lookupRoute(phase: keyof RoutingTable): PhaseRoute {
+  const route = PHASE_TO_WORKFLOW[phase];
+  if (!route) {
+    throw new FerryError('state-invariant', {
+      reason: 'unknown-phase',
+      phase: String(phase),
+    });
+  }
+  return route;
+}
+
 export function phaseToWorkflow(phase: keyof RoutingTable): WorkflowFile {
-  return PHASE_TO_WORKFLOW[phase].workflow;
+  return lookupRoute(phase).workflow;
 }
 
 export function phaseToDispatchType(phase: keyof RoutingTable): DispatchType {
-  return PHASE_TO_WORKFLOW[phase].dispatchType;
+  return lookupRoute(phase).dispatchType;
 }
 
 /**

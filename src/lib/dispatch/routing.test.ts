@@ -7,6 +7,7 @@ import {
   skipCommentForTaskType,
   type TicketType,
 } from './routing.js';
+import { FerryError } from '../error.js';
 
 describe('PHASE_TO_WORKFLOW table', () => {
   it('maps every supported phase to its workflow filename and dispatch type', () => {
@@ -32,6 +33,27 @@ describe('phaseToWorkflow / phaseToDispatchType', () => {
   ] as const)('phase %s → %s / %s', (phase, workflow, dispatchType) => {
     expect(phaseToWorkflow(phase)).toBe(workflow);
     expect(phaseToDispatchType(phase)).toBe(dispatchType);
+  });
+
+  it('throws FerryError(state-invariant, unknown-phase) for unsupported phase (defensive runtime guard)', () => {
+    let caught: unknown;
+    try {
+      // Cast through unknown — TypeScript would normally block this, but we want the runtime guard exercised
+      // for callers that bypass type-checking (dynamic strings, deserialised data, etc.).
+      phaseToWorkflow('deploy' as unknown as 'refine');
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(FerryError);
+    expect((caught as FerryError).code).toBe('state-invariant');
+    expect((caught as FerryError).context).toMatchObject({
+      reason: 'unknown-phase',
+      phase: 'deploy',
+    });
+  });
+
+  it('phaseToDispatchType also throws FerryError(state-invariant) for unknown phase', () => {
+    expect(() => phaseToDispatchType('nope' as unknown as 'refine')).toThrowError(FerryError);
   });
 });
 
