@@ -112,11 +112,11 @@ development_status:
   # ─────────────────────────────────────────────────────────────
   # Epic 7: Human Control & Override
   # ─────────────────────────────────────────────────────────────
-  epic-7: backlog
-  7-1-manual-cancel-via-github-actions-ui: backlog
-  7-2-label-re-trigger-and-mention-re-trigger-with-context: backlog
-  7-3-pause-and-needs-human-label-handling: backlog
-  7-4-human-only-merge-and-column-transition-invariants: backlog
+  epic-7: in-progress
+  7-1-manual-cancel-via-github-actions-ui: review
+  7-2-label-re-trigger-and-mention-re-trigger-with-context: review
+  7-3-pause-and-needs-human-label-handling: review
+  7-4-human-only-merge-and-column-transition-invariants: review
   epic-7-retrospective: optional
 
   # ─────────────────────────────────────────────────────────────
