@@ -1,7 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { prepareBatch, applyBatch, SUBTASK_CAP } from './batch.js';
 import type { RefinerOutput } from './schema.js';
-import { FerryError } from '../../lib/error.js';
 
 function makePlan(n: number): RefinerOutput {
   return {
@@ -55,8 +54,16 @@ describe('applyBatch (Story 3-2)', () => {
     const create = async () => {
       throw new Error('500 Internal Server Error');
     };
-    await expect(applyBatch(prepareBatch(makePlan(3), 'plan-1'), create)).rejects.toBeInstanceOf(
-      FerryError,
-    );
+    await expect(applyBatch(prepareBatch(makePlan(3), 'plan-1'), create)).rejects.toMatchObject({
+      code: 'transient',
+      context: { reason: 'batch-create-failed' },
+    });
+  });
+
+  it('short-circuits an empty batch and never invokes the create callback', async () => {
+    const create = vi.fn(async () => [] as { id: string }[]);
+    const result = await applyBatch(prepareBatch(makePlan(0), 'plan-1'), create);
+    expect(result).toEqual({ createdCount: 0, ids: [] });
+    expect(create).not.toHaveBeenCalled();
   });
 });

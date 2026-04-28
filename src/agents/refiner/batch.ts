@@ -45,6 +45,11 @@ export async function applyBatch(
   prepared: BatchPrepared,
   create: CreateBatchFn,
 ): Promise<BatchApplied> {
+  // Short-circuit empty batches so a real Jira adapter is not invoked with
+  // an empty array (zero-delta re-run path / 3-2 hardening).
+  if (prepared.subtasks.length === 0) {
+    return { createdCount: 0, ids: [] };
+  }
   try {
     const refs = await create(prepared.subtasks);
     return { createdCount: refs.length, ids: refs.map((r) => r.id) };

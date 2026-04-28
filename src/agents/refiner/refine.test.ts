@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import { runRefiner, type LlmCall, type RefinerInput } from './refine.js';
-import { FerryError } from '../../lib/error.js';
 
 const ticket: RefinerInput['ticket'] = {
   key: 'CHAN-27',
@@ -64,25 +63,20 @@ describe('runRefiner happy path (Story 3-1)', () => {
 describe('runRefiner error paths (Story 3-1)', () => {
   it('throws state-invariant on malformed JSON', async () => {
     const badLlm: LlmCall = async () => ({ text: 'not json', usage: null });
-    await expect(runRefiner({ ticket, callLlm: badLlm, runLink: 'r' })).rejects.toBeInstanceOf(
-      FerryError,
-    );
+    await expect(runRefiner({ ticket, callLlm: badLlm, runLink: 'r' })).rejects.toMatchObject({
+      code: 'state-invariant',
+    });
   });
 
   it('throws state-invariant on schema violation', async () => {
-    const badLlm: LlmCall = async () => ({
-      text: JSON.stringify({ ...validPlan, subtasks: [] }),
-      usage: null,
-    });
-    // empty subtasks is allowed by schema; force a real violation
+    // output_locale='es' violates the schema (only 'en' | 'fr' are allowed).
     const reallyBad: LlmCall = async () => ({
       text: JSON.stringify({ ...validPlan, output_locale: 'es' }),
       usage: null,
     });
-    void badLlm;
-    await expect(runRefiner({ ticket, callLlm: reallyBad, runLink: 'r' })).rejects.toBeInstanceOf(
-      FerryError,
-    );
+    await expect(runRefiner({ ticket, callLlm: reallyBad, runLink: 'r' })).rejects.toMatchObject({
+      code: 'state-invariant',
+    });
   });
 
   it('throws oscillation on touch_paths over the cap', async () => {
@@ -91,9 +85,22 @@ describe('runRefiner error paths (Story 3-1)', () => {
       text: JSON.stringify({ ...validPlan, touch_paths: tooBig }),
       usage: null,
     });
+    await expect(runRefiner({ ticket, callLlm: overLlm, runLink: 'r' })).rejects.toMatchObject({
+      code: 'oscillation',
+    });
     await expect(runRefiner({ ticket, callLlm: overLlm, runLink: 'r' })).rejects.toThrow(
       /spec-too-broad/,
     );
+  });
+
+  it('accepts touch_paths exactly at the cap (boundary 20)', async () => {
+    const atCap = Array.from({ length: 20 }, (_, i) => `src/file${i}.ts`);
+    const okLlm: LlmCall = async () => ({
+      text: JSON.stringify({ ...validPlan, touch_paths: atCap }),
+      usage: null,
+    });
+    const result = await runRefiner({ ticket, callLlm: okLlm, runLink: 'r' });
+    expect(result.plan.touch_paths).toHaveLength(20);
   });
 
   it('reports cost 0 when usage missing', async () => {
