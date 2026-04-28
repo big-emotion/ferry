@@ -2,7 +2,6 @@
 import { appendFileSync, readFileSync } from "node:fs";
 import { execFileSync, execSync } from "node:child_process";
 import * as path4 from "node:path";
-import { fileURLToPath } from "node:url";
 
 // node_modules/@anthropic-ai/sdk/internal/tslib.mjs
 function __classPrivateFieldSet(receiver, state, value, kind, f) {
@@ -198,7 +197,7 @@ var safeJSON = (text) => {
 };
 
 // node_modules/@anthropic-ai/sdk/internal/utils/sleep.mjs
-var sleep = (ms) => new Promise((resolve3) => setTimeout(resolve3, ms));
+var sleep = (ms) => new Promise((resolve2) => setTimeout(resolve2, ms));
 
 // node_modules/@anthropic-ai/sdk/version.mjs
 var VERSION = "0.91.1";
@@ -912,8 +911,8 @@ function addRequestID(value, response) {
 var _APIPromise_client;
 var APIPromise = class _APIPromise extends Promise {
   constructor(client, responsePromise, parseResponse = defaultParseResponse) {
-    super((resolve3) => {
-      resolve3(null);
+    super((resolve2) => {
+      resolve2(null);
     });
     this.responsePromise = responsePromise;
     this.parseResponse = parseResponse;
@@ -2662,12 +2661,12 @@ var BetaMessageStream = class _BetaMessageStream {
       }
       return this._emit("error", new AnthropicError(String(error)));
     });
-    __classPrivateFieldSet(this, _BetaMessageStream_connectedPromise, new Promise((resolve3, reject) => {
-      __classPrivateFieldSet(this, _BetaMessageStream_resolveConnectedPromise, resolve3, "f");
+    __classPrivateFieldSet(this, _BetaMessageStream_connectedPromise, new Promise((resolve2, reject) => {
+      __classPrivateFieldSet(this, _BetaMessageStream_resolveConnectedPromise, resolve2, "f");
       __classPrivateFieldSet(this, _BetaMessageStream_rejectConnectedPromise, reject, "f");
     }), "f");
-    __classPrivateFieldSet(this, _BetaMessageStream_endPromise, new Promise((resolve3, reject) => {
-      __classPrivateFieldSet(this, _BetaMessageStream_resolveEndPromise, resolve3, "f");
+    __classPrivateFieldSet(this, _BetaMessageStream_endPromise, new Promise((resolve2, reject) => {
+      __classPrivateFieldSet(this, _BetaMessageStream_resolveEndPromise, resolve2, "f");
       __classPrivateFieldSet(this, _BetaMessageStream_rejectEndPromise, reject, "f");
     }), "f");
     __classPrivateFieldGet(this, _BetaMessageStream_connectedPromise, "f").catch(() => {
@@ -2837,11 +2836,11 @@ var BetaMessageStream = class _BetaMessageStream {
    *   const message = await stream.emitted('message') // rejects if the stream errors
    */
   emitted(event) {
-    return new Promise((resolve3, reject) => {
+    return new Promise((resolve2, reject) => {
       __classPrivateFieldSet(this, _BetaMessageStream_catchingPromiseCreated, true, "f");
       if (event !== "error")
         this.once("error", reject);
-      this.once(event, resolve3);
+      this.once(event, resolve2);
     });
   }
   async done() {
@@ -3184,7 +3183,7 @@ var BetaMessageStream = class _BetaMessageStream {
           if (done) {
             return { value: void 0, done: true };
           }
-          return new Promise((resolve3, reject) => readQueue.push({ resolve: resolve3, reject })).then((chunk2) => chunk2 ? { value: chunk2, done: false } : { value: void 0, done: true });
+          return new Promise((resolve2, reject) => readQueue.push({ resolve: resolve2, reject })).then((chunk2) => chunk2 ? { value: chunk2, done: false } : { value: void 0, done: true });
         }
         const chunk = pushQueue.shift();
         return { value: chunk, done: false };
@@ -3256,13 +3255,13 @@ var _BetaToolRunner_iterationCount;
 var _BetaToolRunner_checkAndCompact;
 var _BetaToolRunner_generateToolResponse;
 function promiseWithResolvers() {
-  let resolve3;
+  let resolve2;
   let reject;
   const promise = new Promise((res, rej) => {
-    resolve3 = res;
+    resolve2 = res;
     reject = rej;
   });
-  return { promise, resolve: resolve3, reject };
+  return { promise, resolve: resolve2, reject };
 }
 var BetaToolRunner = class {
   constructor(client, params, options) {
@@ -4944,12 +4943,12 @@ var MessageStream = class _MessageStream {
       }
       return this._emit("error", new AnthropicError(String(error)));
     });
-    __classPrivateFieldSet(this, _MessageStream_connectedPromise, new Promise((resolve3, reject) => {
-      __classPrivateFieldSet(this, _MessageStream_resolveConnectedPromise, resolve3, "f");
+    __classPrivateFieldSet(this, _MessageStream_connectedPromise, new Promise((resolve2, reject) => {
+      __classPrivateFieldSet(this, _MessageStream_resolveConnectedPromise, resolve2, "f");
       __classPrivateFieldSet(this, _MessageStream_rejectConnectedPromise, reject, "f");
     }), "f");
-    __classPrivateFieldSet(this, _MessageStream_endPromise, new Promise((resolve3, reject) => {
-      __classPrivateFieldSet(this, _MessageStream_resolveEndPromise, resolve3, "f");
+    __classPrivateFieldSet(this, _MessageStream_endPromise, new Promise((resolve2, reject) => {
+      __classPrivateFieldSet(this, _MessageStream_resolveEndPromise, resolve2, "f");
       __classPrivateFieldSet(this, _MessageStream_rejectEndPromise, reject, "f");
     }), "f");
     __classPrivateFieldGet(this, _MessageStream_connectedPromise, "f").catch(() => {
@@ -5119,11 +5118,11 @@ var MessageStream = class _MessageStream {
    *   const message = await stream.emitted('message') // rejects if the stream errors
    */
   emitted(event) {
-    return new Promise((resolve3, reject) => {
+    return new Promise((resolve2, reject) => {
       __classPrivateFieldSet(this, _MessageStream_catchingPromiseCreated, true, "f");
       if (event !== "error")
         this.once("error", reject);
-      this.once(event, resolve3);
+      this.once(event, resolve2);
     });
   }
   async done() {
@@ -5441,7 +5440,7 @@ var MessageStream = class _MessageStream {
           if (done) {
             return { value: void 0, done: true };
           }
-          return new Promise((resolve3, reject) => readQueue.push({ resolve: resolve3, reject })).then((chunk2) => chunk2 ? { value: chunk2, done: false } : { value: void 0, done: true });
+          return new Promise((resolve2, reject) => readQueue.push({ resolve: resolve2, reject })).then((chunk2) => chunk2 ? { value: chunk2, done: false } : { value: void 0, done: true });
         }
         const chunk = pushQueue.shift();
         return { value: chunk, done: false };
@@ -6254,7 +6253,7 @@ var FerryError = class extends Error {
 
 // src/lib/envelope/validate.ts
 var _require = createRequire(import.meta.url);
-var eventSchema = _require("../../schemas/event.v1.schema.json");
+var eventSchema = _require("./schemas/event.v1.schema.json");
 var ajvModule = _require("ajv/dist/2020");
 var ajvInstance = new ajvModule.Ajv2020({ strict: true });
 _require("ajv-formats").default(ajvInstance);
@@ -6443,9 +6442,9 @@ async function scanWithGitleaks(opts) {
   child.stderr?.on("data", (chunk) => {
     stderr += chunk.toString();
   });
-  const exitCode = await new Promise((resolve3, reject) => {
+  const exitCode = await new Promise((resolve2, reject) => {
     child.once("error", reject);
-    child.once("close", (code) => resolve3(code ?? -1));
+    child.once("close", (code) => resolve2(code ?? -1));
   });
   if (exitCode !== 0 && exitCode !== 1) {
     throw new FerryError("unknown", {
@@ -6809,7 +6808,7 @@ ${result.stderr}`;
   }
 }
 function runProcess(cmd, args, cwd, timeoutMs) {
-  return new Promise((resolve3, reject) => {
+  return new Promise((resolve2, reject) => {
     const child = spawn2(cmd, args, { cwd });
     let stdout = "";
     let stderr = "";
@@ -6829,7 +6828,7 @@ function runProcess(cmd, args, cwd, timeoutMs) {
     });
     child.once("close", (code) => {
       clearTimeout(timer);
-      resolve3({ exitCode: code ?? -1, stdout, stderr });
+      resolve2({ exitCode: code ?? -1, stdout, stderr });
     });
   });
 }
@@ -6838,23 +6837,54 @@ function runProcess(cmd, args, cwd, timeoutMs) {
 async function runAgentLoop(opts) {
   const { anthropic, model, system, initialPrompt, repoRoot } = opts;
   const maxIterations = parseInt(process.env.FERRY_DEV_MAX_ITERATIONS ?? "50", 10);
-  const messages = [{ role: "user", content: initialPrompt }];
-  const usage = { input_tokens: 0, output_tokens: 0 };
+  const maxInputTokens = parseInt(process.env.FERRY_DEV_MAX_INPUT_TOKENS ?? "500000", 10);
+  const maxTokens = parseInt(process.env.FERRY_DEV_MAX_TOKENS ?? "2048", 10);
+  const systemBlocks = [
+    { type: "text", text: system, cache_control: { type: "ephemeral" } }
+  ];
+  const tools = TOOL_SCHEMAS.map(
+    (t, i) => i === TOOL_SCHEMAS.length - 1 ? { ...t, cache_control: { type: "ephemeral" } } : t
+  );
+  const messages = [
+    {
+      role: "user",
+      content: [
+        { type: "text", text: initialPrompt, cache_control: { type: "ephemeral" } }
+      ]
+    }
+  ];
+  const usage = {
+    input_tokens: 0,
+    output_tokens: 0,
+    cache_creation_input_tokens: 0,
+    cache_read_input_tokens: 0
+  };
   let done = null;
   let iter = 0;
   while (iter < maxIterations) {
     iter++;
+    if (usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens > maxInputTokens) {
+      throw new FerryError("spend-cap", {
+        reason: "input-token-budget-exceeded",
+        cap: maxInputTokens,
+        consumed: usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens
+      });
+    }
     const response = await anthropic.messages.create({
       model,
-      max_tokens: 8192,
-      system,
-      tools: TOOL_SCHEMAS,
+      max_tokens: maxTokens,
+      system: systemBlocks,
+      tools,
       messages
     });
     usage.input_tokens += response.usage.input_tokens;
     usage.output_tokens += response.usage.output_tokens;
+    usage.cache_creation_input_tokens += response.usage.cache_creation_input_tokens ?? 0;
+    usage.cache_read_input_tokens += response.usage.cache_read_input_tokens ?? 0;
     messages.push({ role: "assistant", content: response.content });
-    console.error(`[ferry:dev-loop] iter=${iter} stop_reason=${response.stop_reason} tools=${response.content.filter((b) => b.type === "tool_use").length}`);
+    console.error(
+      `[ferry:dev-loop] iter=${iter} stop_reason=${response.stop_reason} tools=${response.content.filter((b) => b.type === "tool_use").length} in=${response.usage.input_tokens} cache_w=${response.usage.cache_creation_input_tokens ?? 0} cache_r=${response.usage.cache_read_input_tokens ?? 0} out=${response.usage.output_tokens}`
+    );
     if (response.stop_reason !== "tool_use") {
       throw new FerryError("state-invariant", { reason: "agent-stopped-without-done", stop_reason: response.stop_reason });
     }
@@ -6873,6 +6903,10 @@ async function runAgentLoop(opts) {
         toolResults.push({ type: "tool_result", tool_use_id: block.id, content: e.message, is_error: true });
       }
     }
+    if (toolResults.length > 0) {
+      const last = toolResults[toolResults.length - 1];
+      toolResults[toolResults.length - 1] = { ...last, cache_control: { type: "ephemeral" } };
+    }
     messages.push({ role: "user", content: toolResults });
     if (done) return { done, usage, iterations: iter };
   }
@@ -6880,9 +6914,8 @@ async function runAgentLoop(opts) {
 }
 
 // src/agents/developer/dev-action.ts
-var __dirname = path4.dirname(fileURLToPath(import.meta.url));
 var REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
-var SYSTEM_PROMPT_PATH = path4.resolve(__dirname, "../../../prompts/dev.md");
+var SYSTEM_PROMPT_PATH = process.env.FERRY_PROMPT_PATH ?? path4.join(REPO_ROOT, "prompts", "dev.md");
 function requireEnv(key) {
   const val = process.env[key];
   if (!val) throw new FerryError("state-invariant", { reason: "missing-env", key });
@@ -6988,7 +7021,7 @@ ${tree}`,
     initialPrompt,
     repoRoot: REPO_ROOT
   });
-  console.error(`[ferry:dev-action] done in ${iterations} iterations \u2014 actionable=${done.actionable} input=${usage.input_tokens} output=${usage.output_tokens}`);
+  console.error(`[ferry:dev-action] done in ${iterations} iterations \u2014 actionable=${done.actionable} in=${usage.input_tokens} cache_w=${usage.cache_creation_input_tokens} cache_r=${usage.cache_read_input_tokens} out=${usage.output_tokens}`);
   const idempotencyMarker = `[ferry:dev:${eventId}]`;
   const jiraEmail = requireEnv("FERRY_JIRA_EMAIL");
   const jiraApiToken = requireEnv("FERRY_JIRA_API_TOKEN");

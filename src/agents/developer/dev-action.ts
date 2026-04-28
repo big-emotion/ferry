@@ -1,7 +1,6 @@
 import { appendFileSync, readFileSync } from 'node:fs';
 import { execFileSync, execSync } from 'node:child_process';
 import * as path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import Anthropic from '@anthropic-ai/sdk';
 import { validateEnvelope } from '../../lib/envelope/validate.js';
 import { delimitUntrusted } from '../../lib/sanitization/delimit-untrusted.js';
@@ -13,9 +12,8 @@ import { formatDeveloperCommit } from './commit.js';
 import { formatPullRequestTitle, formatPullRequestBody } from './pr.js';
 import { runAgentLoop } from './loop.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
-const SYSTEM_PROMPT_PATH = path.resolve(__dirname, '../../../prompts/dev.md');
+const SYSTEM_PROMPT_PATH = process.env.FERRY_PROMPT_PATH ?? path.join(REPO_ROOT, 'prompts', 'dev.md');
 
 function requireEnv(key: string): string {
   const val = process.env[key];
@@ -131,7 +129,7 @@ async function main(): Promise<void> {
     repoRoot: REPO_ROOT,
   });
 
-  console.error(`[ferry:dev-action] done in ${iterations} iterations — actionable=${done.actionable} input=${usage.input_tokens} output=${usage.output_tokens}`);
+  console.error(`[ferry:dev-action] done in ${iterations} iterations — actionable=${done.actionable} in=${usage.input_tokens} cache_w=${usage.cache_creation_input_tokens} cache_r=${usage.cache_read_input_tokens} out=${usage.output_tokens}`);
 
   const idempotencyMarker = `[ferry:dev:${eventId}]`;
   const jiraEmail = requireEnv('FERRY_JIRA_EMAIL');

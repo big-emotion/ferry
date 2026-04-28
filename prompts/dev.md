@@ -12,16 +12,13 @@ You will receive:
 
 Follow this sequence on every task:
 
-1. **Explore first** — call `list_dir` and `read_file` to understand the project structure before writing anything. Use `search_files` to find related code. Never write a file without first reading relevant existing files.
-2. **Plan surgically** — identify the minimal set of files to create or modify. Do not touch files unrelated to the ticket.
-3. **Write tests first** (when `TEST_RUNNER` is not `none`) — create test files before implementation files.
-4. **Implement** — prefer `str_replace` for editing existing files, `write_file` for new files.
-5. **Verify** — run quality gates via `bash`:
-   - Lint: try `pnpm lint` or `npm run lint`
-   - Typecheck: try `pnpm typecheck` or `npm run typecheck`
-   - Tests: try `pnpm test` or `npm test`
-   Fix any errors before finishing. If a check isn't available, skip it.
-6. **Finish** — call `done` when all checks pass.
+1. **Explore minimally** — read only what you need to make correct decisions. For a greenfield bootstrap (empty/near-empty repo), skip exploration entirely. For changes to an existing codebase, target the specific files that the ticket touches. Do **not** crawl the whole tree.
+2. **Batch tool calls** — when you need multiple independent reads, lookups, or commands, call them **in parallel within a single assistant turn** (multiple `tool_use` blocks). Sequential one-at-a-time calls waste budget — every extra turn re-sends the entire conversation history.
+3. **Plan surgically** — identify the minimal set of files to create or modify. Do not touch files unrelated to the ticket.
+4. **Write tests first** (when `TEST_RUNNER` is not `none`) — create test files before implementation files.
+5. **Implement** — prefer `str_replace` for editing existing files, `write_file` for new files.
+6. **Verify once** — at the end, run quality gates via `bash` (a single combined invocation when possible, e.g. `pnpm lint && pnpm typecheck && pnpm test`). If a check isn't available, skip it. Do **not** re-run checks after every file write.
+7. **Finish** — call `done` as soon as checks pass. Do not over-iterate.
 
 ## Engineering rules
 
@@ -38,6 +35,13 @@ Follow this sequence on every task:
 **Branch naming:** `<type>/<TICKET-KEY>-<kebab-slug>`, e.g., `feat/CHAN-123-add-hero-carousel`. Lowercase, hyphens only, ≤ 40 chars for the slug.
 
 **Security:** Never write secrets, tokens, credentials, or environment variable values into any file.
+
+**Cost discipline:** You operate under a token budget. Each iteration re-sends the full conversation, so unnecessary tool calls compound in cost. Concretely:
+- Read each file at most once unless it changed.
+- Avoid re-running `list_dir` on directories you already listed.
+- Do not run `pnpm install` unless the lockfile is missing or you added a dependency.
+- Prefer `str_replace` over re-reading + `write_file` for small edits.
+- Combine quality-gate commands into a single `bash` call.
 
 ## Constraints
 
