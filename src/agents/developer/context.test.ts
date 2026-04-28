@@ -17,24 +17,51 @@ describe('buildContext (Story 4-1)', () => {
       readFile,
     });
     expect(out).toContain('<<<UNTRUSTED>>>');
+    expect(out).toContain('<<<END UNTRUSTED>>>');
     expect(out).toContain('CHAN-27');
     expect(out).toContain('<file path="src/a.ts">');
     expect(out).toContain('<file path="src/b.ts">');
     expect(out).toContain('// content of src/a.ts');
   });
 
-  it('throws state-invariant when total bytes exceed cap', async () => {
+  it('throws state-invariant with reason context-too-large when total bytes exceed cap', async () => {
     const big = 'x'.repeat(MAX_CONTEXT_BYTES + 1);
     const readFile = async () => big;
-    await expect(
-      buildContext({ ticket, touchPaths: ['src/a.ts'], readFile }),
-    ).rejects.toBeInstanceOf(FerryError);
+    let caught: unknown;
+    try {
+      await buildContext({ ticket, touchPaths: ['src/a.ts'], readFile });
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(FerryError);
+    expect((caught as FerryError).code).toBe('state-invariant');
+    expect((caught as FerryError).context).toMatchObject({
+      reason: 'context-too-large',
+    });
   });
 
   it('throws state-invariant when touchPaths is empty', async () => {
     await expect(
       buildContext({ ticket, touchPaths: [], readFile: async () => '' }),
     ).rejects.toThrow(/missing-touch-paths/);
+  });
+
+  it('throws state-invariant when touchPaths is undefined (runtime guard)', async () => {
+    let caught: unknown;
+    try {
+      await buildContext({
+        ticket,
+        touchPaths: undefined as unknown as string[],
+        readFile: async () => '',
+      });
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(FerryError);
+    expect((caught as FerryError).code).toBe('state-invariant');
+    expect((caught as FerryError).context).toMatchObject({
+      reason: 'missing-touch-paths',
+    });
   });
 
   it('throws state-invariant when touchPaths exceeds MAX_TOUCH_PATHS', async () => {
