@@ -258,7 +258,7 @@ Ferry is designed for a typical pilot budget: **≤ 200€/provider/month**, **�
 
 ---
 
-## Star History
+## Star History (lol)
 
 [![Star History Chart](https://api.star-history.com/svg?repos=big-emotion/ferry&type=date)](https://star-history.com/#big-emotion/ferry&Date)
 
