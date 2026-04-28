@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: "2026-04-27T00:00:00Z"
-last_updated: "2026-04-28T09:10:00Z"  # updated by cron run (story 1-6b progressed; 1-6c added)
+last_updated: "2026-04-28T09:52:00Z"  # 1-6b merged via PR #13
 project: ferry
 project_key: NOKEY
 tracking_system: file-system
@@ -53,7 +53,7 @@ development_status:
   1-4-cross-workflow-concurrency-action-and-freshness-check: done
   1-5-error-taxonomy-audit-writer-and-labels-allowlist: done
   1-6-secret-scanning-codeowners-path-filter-and-io-wrappers: done
-  1-6b-gitleaks-secret-scan-integration: review
+  1-6b-gitleaks-secret-scan-integration: done
   1-6c-gitleaks-harness-runtime-scanning: backlog
   1-7-llm-harness-model-routing-and-configuration-loading: backlog
   1-8-readme-examples-and-first-time-setup-documentation: backlog
