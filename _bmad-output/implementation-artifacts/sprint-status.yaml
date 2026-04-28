@@ -81,8 +81,8 @@ development_status:
   # ─────────────────────────────────────────────────────────────
   # Epic 4: Developer Agent — Automated Implementation
   # ─────────────────────────────────────────────────────────────
-  epic-4: backlog
-  4-1-developer-reads-ticket-and-builds-file-context: backlog
+  epic-4: in-progress
+  4-1-developer-reads-ticket-and-builds-file-context: review
   4-2-branch-creation-code-generation-and-scope-enforced-diff-application: backlog
   4-3-critical-model-routing-on-critical-label: backlog
   4-4-draft-pr-open-and-auto-transition-to-in-review: backlog
