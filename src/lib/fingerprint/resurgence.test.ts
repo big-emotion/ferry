@@ -13,14 +13,23 @@ describe('resurgence detection', () => {
     ).toEqual({ resurgent: [] });
   });
 
-  it('throws FerryError(oscillation) when resurgent at iteration >= 1', () => {
-    expect(() =>
+  it('throws FerryError(oscillation) with reason resurgent-findings at iteration >= 1', () => {
+    let caught: unknown;
+    try {
       detectResurgence({
         iteration: 1,
         previous: ['a', 'b'],
         current: ['a', 'c'],
-      }),
-    ).toThrow(FerryError);
+      });
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(FerryError);
+    expect((caught as FerryError).code).toBe('oscillation');
+    expect((caught as FerryError).context).toMatchObject({
+      reason: 'resurgent-findings',
+      resurgent: ['a'],
+    });
   });
 
   it('does not throw at iteration 0 even if duplicates present', () => {
