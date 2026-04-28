@@ -6903,6 +6903,20 @@ async function runAgentLoop(opts) {
         toolResults.push({ type: "tool_result", tool_use_id: block.id, content: e.message, is_error: true });
       }
     }
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i];
+      if (msg.role === "user" && Array.isArray(msg.content)) {
+        const content = msg.content;
+        if (content.some((b) => b.type === "tool_result")) {
+          const lastIdx = content.length - 1;
+          if ("cache_control" in content[lastIdx]) {
+            const { cache_control: _cc, ...rest } = content[lastIdx];
+            content[lastIdx] = rest;
+          }
+          break;
+        }
+      }
+    }
     if (toolResults.length > 0) {
       const last = toolResults[toolResults.length - 1];
       toolResults[toolResults.length - 1] = { ...last, cache_control: { type: "ephemeral" } };

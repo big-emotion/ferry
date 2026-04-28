@@ -116,8 +116,22 @@ export async function runAgentLoop(opts: {
       }
     }
 
-    // Mark the last tool_result as a cache breakpoint so the next turn re-uses
-    // the entire conversation history from cache.
+    // Move the cache breakpoint to the new tool results: strip it from the
+    // previous tool-result turn first (keeps us within Anthropic's 4-block limit).
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i];
+      if (msg.role === 'user' && Array.isArray(msg.content)) {
+        const content = msg.content as ToolResultBlockParam[];
+        if (content.some((b) => b.type === 'tool_result')) {
+          const lastIdx = content.length - 1;
+          if ('cache_control' in content[lastIdx]) {
+            const { cache_control: _cc, ...rest } = content[lastIdx] as ToolResultBlockParam & { cache_control?: unknown };
+            content[lastIdx] = rest as ToolResultBlockParam;
+          }
+          break;
+        }
+      }
+    }
     if (toolResults.length > 0) {
       const last = toolResults[toolResults.length - 1];
       toolResults[toolResults.length - 1] = { ...last, cache_control: { type: 'ephemeral' } };
