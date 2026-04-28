@@ -48,4 +48,19 @@ describe('enforceScope (Story 4-2)', () => {
       /scope-violation/,
     );
   });
+
+  it('rename diffs require BOTH old and new paths in allowedPaths (documented behaviour)', () => {
+    const renameDiff = [
+      'diff --git a/src/old.ts b/src/new.ts',
+      'rename from src/old.ts',
+      'rename to src/new.ts',
+      'index 1111111..2222222 100644',
+      '--- a/src/old.ts',
+      '+++ b/src/new.ts',
+    ].join('\n');
+    // Only the new path in scope -> throws because old path is also extracted.
+    expect(() => enforceScope(renameDiff, new Set(['src/new.ts']))).toThrow(/scope-violation/);
+    // Both paths in scope -> passes.
+    expect(() => enforceScope(renameDiff, new Set(['src/old.ts', 'src/new.ts']))).not.toThrow();
+  });
 });

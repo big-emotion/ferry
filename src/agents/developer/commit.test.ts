@@ -32,6 +32,19 @@ describe('formatDeveloperCommit (Story 4-2 FR15)', () => {
       }),
     ).toContain('fix: fix off-by-one');
   });
+
+  it('does not throw on an empty summary and renders a well-formed message', () => {
+    let out = '';
+    expect(
+      () =>
+        (out = formatDeveloperCommit({
+          ticketKey: 'CHAN-27',
+          runId: 'r1',
+          summary: '',
+        })),
+    ).not.toThrow();
+    expect(out).toBe('[CHAN-27] feat: \n\n[ferry:developer:r1]');
+  });
 });
 
 describe('formatBranchName (Story 4-2)', () => {

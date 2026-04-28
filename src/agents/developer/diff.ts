@@ -1,5 +1,13 @@
 /**
  * Story 4-2: scope-enforced diff path checker.
+ *
+ * Known limitation (rename diffs): `parseDiffPaths` extracts BOTH the `a/`
+ * and `b/` paths from each `diff --git a/<src> b/<dst>` header, so when a
+ * file is renamed, `enforceScope` requires both the old and the new path
+ * to be present in `allowedPaths`. This is conservative and intentional:
+ * the Refiner's touch_paths list represents every path the diff is allowed
+ * to touch, including the source path of a rename. Callers that wish to
+ * accept a rename to a brand-new path must include both names in scope.
  */
 
 import { FerryError } from '../../lib/error.js';

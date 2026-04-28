@@ -1,7 +1,7 @@
 /**
  * Story 4-3: critical-label aware model router (FR17).
  *
- * Only the developer agent honours the critical label — refiner / reviewer /
+ * Only the developer agent honours the critical label -- refiner / reviewer /
  * iterator always use the default route.
  */
 
