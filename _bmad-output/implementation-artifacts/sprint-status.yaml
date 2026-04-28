@@ -64,7 +64,7 @@ development_status:
   # ─────────────────────────────────────────────────────────────
   epic-2: in-progress
   2-1-column-transition-dispatch-and-workflow-routing: review
-  2-2-label-based-and-mention-re-trigger-dispatch: backlog
+  2-2-label-based-and-mention-re-trigger-dispatch: review
   2-3-per-ticket-daily-trigger-cap: backlog
   2-4-phase-labels-jira-phase-comments-and-ferry-audit-emission: backlog
   epic-2-retrospective: optional
