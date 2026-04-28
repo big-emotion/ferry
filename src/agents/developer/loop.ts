@@ -32,7 +32,7 @@ export async function runAgentLoop(opts: {
   repoRoot: string;
 }): Promise<LoopResult> {
   const { anthropic, model, system, initialPrompt, repoRoot } = opts;
-  const maxIterations = parseInt(process.env.FERRY_DEV_MAX_ITERATIONS ?? '50', 10);
+  const maxIterations = parseInt(process.env.FERRY_DEV_MAX_ITERATIONS ?? '200', 10);
   const maxInputTokens = parseInt(process.env.FERRY_DEV_MAX_INPUT_TOKENS ?? '500000', 10);
   const maxTokens = parseInt(process.env.FERRY_DEV_MAX_TOKENS ?? '2048', 10);
 
@@ -93,6 +93,12 @@ export async function runAgentLoop(opts: {
       `[ferry:dev-loop] iter=${iter} stop_reason=${response.stop_reason} tools=${response.content.filter((b) => b.type === 'tool_use').length} in=${response.usage.input_tokens} cache_w=${response.usage.cache_creation_input_tokens ?? 0} cache_r=${response.usage.cache_read_input_tokens ?? 0} out=${response.usage.output_tokens}`,
     );
 
+    for (const block of response.content) {
+      if (block.type === 'text' && block.text.trim()) {
+        console.error(`[ferry:dev-think] ${block.text.trim()}`);
+      }
+    }
+
     if (response.stop_reason !== 'tool_use') {
       throw new FerryError('state-invariant', { reason: 'agent-stopped-without-done', stop_reason: response.stop_reason });
     }
@@ -108,8 +114,12 @@ export async function runAgentLoop(opts: {
         continue;
       }
 
+      const input = block.input as Record<string, unknown>;
+      const argHint = input.path ?? input.source ?? input.command ?? input.pattern ?? '';
+      console.error(`[ferry:dev-tool] iter=${iter} tool=${block.name}${argHint ? ` arg=${String(argHint).slice(0, 120)}` : ''}`);
+
       try {
-        const result = await executeTool(repoRoot, block.name as ToolName, block.input as Record<string, unknown>);
+        const result = await executeTool(repoRoot, block.name as ToolName, input);
         toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: result });
       } catch (e) {
         toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: (e as Error).message, is_error: true });
