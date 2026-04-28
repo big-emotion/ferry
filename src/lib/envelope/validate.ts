@@ -18,13 +18,27 @@ const ajvInstance = new ajvModule.Ajv2020({ strict: true });
 
 const validateFn: ValidateFunction = ajvInstance.compile(eventSchema);
 
-export function validateEnvelope(raw: unknown): EventEnvelopeV1 {
+/**
+ * Validates an event envelope against the v1 JSON schema and enforces the
+ * 2000-char instructions cap (Story 2-2 AC4).
+ *
+ * `warn` is injectable so tests can assert truncation diagnostics without
+ * mutating the global console. Default routes to `console.warn` to keep prod
+ * call-sites unchanged.
+ */
+export function validateEnvelope(
+  raw: unknown,
+  warn: (msg: string) => void = console.warn,
+): EventEnvelopeV1 {
   if (!validateFn(raw)) {
     const safePaths = (validateFn.errors ?? []).map((e) => `${e.instancePath} ${e.keyword}`);
     throw new FerryError('state-invariant', { paths: safePaths });
   }
   const envelope = raw as EventEnvelopeV1;
-  if (envelope.instructions !== undefined) {
+  if (envelope.instructions !== undefined && envelope.instructions.length > 2000) {
+    warn(
+      `[ferry:envelope] instructions truncated from ${envelope.instructions.length} to 2000 chars`,
+    );
     envelope.instructions = envelope.instructions.slice(0, 2000);
   }
   return envelope;

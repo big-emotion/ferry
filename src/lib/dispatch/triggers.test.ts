@@ -91,7 +91,7 @@ describe('source-agnostic routing (Story 2-2 AC3)', () => {
 });
 
 describe('instructions truncation warning (Story 2-2 AC4)', () => {
-  it('truncates oversized instructions to 2000 chars', () => {
+  it('truncates oversized instructions to 2000 chars and emits a warning via the default console.warn', () => {
     const huge = 'x'.repeat(3000);
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const env = validateEnvelope({
@@ -104,6 +104,47 @@ describe('instructions truncation warning (Story 2-2 AC4)', () => {
       instructions: huge,
     });
     expect(env.instructions).toHaveLength(2000);
+    expect(warn).toHaveBeenCalledOnce();
+    expect(warn.mock.calls[0][0]).toMatch(/truncated/);
+    expect(warn.mock.calls[0][0]).toMatch(/3000/);
     warn.mockRestore();
+  });
+
+  it('does NOT warn when instructions are within the 2000-char cap', () => {
+    const warn = vi.fn();
+    const env = validateEnvelope(
+      {
+        version: 'v1',
+        event_id: '01HZZZZZZZZZZZZZZZZZZZZZB3',
+        ticket_key: 'CHAN-302',
+        phase: 'refine',
+        source: 'jira-mention',
+        ts: '2026-04-28T13:56:00.000Z',
+        instructions: 'x'.repeat(2000),
+      },
+      warn,
+    );
+    expect(env.instructions).toHaveLength(2000);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('routes the warning through the injected logger when one is supplied (Story 2-2 task: injectable logger)', () => {
+    const warn = vi.fn();
+    validateEnvelope(
+      {
+        version: 'v1',
+        event_id: '01HZZZZZZZZZZZZZZZZZZZZZB4',
+        ticket_key: 'CHAN-303',
+        phase: 'refine',
+        source: 'jira-mention',
+        ts: '2026-04-28T13:57:00.000Z',
+        instructions: 'y'.repeat(2500),
+      },
+      warn,
+    );
+    expect(warn).toHaveBeenCalledOnce();
+    expect(warn.mock.calls[0][0]).toMatch(
+      /\[ferry:envelope\] instructions truncated from 2500 to 2000 chars/,
+    );
   });
 });
