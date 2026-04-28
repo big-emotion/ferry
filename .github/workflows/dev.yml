@@ -26,12 +26,46 @@ jobs:
     name: Run Developer agent
     needs: [gate-envelope]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Placeholder — Developer agent (Story 4.1)
-        run: echo "Developer placeholder"
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: .ferry/package-lock.json
+
+      - name: Install Ferry action dependencies
+        shell: bash
+        run: npm ci --prefer-offline
+        working-directory: .ferry
+
+      - name: Skip Task tickets (FR6)
+        shell: bash
+        run: node .ferry/skip-task-type-action.js
+        env:
+          FERRY_ENVELOPE_PAYLOAD: ${{ toJson(github.event.client_payload) }}
+
+      - name: Run Developer agent
+        shell: bash
+        run: node .ferry/dev-action.js
+        env:
+          FERRY_ENVELOPE_PAYLOAD: ${{ toJson(github.event.client_payload) }}
+          FERRY_JIRA_BASE_URL: ${{ secrets.FERRY_JIRA_BASE_URL }}
+          FERRY_JIRA_EMAIL: ${{ secrets.FERRY_JIRA_EMAIL }}
+          FERRY_JIRA_API_TOKEN: ${{ secrets.FERRY_JIRA_API_TOKEN }}
+          FERRY_REVIEW_TRANSITION_ID: ${{ secrets.FERRY_REVIEW_TRANSITION_ID }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: ${{ github.repository }}
+          FERRY_MODEL: claude-sonnet-4-6
 
   emit-audit:
     name: Emit audit line
@@ -47,7 +81,7 @@ jobs:
           ticket: ${{ github.event.client_payload.ticket_key }}
           phase: dev
           run_id: ${{ github.event.client_payload.event_id }}
-          model: placeholder
+          model: claude-sonnet-4-6
           outcome: ${{ needs.run-agent.result }}
           input_tokens: '0'
           output_tokens: '0'
