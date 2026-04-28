@@ -34,6 +34,24 @@ const SYNTHETIC_RULE_IDS = new Set<string>(['ci-failure']);
 
 let cachedTaxonomy: Set<string> | undefined;
 
+/** FS read injection seam (overridable in tests via `setTaxonomyReader`). */
+let readTaxonomyFile: (path: string) => string = (p) => readFileSync(p, 'utf8');
+
+/** Test-only: replace the FS reader. Pair with `resetTaxonomyCache()`. */
+export function setTaxonomyReader(reader: (path: string) => string): void {
+  readTaxonomyFile = reader;
+}
+
+/** Test-only: restore the default `readFileSync` taxonomy reader. */
+export function restoreDefaultTaxonomyReader(): void {
+  readTaxonomyFile = (p) => readFileSync(p, 'utf8');
+}
+
+/** Test-only: clear the in-memory taxonomy cache so the next call re-reads. */
+export function resetTaxonomyCache(): void {
+  cachedTaxonomy = undefined;
+}
+
 function loadTaxonomy(): Set<string> {
   if (cachedTaxonomy) return cachedTaxonomy;
   const here = path.dirname(url.fileURLToPath(import.meta.url));
@@ -41,7 +59,7 @@ function loadTaxonomy(): Set<string> {
   const yamlPath = path.join(repoRoot, 'examples', 'reviewer-rules.yaml');
   const ids = new Set<string>();
   try {
-    const text = readFileSync(yamlPath, 'utf8');
+    const text = readTaxonomyFile(yamlPath);
     const re = /^\s*-\s*id:\s*([A-Za-z0-9_-]+)\s*$/gm;
     let match: RegExpExecArray | null;
     while ((match = re.exec(text)) !== null) {
