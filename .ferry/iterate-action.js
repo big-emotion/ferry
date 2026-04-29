@@ -10896,6 +10896,13 @@ async function main() {
     appendOutput({ input_tokens: 0, output_tokens: 0, model });
     return;
   }
+  execFileSync("git", ["fetch", "origin", "main"], { cwd: REPO_ROOT });
+  let mergeConflicts = [];
+  try {
+    execFileSync("git", ["merge", "origin/main", "--no-edit"], { cwd: REPO_ROOT });
+  } catch {
+    mergeConflicts = execSync2("git diff --name-only --diff-filter=U", { cwd: REPO_ROOT, encoding: "utf8" }).trim().split("\n").filter(Boolean);
+  }
   const existingLog = execSync2(
     "git log origin/main..HEAD --oneline",
     { cwd: REPO_ROOT, encoding: "utf8" }
@@ -10915,6 +10922,8 @@ ${description}`
     "## Review Findings (fix only what is listed here)",
     delimitUntrusted(reviewComment),
     "",
+    mergeConflicts.length > 0 ? `## Merge Conflicts (resolve these first, before fixing review findings)
+${mergeConflicts.map((f) => `- ${f}`).join("\n")}` : "",
     existingLog ? `## Existing commits on branch
 ${existingLog}` : "",
     "",

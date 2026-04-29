@@ -124,6 +124,15 @@ async function main(): Promise<void> {
     return;
   }
 
+  execFileSync('git', ['fetch', 'origin', 'main'], { cwd: REPO_ROOT });
+  let mergeConflicts: string[] = [];
+  try {
+    execFileSync('git', ['merge', 'origin/main', '--no-edit'], { cwd: REPO_ROOT });
+  } catch {
+    mergeConflicts = execSync('git diff --name-only --diff-filter=U', { cwd: REPO_ROOT, encoding: 'utf8' })
+      .trim().split('\n').filter(Boolean);
+  }
+
   const existingLog = execSync(
     'git log origin/main..HEAD --oneline',
     { cwd: REPO_ROOT, encoding: 'utf8' },
@@ -144,6 +153,9 @@ async function main(): Promise<void> {
     '## Review Findings (fix only what is listed here)',
     delimitUntrusted(reviewComment),
     '',
+    mergeConflicts.length > 0
+      ? `## Merge Conflicts (resolve these first, before fixing review findings)\n${mergeConflicts.map((f) => `- ${f}`).join('\n')}`
+      : '',
     existingLog ? `## Existing commits on branch\n${existingLog}` : '',
     '',
     'When you have fixed all findings, call the `done` tool.',
