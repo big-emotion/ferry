@@ -10931,7 +10931,7 @@ ${existingLog}` : "",
     }
   };
   process.env.FERRY_DEV_MAX_ITERATIONS ??= "30";
-  process.env.FERRY_DEV_MAX_INPUT_TOKENS ??= "200000";
+  process.env.FERRY_DEV_MAX_INPUT_TOKENS ??= "300000";
   const { done, usage, iterations } = await runAgentLoop({
     anthropic,
     model,
