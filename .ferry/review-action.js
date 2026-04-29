@@ -10434,15 +10434,8 @@ async function main() {
   }
   const octokit = new Octokit2({ auth: githubToken });
   const jira = createJiraRestClientFromEnv();
-  const idempotencyMarker = `[ferry:reviewer:${eventId}]`;
   const issue = await jira.getIssue(ticketKey);
   const existingComments = issue.fields.comment.comments.map((c) => adfToText(c.body));
-  const { skipped } = checkIdempotencyMarker(idempotencyMarker, existingComments);
-  if (skipped) {
-    console.error(`[ferry:review-action] already processed ${eventId}, skipping`);
-    appendOutput({ input_tokens: 0, output_tokens: 0, model });
-    return;
-  }
   const branchName = `ferry/${ticketKey}`;
   const { data: pulls } = await octokit.pulls.list({
     owner,
@@ -10452,10 +10445,14 @@ async function main() {
     per_page: 1
   });
   if (pulls.length === 0) {
-    await jira.postComment(
-      ticketKey,
-      textToAdf(`${idempotencyMarker} No open PR found for branch ${branchName}. Cannot review.`)
-    );
+    const errorMarker = `[ferry:reviewer:${eventId}]`;
+    const { skipped: skipped2 } = checkIdempotencyMarker(errorMarker, existingComments);
+    if (!skipped2) {
+      await jira.postComment(
+        ticketKey,
+        textToAdf(`${errorMarker} No open PR found for branch ${branchName}. Cannot review.`)
+      );
+    }
     appendOutput({ input_tokens: 0, output_tokens: 0, model });
     return;
   }
@@ -10463,6 +10460,13 @@ async function main() {
   const { data: pr } = await octokit.pulls.get({ owner, repo, pull_number: prNumber });
   const headSha = pr.head.sha;
   const mergeable = pr.mergeable;
+  const idempotencyMarker = `[ferry:reviewer:${headSha.slice(0, 7)}]`;
+  const { skipped } = checkIdempotencyMarker(idempotencyMarker, existingComments);
+  if (skipped) {
+    console.error(`[ferry:review-action] already processed ${headSha.slice(0, 7)}, skipping`);
+    appendOutput({ input_tokens: 0, output_tokens: 0, model });
+    return;
+  }
   const ciStatus = await resolveCiStatus(octokit, owner, repo, headSha);
   const ciOutcome = gateCi({ status: ciStatus });
   if (!ciOutcome.proceed) {

@@ -48,16 +48,8 @@ async function main(): Promise<void> {
   const octokit = new Octokit({ auth: githubToken });
   const jira = createJiraRestClientFromEnv();
 
-  const idempotencyMarker = `[ferry:reviewer:${eventId}]`;
-
   const issue = await jira.getIssue(ticketKey);
   const existingComments = issue.fields.comment.comments.map((c) => adfToText(c.body));
-  const { skipped } = checkIdempotencyMarker(idempotencyMarker, existingComments);
-  if (skipped) {
-    console.error(`[ferry:review-action] already processed ${eventId}, skipping`);
-    appendOutput({ input_tokens: 0, output_tokens: 0, model });
-    return;
-  }
 
   // Find PR for this ticket's branch
   const branchName = `ferry/${ticketKey}`;
@@ -70,10 +62,14 @@ async function main(): Promise<void> {
   });
 
   if (pulls.length === 0) {
-    await jira.postComment(
-      ticketKey,
-      textToAdf(`${idempotencyMarker} No open PR found for branch ${branchName}. Cannot review.`),
-    );
+    const errorMarker = `[ferry:reviewer:${eventId}]`;
+    const { skipped } = checkIdempotencyMarker(errorMarker, existingComments);
+    if (!skipped) {
+      await jira.postComment(
+        ticketKey,
+        textToAdf(`${errorMarker} No open PR found for branch ${branchName}. Cannot review.`),
+      );
+    }
     appendOutput({ input_tokens: 0, output_tokens: 0, model });
     return;
   }
@@ -83,6 +79,16 @@ async function main(): Promise<void> {
   const { data: pr } = await octokit.pulls.get({ owner, repo, pull_number: prNumber });
   const headSha = pr.head.sha;
   const mergeable = pr.mergeable;
+
+  // Idempotency keyed on head SHA — a new push always produces a new SHA,
+  // so the review runs fresh after each iteration regardless of event_id.
+  const idempotencyMarker = `[ferry:reviewer:${headSha.slice(0, 7)}]`;
+  const { skipped } = checkIdempotencyMarker(idempotencyMarker, existingComments);
+  if (skipped) {
+    console.error(`[ferry:review-action] already processed ${headSha.slice(0, 7)}, skipping`);
+    appendOutput({ input_tokens: 0, output_tokens: 0, model });
+    return;
+  }
 
   // CI gate
   const ciStatus = await resolveCiStatus(octokit, owner, repo, headSha);
