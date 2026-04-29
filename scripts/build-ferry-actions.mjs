@@ -38,13 +38,18 @@ await Promise.all([
     entryPoints: ['src/agents/reviewer/review-action.ts'],
     outfile: '.ferry/review-action.js',
   }),
+  build({
+    ...shared,
+    entryPoints: ['src/agents/iterator/iterate-action.ts'],
+    outfile: '.ferry/iterate-action.js',
+  }),
 ]);
 
 // The schema is loaded at runtime via createRequire(import.meta.url).
 // Copy it alongside the bundle and fix the relative path so the bundle
 // resolves it from .ferry/schemas/ instead of the source tree.
 copyFileSync('src/schemas/event.v1.schema.json', '.ferry/schemas/event.v1.schema.json');
-for (const f of ['validate-action.js', 'skip-task-type-action.js', 'dev-action.js', 'review-action.js']) {
+for (const f of ['validate-action.js', 'skip-task-type-action.js', 'dev-action.js', 'review-action.js', 'iterate-action.js']) {
   const p = `.ferry/${f}`;
   writeFileSync(p, readFileSync(p, 'utf8').replaceAll(
     '"../../schemas/event.v1.schema.json"',

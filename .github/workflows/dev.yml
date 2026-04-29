@@ -6,7 +6,7 @@ on:
 
 # cancel-in-progress: false — writes .ferry/state.json, branch, and PR; cancellation mid-commit = state/branch divergence
 concurrency:
-  group: ferry-${{ github.workflow }}-${{ github.event.client_payload.ticket_key || 'ferry-invalid-payload-sinkhole' }}
+  group: ferry-${{ github.workflow }}-${{ startsWith(github.event.client_payload.ticket_key, 'CHAN-') && github.event.client_payload.ticket_key || 'ferry-invalid-payload-sinkhole' }}
   cancel-in-progress: false
 
 jobs:
@@ -72,8 +72,8 @@ jobs:
           FERRY_JIRA_API_TOKEN: ${{ secrets.FERRY_JIRA_API_TOKEN }}
           FERRY_REVIEW_TRANSITION_ID: ${{ secrets.FERRY_REVIEW_TRANSITION_ID }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
           GITHUB_REPO: ${{ github.repository }}
           FERRY_MODEL: claude-sonnet-4-6
 
@@ -101,4 +101,4 @@ jobs:
           cost_eur: '0'
           start_ms: ${{ github.run_id }}
           audit_issue: ${{ vars.FERRY_AUDIT_ISSUE }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          github_token: ${{ github.token }}
