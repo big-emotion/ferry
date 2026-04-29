@@ -10881,6 +10881,7 @@ async function main() {
     appendOutput({ input_tokens: 0, output_tokens: 0, model });
     return;
   }
+  const system = readFileSync(SYSTEM_PROMPT_PATH, "utf8");
   execSync2('git config user.name "ferry-bot"', { cwd: REPO_ROOT });
   execSync2('git config user.email "ferry-bot@users.noreply.github.com"', { cwd: REPO_ROOT });
   try {
@@ -10919,7 +10920,6 @@ ${existingLog}` : "",
     "",
     "When you have fixed all findings, call the `done` tool."
   ].filter(Boolean).join("\n");
-  const system = readFileSync(SYSTEM_PROMPT_PATH, "utf8");
   const anthropic = new Anthropic({ apiKey: anthropicApiKey });
   const secretScan = async () => {
     const scanResult = await scanWithGitleaks({

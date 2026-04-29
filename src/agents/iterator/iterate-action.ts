@@ -106,6 +106,8 @@ async function main(): Promise<void> {
     return;
   }
 
+  const system = readFileSync(SYSTEM_PROMPT_PATH, 'utf8');
+
   execSync('git config user.name "ferry-bot"', { cwd: REPO_ROOT });
   execSync('git config user.email "ferry-bot@users.noreply.github.com"', { cwd: REPO_ROOT });
 
@@ -147,7 +149,6 @@ async function main(): Promise<void> {
     'When you have fixed all findings, call the `done` tool.',
   ].filter(Boolean).join('\n');
 
-  const system = readFileSync(SYSTEM_PROMPT_PATH, 'utf8');
   const anthropic = new Anthropic({ apiKey: anthropicApiKey });
 
   const secretScan = async () => {
