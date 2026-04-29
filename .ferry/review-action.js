@@ -10221,13 +10221,10 @@ function gateCi(input) {
   };
 }
 
-// src/agents/reviewer/review-action.ts
-var REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
-var SYSTEM_PROMPT_PATH = process.env.FERRY_PROMPT_PATH ?? path2.join(REPO_ROOT, "prompts", "review.md");
-var COMMENT_TEMPLATE_PATH = process.env.FERRY_REVIEW_TEMPLATE_PATH ?? path2.join(REPO_ROOT, "prompts", "review-comment.md");
-var MAX_ITERATIONS = 40;
+// src/agents/reviewer/review-loop.ts
 var MAX_PATCH_CHARS = 2e4;
 var MAX_CONTENT_CHARS = 4e4;
+var MAX_ITERATIONS = 40;
 var REVIEW_TOOLS = [
   {
     name: "get_file_patch",
@@ -10270,11 +10267,6 @@ var REVIEW_TOOLS = [
     }
   }
 ];
-function requireEnv(key) {
-  const val = process.env[key];
-  if (!val) throw new FerryError("state-invariant", { reason: "missing-env", key });
-  return val;
-}
 async function resolveCiStatus(octokit, owner, repo, sha) {
   const { data } = await octokit.checks.listForRef({ owner, repo, ref: sha, per_page: 100 });
   const runs = data.check_runs;
@@ -10416,6 +10408,16 @@ async function runReviewLoop(opts) {
     if (result) return { result, inputTokens, outputTokens };
   }
   throw new FerryError("state-invariant", { reason: "review-iteration-cap-exceeded", cap: MAX_ITERATIONS });
+}
+
+// src/agents/reviewer/review-action.ts
+var REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
+var SYSTEM_PROMPT_PATH = process.env.FERRY_PROMPT_PATH ?? path2.join(REPO_ROOT, "prompts", "review.md");
+var COMMENT_TEMPLATE_PATH = process.env.FERRY_REVIEW_TEMPLATE_PATH ?? path2.join(REPO_ROOT, "prompts", "review-comment.md");
+function requireEnv(key) {
+  const val = process.env[key];
+  if (!val) throw new FerryError("state-invariant", { reason: "missing-env", key });
+  return val;
 }
 async function main() {
   const rawPayload = requireEnv("FERRY_ENVELOPE_PAYLOAD");
