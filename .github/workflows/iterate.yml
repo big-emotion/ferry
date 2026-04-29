@@ -77,7 +77,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GITHUB_REPO: ${{ github.repository }}
           FERRY_ITER_MODEL: ${{ vars.FERRY_ITER_MODEL || 'claude-sonnet-4-6' }}
-          FERRY_DEV_MAX_INPUT_TOKENS: ${{ vars.FERRY_ITER_MAX_INPUT_TOKENS || '300000' }}
+          FERRY_DEV_MAX_INPUT_TOKENS: ${{ vars.FERRY_ITER_MAX_INPUT_TOKENS || '500000' }}
 
   emit-audit:
     name: Emit audit line

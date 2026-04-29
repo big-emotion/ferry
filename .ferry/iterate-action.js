@@ -10930,8 +10930,8 @@ ${existingLog}` : "",
       throw new FerryError("state-invariant", { reason: "secret-scan-hit", findings: scanResult.findings.length });
     }
   };
-  process.env.FERRY_DEV_MAX_ITERATIONS ??= "30";
-  process.env.FERRY_DEV_MAX_INPUT_TOKENS ??= "300000";
+  process.env.FERRY_DEV_MAX_ITERATIONS ??= "200";
+  process.env.FERRY_DEV_MAX_INPUT_TOKENS ??= "500000";
   const { done, usage, iterations } = await runAgentLoop({
     anthropic,
     model,
