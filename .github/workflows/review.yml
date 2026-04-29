@@ -30,6 +30,7 @@ jobs:
       contents: read
       pull-requests: write
       issues: write
+      checks: read
     outputs:
       input_tokens: ${{ steps.run-reviewer.outputs.input_tokens }}
       output_tokens: ${{ steps.run-reviewer.outputs.output_tokens }}

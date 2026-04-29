@@ -10004,7 +10004,7 @@ var FerryError = class extends Error {
 
 // src/lib/envelope/validate.ts
 var _require = createRequire(import.meta.url);
-var eventSchema = _require("../../schemas/event.v1.schema.json");
+var eventSchema = _require("./schemas/event.v1.schema.json");
 var ajvModule = _require("ajv/dist/2020");
 var ajvInstance = new ajvModule.Ajv2020({ strict: true });
 _require("ajv-formats").default(ajvInstance);
