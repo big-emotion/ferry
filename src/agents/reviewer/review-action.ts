@@ -15,6 +15,8 @@ import { FerryError } from '../../lib/error.js';
 const REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
 const SYSTEM_PROMPT_PATH =
   process.env.FERRY_PROMPT_PATH ?? path.join(REPO_ROOT, 'prompts', 'review.md');
+const COMMENT_TEMPLATE_PATH =
+  process.env.FERRY_REVIEW_TEMPLATE_PATH ?? path.join(REPO_ROOT, 'prompts', 'review-comment.md');
 
 const MAX_ITERATIONS = 40;
 const MAX_PATCH_CHARS = 20_000;
@@ -414,7 +416,12 @@ async function main(): Promise<void> {
     'When you have enough information, call finish_review.',
   ].filter((l) => l !== null).join('\n');
 
-  const system = readFileSync(SYSTEM_PROMPT_PATH, 'utf8');
+  const systemBase = readFileSync(SYSTEM_PROMPT_PATH, 'utf8');
+  let commentTemplate = '';
+  try { commentTemplate = readFileSync(COMMENT_TEMPLATE_PATH, 'utf8'); } catch { /* optional */ }
+  const system = commentTemplate
+    ? `${systemBase}\n\n---\n\n${commentTemplate}`
+    : systemBase;
   const anthropic = new Anthropic({ apiKey: anthropicApiKey });
 
   const { result: review, inputTokens, outputTokens } = await runReviewLoop({

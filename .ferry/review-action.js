@@ -10224,6 +10224,7 @@ function gateCi(input) {
 // src/agents/reviewer/review-action.ts
 var REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
 var SYSTEM_PROMPT_PATH = process.env.FERRY_PROMPT_PATH ?? path2.join(REPO_ROOT, "prompts", "review.md");
+var COMMENT_TEMPLATE_PATH = process.env.FERRY_REVIEW_TEMPLATE_PATH ?? path2.join(REPO_ROOT, "prompts", "review-comment.md");
 var MAX_ITERATIONS = 40;
 var MAX_PATCH_CHARS = 2e4;
 var MAX_CONTENT_CHARS = 4e4;
@@ -10530,7 +10531,17 @@ ${description}`
     "Use get_file_patch to inspect individual file diffs, get_file_content for full file contents.",
     "When you have enough information, call finish_review."
   ].filter((l) => l !== null).join("\n");
-  const system = readFileSync(SYSTEM_PROMPT_PATH, "utf8");
+  const systemBase = readFileSync(SYSTEM_PROMPT_PATH, "utf8");
+  let commentTemplate = "";
+  try {
+    commentTemplate = readFileSync(COMMENT_TEMPLATE_PATH, "utf8");
+  } catch {
+  }
+  const system = commentTemplate ? `${systemBase}
+
+---
+
+${commentTemplate}` : systemBase;
   const anthropic = new Anthropic({ apiKey: anthropicApiKey });
   const { result: review, inputTokens, outputTokens } = await runReviewLoop({
     anthropic,
