@@ -37,7 +37,7 @@ export async function runAgentLoop(opts: {
   const { anthropic, model, system, initialPrompt, repoRoot, branchName, secretScan, depth = 0 } = opts;
   const maxIterations = parseInt(process.env.FERRY_DEV_MAX_ITERATIONS ?? '200', 10);
   const maxInputTokens = parseInt(process.env.FERRY_DEV_MAX_INPUT_TOKENS ?? '500000', 10);
-  const maxTokens = parseInt(process.env.FERRY_DEV_MAX_TOKENS ?? '2048', 10);
+  const maxTokens = parseInt(process.env.FERRY_DEV_MAX_TOKENS ?? '16384', 10);
 
   const allToolSchemas = [
     ...TOOL_SCHEMAS,
