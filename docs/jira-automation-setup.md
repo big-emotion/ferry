@@ -143,7 +143,7 @@ Trigger: ticket moved to **"Refine"** (or "Ready to Refine" — whatever your bo
   "event_type": "ferry-refine",
   "client_payload": {
     "version": "v1",
-    "event_id": "{{now.toMillis}}-{{issue.key}}",
+    "event_id": "{{now}}-{{issue.key}}",
     "ticket_key": "{{issue.key}}",
     "phase": "refine",
     "source": "jira-column",
@@ -164,7 +164,7 @@ Trigger: ticket moved to **"In Progress"** (or "Dev").
   "event_type": "ferry-dev",
   "client_payload": {
     "version": "v1",
-    "event_id": "{{now.toMillis}}-{{issue.key}}",
+    "event_id": "{{now}}-{{issue.key}}",
     "ticket_key": "{{issue.key}}",
     "phase": "dev",
     "source": "jira-column",
@@ -187,7 +187,7 @@ Trigger: ticket moved to **"In Review"**.
   "event_type": "ferry-review",
   "client_payload": {
     "version": "v1",
-    "event_id": "{{now.toMillis}}-{{issue.key}}",
+    "event_id": "{{now}}-{{issue.key}}",
     "ticket_key": "{{issue.key}}",
     "phase": "review",
     "source": "jira-column",
@@ -208,7 +208,7 @@ Trigger: ticket moved to **"Changes Requested"** (or "Iterate").
   "event_type": "ferry-iterate",
   "client_payload": {
     "version": "v1",
-    "event_id": "{{now.toMillis}}-{{issue.key}}",
+    "event_id": "{{now}}-{{issue.key}}",
     "ticket_key": "{{issue.key}}",
     "phase": "iterate",
     "source": "jira-column",

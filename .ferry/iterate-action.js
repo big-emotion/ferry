@@ -10825,15 +10825,8 @@ async function main() {
   }
   const octokit = new Octokit2({ auth: githubToken });
   const jira = createJiraRestClientFromEnv();
-  const idempotencyMarker = `[ferry:iterator:${eventId}]`;
   const issue = await jira.getIssue(ticketKey);
   const existingComments = issue.fields.comment.comments.map((c) => adfToText(c.body));
-  const { skipped } = checkIdempotencyMarker(idempotencyMarker, existingComments);
-  if (skipped) {
-    console.error(`[ferry:iterate-action] already processed ${eventId}, skipping`);
-    appendOutput({ input_tokens: 0, output_tokens: 0, model });
-    return;
-  }
   const priorIterations = existingComments.filter(
     (c) => c.includes("[ferry:iterator:") && c.includes("complete. Pushed fixes to PR#")
   ).length;
@@ -10847,10 +10840,14 @@ async function main() {
     per_page: 1
   });
   if (pulls.length === 0) {
-    await jira.postComment(
-      ticketKey,
-      textToAdf(`${idempotencyMarker} No open PR found for branch ${branchName}. Cannot iterate.`)
-    );
+    const eventMarker = `[ferry:iterator:${eventId}]`;
+    const { skipped: skipped2 } = checkIdempotencyMarker(eventMarker, existingComments);
+    if (!skipped2) {
+      await jira.postComment(
+        ticketKey,
+        textToAdf(`${eventMarker} No open PR found for branch ${branchName}. Cannot iterate.`)
+      );
+    }
     appendOutput({ input_tokens: 0, output_tokens: 0, model });
     return;
   }
@@ -10865,14 +10862,26 @@ async function main() {
   });
   const reviewComments = recentComments.filter((c) => c.body?.includes("[ferry:reviewer:"));
   if (reviewComments.length === 0) {
-    await jira.postComment(
-      ticketKey,
-      textToAdf(`${idempotencyMarker} No review comment found on PR#${prNumber}. Cannot iterate.`)
-    );
+    const eventMarker = `[ferry:iterator:${eventId}]`;
+    const { skipped: skipped2 } = checkIdempotencyMarker(eventMarker, existingComments);
+    if (!skipped2) {
+      await jira.postComment(
+        ticketKey,
+        textToAdf(`${eventMarker} No review comment found on PR#${prNumber}. Cannot iterate.`)
+      );
+    }
     appendOutput({ input_tokens: 0, output_tokens: 0, model });
     return;
   }
-  const reviewComment = reviewComments[0].body ?? "";
+  const latestReview = reviewComments[0];
+  const idempotencyMarker = `[ferry:iterator:${latestReview.id}]`;
+  const { skipped } = checkIdempotencyMarker(idempotencyMarker, existingComments);
+  if (skipped) {
+    console.error(`[ferry:iterate-action] review comment ${latestReview.id} already handled, skipping`);
+    appendOutput({ input_tokens: 0, output_tokens: 0, model });
+    return;
+  }
+  const reviewComment = latestReview.body ?? "";
   if (/\*\*Verdict\*\*:\s*Approved\b/.test(reviewComment)) {
     await jira.postComment(
       ticketKey,
