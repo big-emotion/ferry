@@ -1,6 +1,6 @@
 // src/agents/developer/dev-action.ts
 import { appendFileSync, readFileSync } from "node:fs";
-import { execFileSync, execSync } from "node:child_process";
+import { execFileSync, execSync as execSync2 } from "node:child_process";
 import * as path4 from "node:path";
 
 // node_modules/@anthropic-ai/sdk/internal/tslib.mjs
@@ -6507,6 +6507,9 @@ function formatPullRequestBody(input) {
   ].join("\n");
 }
 
+// src/agents/developer/loop.ts
+import { execSync } from "node:child_process";
+
 // src/agents/developer/tools.ts
 import * as fs from "node:fs";
 import * as fsp from "node:fs/promises";
@@ -6681,14 +6684,35 @@ var TOOL_SCHEMAS = [
       properties: {
         actionable: { type: "boolean", description: "true if changes were made, false if ticket cannot be implemented." },
         summary: { type: "string", description: "One sentence describing what was implemented." },
-        commit_message: { type: "string", description: "Conventional commit message (required when actionable: true)." },
-        branch_name: { type: "string", description: "Descriptive branch name, e.g. feat/PROJ-123-add-login (required when actionable: true)." },
+        commit_message: { type: "string", description: "Conventional commit message for any remaining uncommitted changes (required when actionable: true)." },
         reason_if_not_actionable: { type: "string", description: "Reason the ticket cannot be implemented (required when actionable: false)." }
       },
       required: ["actionable", "summary"]
     }
   }
 ];
+var COMMIT_PROGRESS_SCHEMA = {
+  name: "commit_progress",
+  description: "Stage all changes, run a secret scan, commit, and push to the working branch as a checkpoint. Call after completing each logical subtask \u2014 if the job fails later, the next run resumes from this commit.",
+  input_schema: {
+    type: "object",
+    properties: {
+      message: { type: "string", description: "Commit message in conventional commits format." }
+    },
+    required: ["message"]
+  }
+};
+var SPAWN_SUBAGENT_SCHEMA = {
+  name: "spawn_subagent",
+  description: "Delegate a self-contained subtask to a sub-agent with a fresh context window. The sub-agent has the same tools (except spawn_subagent) and works on the same branch. Use to keep each chunk of work focused and within token limits.",
+  input_schema: {
+    type: "object",
+    properties: {
+      task: { type: "string", description: "Full, self-contained description of the subtask. Include all context the sub-agent needs to complete it independently." }
+    },
+    required: ["task"]
+  }
+};
 function buildTree(dirPath, maxDepth, currentDepth, prefix) {
   if (currentDepth > maxDepth) return "";
   let result = "";
@@ -6835,15 +6859,20 @@ function runProcess(cmd, args, cwd, timeoutMs) {
 
 // src/agents/developer/loop.ts
 async function runAgentLoop(opts) {
-  const { anthropic, model, system, initialPrompt, repoRoot } = opts;
+  const { anthropic, model, system, initialPrompt, repoRoot, branchName, secretScan, depth = 0 } = opts;
   const maxIterations = parseInt(process.env.FERRY_DEV_MAX_ITERATIONS ?? "200", 10);
   const maxInputTokens = parseInt(process.env.FERRY_DEV_MAX_INPUT_TOKENS ?? "500000", 10);
   const maxTokens = parseInt(process.env.FERRY_DEV_MAX_TOKENS ?? "2048", 10);
+  const allToolSchemas = [
+    ...TOOL_SCHEMAS,
+    COMMIT_PROGRESS_SCHEMA,
+    ...depth === 0 ? [SPAWN_SUBAGENT_SCHEMA] : []
+  ];
   const systemBlocks = [
     { type: "text", text: system, cache_control: { type: "ephemeral" } }
   ];
-  const tools = TOOL_SCHEMAS.map(
-    (t, i) => i === TOOL_SCHEMAS.length - 1 ? { ...t, cache_control: { type: "ephemeral" } } : t
+  const tools = allToolSchemas.map(
+    (t, i) => i === allToolSchemas.length - 1 ? { ...t, cache_control: { type: "ephemeral" } } : t
   );
   const messages = [
     {
@@ -6883,7 +6912,7 @@ async function runAgentLoop(opts) {
     usage.cache_read_input_tokens += response.usage.cache_read_input_tokens ?? 0;
     messages.push({ role: "assistant", content: response.content });
     console.error(
-      `[ferry:dev-loop] iter=${iter} stop_reason=${response.stop_reason} tools=${response.content.filter((b) => b.type === "tool_use").length} in=${response.usage.input_tokens} cache_w=${response.usage.cache_creation_input_tokens ?? 0} cache_r=${response.usage.cache_read_input_tokens ?? 0} out=${response.usage.output_tokens}`
+      `[ferry:dev-loop] depth=${depth} iter=${iter} stop_reason=${response.stop_reason} tools=${response.content.filter((b) => b.type === "tool_use").length} in=${response.usage.input_tokens} cache_w=${response.usage.cache_creation_input_tokens ?? 0} cache_r=${response.usage.cache_read_input_tokens ?? 0} out=${response.usage.output_tokens}`
     );
     for (const block of response.content) {
       if (block.type === "text" && block.text.trim()) {
@@ -6901,9 +6930,62 @@ async function runAgentLoop(opts) {
         toolResults.push({ type: "tool_result", tool_use_id: block.id, content: "ok" });
         continue;
       }
+      if (block.name === "commit_progress") {
+        const { message } = block.input;
+        console.error(`[ferry:dev-tool] depth=${depth} iter=${iter} tool=commit_progress arg=${message.slice(0, 120)}`);
+        try {
+          execSync("git add -A", { cwd: repoRoot });
+          const status = execSync("git status --porcelain", { cwd: repoRoot, encoding: "utf8" });
+          if (!status.trim()) {
+            toolResults.push({ type: "tool_result", tool_use_id: block.id, content: "nothing to commit" });
+          } else {
+            await secretScan();
+            execSync(`git commit -m ${JSON.stringify(message)}`, { cwd: repoRoot });
+            execSync(`git push origin ${branchName} --force-with-lease`, { cwd: repoRoot });
+            console.error(`[ferry:dev-action] checkpoint: ${message.slice(0, 80)}`);
+            toolResults.push({ type: "tool_result", tool_use_id: block.id, content: "committed and pushed" });
+          }
+        } catch (e) {
+          toolResults.push({ type: "tool_result", tool_use_id: block.id, content: e.message, is_error: true });
+        }
+        continue;
+      }
+      if (block.name === "spawn_subagent") {
+        const { task } = block.input;
+        console.error(`[ferry:dev-tool] depth=${depth} iter=${iter} tool=spawn_subagent arg=${task.slice(0, 120)}`);
+        try {
+          const subResult = await runAgentLoop({
+            anthropic,
+            model,
+            system,
+            initialPrompt: task,
+            repoRoot,
+            branchName,
+            secretScan,
+            depth: depth + 1
+          });
+          usage.input_tokens += subResult.usage.input_tokens;
+          usage.output_tokens += subResult.usage.output_tokens;
+          usage.cache_creation_input_tokens += subResult.usage.cache_creation_input_tokens;
+          usage.cache_read_input_tokens += subResult.usage.cache_read_input_tokens;
+          if (!subResult.done.actionable) {
+            toolResults.push({
+              type: "tool_result",
+              tool_use_id: block.id,
+              content: `Sub-agent could not complete task: ${subResult.done.reason_if_not_actionable ?? "no reason given"}`,
+              is_error: true
+            });
+          } else {
+            toolResults.push({ type: "tool_result", tool_use_id: block.id, content: subResult.done.summary });
+          }
+        } catch (e) {
+          toolResults.push({ type: "tool_result", tool_use_id: block.id, content: e.message, is_error: true });
+        }
+        continue;
+      }
       const input = block.input;
       const argHint = input.path ?? input.source ?? input.command ?? input.pattern ?? "";
-      console.error(`[ferry:dev-tool] iter=${iter} tool=${block.name}${argHint ? ` arg=${String(argHint).slice(0, 120)}` : ""}`);
+      console.error(`[ferry:dev-tool] depth=${depth} iter=${iter} tool=${block.name}${argHint ? ` arg=${String(argHint).slice(0, 120)}` : ""}`);
       try {
         const result = await executeTool(repoRoot, block.name, input);
         toolResults.push({ type: "tool_result", tool_use_id: block.id, content: result });
@@ -6989,11 +7071,6 @@ function repoTree(repoRoot) {
     return "(unavailable)";
   }
 }
-function sanitizeBranchName(raw, ticketKey) {
-  if (!raw) return `ferry/${ticketKey}`;
-  const sanitized = raw.replace(/[^a-zA-Z0-9/_.-]/g, "-").slice(0, 100);
-  return sanitized || `ferry/${ticketKey}`;
-}
 async function main() {
   const rawPayload = requireEnv("FERRY_ENVELOPE_PAYLOAD");
   const envelope = validateEnvelope(JSON.parse(rawPayload));
@@ -7036,12 +7113,45 @@ ${tree}`,
   const system = readFileSync(SYSTEM_PROMPT_PATH, "utf8");
   const anthropic = new Anthropic({ apiKey: anthropicApiKey });
   const model = process.env.FERRY_DEV_MODEL ?? "claude-opus-4-5";
+  const branchName = `ferry/${ticketKey}`;
+  execSync2('git config user.name "ferry-bot"', { cwd: REPO_ROOT });
+  execSync2('git config user.email "ferry-bot@users.noreply.github.com"', { cwd: REPO_ROOT });
+  let resumeContext = "";
+  try {
+    execSync2(`git ls-remote --exit-code --heads origin ${branchName}`, { cwd: REPO_ROOT, stdio: "pipe" });
+    execSync2(`git fetch origin ${branchName}`, { cwd: REPO_ROOT });
+    execSync2(`git checkout ${branchName}`, { cwd: REPO_ROOT });
+    const existingLog = execSync2(
+      "git log origin/main..HEAD --oneline",
+      { cwd: REPO_ROOT, encoding: "utf8" }
+    ).trim();
+    if (existingLog) {
+      resumeContext = `
+EXISTING WORK ON BRANCH (already committed \u2014 skip these, only do what remains):
+${existingLog}`;
+      console.error(`[ferry:dev-action] resuming branch ${branchName} \u2014 ${existingLog.split("\n").length} prior commit(s)`);
+    }
+  } catch {
+    execSync2(`git checkout -B ${branchName}`, { cwd: REPO_ROOT });
+    console.error(`[ferry:dev-action] created branch ${branchName}`);
+  }
+  const secretScan = async () => {
+    const scanResult = await scanWithGitleaks({
+      path: REPO_ROOT,
+      binaryPath: process.env.GITLEAKS_PATH ?? "gitleaks"
+    });
+    if (scanResult.leaksFound) {
+      throw new FerryError("state-invariant", { reason: "secret-scan-hit", findings: scanResult.findings.length });
+    }
+  };
   const { done, usage, iterations } = await runAgentLoop({
     anthropic,
     model,
     system,
-    initialPrompt,
-    repoRoot: REPO_ROOT
+    initialPrompt: initialPrompt + resumeContext,
+    repoRoot: REPO_ROOT,
+    branchName,
+    secretScan
   });
   console.error(`[ferry:dev-action] done in ${iterations} iterations \u2014 actionable=${done.actionable} in=${usage.input_tokens} cache_w=${usage.cache_creation_input_tokens} cache_r=${usage.cache_read_input_tokens} out=${usage.output_tokens}`);
   const idempotencyMarker = `[ferry:dev:${eventId}]`;
@@ -7067,28 +7177,18 @@ ${tree}`,
     appendOutput(usage);
     process.exit(0);
   }
-  const branchName = sanitizeBranchName(done.branch_name ?? "", ticketKey);
   const commitMessage = formatDeveloperCommit({
     ticketKey,
     runId: eventId,
     summary: done.summary
   });
-  execSync('git config user.name "ferry-bot"', { cwd: REPO_ROOT });
-  execSync('git config user.email "ferry-bot@users.noreply.github.com"', { cwd: REPO_ROOT });
-  execSync(`git checkout -B ${branchName}`, { cwd: REPO_ROOT });
-  execSync("git add -A", { cwd: REPO_ROOT });
-  const scanResult = await scanWithGitleaks({
-    path: REPO_ROOT,
-    binaryPath: process.env.GITLEAKS_PATH ?? "gitleaks"
-  });
-  if (scanResult.leaksFound) {
-    throw new FerryError("state-invariant", {
-      reason: "secret-scan-hit",
-      findings: scanResult.findings.length
-    });
+  execSync2("git add -A", { cwd: REPO_ROOT });
+  const finalStatus = execSync2("git status --porcelain", { cwd: REPO_ROOT, encoding: "utf8" });
+  if (finalStatus.trim()) {
+    await secretScan();
+    execSync2(`git commit -m ${JSON.stringify(done.commit_message ?? commitMessage)}`, { cwd: REPO_ROOT });
   }
-  execSync(`git commit -m ${JSON.stringify(commitMessage)}`, { cwd: REPO_ROOT });
-  execSync(`git push origin ${branchName} --force-with-lease`, { cwd: REPO_ROOT });
+  execSync2(`git push origin ${branchName} --force-with-lease`, { cwd: REPO_ROOT });
   const prTitle = formatPullRequestTitle({ ticketKey, summary: done.summary });
   const prBody = formatPullRequestBody({
     ticketKey,

@@ -54,7 +54,7 @@ describe('runAgentLoop', () => {
     ]);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const result = await runAgentLoop({ anthropic: anthropic as any, model: 'm', system: 's', initialPrompt: 'p', repoRoot: '/r' });
+    const result = await runAgentLoop({ anthropic: anthropic as any, model: 'm', system: 's', initialPrompt: 'p', repoRoot: '/r', branchName: 'ferry/TEST-1', secretScan: async () => {} });
 
     expect(result.done.actionable).toBe(true);
     expect(result.done.summary).toBe('Added login button');
@@ -80,7 +80,7 @@ describe('runAgentLoop', () => {
     ]);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const result = await runAgentLoop({ anthropic: anthropic as any, model: 'm', system: 's', initialPrompt: 'p', repoRoot: '/r' });
+    const result = await runAgentLoop({ anthropic: anthropic as any, model: 'm', system: 's', initialPrompt: 'p', repoRoot: '/r', branchName: 'ferry/TEST-1', secretScan: async () => {} });
 
     expect(result.usage.input_tokens).toBe(300);
     expect(result.usage.output_tokens).toBe(130);
@@ -117,7 +117,7 @@ describe('runAgentLoop', () => {
     };
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await runAgentLoop({ anthropic: anthropic as any, model: 'm', system: 's', initialPrompt: 'p', repoRoot: '/r' });
+    await runAgentLoop({ anthropic: anthropic as any, model: 'm', system: 's', initialPrompt: 'p', repoRoot: '/r', branchName: 'ferry/TEST-1', secretScan: async () => {} });
 
     expect(capturedToolResults).not.toBeNull();
     expect(capturedToolResults).toContainEqual(
@@ -135,7 +135,7 @@ describe('runAgentLoop', () => {
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await expect(
-      runAgentLoop({ anthropic: anthropic as any, model: 'm', system: 's', initialPrompt: 'p', repoRoot: '/r' }),
+      runAgentLoop({ anthropic: anthropic as any, model: 'm', system: 's', initialPrompt: 'p', repoRoot: '/r', branchName: 'ferry/TEST-1', secretScan: async () => {} }),
     ).rejects.toThrow(FerryError);
   });
 
@@ -157,7 +157,7 @@ describe('runAgentLoop', () => {
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await expect(
-      runAgentLoop({ anthropic: anthropic as any, model: 'm', system: 's', initialPrompt: 'p', repoRoot: '/r' }),
+      runAgentLoop({ anthropic: anthropic as any, model: 'm', system: 's', initialPrompt: 'p', repoRoot: '/r', branchName: 'ferry/TEST-1', secretScan: async () => {} }),
     ).rejects.toMatchObject({ code: 'state-invariant' });
   });
 });

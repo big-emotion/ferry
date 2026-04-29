@@ -1,13 +1,13 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { execSync } from 'node:child_process';
 import type { MessageParam, ContentBlock, ToolResultBlockParam } from '@anthropic-ai/sdk/resources/messages.js';
 import { FerryError } from '../../lib/error.js';
-import { TOOL_SCHEMAS, executeTool, type ToolName } from './tools.js';
+import { TOOL_SCHEMAS, COMMIT_PROGRESS_SCHEMA, SPAWN_SUBAGENT_SCHEMA, executeTool, type ToolName } from './tools.js';
 
 export interface DonePayload {
   actionable: boolean;
   summary: string;
   commit_message?: string;
-  branch_name?: string;
   reason_if_not_actionable?: string;
 }
 
@@ -30,18 +30,27 @@ export async function runAgentLoop(opts: {
   system: string;
   initialPrompt: string;
   repoRoot: string;
+  branchName: string;
+  secretScan: () => Promise<void>;
+  depth?: number;
 }): Promise<LoopResult> {
-  const { anthropic, model, system, initialPrompt, repoRoot } = opts;
+  const { anthropic, model, system, initialPrompt, repoRoot, branchName, secretScan, depth = 0 } = opts;
   const maxIterations = parseInt(process.env.FERRY_DEV_MAX_ITERATIONS ?? '200', 10);
   const maxInputTokens = parseInt(process.env.FERRY_DEV_MAX_INPUT_TOKENS ?? '500000', 10);
   const maxTokens = parseInt(process.env.FERRY_DEV_MAX_TOKENS ?? '2048', 10);
+
+  const allToolSchemas = [
+    ...TOOL_SCHEMAS,
+    COMMIT_PROGRESS_SCHEMA,
+    ...(depth === 0 ? [SPAWN_SUBAGENT_SCHEMA] : []),
+  ];
 
   // Cached system prompt + tools — static across the run, marked once.
   const systemBlocks = [
     { type: 'text' as const, text: system, cache_control: { type: 'ephemeral' as const } },
   ];
-  const tools = TOOL_SCHEMAS.map((t, i) =>
-    i === TOOL_SCHEMAS.length - 1
+  const tools = allToolSchemas.map((t, i) =>
+    i === allToolSchemas.length - 1
       ? { ...t, cache_control: { type: 'ephemeral' as const } }
       : t,
   );
@@ -90,7 +99,7 @@ export async function runAgentLoop(opts: {
     messages.push({ role: 'assistant', content: response.content as ContentBlock[] });
 
     console.error(
-      `[ferry:dev-loop] iter=${iter} stop_reason=${response.stop_reason} tools=${response.content.filter((b) => b.type === 'tool_use').length} in=${response.usage.input_tokens} cache_w=${response.usage.cache_creation_input_tokens ?? 0} cache_r=${response.usage.cache_read_input_tokens ?? 0} out=${response.usage.output_tokens}`,
+      `[ferry:dev-loop] depth=${depth} iter=${iter} stop_reason=${response.stop_reason} tools=${response.content.filter((b) => b.type === 'tool_use').length} in=${response.usage.input_tokens} cache_w=${response.usage.cache_creation_input_tokens ?? 0} cache_r=${response.usage.cache_read_input_tokens ?? 0} out=${response.usage.output_tokens}`,
     );
 
     for (const block of response.content) {
@@ -114,9 +123,59 @@ export async function runAgentLoop(opts: {
         continue;
       }
 
+      if (block.name === 'commit_progress') {
+        const { message } = block.input as { message: string };
+        console.error(`[ferry:dev-tool] depth=${depth} iter=${iter} tool=commit_progress arg=${message.slice(0, 120)}`);
+        try {
+          execSync('git add -A', { cwd: repoRoot });
+          const status = execSync('git status --porcelain', { cwd: repoRoot, encoding: 'utf8' });
+          if (!status.trim()) {
+            toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: 'nothing to commit' });
+          } else {
+            await secretScan();
+            execSync(`git commit -m ${JSON.stringify(message)}`, { cwd: repoRoot });
+            execSync(`git push origin ${branchName} --force-with-lease`, { cwd: repoRoot });
+            console.error(`[ferry:dev-action] checkpoint: ${message.slice(0, 80)}`);
+            toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: 'committed and pushed' });
+          }
+        } catch (e) {
+          toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: (e as Error).message, is_error: true });
+        }
+        continue;
+      }
+
+      if (block.name === 'spawn_subagent') {
+        const { task } = block.input as { task: string };
+        console.error(`[ferry:dev-tool] depth=${depth} iter=${iter} tool=spawn_subagent arg=${task.slice(0, 120)}`);
+        try {
+          const subResult = await runAgentLoop({
+            anthropic, model, system,
+            initialPrompt: task,
+            repoRoot, branchName, secretScan,
+            depth: depth + 1,
+          });
+          usage.input_tokens += subResult.usage.input_tokens;
+          usage.output_tokens += subResult.usage.output_tokens;
+          usage.cache_creation_input_tokens += subResult.usage.cache_creation_input_tokens;
+          usage.cache_read_input_tokens += subResult.usage.cache_read_input_tokens;
+          if (!subResult.done.actionable) {
+            toolResults.push({
+              type: 'tool_result', tool_use_id: block.id,
+              content: `Sub-agent could not complete task: ${subResult.done.reason_if_not_actionable ?? 'no reason given'}`,
+              is_error: true,
+            });
+          } else {
+            toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: subResult.done.summary });
+          }
+        } catch (e) {
+          toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: (e as Error).message, is_error: true });
+        }
+        continue;
+      }
+
       const input = block.input as Record<string, unknown>;
       const argHint = input.path ?? input.source ?? input.command ?? input.pattern ?? '';
-      console.error(`[ferry:dev-tool] iter=${iter} tool=${block.name}${argHint ? ` arg=${String(argHint).slice(0, 120)}` : ''}`);
+      console.error(`[ferry:dev-tool] depth=${depth} iter=${iter} tool=${block.name}${argHint ? ` arg=${String(argHint).slice(0, 120)}` : ''}`);
 
       try {
         const result = await executeTool(repoRoot, block.name as ToolName, input);

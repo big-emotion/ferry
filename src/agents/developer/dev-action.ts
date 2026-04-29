@@ -66,11 +66,6 @@ function repoTree(repoRoot: string): string {
   }
 }
 
-function sanitizeBranchName(raw: string, ticketKey: string): string {
-  if (!raw) return `ferry/${ticketKey}`;
-  const sanitized = raw.replace(/[^a-zA-Z0-9/_.-]/g, '-').slice(0, 100);
-  return sanitized || `ferry/${ticketKey}`;
-}
 
 async function main(): Promise<void> {
   const rawPayload = requireEnv('FERRY_ENVELOPE_PAYLOAD');
@@ -121,12 +116,48 @@ async function main(): Promise<void> {
   const anthropic = new Anthropic({ apiKey: anthropicApiKey });
   const model = process.env.FERRY_DEV_MODEL ?? 'claude-opus-4-5';
 
+  // Branch is determined upfront from the ticket key so restarts resume the same branch.
+  const branchName = `ferry/${ticketKey}`;
+
+  execSync('git config user.name "ferry-bot"', { cwd: REPO_ROOT });
+  execSync('git config user.email "ferry-bot@users.noreply.github.com"', { cwd: REPO_ROOT });
+
+  let resumeContext = '';
+  try {
+    execSync(`git ls-remote --exit-code --heads origin ${branchName}`, { cwd: REPO_ROOT, stdio: 'pipe' });
+    execSync(`git fetch origin ${branchName}`, { cwd: REPO_ROOT });
+    execSync(`git checkout ${branchName}`, { cwd: REPO_ROOT });
+    const existingLog = execSync(
+      'git log origin/main..HEAD --oneline',
+      { cwd: REPO_ROOT, encoding: 'utf8' },
+    ).trim();
+    if (existingLog) {
+      resumeContext = `\nEXISTING WORK ON BRANCH (already committed — skip these, only do what remains):\n${existingLog}`;
+      console.error(`[ferry:dev-action] resuming branch ${branchName} — ${existingLog.split('\n').length} prior commit(s)`);
+    }
+  } catch {
+    execSync(`git checkout -B ${branchName}`, { cwd: REPO_ROOT });
+    console.error(`[ferry:dev-action] created branch ${branchName}`);
+  }
+
+  const secretScan = async () => {
+    const scanResult = await scanWithGitleaks({
+      path: REPO_ROOT,
+      binaryPath: process.env.GITLEAKS_PATH ?? 'gitleaks',
+    });
+    if (scanResult.leaksFound) {
+      throw new FerryError('state-invariant', { reason: 'secret-scan-hit', findings: scanResult.findings.length });
+    }
+  };
+
   const { done, usage, iterations } = await runAgentLoop({
     anthropic,
     model,
     system,
-    initialPrompt,
+    initialPrompt: initialPrompt + resumeContext,
     repoRoot: REPO_ROOT,
+    branchName,
+    secretScan,
   });
 
   console.error(`[ferry:dev-action] done in ${iterations} iterations — actionable=${done.actionable} in=${usage.input_tokens} cache_w=${usage.cache_creation_input_tokens} cache_r=${usage.cache_read_input_tokens} out=${usage.output_tokens}`);
@@ -156,32 +187,19 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  // actionable: commit and push
-  const branchName = sanitizeBranchName(done.branch_name ?? '', ticketKey);
+  // actionable: commit any remaining changes and push
   const commitMessage = formatDeveloperCommit({
     ticketKey,
     runId: eventId,
     summary: done.summary,
   });
 
-  execSync('git config user.name "ferry-bot"', { cwd: REPO_ROOT });
-  execSync('git config user.email "ferry-bot@users.noreply.github.com"', { cwd: REPO_ROOT });
-  execSync(`git checkout -B ${branchName}`, { cwd: REPO_ROOT });
   execSync('git add -A', { cwd: REPO_ROOT });
-
-  // Secret scan on staged content
-  const scanResult = await scanWithGitleaks({
-    path: REPO_ROOT,
-    binaryPath: process.env.GITLEAKS_PATH ?? 'gitleaks',
-  });
-  if (scanResult.leaksFound) {
-    throw new FerryError('state-invariant', {
-      reason: 'secret-scan-hit',
-      findings: scanResult.findings.length,
-    });
+  const finalStatus = execSync('git status --porcelain', { cwd: REPO_ROOT, encoding: 'utf8' });
+  if (finalStatus.trim()) {
+    await secretScan();
+    execSync(`git commit -m ${JSON.stringify(done.commit_message ?? commitMessage)}`, { cwd: REPO_ROOT });
   }
-
-  execSync(`git commit -m ${JSON.stringify(commitMessage)}`, { cwd: REPO_ROOT });
   execSync(`git push origin ${branchName} --force-with-lease`, { cwd: REPO_ROOT });
 
   const prTitle = formatPullRequestTitle({ ticketKey, summary: done.summary });

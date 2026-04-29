@@ -126,14 +126,37 @@ export const TOOL_SCHEMAS: Tool[] = [
       properties: {
         actionable: { type: 'boolean', description: 'true if changes were made, false if ticket cannot be implemented.' },
         summary: { type: 'string', description: 'One sentence describing what was implemented.' },
-        commit_message: { type: 'string', description: 'Conventional commit message (required when actionable: true).' },
-        branch_name: { type: 'string', description: 'Descriptive branch name, e.g. feat/PROJ-123-add-login (required when actionable: true).' },
+        commit_message: { type: 'string', description: 'Conventional commit message for any remaining uncommitted changes (required when actionable: true).' },
         reason_if_not_actionable: { type: 'string', description: 'Reason the ticket cannot be implemented (required when actionable: false).' },
       },
       required: ['actionable', 'summary'],
     },
   },
 ];
+
+export const COMMIT_PROGRESS_SCHEMA: Tool = {
+  name: 'commit_progress',
+  description: 'Stage all changes, run a secret scan, commit, and push to the working branch as a checkpoint. Call after completing each logical subtask — if the job fails later, the next run resumes from this commit.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      message: { type: 'string', description: 'Commit message in conventional commits format.' },
+    },
+    required: ['message'],
+  },
+};
+
+export const SPAWN_SUBAGENT_SCHEMA: Tool = {
+  name: 'spawn_subagent',
+  description: 'Delegate a self-contained subtask to a sub-agent with a fresh context window. The sub-agent has the same tools (except spawn_subagent) and works on the same branch. Use to keep each chunk of work focused and within token limits.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      task: { type: 'string', description: 'Full, self-contained description of the subtask. Include all context the sub-agent needs to complete it independently.' },
+    },
+    required: ['task'],
+  },
+};
 
 function buildTree(dirPath: string, maxDepth: number, currentDepth: number, prefix: string): string {
   if (currentDepth > maxDepth) return '';
