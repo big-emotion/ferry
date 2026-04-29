@@ -28,6 +28,7 @@ coverage/
 
 # BMAD
 _bmad/
+_bmad-output/
 
 # Claude Code
 .claude/

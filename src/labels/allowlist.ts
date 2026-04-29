@@ -10,6 +10,7 @@ export const LABELS_ALLOWLIST = [
   'ferry:reviewing',
   'ferry:iterating',
   'ferry:ready',
+  'ferry:approved',
   'ferry:paused',
   'ferry:cancelled',
   'ferry:spend-cap',
