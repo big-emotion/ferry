@@ -83,6 +83,7 @@ jobs:
     if: needs.run-agent.result != 'skipped'
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       issues: write
     steps:
       - name: Checkout repository
