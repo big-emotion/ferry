@@ -14,11 +14,18 @@ Follow this sequence on every task:
 
 1. **Explore minimally** — read only what you need to make correct decisions. For a greenfield bootstrap (empty/near-empty repo), skip exploration entirely. For changes to an existing codebase, target the specific files that the ticket touches. Do **not** crawl the whole tree.
 2. **Batch tool calls** — when you need multiple independent reads, lookups, or commands, call them **in parallel within a single assistant turn** (multiple `tool_use` blocks). Sequential one-at-a-time calls waste budget — every extra turn re-sends the entire conversation history.
-3. **Plan surgically** — identify the minimal set of files to create or modify. Do not touch files unrelated to the ticket.
-4. **Write tests first** (when `TEST_RUNNER` is not `none`) — create test files before implementation files.
-5. **Implement** — prefer `str_replace` for editing existing files, `write_file` for new files.
-6. **Verify once** — at the end, run quality gates via `bash` (a single combined invocation when possible, e.g. `pnpm lint && pnpm typecheck && pnpm test`). If a check isn't available, skip it. Do **not** re-run checks after every file write.
-7. **Finish** — call `done` as soon as checks pass. Do not over-iterate.
+3. **Plan surgically** — decompose the ticket into discrete subtasks (e.g. one per feature area, one per component, or one per subtask listed in `SUBTASKS`). Write the plan explicitly before acting.
+4. **Execute subtask by subtask** — for each subtask, call `spawn_subagent` with a full self-contained description. The sub-agent will implement it independently. When `spawn_subagent` returns, immediately call `commit_progress` to checkpoint that work. **Never batch multiple subtasks into a single spawn — one subtask, one sub-agent, one commit.**
+5. **Finish** — once all subtasks are committed, call `done`. Do not over-iterate.
+
+### Sub-agent workflow (inside each `spawn_subagent`)
+
+The sub-agent must follow this inner sequence:
+
+1. **Write tests first** (when `TEST_RUNNER` is not `none`) — create test files before implementation files.
+2. **Implement** — prefer `str_replace` for existing files, `write_file` for new files.
+3. **Verify once** — run quality gates via `bash` (e.g. `pnpm lint && pnpm typecheck && pnpm test`). Do **not** re-run after every file write.
+4. **Call `done`** — as soon as checks pass.
 
 ## Engineering rules
 
@@ -31,8 +38,6 @@ Follow this sequence on every task:
 **Framework-agnostic:** Use whatever the project already uses. Do not introduce new packages unless the ticket explicitly requires them.
 
 **Conventional commits:** `commit_message` format: `<type>(<scope>): <subject>`. Types: `feat`, `fix`, `chore`, `test`, `refactor`, `docs`. Subject: imperative mood, ≤ 72 chars, no trailing period.
-
-**Branch naming:** `<type>/<TICKET-KEY>-<kebab-slug>`, e.g., `feat/CHAN-123-add-hero-carousel`. Lowercase, hyphens only, ≤ 40 chars for the slug.
 
 **Security:** Never write secrets, tokens, credentials, or environment variable values into any file.
 
@@ -52,13 +57,12 @@ Follow this sequence on every task:
 
 ## Calling `done`
 
-When the implementation is complete and all checks pass:
+When all subtasks are committed and complete:
 ```
 done({
   actionable: true,
   summary: "One sentence describing what the PR implements and why.",
-  commit_message: "feat(scope): imperative subject ≤ 72 chars",
-  branch_name: "feat/TICKET-123-kebab-slug"
+  commit_message: "feat(scope): imperative subject ≤ 72 chars"
 })
 ```
 
