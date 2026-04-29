@@ -195,9 +195,9 @@ async function main(): Promise<void> {
   const finalStatus = execSync('git status --porcelain', { cwd: REPO_ROOT, encoding: 'utf8' });
   if (finalStatus.trim()) {
     await secretScan();
-    execSync(`git commit -m ${JSON.stringify(done.commit_message ?? commitMessage)}`, { cwd: REPO_ROOT });
+    execFileSync('git', ['commit', '-m', commitMessage], { cwd: REPO_ROOT });
   }
-  execSync(`git push origin ${branchName} --force-with-lease`, { cwd: REPO_ROOT });
+  execFileSync('git', ['push', 'origin', branchName, '--force-with-lease'], { cwd: REPO_ROOT });
 
   await jira.postTransition(ticketKey, reviewTransitionId);
 

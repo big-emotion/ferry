@@ -73,11 +73,10 @@ export interface CommitMessageInput {
 }
 
 export function formatCommitMessage(input: CommitMessageInput): string {
-  return [
-    `[${input.ticket_key}] fix: ${input.summary}`,
-    '',
-    `Fixes findings: ${input.rule_ids.join(', ')}`,
-    '',
-    `[ferry:iterator:${input.run_id}]`,
-  ].join('\n');
+  const lines = [`[${input.ticket_key}] fix: ${input.summary}`, ''];
+  if (input.rule_ids.length > 0) {
+    lines.push(`Fixes findings: ${input.rule_ids.join(', ')}`, '');
+  }
+  lines.push(`[ferry:iterator:${input.run_id}]`);
+  return lines.join('\n');
 }

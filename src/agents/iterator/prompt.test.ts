@@ -64,4 +64,16 @@ describe('iterator prompt', () => {
     expect(msg).toContain('Fixes findings: no-skipped-tests, no-co-authored-by');
     expect(msg).toContain('[ferry:iterator:run-1]');
   });
+
+  it('omits Fixes findings line when rule_ids is empty', () => {
+    const msg = formatCommitMessage({
+      ticket_key: 'CHAN-27',
+      summary: 'address review feedback',
+      rule_ids: [],
+      run_id: 'run-2',
+    });
+    expect(msg).toContain('[CHAN-27] fix: address review feedback');
+    expect(msg).not.toContain('Fixes findings');
+    expect(msg).toContain('[ferry:iterator:run-2]');
+  });
 });

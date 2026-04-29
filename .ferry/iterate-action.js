@@ -122,7 +122,7 @@ var require_fast_content_type_parse = __commonJS({
 
 // src/agents/iterator/iterate-action.ts
 import { appendFileSync, readFileSync } from "node:fs";
-import { execSync as execSync2 } from "node:child_process";
+import { execFileSync, execSync as execSync2 } from "node:child_process";
 import * as path4 from "node:path";
 
 // node_modules/@anthropic-ai/sdk/internal/tslib.mjs
@@ -10284,13 +10284,12 @@ function decideIteratorTransition(input) {
 
 // src/agents/iterator/prompt.ts
 function formatCommitMessage(input) {
-  return [
-    `[${input.ticket_key}] fix: ${input.summary}`,
-    "",
-    `Fixes findings: ${input.rule_ids.join(", ")}`,
-    "",
-    `[ferry:iterator:${input.run_id}]`
-  ].join("\n");
+  const lines = [`[${input.ticket_key}] fix: ${input.summary}`, ""];
+  if (input.rule_ids.length > 0) {
+    lines.push(`Fixes findings: ${input.rule_ids.join(", ")}`, "");
+  }
+  lines.push(`[ferry:iterator:${input.run_id}]`);
+  return lines.join("\n");
 }
 
 // src/agents/developer/loop.ts
@@ -10835,7 +10834,9 @@ async function main() {
     appendOutput({ input_tokens: 0, output_tokens: 0, model });
     return;
   }
-  const priorIterations = existingComments.filter((c) => c.includes("[ferry:iterator:")).length;
+  const priorIterations = existingComments.filter(
+    (c) => c.includes("[ferry:iterator:") && c.includes("complete. Pushed fixes to PR#")
+  ).length;
   checkIterationCap({ iteration: priorIterations, hasFindings: true });
   const branchName = `ferry/${ticketKey}`;
   const { data: pulls } = await octokit.pulls.list({
@@ -10854,13 +10855,15 @@ async function main() {
     return;
   }
   const prNumber = pulls[0].number;
-  const allPrComments = await octokit.paginate(octokit.issues.listComments, {
+  const { data: recentComments } = await octokit.issues.listComments({
     owner,
     repo,
     issue_number: prNumber,
-    per_page: 100
+    sort: "created",
+    direction: "desc",
+    per_page: 30
   });
-  const reviewComments = allPrComments.filter((c) => c.body?.includes("[ferry:reviewer:"));
+  const reviewComments = recentComments.filter((c) => c.body?.includes("[ferry:reviewer:"));
   if (reviewComments.length === 0) {
     await jira.postComment(
       ticketKey,
@@ -10869,11 +10872,29 @@ async function main() {
     appendOutput({ input_tokens: 0, output_tokens: 0, model });
     return;
   }
-  const reviewComment = reviewComments[reviewComments.length - 1].body ?? "";
+  const reviewComment = reviewComments[0].body ?? "";
+  if (/\*\*Verdict\*\*:\s*Approved\b/.test(reviewComment)) {
+    await jira.postComment(
+      ticketKey,
+      textToAdf(`${idempotencyMarker} PR#${prNumber} review shows Approved \u2014 no iteration needed.`)
+    );
+    appendOutput({ input_tokens: 0, output_tokens: 0, model });
+    return;
+  }
   execSync2('git config user.name "ferry-bot"', { cwd: REPO_ROOT });
   execSync2('git config user.email "ferry-bot@users.noreply.github.com"', { cwd: REPO_ROOT });
-  execSync2(`git fetch origin ${branchName}`, { cwd: REPO_ROOT });
-  execSync2(`git checkout ${branchName}`, { cwd: REPO_ROOT });
+  try {
+    execFileSync("git", ["ls-remote", "--exit-code", "--heads", "origin", branchName], { cwd: REPO_ROOT, stdio: "pipe" });
+    execFileSync("git", ["fetch", "origin", branchName], { cwd: REPO_ROOT });
+    execFileSync("git", ["checkout", branchName], { cwd: REPO_ROOT });
+  } catch {
+    await jira.postComment(
+      ticketKey,
+      textToAdf(`${idempotencyMarker} Branch ${branchName} not found on origin. Cannot iterate.`)
+    );
+    appendOutput({ input_tokens: 0, output_tokens: 0, model });
+    return;
+  }
   const existingLog = execSync2(
     "git log origin/main..HEAD --oneline",
     { cwd: REPO_ROOT, encoding: "utf8" }
@@ -10909,6 +10930,8 @@ ${existingLog}` : "",
       throw new FerryError("state-invariant", { reason: "secret-scan-hit", findings: scanResult.findings.length });
     }
   };
+  process.env.FERRY_DEV_MAX_ITERATIONS ??= "30";
+  process.env.FERRY_DEV_MAX_INPUT_TOKENS ??= "200000";
   const { done, usage, iterations } = await runAgentLoop({
     anthropic,
     model,
@@ -10937,9 +10960,9 @@ ${existingLog}` : "",
   const finalStatus = execSync2("git status --porcelain", { cwd: REPO_ROOT, encoding: "utf8" });
   if (finalStatus.trim()) {
     await secretScan();
-    execSync2(`git commit -m ${JSON.stringify(done.commit_message ?? commitMessage)}`, { cwd: REPO_ROOT });
+    execFileSync("git", ["commit", "-m", commitMessage], { cwd: REPO_ROOT });
   }
-  execSync2(`git push origin ${branchName} --force-with-lease`, { cwd: REPO_ROOT });
+  execFileSync("git", ["push", "origin", branchName, "--force-with-lease"], { cwd: REPO_ROOT });
   await jira.postTransition(ticketKey, reviewTransitionId);
   const { next_iteration } = decideIteratorTransition({ current_iteration: priorIterations });
   await jira.postComment(
