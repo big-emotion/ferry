@@ -29,6 +29,7 @@ jobs:
     permissions:
       contents: write
       issues: write
+      pull-requests: write
     outputs:
       input_tokens: ${{ steps.run-iterator.outputs.input_tokens }}
       output_tokens: ${{ steps.run-iterator.outputs.output_tokens }}
