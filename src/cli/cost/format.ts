@@ -55,8 +55,7 @@ export function formatTable(groups: GroupStats[], total: GroupStats, label: stri
     padStart(r.cost, widths.cost) +
     padStart(r.avg, widths.avg);
 
-  const totalWidth =
-    widths.key + widths.calls + 2 + widths.tokens + widths.cost + widths.avg;
+  const totalWidth = widths.key + widths.calls + 2 + widths.tokens + widths.cost + widths.avg;
   const divider = '─'.repeat(totalWidth);
 
   const summaryLabel = padEnd(label, widths.key + widths.calls + 2 + widths.tokens);
