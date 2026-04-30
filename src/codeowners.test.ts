@@ -21,8 +21,12 @@ describe('CODEOWNERS coverage', () => {
     expect(content).toMatch(/src\/schemas\/\*\*/);
   });
 
-  it('protects prompt.*.md', () => {
-    expect(content).toMatch(/prompt\.\*\.md/);
+  it('protects agent prompts in /prompts/*.md', () => {
+    expect(content).toMatch(/\/prompts\/\*\.md/);
+  });
+
+  it('protects composite-action prompts in /.github/actions/*/prompts/*.md', () => {
+    expect(content).toMatch(/\/\.github\/actions\/\*\/prompts\/\*\.md/);
   });
 
   it('each protected pattern has at least one owner', () => {

@@ -9,7 +9,7 @@ function readWorkflow(name: string): string {
 }
 
 const WRITE_PHASE_WORKFLOWS = ['dev.yml', 'review.yml', 'iterate.yml'] as const;
-const READ_PHASE_WORKFLOWS = ['refine.yml', 'reconciler.yml'] as const;
+const READ_PHASE_WORKFLOWS = ['refine.yml'] as const;
 const DISPATCH_WORKFLOWS = ['refine.yml', 'dev.yml', 'review.yml', 'iterate.yml'] as const;
 
 const SINKHOLE_GROUP = 'ferry-invalid-payload-sinkhole';
