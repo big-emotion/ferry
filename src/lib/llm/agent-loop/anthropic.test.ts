@@ -22,10 +22,7 @@ type FakeResponse = {
   };
 };
 
-function makeMock(
-  regularResponses: FakeResponse[],
-  betaResponses?: FakeResponse[],
-) {
+function makeMock(regularResponses: FakeResponse[], betaResponses?: FakeResponse[]) {
   let regIdx = 0;
   let betaIdx = 0;
   const regularCreate = vi.fn().mockImplementation(async () => {
@@ -65,9 +62,8 @@ const doneResponse: FakeResponse = {
   ],
 };
 
-const noopExecuteTool = vi.fn<
-  (r: string, n: string, i: Record<string, unknown>) => Promise<string>
->();
+const noopExecuteTool =
+  vi.fn<(r: string, n: string, i: Record<string, unknown>) => Promise<string>>();
 
 const baseInput = {
   system: 's',
@@ -266,13 +262,14 @@ describe('createAnthropicAgentLoop — MCP connector', () => {
       usage: { input_tokens: 100, output_tokens: 40 },
     };
 
-    const execTool = vi.fn<(r: string, n: string, i: Record<string, unknown>) => Promise<string>>()
+    const execTool = vi
+      .fn<(r: string, n: string, i: Record<string, unknown>) => Promise<string>>()
       .mockResolvedValueOnce('file content');
 
-    const mock = makeMock([], [
-      firstResponse,
-      { ...doneResponse, usage: { input_tokens: 80, output_tokens: 20 } },
-    ]);
+    const mock = makeMock(
+      [],
+      [firstResponse, { ...doneResponse, usage: { input_tokens: 80, output_tokens: 20 } }],
+    );
     const loop = createAnthropicAgentLoop({
       model: 'm',
       client: mock as unknown as Anthropic,
