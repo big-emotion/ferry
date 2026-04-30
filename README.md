@@ -209,13 +209,14 @@ The first dispatch (e.g. moving a ticket to **Refinement**) will trigger `refine
 
 ## Examples
 
+The canonical agent prompts live in [`prompts/`](prompts/) — that is the single source of truth for each agent's LLM instructions and expected output schema.
+
 The [`examples/`](examples/) directory ships reference artifacts you can copy into your install:
 
 - [`acme-corp-setup.md`](examples/acme-corp-setup.md) — concrete end-to-end pilot setup
 - [`state.v1.schema.json`](examples/state.v1.schema.json) — schema for the per-ticket state envelope
 - [`event.v1.schema.json`](examples/event.v1.schema.json) — schema for `repository_dispatch` payloads
 - [`ferry-audit.jsonl`](examples/ferry-audit.jsonl) — sample audit log lines (≥ 20 lines, all phases)
-- [`prompt-templates/`](examples/prompt-templates/) — starter prompts for each agent role (refiner, developer, reviewer, iterator)
 - [`reviewer-rules.yaml`](examples/reviewer-rules.yaml) — declarative reviewer rules
 - [`reviewer-rubric.md`](examples/reviewer-rubric.md) — 4-dimension review-grading rubric
 
