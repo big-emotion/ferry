@@ -16,10 +16,9 @@ permissions:
   issues: write
   pull-requests: write
 
-# cancel-in-progress: false — dev writes a branch and PR; cancellation mid-commit = state divergence
-concurrency:
-  group: ferry-${{ github.workflow }}-${{ github.event.client_payload.ticket_key || 'ferry-invalid-payload-sinkhole' }}
-  cancel-in-progress: false
+# Concurrency is managed by the reusable workflow (dev.yml). Adding a concurrency block here
+# would deadlock: github.workflow resolves to the caller's name in both contexts, making the
+# group keys identical. The caller would hold the lock while the reusable waits for it.
 
 jobs:
   dev:
