@@ -44,7 +44,7 @@ describe('resolvePromptPath', () => {
 });
 
 describe('loadProjectSnippet', () => {
-  const read = (_p: string, _enc: BufferEncoding) => 'project conventions content';
+  const read = () => 'project conventions content';
 
   it('returns null when _project.md is absent from both locations', () => {
     const check = () => false;
@@ -59,7 +59,7 @@ describe('loadProjectSnippet', () => {
 
   it('loads from .ferry/prompts/_project.md when prompts/_project.md absent', () => {
     const check = (p: string) => p === '/workspace/repo/.ferry/prompts/_project.md';
-    const readSpy = vi.fn((_p: string, _enc: BufferEncoding) => 'ferry default content');
+    const readSpy = vi.fn(() => 'ferry default content');
     const result = loadProjectSnippet(REPO_ROOT, check, readSpy);
     expect(result).toBe('ferry default content');
     expect(readSpy).toHaveBeenCalledWith(
@@ -70,7 +70,7 @@ describe('loadProjectSnippet', () => {
 
   it('prefers prompts/_project.md over .ferry/prompts/_project.md', () => {
     const check = () => true;
-    const readSpy = vi.fn((_p: string, _enc: BufferEncoding) => 'content');
+    const readSpy = vi.fn(() => 'content');
     loadProjectSnippet(REPO_ROOT, check, readSpy);
     expect(readSpy).toHaveBeenCalledWith('/workspace/repo/prompts/_project.md', 'utf8');
     expect(readSpy).toHaveBeenCalledTimes(1);
@@ -78,7 +78,7 @@ describe('loadProjectSnippet', () => {
 
   it('truncates content exceeding 2048 bytes', () => {
     const big = 'x'.repeat(3000);
-    const readBig = (_p: string, _enc: BufferEncoding) => big;
+    const readBig = () => big;
     const check = (p: string) => p === '/workspace/repo/prompts/_project.md';
     const result = loadProjectSnippet(REPO_ROOT, check, readBig);
     expect(result).toHaveLength(2048);
@@ -88,7 +88,7 @@ describe('loadProjectSnippet', () => {
   it('respects FERRY_PROMPTS_DIR for the first candidate', () => {
     vi.stubEnv('FERRY_PROMPTS_DIR', '/custom/prompts');
     const check = (p: string) => p === '/custom/prompts/_project.md';
-    const readSpy = vi.fn((_p: string, _enc: BufferEncoding) => 'custom content');
+    const readSpy = vi.fn(() => 'custom content');
     const result = loadProjectSnippet(REPO_ROOT, check, readSpy);
     expect(result).toBe('custom content');
     expect(readSpy).toHaveBeenCalledWith('/custom/prompts/_project.md', 'utf8');
