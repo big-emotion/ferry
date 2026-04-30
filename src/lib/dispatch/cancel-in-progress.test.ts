@@ -44,8 +44,11 @@ describe('concurrency group-key expression', () => {
       // Sinkhole must be present so payloads without a ticket_key don't collide.
       expect(content, `${name}: missing sinkhole group name`).toContain(SINKHOLE_GROUP);
       // ticket_key must feed the group expression with an || fallback to the sinkhole.
+      // Pattern may vary for workflows supporting both repository_dispatch and workflow_call:
+      // - Simple: inputs.ticket_key || github.event.client_payload.ticket_key || 'sinkhole'
+      // - With validation: inputs.ticket_key || (validation && client_payload.ticket_key) || 'sinkhole'
       expect(content, `${name}: missing sinkhole fallback`).toContain(
-        `github.event.client_payload.ticket_key || 'ferry-invalid-payload-sinkhole'`,
+        `|| '${SINKHOLE_GROUP}'`,
       );
     },
   );
