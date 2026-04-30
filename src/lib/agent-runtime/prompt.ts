@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { resolvePromptPath, loadProjectSnippet } from '../prompts/resolve.js';
+import { resolvePromptPath, loadProjectSnippet, loadAgentExtension } from '../prompts/resolve.js';
 
 export function buildSystem(
   promptName: string,
@@ -15,10 +15,12 @@ export function buildSystem(
   const _readFile = opts?._readFile ?? ((p, enc) => readFileSync(p, enc));
   const resolvedPath = resolvePromptPath(promptName, repoRoot, _checkExists);
   const systemBase = _readFile(resolvedPath, 'utf8');
+  const agentExtension = loadAgentExtension(promptName, repoRoot, _checkExists, _readFile);
   const projectSnippet = loadProjectSnippet(repoRoot, _checkExists, _readFile);
   const separator = opts?.separator ?? '\n\n';
   const parts = [
     systemBase,
+    agentExtension ? `## Project-specific guidance for ${promptName}\n\n${agentExtension}` : null,
     ...(opts?.extraParts ?? []),
     projectSnippet ? `## Project conventions\n\n${projectSnippet}` : null,
   ].filter((p): p is string => Boolean(p));

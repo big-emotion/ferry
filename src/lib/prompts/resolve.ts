@@ -46,3 +46,27 @@ export function loadProjectSnippet(
   }
   return null;
 }
+
+const AGENT_EXTENSION_MAX_BYTES = 4096;
+
+export function loadAgentExtension(
+  name: string,
+  repoRoot: string,
+  _checkExists: (p: string) => boolean = existsSync,
+  _readFile: (p: string, enc: BufferEncoding) => string = (p, enc) => readFileSync(p, enc),
+): string | null {
+  const overridesDir = process.env.FERRY_PROMPTS_DIR || path.join(repoRoot, 'prompts');
+  const candidate = path.join(overridesDir, `${name}.extra.md`);
+  if (!_checkExists(candidate)) {
+    return null;
+  }
+  const raw = _readFile(candidate, 'utf8');
+  if (raw.length > AGENT_EXTENSION_MAX_BYTES) {
+    console.error(
+      `[ferry:prompts] ${name}.extra.md exceeds ${AGENT_EXTENSION_MAX_BYTES}B — truncating`,
+    );
+    return raw.slice(0, AGENT_EXTENSION_MAX_BYTES);
+  }
+  console.error(`[ferry:prompts] loaded ${name}.extra.md from ${candidate}`);
+  return raw;
+}

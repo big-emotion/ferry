@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { resolvePromptPath, loadProjectSnippet } from './resolve.js';
+import { resolvePromptPath, loadProjectSnippet, loadAgentExtension } from './resolve.js';
 
 const REPO_ROOT = '/workspace/repo';
 
@@ -103,5 +103,45 @@ describe('loadProjectSnippet', () => {
     const result = loadProjectSnippet(REPO_ROOT, check, readSpy);
     expect(result).toBe('custom content');
     expect(readSpy).toHaveBeenCalledWith('/custom/prompts/_project.md', 'utf8');
+  });
+});
+
+describe('loadAgentExtension', () => {
+  it('returns null when <name>.extra.md is absent', () => {
+    const check = () => false;
+    const read = vi.fn(() => '');
+    expect(loadAgentExtension('reviewer', REPO_ROOT, check, read)).toBeNull();
+    expect(read).not.toHaveBeenCalled();
+  });
+
+  it('reads from FERRY_PROMPTS_DIR when set', () => {
+    vi.stubEnv('FERRY_PROMPTS_DIR', '/custom/prompts');
+    const check = (p: string) => p === '/custom/prompts/reviewer.extra.md';
+    const readSpy = vi.fn(() => 'reviewer extension content');
+    const result = loadAgentExtension('reviewer', REPO_ROOT, check, readSpy);
+    expect(result).toBe('reviewer extension content');
+    expect(readSpy).toHaveBeenCalledWith('/custom/prompts/reviewer.extra.md', 'utf8');
+  });
+
+  it('falls back to <repoRoot>/prompts when FERRY_PROMPTS_DIR is unset', () => {
+    const check = (p: string) => p === '/workspace/repo/prompts/dev.extra.md';
+    const readSpy = vi.fn(() => 'dev extension content');
+    const result = loadAgentExtension('dev', REPO_ROOT, check, readSpy);
+    expect(result).toBe('dev extension content');
+    expect(readSpy).toHaveBeenCalledWith('/workspace/repo/prompts/dev.extra.md', 'utf8');
+  });
+
+  it('truncates content exceeding 4096 bytes and logs a warning', () => {
+    const big = 'y'.repeat(5000);
+    const check = (p: string) => p === '/workspace/repo/prompts/iterator.extra.md';
+    const read = () => big;
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const result = loadAgentExtension('iterator', REPO_ROOT, check, read);
+    expect(result).toHaveLength(4096);
+    expect(result).toBe('y'.repeat(4096));
+    expect(errSpy).toHaveBeenCalledWith(
+      '[ferry:prompts] iterator.extra.md exceeds 4096B — truncating',
+    );
+    errSpy.mockRestore();
   });
 });
