@@ -1,0 +1,20 @@
+#!/usr/bin/env sh
+# Strict pre-push gate: mirrors the GitHub CI checks.
+# Refuse the push if any check fails. Use --no-verify only if you
+# intentionally want to bypass (and accept that CI will catch it).
+
+set -e
+
+echo "[husky] pre-push: typecheck"
+npm run typecheck
+
+echo "[husky] pre-push: lint"
+npm run lint
+
+echo "[husky] pre-push: format:check"
+npm run format:check
+
+echo "[husky] pre-push: tests"
+npm test
+
+echo "[husky] pre-push: all gates green"
