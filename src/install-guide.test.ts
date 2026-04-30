@@ -37,10 +37,8 @@ async function fileExists(rel: string): Promise<boolean> {
 
 describe('Phase 3 — consumer workflow stubs (install-guide §3.1)', () => {
   const coreStubs = ['ferry-refine', 'ferry-dev', 'ferry-review', 'ferry-iterate'];
-  const optionalStubs = ['ferry-reconciler'];
-  const allStubs = [...coreStubs, ...optionalStubs];
 
-  for (const stub of allStubs) {
+  for (const stub of coreStubs) {
     it(`examples/consumer-setup/workflows/${stub}.yml exists`, async () => {
       const exists = await fileExists(`examples/consumer-setup/workflows/${stub}.yml`);
       expect(exists, `${stub}.yml must exist for consumers to copy`).toBe(true);
@@ -95,16 +93,14 @@ describe('Phase 3 — reusable workflow references in stubs', () => {
     'ferry-dev': 'big-emotion/ferry/.github/workflows/dev.yml',
     'ferry-review': 'big-emotion/ferry/.github/workflows/review.yml',
     'ferry-iterate': 'big-emotion/ferry/.github/workflows/iterate.yml',
-    'ferry-reconciler': 'big-emotion/ferry/.github/workflows/reconciler.yml',
   };
 
   for (const [stub, target] of Object.entries(mapping)) {
     it(`${stub}.yml references ${target}`, async () => {
       const content = await readFile(`examples/consumer-setup/workflows/${stub}.yml`);
-      expect(
-        content,
-        `${stub}.yml must call the correct reusable workflow at ${target}`,
-      ).toContain(target);
+      expect(content, `${stub}.yml must call the correct reusable workflow at ${target}`).toContain(
+        target,
+      );
     });
   }
 });

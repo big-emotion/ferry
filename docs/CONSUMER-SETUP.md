@@ -131,14 +131,6 @@ done
 
 These stubs call Ferry's reusable workflows at `@v1`. Each stub uses `secrets: inherit` so all secrets flow through automatically.
 
-**Optional — reconciler (recommended):**
-```bash
-curl -fsSL "https://raw.githubusercontent.com/big-emotion/ferry/main/examples/consumer-setup/workflows/ferry-reconciler.yml" \
-  -o ".github/workflows/ferry-reconciler.yml"
-```
-
-> **Note:** `ferry-reconciler.yml` sweeps every 15 min for stalled tickets. Optional for the initial smoke test.
-
 ### 3.2 — Pin the version (recommended)
 
 By default the stubs reference `@v1`. For immutable pinning, replace with the exact commit SHA:
@@ -148,7 +140,7 @@ By default the stubs reference `@v1`. For immutable pinning, replace with the ex
 LATEST_SHA=$(gh api repos/big-emotion/ferry/git/refs/tags/v1 --jq '.object.sha')
 echo "Pinning to $LATEST_SHA"
 
-# Substitute in the 4 core stubs (also covers ferry-reconciler.yml if you copied it)
+# Substitute in the 4 core stubs
 sed -i.bak "s|@v1|@${LATEST_SHA}|g" .github/workflows/ferry-*.yml
 rm .github/workflows/ferry-*.yml.bak
 ```
@@ -161,7 +153,7 @@ git commit -m "chore(ferry): install consumer workflows pinned to ${LATEST_SHA:-
 git push
 ```
 
-✅ **Verification:** Go to **Actions** on GitHub → you must see at least 4 workflows listed (5 if you copied the reconciler). No run yet.
+✅ **Verification:** Go to **Actions** on GitHub → you must see 4 workflows listed. No run yet.
 
 ---
 
@@ -299,7 +291,7 @@ If **all** of these check, the install is complete.
 | Issue | Status |
 |---|---|
 | `@v1` tag must exist before install guide works | Required for release — tag must be cut before distributing this guide |
-| `ferry-reconciler.yml` stale-ticket sweep | Placeholder only — not yet implemented (Story 8.3) |
+| Stale-ticket reconciler sweep | Not yet implemented (Story 8.3) — consumers must manually re-trigger stalled tickets for now |
 | `.ferry/` agent scripts in consumer workspace | Tracked in #71 — workflows currently read agent scripts from Ferry repo checkout |
 | Anthropic Agent SDK support | Planned — current LLM call site uses the Anthropic Messages API; Agent SDK is the next roadmap item |
 

@@ -208,7 +208,7 @@ The canonical agent prompts live in [`prompts/`](prompts/) — that is the singl
 
 The [`examples/`](examples/) directory ships reference artifacts you can copy into your install:
 
-- [`acme-corp-setup.md`](examples/acme-corp-setup.md) — concrete end-to-end pilot setup
+- [`consumer-setup/workflows/`](examples/consumer-setup/workflows/) — consumer workflow stubs to copy into `.github/workflows/`
 - [`ferry-audit.jsonl`](examples/ferry-audit.jsonl) — sample audit log lines (≥ 20 lines, all phases)
 
 The canonical schemas live in [`src/schemas/`](src/schemas/) (not duplicated here).
