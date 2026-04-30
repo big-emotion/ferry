@@ -4,6 +4,7 @@ export class InMemoryTracker implements IssueTracker {
   readonly issues = new Map<string, TrackerIssue>();
   readonly postedComments: Array<{ key: string; body: string }> = [];
   readonly postedTransitions: Array<{ key: string; transitionId: string }> = [];
+  readonly createdSubtasks: Array<{ parentKey: string; title: string; description: string }> = [];
   private readonly subtaskMap = new Map<string, string[]>();
 
   seed(issue: TrackerIssue): void {
@@ -33,5 +34,15 @@ export class InMemoryTracker implements IssueTracker {
 
   async getSubtasks(key: string): Promise<string[]> {
     return this.subtaskMap.get(key) ?? [];
+  }
+
+  async createSubtask(
+    parentKey: string,
+    title: string,
+    description: string,
+  ): Promise<{ id: string }> {
+    const id = `subtask-${this.createdSubtasks.length + 1}`;
+    this.createdSubtasks.push({ parentKey, title, description });
+    return { id };
   }
 }

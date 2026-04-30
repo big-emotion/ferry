@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process';
+import { execSync, execFileSync } from 'node:child_process';
 import { validateEnvelope } from '../../lib/envelope/validate.js';
 import { delimitUntrusted } from '../../lib/llm/delimit-untrusted.js';
 import {
@@ -8,12 +8,12 @@ import {
   buildTicketBlock,
   appendOutput,
   configureFerryGitUser,
-  makeCommitProgress,
   makeSecretScan,
   logCapabilities,
   createGitHubContext,
   byEventId,
 } from '../../lib/agent-runtime/index.js';
+import { isDryRun } from '../../lib/dry-run.js';
 import { formatDeveloperCommit } from './commit.js';
 import { formatPullRequestTitle, formatPullRequestBody } from './pr.js';
 import {
@@ -35,8 +35,13 @@ async function main(): Promise<void> {
   const envelope = validateEnvelope(JSON.parse(rawPayload));
   const { ticket_key: ticketKey, event_id: eventId } = envelope;
 
+  const dryRun = isDryRun();
+  if (dryRun) {
+    console.error('[ferry:dev-action] DRY_RUN mode — no branch push, no PR, no Jira writes');
+  }
+
   const anthropicAuth = resolveAnthropicAuth({ apiKeyEnv: 'ANTHROPIC_API_KEY' });
-  const reviewTransitionId = requireEnv('FERRY_REVIEW_TRANSITION_ID');
+  const reviewTransitionId = dryRun ? '' : requireEnv('FERRY_REVIEW_TRANSITION_ID');
   const jiraBaseUrl = requireEnv('FERRY_JIRA_BASE_URL');
   const { owner, repo, runner, tracker, ferryCfg } = createGitHubContext(REPO_ROOT);
 
@@ -113,7 +118,22 @@ async function main(): Promise<void> {
     maxInputTokens: ferryCfg.limits.max_tokens_per_run,
     maxTokens: ferryCfg.limits.max_tokens_per_message,
     executeTool,
-    commitProgress: makeCommitProgress('[ferry:dev-action]'),
+    commitProgress: async (repoRoot, branchName, message, scan) => {
+      execSync('git add -A', { cwd: repoRoot });
+      const status = execSync('git status --porcelain', { cwd: repoRoot, encoding: 'utf8' });
+      if (!status.trim()) return 'nothing to commit';
+      await scan();
+      execSync(`git commit -m ${JSON.stringify(message)}`, { cwd: repoRoot });
+      if (dryRun) {
+        console.error(
+          `[ferry:dev-action] DRY_RUN — checkpoint committed locally (push skipped): ${message.slice(0, 80)}`,
+        );
+        return 'committed (dry-run: push skipped)';
+      }
+      execSync(`git push origin ${branchName} --force-with-lease`, { cwd: repoRoot });
+      console.error(`[ferry:dev-action] checkpoint: ${message.slice(0, 80)}`);
+      return 'committed and pushed';
+    },
     spawnSubagent: (task) =>
       loop.run({
         system,
@@ -143,10 +163,16 @@ async function main(): Promise<void> {
   const idempotencyMarker = byEventId('dev', eventId);
 
   if (!done.actionable) {
-    await tracker.postComment(
-      ticketKey,
-      `${idempotencyMarker} Cannot implement — ${done.reason_if_not_actionable ?? 'no reason given'}`,
-    );
+    if (!dryRun) {
+      await tracker.postComment(
+        ticketKey,
+        `${idempotencyMarker} Cannot implement — ${done.reason_if_not_actionable ?? 'no reason given'}`,
+      );
+    } else {
+      console.log(
+        `[ferry:dev-action] DRY_RUN — not actionable: ${done.reason_if_not_actionable ?? 'no reason given'}`,
+      );
+    }
     appendOutput(usage);
     process.exit(0);
   }
@@ -167,6 +193,32 @@ async function main(): Promise<void> {
         cwd: REPO_ROOT,
       });
     }
+
+    if (dryRun) {
+      let diffOutput = '(no local changes)';
+      try {
+        diffOutput = execFileSync(
+          'sh',
+          [
+            '-c',
+            'git diff HEAD~1..HEAD --stat 2>/dev/null || git show --stat HEAD 2>/dev/null || echo "(no commits yet)"',
+          ],
+          { cwd: REPO_ROOT, encoding: 'utf8' },
+        );
+      } catch {
+        // best-effort
+      }
+      console.log('[ferry:dev-action] DRY_RUN — implementation summary:');
+      console.log(`  summary: ${done.summary}`);
+      console.log('  local commits (not pushed):');
+      console.log(diffOutput);
+      console.log(
+        '[ferry:dev-action] DRY_RUN — skipped: git push, PR creation, Jira transition, Jira comment',
+      );
+      appendOutput(usage);
+      process.exit(0);
+    }
+
     execSync(`git push origin ${branchName} --force-with-lease`, { cwd: REPO_ROOT });
 
     const prTitle = formatPullRequestTitle({ ticketKey, summary: done.summary });
@@ -188,13 +240,15 @@ async function main(): Promise<void> {
       `${idempotencyMarker} Implementation complete — PR: ${prUrl}. Moved to Review.`,
     );
   } catch (err) {
-    try {
-      await tracker.postComment(
-        ticketKey,
-        `${idempotencyMarker} Dev run failed in post-implementation step — manual intervention required.`,
-      );
-    } catch {
-      // best-effort comment; don't mask the original error
+    if (!dryRun) {
+      try {
+        await tracker.postComment(
+          ticketKey,
+          `${idempotencyMarker} Dev run failed in post-implementation step — manual intervention required.`,
+        );
+      } catch {
+        // best-effort comment; don't mask the original error
+      }
     }
     throw err;
   }
