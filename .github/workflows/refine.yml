@@ -29,7 +29,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Validate event envelope
-        uses: big-emotion/ferry/.github/actions/ferry-envelope-validate@adbe9160b5f3140482aa8263e037a9d3a6cb8819
+        uses: big-emotion/ferry/.github/actions/ferry-envelope-validate@main
         with:
           payload: ${{ inputs.payload || toJson(github.event.client_payload) }}
 
@@ -42,7 +42,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Run Refiner agent
-        uses: big-emotion/ferry/.github/actions/ferry-run-refiner@adbe9160b5f3140482aa8263e037a9d3a6cb8819
+        uses: big-emotion/ferry/.github/actions/ferry-run-refiner@main
         with:
           payload: ${{ inputs.payload || toJson(github.event.client_payload) }}
           jira_base_url: ${{ secrets.FERRY_JIRA_BASE_URL }}
@@ -60,7 +60,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Emit audit line
-        uses: big-emotion/ferry/.github/actions/ferry-emit-audit@adbe9160b5f3140482aa8263e037a9d3a6cb8819
+        uses: big-emotion/ferry/.github/actions/ferry-emit-audit@main
         with:
           ticket: ${{ inputs.ticket_key || github.event.client_payload.ticket_key }}
           phase: refine
