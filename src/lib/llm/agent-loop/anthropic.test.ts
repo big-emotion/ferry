@@ -392,9 +392,7 @@ describe('createAnthropicAgentLoop — stdio MCP tools', () => {
     await loop.run({ ...baseInput, mcpServers: [stdioServer] });
 
     const callArgs = mock.regularCreate.mock.calls[0][0] as { tools: unknown[] };
-    expect(callArgs.tools).toContainEqual(
-      expect.objectContaining({ name: 'list_files' }),
-    );
+    expect(callArgs.tools).toContainEqual(expect.objectContaining({ name: 'list_files' }));
   });
 
   it('dispatches stdio MCP tool calls to the pool', async () => {
