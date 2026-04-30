@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { runRefiner, type LlmCall, type RefinerInput } from './refine.js';
-import { FerryError } from '../../lib/error.js';
+import { FerryError } from '../../lib/errors/index.js';
 
 const ticket: RefinerInput['ticket'] = {
   key: 'CHAN-27',

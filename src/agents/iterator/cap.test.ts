@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { checkIterationCap } from './cap.js';
-import { FerryError } from '../../lib/error.js';
+import { FerryError } from '../../lib/errors/index.js';
 
 describe('iteration cap', () => {
   it('proceeds at iteration 0,1,2', () => {

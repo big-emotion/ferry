@@ -1,5 +1,5 @@
 import { classifyHttpStatus } from './spend-cap.js';
-import { FerryError } from '../error.js';
+import { FerryError } from '../errors/index.js';
 import type { AdfDoc } from './jira-adf.js';
 
 export interface JiraIssueFields {

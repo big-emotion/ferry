@@ -2,7 +2,7 @@
  * Story 4-2: scope-enforced diff path checker.
  */
 
-import { FerryError } from '../../lib/error.js';
+import { FerryError } from '../../lib/errors/index.js';
 
 export const STATE_FILE_PATH = '.ferry/state.json';
 export const BLOCKED_PATH_PREFIXES: readonly string[] = ['.github/'];

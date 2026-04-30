@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { FerryError } from '../error.js';
+import { FerryError } from '../errors/index.js';
 
 /**
  * Pinned gitleaks release used by Ferry's harness-runtime secret scanner.

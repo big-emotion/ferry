@@ -1,4 +1,4 @@
-import { FerryError } from '../error.js';
+import { FerryError } from '../errors/index.js';
 import { loadState } from '../state/index.js';
 import type { FerryPhase } from '../state/types.js';
 

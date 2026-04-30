@@ -2,7 +2,7 @@
  * Story 3-2: atomic batch sub-task creation (FR10).
  */
 
-import { FerryError } from '../../lib/error.js';
+import { FerryError } from '../../lib/errors/index.js';
 import type { RefinerOutput, RefinerSubtask } from './schema.js';
 
 export const SUBTASK_CAP = 12;

@@ -5,7 +5,7 @@ import type {
   ContentBlock,
 } from '@anthropic-ai/sdk/resources/messages.js';
 import type { CIRunner, PRFile } from '../../lib/dispatch/runner/types.js';
-import { FerryError } from '../../lib/error.js';
+import { FerryError } from '../../lib/errors/index.js';
 import type { CiStatus } from './ci-gate.js';
 
 export const MAX_PATCH_CHARS = 20_000;

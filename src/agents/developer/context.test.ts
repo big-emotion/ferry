@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildContext, MAX_CONTEXT_BYTES, MAX_TOUCH_PATHS } from './context.js';
-import { FerryError } from '../../lib/error.js';
+import { FerryError } from '../../lib/errors/index.js';
 
 const ticket = {
   key: 'CHAN-27',

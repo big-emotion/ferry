@@ -2,8 +2,8 @@
  * Story 4-1: Developer agent context builder.
  */
 
-import { FerryError } from '../../lib/error.js';
-import { delimitUntrusted } from '../../lib/sanitization/delimit-untrusted.js';
+import { FerryError } from '../../lib/errors/index.js';
+import { delimitUntrusted } from '../../lib/llm/delimit-untrusted.js';
 
 export const MAX_TOUCH_PATHS = 20;
 export const MAX_CONTEXT_BYTES = 200_000;

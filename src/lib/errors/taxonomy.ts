@@ -1,4 +1,4 @@
-import { FerryError } from '../error.js';
+import { FerryError } from './index.js';
 
 export interface ErrorMapping {
   labels: string[];

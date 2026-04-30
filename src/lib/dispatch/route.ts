@@ -1,4 +1,4 @@
-import { FerryError } from '../error.js';
+import { FerryError } from '../errors/index.js';
 import type { EventEnvelopeV1 } from '../envelope/types.js';
 
 export type EventPhase = EventEnvelopeV1['phase'];

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { FerryError, type FerryErrorCode } from './error.js';
+import { FerryError, type FerryErrorCode } from './index.js';
 
 describe('FerryError', () => {
   it('is an instance of Error', () => {

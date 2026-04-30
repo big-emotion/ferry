@@ -6,8 +6,8 @@ import { retry } from './retry.js';
 import { upsertJiraComment, type FerryRole } from './jira-upsert.js';
 import { createJiraRestClientFromEnv } from './jira-rest.js';
 import { textToAdf, adfToText } from './jira-adf.js';
-import { scanWithGitleaks } from '../secret-scan/scan.js';
-import { FerryError } from '../error.js';
+import { scanWithGitleaks } from '../safety/scan.js';
+import { FerryError } from '../errors/index.js';
 
 export interface JiraComment {
   id: number;

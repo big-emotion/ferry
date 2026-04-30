@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from 'vitest';
 
-import { FerryError } from '../error.js';
+import { FerryError } from '../errors/index.js';
 import { loadFerryLlmConfig, selectLlmRoute } from './config.js';
 
 describe('llm config', () => {

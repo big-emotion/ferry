@@ -2,11 +2,11 @@ import { appendFileSync, readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import Anthropic from '@anthropic-ai/sdk';
 import { validateEnvelope } from '../../lib/envelope/validate.js';
-import { delimitUntrusted } from '../../lib/sanitization/delimit-untrusted.js';
+import { delimitUntrusted } from '../../lib/llm/delimit-untrusted.js';
 import { createTrackerFromEnv } from '../../lib/io/tracker/factory.js';
 import { checkIdempotencyMarker } from '../../lib/io/idempotency.js';
 import { gateCi } from './ci-gate.js';
-import { FerryError } from '../../lib/error.js';
+import { FerryError } from '../../lib/errors/index.js';
 import { GitHubActionsRunner } from '../../lib/dispatch/runner/github-actions/index.js';
 import { detectMergeConflicts, buildFileList, runReviewLoop } from './review-loop.js';
 

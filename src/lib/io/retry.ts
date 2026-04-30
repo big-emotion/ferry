@@ -1,4 +1,4 @@
-import { FerryError } from '../error.js';
+import { FerryError } from '../errors/index.js';
 
 type AsyncFn<TArgs extends unknown[], TResult> = (...args: TArgs) => Promise<TResult>;
 

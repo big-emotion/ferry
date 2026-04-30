@@ -5,7 +5,7 @@ import type {
   ToolResultBlockParam,
   Tool as AnthropicTool,
 } from '@anthropic-ai/sdk/resources/messages.js';
-import { FerryError } from '../../error.js';
+import { FerryError } from '../../errors/index.js';
 import type {
   AgentTool,
   AgentLoop,

@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync, renameSync, mkdirSync, unlinkSync, existsS
 import { join, dirname } from 'path';
 import { createRequire } from 'module';
 import type { ValidateFunction } from 'ajv';
-import { FerryError } from '../error.js';
+import { FerryError } from '../errors/index.js';
 import type { FerryStateV1 } from './types.js';
 
 const _require = createRequire(import.meta.url);

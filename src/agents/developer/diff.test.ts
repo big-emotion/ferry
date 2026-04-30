@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { parseDiffPaths, enforceScope, STATE_FILE_PATH } from './diff.js';
-import { FerryError } from '../../lib/error.js';
+import { FerryError } from '../../lib/errors/index.js';
 
 const sampleDiff = `diff --git a/src/foo.ts b/src/foo.ts
 index 1111111..2222222 100644

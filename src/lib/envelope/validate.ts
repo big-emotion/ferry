@@ -1,6 +1,6 @@
 import { createRequire } from 'module';
 import type { ValidateFunction } from 'ajv';
-import { FerryError } from '../error.js';
+import { FerryError } from '../errors/index.js';
 import type { EventEnvelopeV1 } from './types.js';
 
 const _require = createRequire(import.meta.url);

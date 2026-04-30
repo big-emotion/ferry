@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-import { FerryError } from '../error.js';
+import { FerryError } from '../errors/index.js';
 import { computeCostEur } from './pricing.js';
 import type { LlmResult } from './call.js';
 

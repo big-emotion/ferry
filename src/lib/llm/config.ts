@@ -10,7 +10,7 @@ export interface FerryLlmConfig {
   critical: LlmRoute;
 }
 
-import { FerryError } from '../error.js';
+import { FerryError } from '../errors/index.js';
 
 function parseJsonEnv(name: string): unknown {
   const raw = process.env[name];
