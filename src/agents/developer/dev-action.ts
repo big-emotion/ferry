@@ -106,7 +106,7 @@ async function main(): Promise<void> {
   const reviewTransitionId = dryRun ? '' : requireEnv('FERRY_REVIEW_TRANSITION_ID');
   const githubToken = dryRun ? '' : requireEnv('GITHUB_TOKEN');
   const githubRepo = dryRun
-    ? process.env.GITHUB_REPO ?? 'unknown/unknown'
+    ? (process.env.GITHUB_REPO ?? 'unknown/unknown')
     : requireEnv('GITHUB_REPO');
   const jiraBaseUrl = requireEnv('FERRY_JIRA_BASE_URL');
 
