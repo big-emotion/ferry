@@ -87,7 +87,10 @@ export const TOOL_SCHEMAS: AgentTool[] = [
     input_schema: {
       type: 'object' as const,
       properties: {
-        path: { type: 'string', description: 'Directory path relative to repo root. Defaults to root.' },
+        path: {
+          type: 'string',
+          description: 'Directory path relative to repo root. Defaults to root.',
+        },
         max_depth: { type: 'number', description: 'Max depth (1–3). Default 1.' },
       },
       required: [],
@@ -100,7 +103,10 @@ export const TOOL_SCHEMAS: AgentTool[] = [
       type: 'object' as const,
       properties: {
         pattern: { type: 'string', description: 'Grep regex pattern.' },
-        path: { type: 'string', description: 'Directory to search (relative to repo root). Defaults to root.' },
+        path: {
+          type: 'string',
+          description: 'Directory to search (relative to repo root). Defaults to root.',
+        },
         glob: { type: 'string', description: 'File glob filter, e.g. "*.ts".' },
       },
       required: ['pattern'],
@@ -108,12 +114,16 @@ export const TOOL_SCHEMAS: AgentTool[] = [
   },
   {
     name: 'bash',
-    description: 'Run a shell command (bash -c). Returns exit_code, stdout, stderr. Output capped at 64KB.',
+    description:
+      'Run a shell command (bash -c). Returns exit_code, stdout, stderr. Output capped at 64KB.',
     input_schema: {
       type: 'object' as const,
       properties: {
         command: { type: 'string', description: 'Shell command to run.' },
-        timeout_ms: { type: 'number', description: `Timeout in ms (default ${DEFAULT_BASH_TIMEOUT_MS}, max ${MAX_BASH_TIMEOUT_MS}).` },
+        timeout_ms: {
+          type: 'number',
+          description: `Timeout in ms (default ${DEFAULT_BASH_TIMEOUT_MS}, max ${MAX_BASH_TIMEOUT_MS}).`,
+        },
       },
       required: ['command'],
     },
@@ -124,10 +134,20 @@ export const TOOL_SCHEMAS: AgentTool[] = [
     input_schema: {
       type: 'object' as const,
       properties: {
-        actionable: { type: 'boolean', description: 'true if changes were made, false if ticket cannot be implemented.' },
+        actionable: {
+          type: 'boolean',
+          description: 'true if changes were made, false if ticket cannot be implemented.',
+        },
         summary: { type: 'string', description: 'One sentence describing what was implemented.' },
-        commit_message: { type: 'string', description: 'Conventional commit message for any remaining uncommitted changes (required when actionable: true).' },
-        reason_if_not_actionable: { type: 'string', description: 'Reason the ticket cannot be implemented (required when actionable: false).' },
+        commit_message: {
+          type: 'string',
+          description:
+            'Conventional commit message for any remaining uncommitted changes (required when actionable: true).',
+        },
+        reason_if_not_actionable: {
+          type: 'string',
+          description: 'Reason the ticket cannot be implemented (required when actionable: false).',
+        },
       },
       required: ['actionable', 'summary'],
     },
@@ -136,7 +156,8 @@ export const TOOL_SCHEMAS: AgentTool[] = [
 
 export const COMMIT_PROGRESS_SCHEMA: AgentTool = {
   name: 'commit_progress',
-  description: 'Stage all changes, run a secret scan, commit, and push to the working branch as a checkpoint. Call after completing each logical subtask — if the job fails later, the next run resumes from this commit.',
+  description:
+    'Stage all changes, run a secret scan, commit, and push to the working branch as a checkpoint. Call after completing each logical subtask — if the job fails later, the next run resumes from this commit.',
   input_schema: {
     type: 'object' as const,
     properties: {
@@ -148,17 +169,27 @@ export const COMMIT_PROGRESS_SCHEMA: AgentTool = {
 
 export const SPAWN_SUBAGENT_SCHEMA: AgentTool = {
   name: 'spawn_subagent',
-  description: 'Delegate a self-contained subtask to a sub-agent with a fresh context window. The sub-agent has the same tools (except spawn_subagent) and works on the same branch. Use to keep each chunk of work focused and within token limits.',
+  description:
+    'Delegate a self-contained subtask to a sub-agent with a fresh context window. The sub-agent has the same tools (except spawn_subagent) and works on the same branch. Use to keep each chunk of work focused and within token limits.',
   input_schema: {
     type: 'object' as const,
     properties: {
-      task: { type: 'string', description: 'Full, self-contained description of the subtask. Include all context the sub-agent needs to complete it independently.' },
+      task: {
+        type: 'string',
+        description:
+          'Full, self-contained description of the subtask. Include all context the sub-agent needs to complete it independently.',
+      },
     },
     required: ['task'],
   },
 };
 
-function buildTree(dirPath: string, maxDepth: number, currentDepth: number, prefix: string): string {
+function buildTree(
+  dirPath: string,
+  maxDepth: number,
+  currentDepth: number,
+  prefix: string,
+): string {
   if (currentDepth > maxDepth) return '';
   let result = '';
   let entries: fs.Dirent[];
@@ -218,7 +249,8 @@ export async function executeTool(
       if (idx === -1) throw new Error('str_replace: old_str not found in file');
       const secondIdx = content.indexOf(oldStr, idx + 1);
       if (secondIdx !== -1) throw new Error('str_replace: old_str is not unique in file');
-      const newContent = content.slice(0, idx) + (input.new_str as string) + content.slice(idx + oldStr.length);
+      const newContent =
+        content.slice(0, idx) + (input.new_str as string) + content.slice(idx + oldStr.length);
       await fsp.writeFile(resolved, newContent, 'utf8');
       return `Replaced in: ${path.relative(repoRoot, resolved)}`;
     }
@@ -263,9 +295,10 @@ export async function executeTool(
       const result = await runProcess('grep', args, repoRoot, 30_000);
       const lines = result.stdout.split('\n').filter(Boolean);
       const truncated = lines.slice(0, MAX_SEARCH_MATCHES);
-      const suffix = lines.length > MAX_SEARCH_MATCHES
-        ? `\n[truncated: ${lines.length - MAX_SEARCH_MATCHES} more matches]`
-        : '';
+      const suffix =
+        lines.length > MAX_SEARCH_MATCHES
+          ? `\n[truncated: ${lines.length - MAX_SEARCH_MATCHES} more matches]`
+          : '';
       return truncated.join('\n') + suffix || '(no matches)';
     }
 
@@ -302,8 +335,12 @@ function runProcess(
     const child = spawn(cmd, args, { cwd });
     let stdout = '';
     let stderr = '';
-    child.stdout.on('data', (d: Buffer) => { stdout += d.toString(); });
-    child.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
+    child.stdout.on('data', (d: Buffer) => {
+      stdout += d.toString();
+    });
+    child.stderr.on('data', (d: Buffer) => {
+      stderr += d.toString();
+    });
 
     const timer = setTimeout(() => {
       child.kill('SIGTERM');

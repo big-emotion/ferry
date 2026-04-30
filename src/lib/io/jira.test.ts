@@ -30,13 +30,7 @@ vi.mock('./jira-rest.js', () => {
 
 import { scanWithGitleaks } from '../secret-scan/scan.js';
 import { createJiraRestClientFromEnv } from './jira-rest.js';
-import {
-  postComment,
-  getTicket,
-  createSubtask,
-  addLabel,
-  transitionTicket,
-} from './jira.js';
+import { postComment, getTicket, createSubtask, addLabel, transitionTicket } from './jira.js';
 
 function getMockClient() {
   return vi.mocked(createJiraRestClientFromEnv).mock.results.at(-1)?.value as {
@@ -58,9 +52,7 @@ const ISSUE_FIXTURE = {
     description: {
       version: 1,
       type: 'doc',
-      content: [
-        { type: 'paragraph', content: [{ type: 'text', text: 'Ticket description.' }] },
-      ],
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Ticket description.' }] }],
     },
     comment: {
       comments: [
@@ -124,7 +116,9 @@ describe('io/jira — secret-scan gate', () => {
     it('throws FerryError("spend-cap") with reason "secret-scan-hit" when a leak is found', async () => {
       vi.mocked(scanWithGitleaks).mockResolvedValue({
         leaksFound: true,
-        findings: [{ ruleId: 'generic-api-key', description: 'API key', file: '', startLine: 1, endLine: 1 }],
+        findings: [
+          { ruleId: 'generic-api-key', description: 'API key', file: '', startLine: 1, endLine: 1 },
+        ],
       });
       vi.mocked(createJiraRestClientFromEnv).mockReturnValue({
         getIssue: vi.fn(),
@@ -240,9 +234,10 @@ describe('io/jira — secret-scan gate', () => {
         findings: [{ ruleId: 'r', description: 'd', file: '', startLine: 1, endLine: 1 }],
       });
 
-      await expect(
-        createSubtask('ACME-1', 'title', 'AKIAIOSFODNN7EXAMPLE'),
-      ).rejects.toMatchObject({ code: 'spend-cap', context: { reason: 'secret-scan-hit' } });
+      await expect(createSubtask('ACME-1', 'title', 'AKIAIOSFODNN7EXAMPLE')).rejects.toMatchObject({
+        code: 'spend-cap',
+        context: { reason: 'secret-scan-hit' },
+      });
     });
   });
 

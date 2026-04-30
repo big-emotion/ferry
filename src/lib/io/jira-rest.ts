@@ -79,14 +79,11 @@ export class JiraRestClient {
   }
 
   async putComment(key: string, commentId: string, adfBody: AdfDoc): Promise<JiraCommentResponse> {
-    const response = await fetch(
-      `${this.baseUrl}/rest/api/3/issue/${key}/comment/${commentId}`,
-      {
-        method: 'PUT',
-        headers: { ...this.baseHeaders, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ body: adfBody }),
-      },
-    );
+    const response = await fetch(`${this.baseUrl}/rest/api/3/issue/${key}/comment/${commentId}`, {
+      method: 'PUT',
+      headers: { ...this.baseHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ body: adfBody }),
+    });
     this.throwForStatus(response.status);
     return response.json() as Promise<JiraCommentResponse>;
   }

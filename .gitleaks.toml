@@ -1,2 +1,6 @@
 [extend]
 useDefault = true
+
+[[allowlists]]
+description = "Documentation markdown files contain placeholder credentials in examples"
+paths = ['''docs/.*\.md''']

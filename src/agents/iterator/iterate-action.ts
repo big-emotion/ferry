@@ -15,7 +15,8 @@ import { decideIteratorTransition } from './transition.js';
 import { formatCommitMessage } from './prompt.js';
 
 const REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
-const SYSTEM_PROMPT_PATH = process.env.FERRY_PROMPT_PATH ?? path.join(REPO_ROOT, 'prompts', 'iterate.md');
+const SYSTEM_PROMPT_PATH =
+  process.env.FERRY_PROMPT_PATH ?? path.join(REPO_ROOT, 'prompts', 'iterate.md');
 
 function requireEnv(key: string): string {
   const val = process.env[key];
@@ -58,7 +59,10 @@ async function main(): Promise<void> {
     const eventMarker = `[ferry:iterator:${eventId}]`;
     const { skipped } = checkIdempotencyMarker(eventMarker, existingComments);
     if (!skipped) {
-      await tracker.postComment(ticketKey, `${eventMarker} No open PR found for branch ${branchName}. Cannot iterate.`);
+      await tracker.postComment(
+        ticketKey,
+        `${eventMarker} No open PR found for branch ${branchName}. Cannot iterate.`,
+      );
     }
     appendOutput({ input_tokens: 0, output_tokens: 0, model });
     return;
@@ -72,7 +76,10 @@ async function main(): Promise<void> {
     const eventMarker = `[ferry:iterator:${eventId}]`;
     const { skipped } = checkIdempotencyMarker(eventMarker, existingComments);
     if (!skipped) {
-      await tracker.postComment(ticketKey, `${eventMarker} No review comment found on PR#${prNumber}. Cannot iterate.`);
+      await tracker.postComment(
+        ticketKey,
+        `${eventMarker} No review comment found on PR#${prNumber}. Cannot iterate.`,
+      );
     }
     appendOutput({ input_tokens: 0, output_tokens: 0, model });
     return;
@@ -85,14 +92,19 @@ async function main(): Promise<void> {
   const idempotencyMarker = `[ferry:iterator:${latestReview.id}]`;
   const { skipped } = checkIdempotencyMarker(idempotencyMarker, existingComments);
   if (skipped) {
-    console.error(`[ferry:iterate-action] review comment ${latestReview.id} already handled, skipping`);
+    console.error(
+      `[ferry:iterate-action] review comment ${latestReview.id} already handled, skipping`,
+    );
     appendOutput({ input_tokens: 0, output_tokens: 0, model });
     return;
   }
 
   const reviewComment = latestReview.body;
   if (/\*\*Verdict\*\*:\s*Approved\b/.test(reviewComment)) {
-    await tracker.postComment(ticketKey, `${idempotencyMarker} PR#${prNumber} review shows Approved — no iteration needed.`);
+    await tracker.postComment(
+      ticketKey,
+      `${idempotencyMarker} PR#${prNumber} review shows Approved — no iteration needed.`,
+    );
     appendOutput({ input_tokens: 0, output_tokens: 0, model });
     return;
   }
@@ -103,11 +115,17 @@ async function main(): Promise<void> {
   execSync('git config user.email "ferry-bot@users.noreply.github.com"', { cwd: REPO_ROOT });
 
   try {
-    execFileSync('git', ['ls-remote', '--exit-code', '--heads', 'origin', branchName], { cwd: REPO_ROOT, stdio: 'pipe' });
+    execFileSync('git', ['ls-remote', '--exit-code', '--heads', 'origin', branchName], {
+      cwd: REPO_ROOT,
+      stdio: 'pipe',
+    });
     execFileSync('git', ['fetch', 'origin', branchName], { cwd: REPO_ROOT });
     execFileSync('git', ['checkout', branchName], { cwd: REPO_ROOT });
   } catch {
-    await tracker.postComment(ticketKey, `${idempotencyMarker} Branch ${branchName} not found on origin. Cannot iterate.`);
+    await tracker.postComment(
+      ticketKey,
+      `${idempotencyMarker} Branch ${branchName} not found on origin. Cannot iterate.`,
+    );
     appendOutput({ input_tokens: 0, output_tokens: 0, model });
     return;
   }
@@ -117,21 +135,28 @@ async function main(): Promise<void> {
   try {
     execFileSync('git', ['merge', 'origin/main', '--no-edit'], { cwd: REPO_ROOT });
   } catch {
-    mergeConflicts = execSync('git diff --name-only --diff-filter=U', { cwd: REPO_ROOT, encoding: 'utf8' })
-      .trim().split('\n').filter(Boolean);
+    mergeConflicts = execSync('git diff --name-only --diff-filter=U', {
+      cwd: REPO_ROOT,
+      encoding: 'utf8',
+    })
+      .trim()
+      .split('\n')
+      .filter(Boolean);
   }
 
-  const existingLog = execSync(
-    'git log origin/main..HEAD --oneline',
-    { cwd: REPO_ROOT, encoding: 'utf8' },
-  ).trim();
+  const existingLog = execSync('git log origin/main..HEAD --oneline', {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+  }).trim();
 
   const ticketBlock = [
     `TICKET: ${ticketKey}`,
     `TITLE: ${issue.summary}`,
     `TYPE: ${issue.issueType}`,
     `DESCRIPTION:\n${issue.description}`,
-  ].filter(Boolean).join('\n');
+  ]
+    .filter(Boolean)
+    .join('\n');
 
   const initialPrompt = [
     '## Jira Ticket',
@@ -146,7 +171,9 @@ async function main(): Promise<void> {
     existingLog ? `## Existing commits on branch\n${existingLog}` : '',
     '',
     'When you have fixed all findings, call the `done` tool.',
-  ].filter(Boolean).join('\n');
+  ]
+    .filter(Boolean)
+    .join('\n');
 
   const secretScan = async () => {
     const scanResult = await scanWithGitleaks({
@@ -154,7 +181,10 @@ async function main(): Promise<void> {
       binaryPath: process.env.GITLEAKS_PATH ?? 'gitleaks',
     });
     if (scanResult.leaksFound) {
-      throw new FerryError('state-invariant', { reason: 'secret-scan-hit', findings: scanResult.findings.length });
+      throw new FerryError('state-invariant', {
+        reason: 'secret-scan-hit',
+        findings: scanResult.findings.length,
+      });
     }
   };
 
@@ -186,7 +216,9 @@ async function main(): Promise<void> {
     secretScan,
   });
 
-  console.error(`[ferry:iterate-action] done in ${iterations} iterations — actionable=${done.actionable} in=${usage.input_tokens} cache_w=${usage.cache_creation_input_tokens} cache_r=${usage.cache_read_input_tokens} out=${usage.output_tokens}`);
+  console.error(
+    `[ferry:iterate-action] done in ${iterations} iterations — actionable=${done.actionable} in=${usage.input_tokens} cache_w=${usage.cache_creation_input_tokens} cache_r=${usage.cache_read_input_tokens} out=${usage.output_tokens}`,
+  );
 
   if (!done.actionable) {
     await tracker.postComment(
@@ -224,7 +256,11 @@ async function main(): Promise<void> {
   process.exit(0);
 }
 
-function appendOutput(usage: { input_tokens: number; output_tokens: number; model?: string }): void {
+function appendOutput(usage: {
+  input_tokens: number;
+  output_tokens: number;
+  model?: string;
+}): void {
   const githubOutput = process.env.GITHUB_OUTPUT;
   if (githubOutput) {
     let out = `input_tokens=${usage.input_tokens}\noutput_tokens=${usage.output_tokens}\n`;

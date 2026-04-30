@@ -82,18 +82,14 @@ describe('createSessionBudget', () => {
     it('uses FERRY_MAX_COST_EUR_PER_RUN when set', () => {
       vi.stubEnv('FERRY_MAX_COST_EUR_PER_RUN', '2');
       const budget = createSessionBudget();
-      expect(() => budget.checkBefore(3.0)).toThrow(
-        expect.objectContaining({ code: 'spend-cap' }),
-      );
+      expect(() => budget.checkBefore(3.0)).toThrow(expect.objectContaining({ code: 'spend-cap' }));
     });
 
     it('falls back to 10.0 when env var is not set', () => {
       vi.stubEnv('FERRY_MAX_COST_EUR_PER_RUN', '');
       const budget = createSessionBudget();
       budget.recordUsage(9.0);
-      expect(() => budget.checkBefore(1.5)).toThrow(
-        expect.objectContaining({ code: 'spend-cap' }),
-      );
+      expect(() => budget.checkBefore(1.5)).toThrow(expect.objectContaining({ code: 'spend-cap' }));
       expect(() => budget.checkBefore(0.9)).not.toThrow();
     });
 
@@ -101,9 +97,7 @@ describe('createSessionBudget', () => {
       const budget = createSessionBudget();
       // 9 + 9 = 18 > 10, but each individual call: first 9 < 10 ok, then 9+9=18 > 10
       budget.recordUsage(9.0);
-      expect(() => budget.checkBefore(1.5)).toThrow(
-        expect.objectContaining({ code: 'spend-cap' }),
-      );
+      expect(() => budget.checkBefore(1.5)).toThrow(expect.objectContaining({ code: 'spend-cap' }));
     });
   });
 
