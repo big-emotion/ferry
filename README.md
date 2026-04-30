@@ -306,6 +306,31 @@ AGENT_MCP_SERVERS=[{"name":"context7","url":"https://mcp.context7.com/mcp"}]
 
 `mcp_tool_use` blocks are logged to stderr as `[ferry:dev-tool] mcp_tool=<name> server=<server>` and reflected in the token-usage counters in the final `[ferry:dev-action]` summary line.
 
+### Per-ticket capability boost via Jira labels
+
+By default, `AGENT_MCP_SERVERS` loads every configured server for **every** ticket. If you want specific tickets to opt into heavy capabilities (e.g. Sentry, Playwright) without inflating the default prompt, declare a `labels:` section in `ferry.config.yaml` (or `.json`):
+
+```yaml
+labels:
+  ferry:mcp/context7:
+    mcp_servers: [context7]
+
+  ferry:mcp/sentry:
+    mcp_servers: [sentry]
+    tools: [fetch_runtime_logs]   # only expose this tool from the Sentry server
+
+  ferry:profile/frontend:
+    mcp_servers: [context7, playwright]   # profile = curated bundle
+```
+
+Then add the matching label to your Jira ticket (e.g. `ferry:mcp/context7`). Ferry unions all matching entries and passes the resulting server list to the agent.
+
+**Security — allowlist is the trust boundary.** Only labels explicitly declared in `ferry.config` are honoured. Any `ferry:*` label on the Jira ticket that is not in the config is logged to stderr and ignored. This prevents anyone with Jira edit rights from pointing Ferry at an arbitrary MCP server.
+
+**Iterator re-reads labels each cycle.** The Iterator agent re-reads labels from Jira at the start of each review→iterate cycle (i.e., each time the iterate workflow runs), not from a stale envelope. If a reviewer or human adds `ferry:mcp/sentry` between iteration 1 and iteration 2, iteration 2 picks it up automatically.
+
+**Backward compatibility.** If the `labels:` section is absent from `ferry.config`, all servers in `AGENT_MCP_SERVERS` are passed through unchanged — existing behaviour is preserved.
+
 ---
 
 ## Cost governance

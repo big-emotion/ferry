@@ -19,6 +19,7 @@ import { createAnthropicAgentLoop } from '../../lib/llm/agent-loop/anthropic.js'
 import type { AgentLoop, McpServerConfig } from '../../lib/llm/agent-loop/types.js';
 import { loadFerryConfig } from '../../lib/config.js';
 import { resolvePromptPath, loadProjectSnippet } from '../../lib/prompts/resolve.js';
+import { resolveCapabilities, filterMcpServers } from '../../lib/labels/capabilities.js';
 
 const REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
 
@@ -191,7 +192,21 @@ async function main(): Promise<void> {
   };
 
   const allToolSchemas = [...TOOL_SCHEMAS, COMMIT_PROGRESS_SCHEMA, SPAWN_SUBAGENT_SCHEMA];
-  const mcpServers = loadMcpServers();
+  const mcpPool = loadMcpServers();
+  const capabilities = resolveCapabilities(issue.labels, ferryCfg.labels);
+  const hasLabelsConfig = ferryCfg.labels !== undefined;
+  const mcpServers = filterMcpServers(mcpPool, capabilities, hasLabelsConfig);
+
+  if (capabilities.triggeredLabels.length > 0) {
+    console.error(
+      `[ferry:dev-action] label capabilities: labels=[${capabilities.triggeredLabels.join(',')}] mcp=[${capabilities.mcpServerNames.join(',')}]`,
+    );
+  }
+  if (capabilities.unknownFerryLabels.length > 0) {
+    console.error(
+      `[ferry:dev-action] unknown ferry labels (ignored): ${capabilities.unknownFerryLabels.join(', ')}`,
+    );
+  }
   if (mcpServers.length > 0) {
     console.error(`[ferry:dev-action] MCP servers: ${mcpServers.map((s) => s.name).join(', ')}`);
   }

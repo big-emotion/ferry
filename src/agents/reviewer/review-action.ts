@@ -10,6 +10,7 @@ import { GitHubActionsRunner } from '../../lib/dispatch/runner/github-actions/in
 import { detectMergeConflicts, buildFileList, runReviewLoop } from './review-loop.js';
 import { loadFerryConfig } from '../../lib/config.js';
 import { resolvePromptPath, loadProjectSnippet } from '../../lib/prompts/resolve.js';
+import { resolveCapabilities } from '../../lib/labels/capabilities.js';
 
 const REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
 
@@ -41,6 +42,18 @@ async function main(): Promise<void> {
 
   const issue = await tracker.getIssue(ticketKey);
   const existingComments = issue.comments;
+
+  const capabilities = resolveCapabilities(issue.labels, ferryCfg.labels);
+  if (capabilities.triggeredLabels.length > 0) {
+    console.error(
+      `[ferry:review-action] label capabilities: labels=[${capabilities.triggeredLabels.join(',')}] mcp=[${capabilities.mcpServerNames.join(',')}]`,
+    );
+  }
+  if (capabilities.unknownFerryLabels.length > 0) {
+    console.error(
+      `[ferry:review-action] unknown ferry labels (ignored): ${capabilities.unknownFerryLabels.join(', ')}`,
+    );
+  }
 
   // Find PR for this ticket's branch
   const branchName = `ferry/${ticketKey}`;
