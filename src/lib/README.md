@@ -9,11 +9,9 @@ Each module has exactly one responsibility. If you are not sure where to put new
 | `dispatch/` | Phase → workflow routing table, GHA-backed `CIRunner` abstraction, dry-run helpers, cancel-in-progress policy assertions, and the task-skip composite-action entrypoint. |
 | `envelope/` | Validate incoming `repository_dispatch` payloads against the JSON schema. |
 | `errors/` | `FerryError` class and structured error codes. |
-| `fingerprint/` | SHA-256 fingerprint reviewer findings by `{file, line_start, line_end, rule_id}` for cross-iteration comparison. |
 | `io/` | All external I/O: GitHub Octokit helpers, Jira REST client, comment upsert, idempotency-marker string utilities, retry, spend-cap classification, TLDR summarisation, and the tracker abstraction. |
 | `labels/` | Resolve ticket labels against `ferry.config` to derive MCP servers and tool allowlists per run. |
 | `llm/` | LLM provider clients (Anthropic, OpenAI, Google), `call` / `pricing` helpers, the Anthropic agent loop, and `delimitUntrusted` for prompt injection defence. |
 | `mcp/` | MCP server bootstrap helpers (composing pool, secret expansion). |
 | `prompts/` | Resolve prompt paths from the bundled action directory or the local repo, plus optional project-context snippet loading. |
-| `safety/` | Static safety guards: gitleaks-based secret scanner (`scan` + `binary` download/cache). |
-| `state/` | Atomic read and write of the per-ticket `.ferry/state.json` file with JSON Schema v1 validation on both sides. |
+| `safety/` | Gitleaks-based secret scanner (`scanWithGitleaks`). |

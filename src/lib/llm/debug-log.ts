@@ -24,8 +24,7 @@ export type DebugEvent =
       elapsed_ms: number;
     };
 
-/** True when LOG_VERBOSITY equals 'debug' (case-sensitive). */
-export function isDebugEnabled(env?: NodeJS.ProcessEnv): boolean {
+function isDebugEnabled(env?: NodeJS.ProcessEnv): boolean {
   return (env ?? process.env)['LOG_VERBOSITY'] === 'debug';
 }
 

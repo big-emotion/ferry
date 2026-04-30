@@ -30,7 +30,7 @@ vi.mock('./jira-rest.js', () => {
 
 import { scanWithGitleaks } from '../safety/scan.js';
 import { createJiraRestClientFromEnv } from './jira-rest.js';
-import { postComment, getTicket, createSubtask, addLabel, transitionTicket } from './jira.js';
+import { postComment } from './jira.js';
 
 function getMockClient() {
   return vi.mocked(createJiraRestClientFromEnv).mock.results.at(-1)?.value as {
@@ -43,45 +43,6 @@ function getMockClient() {
     postTransition: ReturnType<typeof vi.fn>;
   };
 }
-
-const ISSUE_FIXTURE = {
-  id: '10001',
-  key: 'ACME-1',
-  fields: {
-    summary: 'Implement feature X',
-    description: {
-      version: 1,
-      type: 'doc',
-      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Ticket description.' }] }],
-    },
-    comment: {
-      comments: [
-        {
-          id: '10001',
-          body: {
-            version: 1,
-            type: 'doc',
-            content: [
-              {
-                type: 'paragraph',
-                content: [{ type: 'text', text: '[ferry:refiner:run-abc] refiner note' }],
-              },
-            ],
-          },
-        },
-      ],
-    },
-    labels: ['feature', 'backend'],
-    issuetype: { name: 'Story' },
-  },
-};
-
-const TRANSITIONS_FIXTURE = {
-  transitions: [
-    { id: '11', name: 'To Do' },
-    { id: '31', name: 'In Review' },
-  ],
-};
 
 describe('io/jira — secret-scan gate', () => {
   beforeEach(() => {
@@ -183,114 +144,6 @@ describe('io/jira — secret-scan gate', () => {
       });
       expect(result.skipped).toBe(true);
       expect(vi.mocked(scanWithGitleaks)).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('getTicket', () => {
-    it('converts Jira issue response to JiraTicket with text bodies', async () => {
-      vi.mocked(createJiraRestClientFromEnv).mockReturnValue({
-        getIssue: vi.fn().mockResolvedValue(ISSUE_FIXTURE),
-        postComment: vi.fn(),
-        putComment: vi.fn(),
-        createSubtask: vi.fn(),
-        addLabel: vi.fn(),
-        getTransitions: vi.fn(),
-        postTransition: vi.fn(),
-      } as unknown as ReturnType<typeof createJiraRestClientFromEnv>);
-
-      const ticket = await getTicket('ACME-1');
-
-      expect(ticket.key).toBe('ACME-1');
-      expect(ticket.title).toBe('Implement feature X');
-      expect(ticket.description).toBe('Ticket description.');
-      expect(ticket.labels).toEqual(['feature', 'backend']);
-      expect(ticket.issueType).toBe('Story');
-      expect(ticket.comments).toHaveLength(1);
-      expect(ticket.comments[0].id).toBe(10001);
-      expect(ticket.comments[0].body).toContain('[ferry:refiner:run-abc]');
-    });
-  });
-
-  describe('createSubtask', () => {
-    it('scans the payload before creating the subtask', async () => {
-      vi.mocked(createJiraRestClientFromEnv).mockReturnValue({
-        getIssue: vi.fn(),
-        postComment: vi.fn(),
-        putComment: vi.fn(),
-        createSubtask: vi.fn().mockResolvedValue({ id: '10003', key: 'ACME-2', self: '' }),
-        addLabel: vi.fn(),
-        getTransitions: vi.fn(),
-        postTransition: vi.fn(),
-      } as unknown as ReturnType<typeof createJiraRestClientFromEnv>);
-
-      await createSubtask('ACME-1', 'Sub-task title', 'Description text');
-
-      expect(vi.mocked(scanWithGitleaks)).toHaveBeenCalledOnce();
-    });
-
-    it('throws FerryError("spend-cap") with reason "secret-scan-hit" on leak', async () => {
-      vi.mocked(scanWithGitleaks).mockResolvedValue({
-        leaksFound: true,
-        findings: [{ ruleId: 'r', description: 'd', file: '', startLine: 1, endLine: 1 }],
-      });
-
-      await expect(createSubtask('ACME-1', 'title', 'AKIAIOSFODNN7EXAMPLE')).rejects.toMatchObject({
-        code: 'spend-cap',
-        context: { reason: 'secret-scan-hit' },
-      });
-    });
-  });
-
-  describe('addLabel', () => {
-    it('scans the label before adding', async () => {
-      vi.mocked(createJiraRestClientFromEnv).mockReturnValue({
-        getIssue: vi.fn(),
-        postComment: vi.fn(),
-        putComment: vi.fn(),
-        createSubtask: vi.fn(),
-        addLabel: vi.fn().mockResolvedValue(undefined),
-        getTransitions: vi.fn(),
-        postTransition: vi.fn(),
-      } as unknown as ReturnType<typeof createJiraRestClientFromEnv>);
-
-      await addLabel('ACME-1', 'ferry:paused');
-      expect(vi.mocked(scanWithGitleaks)).toHaveBeenCalledOnce();
-    });
-  });
-
-  describe('transitionTicket', () => {
-    it('resolves transition id by name (case-insensitive) and posts it', async () => {
-      vi.mocked(createJiraRestClientFromEnv).mockReturnValue({
-        getIssue: vi.fn(),
-        postComment: vi.fn(),
-        putComment: vi.fn(),
-        createSubtask: vi.fn(),
-        addLabel: vi.fn(),
-        getTransitions: vi.fn().mockResolvedValue(TRANSITIONS_FIXTURE),
-        postTransition: vi.fn().mockResolvedValue(undefined),
-      } as unknown as ReturnType<typeof createJiraRestClientFromEnv>);
-
-      await transitionTicket('ACME-1', 'in review');
-
-      const c = getMockClient();
-      expect(c.postTransition).toHaveBeenCalledWith('ACME-1', '31');
-    });
-
-    it('throws FerryError("state-invariant") when target name is not found', async () => {
-      vi.mocked(createJiraRestClientFromEnv).mockReturnValue({
-        getIssue: vi.fn(),
-        postComment: vi.fn(),
-        putComment: vi.fn(),
-        createSubtask: vi.fn(),
-        addLabel: vi.fn(),
-        getTransitions: vi.fn().mockResolvedValue(TRANSITIONS_FIXTURE),
-        postTransition: vi.fn(),
-      } as unknown as ReturnType<typeof createJiraRestClientFromEnv>);
-
-      await expect(transitionTicket('ACME-1', 'Does Not Exist')).rejects.toMatchObject({
-        code: 'state-invariant',
-        context: { reason: 'transition-not-found' },
-      });
     });
   });
 });

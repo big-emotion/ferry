@@ -34,16 +34,7 @@ Every agent workflow starts with a `repository_dispatch` event. The composite ac
 - All external writes are idempotent — comments and file operations use fingerprinting (e.g., `[ferry:<role>:<run-id>] ...`)
 - Validation must never leak raw payload values — sanitize via AJV path reporting and trim large fields (e.g., `instructions` to 2000 chars)
 
-### 2. **State Management** (`src/lib/state/`)
-
-Durable ticket state lives in `.ferry/state.json` on the per-ticket branch `ferry/<ticket-key>`, NOT on `main`. 
-
-- `src/lib/state/index.ts` is the **only** supported read/write path for state
-- All state writes are atomic: write to `state.json.tmp`, validate against `src/schemas/state.v1.schema.json`, then rename
-- State uses different phase names than events: events use `refine | dev | review | iterate | reconcile`; state uses `refining | developing | reviewing | iterating | ready | paused | cancelled | needs-human`
-- Never write state ad hoc — use the shared state helpers
-
-### 3. **IO Abstraction** (`src/lib/io/`)
+### 2. **IO Abstraction** (`src/lib/io/`)
 
 All external interactions (GitHub, Jira, LLM) go through shared IO helpers. **Critical rule:** Agent code under `src/agents/**` must never import `@octokit/rest` or Jira modules directly. Route all access through:
 - GitHub: `src/lib/dispatch/runner/github-actions/`
@@ -52,15 +43,14 @@ All external interactions (GitHub, Jira, LLM) go through shared IO helpers. **Cr
 
 This decoupling allows mocking and testing without touching real APIs.
 
-### 4. **Agent Entrypoints** (`src/agents/refiner/`, `developer/`, `reviewer/`, `iterator/`)
+### 3. **Agent Entrypoints** (`src/agents/refiner/`, `developer/`, `reviewer/`, `iterator/`)
 
 Each agent is a separate implementation. Key patterns:
 - Agents define their own LLM schemas (e.g., `src/agents/reviewer/schema.ts`)
-- Agents use shared state helpers
 - Agent code is linted to forbid direct Octokit/Jira imports
 - Reviewer agent has special gates: `src/agents/reviewer/ci-gate.ts` (blocks on red CI), `src/agents/reviewer/transition.ts` (auto-moves Jira on verdict)
 
-### 5. **Scheduled Work** (`src/reconciler/`, `src/cost-governance/`)
+### 4. **Scheduled Work** (`src/reconciler/`, `src/cost-governance/`)
 
 These modules exist as library code but are currently **not wired to a workflow** — the example `reconciler.yml` and `audit-daily.yml` workflow stubs were removed. Keep the modules building and tested; consumers wire them up themselves.
 
@@ -69,11 +59,11 @@ These modules exist as library code but are currently **not wired to a workflow*
 
 The only workflow files in this repo are the agent dispatch workflows (`refine.yml`, `dev.yml`, `review.yml`, `iterate.yml`), the CI gate (`ferry-ci.yml`), and Claude Code helpers (`claude.yml`, `claude-code-review.yml`).
 
-### 6. **Composite Actions** (`.github/actions/`)
+### 5. **Composite Actions** (`.github/actions/`)
 
 Each agent has a composite action used by its workflow: `ferry-envelope-validate`, `ferry-emit-audit`, and `ferry-run-{refiner,developer,reviewer,iterator}`. Workflows are thin — most logic lives in `src/agents/**` and is invoked via these actions.
 
-### 7. **CLI Entrypoints** (`src/cli/`)
+### 6. **CLI Entrypoints** (`src/cli/`)
 
 Two consumer-facing CLIs are exposed via `package.json` `bin`:
 - `ferry-init` (`src/cli/init/`) — scaffolds Ferry into a new consumer repo
@@ -104,7 +94,7 @@ External writes use standardized prefixes for idempotency:
 
 ## Testing Strategy
 
-- Unit tests live next to implementation (e.g., `src/lib/state/index.ts` → `src/lib/state/index.test.ts`)
+- Unit tests live next to implementation (e.g., `src/lib/io/jira.ts` → `src/lib/io/jira.test.ts`)
 - Use Vitest fixtures in `src/__fixtures__/` for mock payloads and state
 - Agent code has `__lint-fixtures__/` (not real tests, just lint rule checks)
 - All external IO is mocked in tests — tests never hit real GitHub, Jira, or LLM APIs
@@ -124,19 +114,12 @@ External writes use standardized prefixes for idempotency:
 3. Test with Vitest: `npx vitest run src/agents/<agent>/<agent>.test.ts`
 4. Run full suite: `npm test`
 
-**Modifying state shape:**
-1. Update schema in `src/schemas/state.v1.schema.json`
-2. Update TypeScript type in `src/lib/state/types.ts`
-3. Add migration logic in `src/lib/state/index.ts` if needed for backward compat
-4. Update tests in `src/lib/state/state.test.ts`
-
 ## Requirements & Constraints
 
 - Node.js ≥ 20
 - Strict TypeScript compilation required
 - All code must pass: typecheck → lint → format → tests → gitleaks scan
 - Event idempotency is driven by audit issue comments, not a database
-- Branch state is atomic: all writes go through `state.json.tmp` + validate + rename pattern
 
 ## Deployment
 

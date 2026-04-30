@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { isDebugEnabled, emitDebug } from './debug-log.js';
+import { emitDebug } from './debug-log.js';
 import type { DebugEvent } from './debug-log.js';
 
 const turnEvent: DebugEvent = {
@@ -25,29 +25,21 @@ const resultEvent: DebugEvent = {
   elapsed_ms: 12345,
 };
 
-describe('isDebugEnabled', () => {
-  it('true when LOG_VERBOSITY is exactly "debug"', () => {
-    expect(isDebugEnabled({ LOG_VERBOSITY: 'debug' })).toBe(true);
-  });
-
-  it('false when LOG_VERBOSITY is unset', () => {
-    expect(isDebugEnabled({})).toBe(false);
-  });
-
-  it('false when LOG_VERBOSITY is "DEBUG" (case-sensitive)', () => {
-    expect(isDebugEnabled({ LOG_VERBOSITY: 'DEBUG' })).toBe(false);
-  });
-
-  it('false when LOG_VERBOSITY is "verbose"', () => {
-    expect(isDebugEnabled({ LOG_VERBOSITY: 'verbose' })).toBe(false);
-  });
-
-  it('false when LOG_VERBOSITY is empty string', () => {
-    expect(isDebugEnabled({ LOG_VERBOSITY: '' })).toBe(false);
-  });
-});
-
 describe('emitDebug', () => {
+  it('writes nothing when LOG_VERBOSITY is unset', () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    emitDebug(turnEvent, {});
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it('writes nothing when LOG_VERBOSITY is "DEBUG" (case-sensitive)', () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    emitDebug(turnEvent, { LOG_VERBOSITY: 'DEBUG' });
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
   });
