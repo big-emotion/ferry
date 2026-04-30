@@ -77,9 +77,13 @@ function buildPrompt(input: RefinerInput): string {
   ].join('\n\n');
 }
 
+function stripMarkdownFences(text: string): string {
+  return text.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '').trim();
+}
+
 function parseJsonOrThrow(text: string): unknown {
   try {
-    return JSON.parse(text);
+    return JSON.parse(stripMarkdownFences(text));
   } catch {
     throw new FerryError('state-invariant', { reason: 'refiner-output-invalid' });
   }

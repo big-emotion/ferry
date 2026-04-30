@@ -61,6 +61,26 @@ describe('runRefiner happy path (Story 3-1)', () => {
   });
 });
 
+describe('runRefiner markdown fence stripping', () => {
+  it('parses JSON wrapped in ```json fences', async () => {
+    const fencedLlm: LlmCall = async () => ({
+      text: '```json\n' + JSON.stringify(validPlan) + '\n```',
+      usage: null,
+    });
+    const result = await runRefiner({ ticket, callLlm: fencedLlm, runLink: 'r' });
+    expect(result.plan).toEqual(validPlan);
+  });
+
+  it('parses JSON wrapped in plain ``` fences', async () => {
+    const fencedLlm: LlmCall = async () => ({
+      text: '```\n' + JSON.stringify(validPlan) + '\n```',
+      usage: null,
+    });
+    const result = await runRefiner({ ticket, callLlm: fencedLlm, runLink: 'r' });
+    expect(result.plan).toEqual(validPlan);
+  });
+});
+
 describe('runRefiner error paths (Story 3-1)', () => {
   it('throws state-invariant on malformed JSON', async () => {
     const badLlm: LlmCall = async () => ({ text: 'not json', usage: null });
