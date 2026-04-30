@@ -15,6 +15,11 @@ on:
         required: true
         type: string
 
+# cancel-in-progress: false — same as dev; writes state.json and branch commits
+concurrency:
+  group: ferry-${{ github.workflow }}-${{ inputs.ticket_key || (startsWith(github.event.client_payload.ticket_key, 'CHAN-') && github.event.client_payload.ticket_key) || 'ferry-invalid-payload-sinkhole' }}
+  cancel-in-progress: false
+
 jobs:
   gate-envelope:
     name: Validate event envelope

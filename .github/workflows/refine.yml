@@ -15,6 +15,11 @@ on:
         required: true
         type: string
 
+# cancel-in-progress: true — Refiner is pure read + audit comment; latest human edit wins
+concurrency:
+  group: ferry-${{ github.workflow }}-${{ inputs.ticket_key || github.event.client_payload.ticket_key || 'ferry-invalid-payload-sinkhole' }}
+  cancel-in-progress: true
+
 jobs:
   gate-envelope:
     name: Validate event envelope
