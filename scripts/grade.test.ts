@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeReviewerVerdict, type RubricScores } from './index.js';
+import { computeReviewerVerdict, type RubricScores } from './grade.js';
 
 describe('computeReviewerVerdict', () => {
   describe('threshold mapping (no Correct=0 override)', () => {

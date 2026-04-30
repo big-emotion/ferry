@@ -18,6 +18,8 @@
  * totals would otherwise yield `actionable`. A review with no correct findings is
  * never actionable, regardless of how substantive, specific, or actionable it
  * appears. The override does not promote `rubber_stamp` upward.
+ *
+ * Consumed only by `scripts/ferry-grade.ts` (the interactive grading CLI).
  */
 
 export interface RubricScores {

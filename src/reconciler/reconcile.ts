@@ -7,7 +7,7 @@
  * repository_dispatch and pruning) live in reconciler.yml.
  */
 
-import { generateULID } from '../lib/ulid/index.js';
+import { ulid } from 'ulid';
 
 const PHASE_TO_COLUMN: Record<string, string> = {
   refining: 'Refinement',
@@ -75,7 +75,7 @@ export function reconcileTickets(input: ReconcileInput): ReconcileOutcome {
       ticket_key: t.ticket_key,
       source: 'reconciler',
       phase: inferPhase(t.jira_column),
-      event_id: generateULID(),
+      event_id: ulid(),
     });
   }
   return { scanned: input.tickets.length, dispatched };

@@ -10,17 +10,13 @@
  *
  * Pipe stdout to your audit issue or paste the line as a comment.
  *
- * The pure verdict logic lives in `src/lib/grade/index.ts` and is unit-tested
+ * The pure verdict logic lives in `scripts/grade.ts` and is unit-tested
  * separately. This file is a thin readline wrapper — keep it that way.
  */
 import { createInterface } from 'node:readline';
 import { stdin, stdout } from 'node:process';
 
-import {
-  computeReviewerVerdict,
-  type ReviewerVerdict,
-  type RubricScores,
-} from '../src/lib/grade/index.js';
+import { computeReviewerVerdict, type ReviewerVerdict, type RubricScores } from './grade.js';
 
 interface AuditLine {
   ticket: string;
