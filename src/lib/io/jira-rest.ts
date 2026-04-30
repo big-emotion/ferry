@@ -152,6 +152,19 @@ export class JiraRestClient {
     });
     this.throwForStatus(response.status);
   }
+
+  async getSubtasks(parentKey: string): Promise<string[]> {
+    const jql = encodeURIComponent(`parent=${parentKey} ORDER BY created ASC`);
+    const response = await fetch(
+      `${this.baseUrl}/rest/api/3/search?jql=${jql}&fields=summary&maxResults=50`,
+      { method: 'GET', headers: this.baseHeaders },
+    );
+    if (!response.ok) return [];
+    const data = (await response.json()) as {
+      issues?: Array<{ key: string; fields: { summary: string } }>;
+    };
+    return (data.issues ?? []).map((i) => `- [${i.key}] ${i.fields.summary}`);
+  }
 }
 
 export function createJiraRestClientFromEnv(): JiraRestClient {

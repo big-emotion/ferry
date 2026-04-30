@@ -3,8 +3,7 @@ import { execFileSync, execSync } from 'node:child_process';
 import * as path from 'node:path';
 import { validateEnvelope } from '../../lib/envelope/validate.js';
 import { delimitUntrusted } from '../../lib/sanitization/delimit-untrusted.js';
-import { createJiraRestClientFromEnv } from '../../lib/io/jira-rest.js';
-import { adfToText } from '../../lib/io/jira-adf.js';
+import { createTrackerFromEnv } from '../../lib/io/tracker/factory.js';
 import { scanWithGitleaks } from '../../lib/secret-scan/scan.js';
 import { FerryError } from '../../lib/error.js';
 import { GitHubActionsRunner } from '../../lib/dispatch/runner/github-actions/index.js';
@@ -39,22 +38,6 @@ function detectTestRunner(packageJsonPath: string): string {
   }
 }
 
-async function fetchSubtaskSummaries(ticketKey: string): Promise<string[]> {
-  const baseUrl = requireEnv('FERRY_JIRA_BASE_URL');
-  const email = requireEnv('FERRY_JIRA_EMAIL');
-  const apiToken = requireEnv('FERRY_JIRA_API_TOKEN');
-  const authHeader = `Basic ${Buffer.from(`${email}:${apiToken}`).toString('base64')}`;
-
-  const jql = encodeURIComponent(`parent=${ticketKey} ORDER BY created ASC`);
-  const resp = await fetch(
-    `${baseUrl.replace(/\/+$/, '')}/rest/api/3/search?jql=${jql}&fields=summary&maxResults=50`,
-    { headers: { Authorization: authHeader, Accept: 'application/json' } },
-  );
-  if (!resp.ok) return [];
-  const data = (await resp.json()) as { issues?: Array<{ key: string; fields: { summary: string } }> };
-  return (data.issues ?? []).map((i) => `- [${i.key}] ${i.fields.summary}`);
-}
-
 function repoTree(repoRoot: string): string {
   try {
     return execFileSync('find', [
@@ -86,24 +69,22 @@ async function main(): Promise<void> {
   }
 
   const runner = new GitHubActionsRunner(githubToken, owner, repo);
-  const jira = createJiraRestClientFromEnv();
-  const issue = await jira.getIssue(ticketKey);
-  const description = adfToText(issue.fields.description);
-  const comments = issue.fields.comment.comments
-    .map((c) => `Comment: ${adfToText(c.body)}`)
-    .join('\n');
-  const labels = issue.fields.labels.join(', ');
+  const tracker = createTrackerFromEnv();
+  const issue = await tracker.getIssue(ticketKey);
+  const description = issue.description;
+  const comments = issue.comments.map((c) => `Comment: ${c}`).join('\n');
+  const labels = issue.labels.join(', ');
 
   const ticketBlock = [
     `TICKET: ${ticketKey}`,
-    `TITLE: ${issue.fields.summary}`,
-    `TYPE: ${issue.fields.issuetype.name}`,
+    `TITLE: ${issue.summary}`,
+    `TYPE: ${issue.issueType}`,
     `LABELS: ${labels || 'none'}`,
     `DESCRIPTION:\n${description}`,
     comments ? `COMMENTS:\n${comments}` : '',
   ].filter(Boolean).join('\n');
 
-  const subtasks = await fetchSubtaskSummaries(ticketKey);
+  const subtasks = await tracker.getSubtasks(ticketKey);
   const testRunner = detectTestRunner(path.join(REPO_ROOT, 'package.json'));
   const tree = repoTree(REPO_ROOT);
 
@@ -198,25 +179,11 @@ async function main(): Promise<void> {
   console.error(`[ferry:dev-action] done in ${iterations} iterations — actionable=${done.actionable} in=${usage.input_tokens} cache_w=${usage.cache_creation_input_tokens} cache_r=${usage.cache_read_input_tokens} out=${usage.output_tokens}`);
 
   const idempotencyMarker = `[ferry:dev:${eventId}]`;
-  const jiraEmail = requireEnv('FERRY_JIRA_EMAIL');
-  const jiraApiToken = requireEnv('FERRY_JIRA_API_TOKEN');
-  const authHeader = `Basic ${Buffer.from(`${jiraEmail}:${jiraApiToken}`).toString('base64')}`;
 
   if (!done.actionable) {
-    const body = `${idempotencyMarker} Cannot implement — ${done.reason_if_not_actionable ?? 'no reason given'}`;
-    await fetch(
-      `${jiraBaseUrl.replace(/\/+$/, '')}/rest/api/3/issue/${ticketKey}/comment`,
-      {
-        method: 'POST',
-        headers: { Authorization: authHeader, Accept: 'application/json', 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          body: {
-            type: 'doc',
-            version: 1,
-            content: [{ type: 'paragraph', content: [{ type: 'text', text: body }] }],
-          },
-        }),
-      },
+    await tracker.postComment(
+      ticketKey,
+      `${idempotencyMarker} Cannot implement — ${done.reason_if_not_actionable ?? 'no reason given'}`,
     );
     appendOutput(usage);
     process.exit(0);
@@ -247,31 +214,10 @@ async function main(): Promise<void> {
 
   const prUrl = await runner.createPR(owner, repo, branchName, 'main', prTitle, prBody);
 
-  // Jira transition
-  await fetch(
-    `${jiraBaseUrl.replace(/\/+$/, '')}/rest/api/3/issue/${ticketKey}/transitions`,
-    {
-      method: 'POST',
-      headers: { Authorization: authHeader, Accept: 'application/json', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ transition: { id: reviewTransitionId } }),
-    },
-  );
-
-  // Jira comment
-  const doneComment = `${idempotencyMarker} Implementation complete — PR: ${prUrl}. Moved to Review.`;
-  await fetch(
-    `${jiraBaseUrl.replace(/\/+$/, '')}/rest/api/3/issue/${ticketKey}/comment`,
-    {
-      method: 'POST',
-      headers: { Authorization: authHeader, Accept: 'application/json', 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        body: {
-          type: 'doc',
-          version: 1,
-          content: [{ type: 'paragraph', content: [{ type: 'text', text: doneComment }] }],
-        },
-      }),
-    },
+  await tracker.postTransition(ticketKey, reviewTransitionId);
+  await tracker.postComment(
+    ticketKey,
+    `${idempotencyMarker} Implementation complete — PR: ${prUrl}. Moved to Review.`,
   );
 
   appendOutput(usage);

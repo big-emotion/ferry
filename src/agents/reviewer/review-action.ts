@@ -3,8 +3,7 @@ import * as path from 'node:path';
 import Anthropic from '@anthropic-ai/sdk';
 import { validateEnvelope } from '../../lib/envelope/validate.js';
 import { delimitUntrusted } from '../../lib/sanitization/delimit-untrusted.js';
-import { createJiraRestClientFromEnv } from '../../lib/io/jira-rest.js';
-import { adfToText, textToAdf } from '../../lib/io/jira-adf.js';
+import { createTrackerFromEnv } from '../../lib/io/tracker/factory.js';
 import { checkIdempotencyMarker } from '../../lib/io/idempotency.js';
 import { gateCi } from './ci-gate.js';
 import { FerryError } from '../../lib/error.js';
@@ -44,10 +43,10 @@ async function main(): Promise<void> {
     throw new FerryError('state-invariant', { reason: 'invalid-github-repo', githubRepo });
   }
   const runner = new GitHubActionsRunner(githubToken, owner, repo);
-  const jira = createJiraRestClientFromEnv();
+  const tracker = createTrackerFromEnv();
 
-  const issue = await jira.getIssue(ticketKey);
-  const existingComments = issue.fields.comment.comments.map((c) => adfToText(c.body));
+  const issue = await tracker.getIssue(ticketKey);
+  const existingComments = issue.comments;
 
   // Find PR for this ticket's branch
   const branchName = `ferry/${ticketKey}`;
@@ -57,9 +56,9 @@ async function main(): Promise<void> {
     const errorMarker = `[ferry:reviewer:${eventId}]`;
     const { skipped } = checkIdempotencyMarker(errorMarker, existingComments);
     if (!skipped) {
-      await jira.postComment(
+      await tracker.postComment(
         ticketKey,
-        textToAdf(`${errorMarker} No open PR found for branch ${branchName}. Cannot review.`),
+        `${errorMarker} No open PR found for branch ${branchName}. Cannot review.`,
       );
     }
     appendOutput({ input_tokens: 0, output_tokens: 0, model });
@@ -88,26 +87,21 @@ async function main(): Promise<void> {
 
   if (!ciOutcome.proceed) {
     if (ciOutcome.outcome === 'pending-ci') {
-      await jira.postComment(
+      await tracker.postComment(
         ticketKey,
-        textToAdf(
-          `${idempotencyMarker} CI checks are still pending on ${headSha.slice(0, 7)}. Will retry when CI completes.`,
-        ),
+        `${idempotencyMarker} CI checks are still pending on ${headSha.slice(0, 7)}. Will retry when CI completes.`,
       );
       appendOutput({ input_tokens: 0, output_tokens: 0, model });
       return;
     }
 
     const ciMessage = ciOutcome.findings[0]?.message ?? 'CI checks failed. See the Actions run for details.';
-    await jira.postComment(
-      ticketKey,
-      textToAdf(`${idempotencyMarker} CI checks failed. Moved to Dev Iteration.`),
-    );
+    await tracker.postComment(ticketKey, `${idempotencyMarker} CI checks failed. Moved to Dev Iteration.`);
     await runner.commentOnPR(
       { owner, repo, prNumber },
       `${idempotencyMarker}\n\n**CI failed:** ${ciMessage}`,
     );
-    await jira.postTransition(ticketKey, iterTransitionId);
+    await tracker.postTransition(ticketKey, iterTransitionId);
     appendOutput({ input_tokens: 0, output_tokens: 0, model });
     return;
   }
@@ -127,12 +121,11 @@ async function main(): Promise<void> {
     .join('\n');
 
   // Build ticket context
-  const description = adfToText(issue.fields.description);
   const ticketBlock = [
     `TICKET: ${ticketKey}`,
-    `TITLE: ${issue.fields.summary}`,
-    `TYPE: ${issue.fields.issuetype.name}`,
-    `DESCRIPTION:\n${description}`,
+    `TITLE: ${issue.summary}`,
+    `TYPE: ${issue.issueType}`,
+    `DESCRIPTION:\n${issue.description}`,
   ].filter(Boolean).join('\n');
 
   const mergeConflictWarning = hasMergeConflicts
@@ -184,10 +177,7 @@ async function main(): Promise<void> {
   );
 
   if (review.approved) {
-    await jira.postComment(
-      ticketKey,
-      textToAdf(`${idempotencyMarker} Approved. PR#${prNumber} is ready to merge.`),
-    );
+    await tracker.postComment(ticketKey, `${idempotencyMarker} Approved. PR#${prNumber} is ready to merge.`);
     await runner.addLabelsToPR({ owner, repo, prNumber }, ['ferry:approved']);
     await runner.removeLabelFromPR({ owner, repo, prNumber }, 'ferry:reviewing').catch(() => {});
     await runner.commentOnPR({ owner, repo, prNumber }, review.comment);
@@ -197,19 +187,15 @@ async function main(): Promise<void> {
     await runner.commentOnPR({ owner, repo, prNumber }, review.comment);
 
     if (!hasIteratorMarker) {
-      await jira.postComment(
+      await tracker.postComment(
         ticketKey,
-        textToAdf(
-          `${idempotencyMarker} Changes requested. Moved to Dev Iteration. See PR#${prNumber} for details.`,
-        ),
+        `${idempotencyMarker} Changes requested. Moved to Dev Iteration. See PR#${prNumber} for details.`,
       );
-      await jira.postTransition(ticketKey, iterTransitionId);
+      await tracker.postTransition(ticketKey, iterTransitionId);
     } else {
-      await jira.postComment(
+      await tracker.postComment(
         ticketKey,
-        textToAdf(
-          `${idempotencyMarker} Changes requested (re-review). See PR#${prNumber} comments and move ticket manually.`,
-        ),
+        `${idempotencyMarker} Changes requested (re-review). See PR#${prNumber} comments and move ticket manually.`,
       );
     }
   }
