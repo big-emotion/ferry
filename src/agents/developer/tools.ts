@@ -150,19 +150,24 @@ export const TOOL_SCHEMAS: AgentTool[] = [
         },
         validation: {
           type: 'array',
-          description: 'Validation commands run during this session and their outcomes (used in the PR body).',
+          description:
+            'Validation commands run during this session and their outcomes (used in the PR body).',
           items: {
             type: 'object',
             properties: {
               command: { type: 'string', description: 'Command run, e.g. "npm test".' },
-              outcome: { type: 'string', description: 'Result, e.g. "74 files / 371 tests passed".' },
+              outcome: {
+                type: 'string',
+                description: 'Result, e.g. "74 files / 371 tests passed".',
+              },
             },
             required: ['command', 'outcome'],
           },
         },
         notes: {
           type: 'array',
-          description: 'Noteworthy side-effects, follow-ups, deprecated paths, or config changes (used in the PR body).',
+          description:
+            'Noteworthy side-effects, follow-ups, deprecated paths, or config changes (used in the PR body).',
           items: { type: 'string' },
         },
       },

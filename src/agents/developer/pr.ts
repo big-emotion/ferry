@@ -30,8 +30,7 @@ export interface PrBodyInput {
 export function formatPullRequestBody(input: PrBodyInput): string {
   const ticketUrl = `${input.jiraBaseUrl.replace(/\/+$/, '')}/browse/${input.ticketKey}`;
 
-  const subtaskLines =
-    input.subtasks.length > 0 ? input.subtasks.join('\n') : '_None_';
+  const subtaskLines = input.subtasks.length > 0 ? input.subtasks.join('\n') : '_None_';
 
   const validationLines =
     input.validation.length > 0
