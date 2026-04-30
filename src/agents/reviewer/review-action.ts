@@ -1,7 +1,6 @@
 import { appendFileSync, readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import Anthropic from '@anthropic-ai/sdk';
-import { Octokit } from '@octokit/rest';
 import { validateEnvelope } from '../../lib/envelope/validate.js';
 import { delimitUntrusted } from '../../lib/sanitization/delimit-untrusted.js';
 import { createJiraRestClientFromEnv } from '../../lib/io/jira-rest.js';
@@ -9,9 +8,8 @@ import { adfToText, textToAdf } from '../../lib/io/jira-adf.js';
 import { checkIdempotencyMarker } from '../../lib/io/idempotency.js';
 import { gateCi } from './ci-gate.js';
 import { FerryError } from '../../lib/error.js';
+import { GitHubActionsRunner } from '../../lib/dispatch/runner/github-actions/index.js';
 import {
-  resolveCiStatus,
-  fetchAllPrFiles,
   detectMergeConflicts,
   buildFileList,
   runReviewLoop,
@@ -45,7 +43,7 @@ async function main(): Promise<void> {
   if (!owner || !repo) {
     throw new FerryError('state-invariant', { reason: 'invalid-github-repo', githubRepo });
   }
-  const octokit = new Octokit({ auth: githubToken });
+  const runner = new GitHubActionsRunner(githubToken, owner, repo);
   const jira = createJiraRestClientFromEnv();
 
   const issue = await jira.getIssue(ticketKey);
@@ -53,15 +51,9 @@ async function main(): Promise<void> {
 
   // Find PR for this ticket's branch
   const branchName = `ferry/${ticketKey}`;
-  const { data: pulls } = await octokit.pulls.list({
-    owner,
-    repo,
-    state: 'open',
-    head: `${owner}:${branchName}`,
-    per_page: 1,
-  });
+  const prs = await runner.listPRsForBranch(owner, repo, branchName);
 
-  if (pulls.length === 0) {
+  if (prs.length === 0) {
     const errorMarker = `[ferry:reviewer:${eventId}]`;
     const { skipped } = checkIdempotencyMarker(errorMarker, existingComments);
     if (!skipped) {
@@ -74,10 +66,10 @@ async function main(): Promise<void> {
     return;
   }
 
-  const prNumber = pulls[0].number;
+  const prNumber = prs[0].number;
   // Fetch the full PR to get the `mergeable` field (not available in list response)
-  const { data: pr } = await octokit.pulls.get({ owner, repo, pull_number: prNumber });
-  const headSha = pr.head.sha;
+  const pr = await runner.getPR({ owner, repo, prNumber });
+  const headSha = pr.headSha;
   const mergeable = pr.mergeable;
 
   // Idempotency keyed on head SHA — a new push always produces a new SHA,
@@ -91,7 +83,7 @@ async function main(): Promise<void> {
   }
 
   // CI gate
-  const ciStatus = await resolveCiStatus(octokit, owner, repo, headSha);
+  const ciStatus = await runner.getCommitStatus(owner, repo, headSha);
   const ciOutcome = gateCi({ status: ciStatus });
 
   if (!ciOutcome.proceed) {
@@ -111,19 +103,17 @@ async function main(): Promise<void> {
       ticketKey,
       textToAdf(`${idempotencyMarker} CI checks failed. Moved to Dev Iteration.`),
     );
-    await octokit.issues.createComment({
-      owner,
-      repo,
-      issue_number: prNumber,
-      body: `${idempotencyMarker}\n\n**CI failed:** ${ciMessage}`,
-    });
+    await runner.commentOnPR(
+      { owner, repo, prNumber },
+      `${idempotencyMarker}\n\n**CI failed:** ${ciMessage}`,
+    );
     await jira.postTransition(ticketKey, iterTransitionId);
     appendOutput({ input_tokens: 0, output_tokens: 0, model });
     return;
   }
 
   // Fetch ALL PR files (paginated)
-  const files = await fetchAllPrFiles(octokit, owner, repo, prNumber);
+  const files = await runner.listPRFiles({ owner, repo, prNumber });
   const fileMap = new Map<string, string | undefined>(files.map((f) => [f.filename, f.patch]));
 
   // Detect merge conflicts in patches
@@ -131,11 +121,9 @@ async function main(): Promise<void> {
   const hasMergeConflicts = mergeable === false || conflictedFiles.length > 0;
 
   // Fetch commits for context
-  const { data: commits } = await octokit.pulls.listCommits({
-    owner, repo, pull_number: prNumber, per_page: 50,
-  });
+  const commits = await runner.listPRCommits({ owner, repo, prNumber });
   const commitLog = commits
-    .map((c) => `${c.sha.slice(0, 7)} ${c.commit.message.split('\n')[0]}`)
+    .map((c) => `${c.sha.slice(0, 7)} ${c.message.split('\n')[0]}`)
     .join('\n');
 
   // Build ticket context
@@ -157,7 +145,7 @@ async function main(): Promise<void> {
     '',
     '## PR Metadata',
     `PR #${prNumber}: ${pr.title}`,
-    `Base: ${pr.base.ref} ← Head: ${branchName} (${headSha.slice(0, 7)})`,
+    `Base: ${pr.baseRef} ← Head: ${branchName} (${headSha.slice(0, 7)})`,
     `Files changed: ${files.length}  Commits: ${commits.length}`,
     mergeConflictWarning,
     '',
@@ -185,7 +173,7 @@ async function main(): Promise<void> {
     system,
     initialPrompt,
     fileMap,
-    octokit,
+    runner,
     owner,
     repo,
     headSha,
@@ -200,21 +188,13 @@ async function main(): Promise<void> {
       ticketKey,
       textToAdf(`${idempotencyMarker} Approved. PR#${prNumber} is ready to merge.`),
     );
-    await octokit.issues.addLabels({
-      owner, repo, issue_number: prNumber, labels: ['ferry:approved'],
-    });
-    await octokit.issues.removeLabel({
-      owner, repo, issue_number: prNumber, name: 'ferry:reviewing',
-    }).catch(() => {});
-    await octokit.issues.createComment({
-      owner, repo, issue_number: prNumber, body: review.comment,
-    });
+    await runner.addLabelsToPR({ owner, repo, prNumber }, ['ferry:approved']);
+    await runner.removeLabelFromPR({ owner, repo, prNumber }, 'ferry:reviewing').catch(() => {});
+    await runner.commentOnPR({ owner, repo, prNumber }, review.comment);
   } else {
     const hasIteratorMarker = existingComments.some((c) => c.includes('[ferry:iterator:'));
 
-    await octokit.issues.createComment({
-      owner, repo, issue_number: prNumber, body: review.comment,
-    });
+    await runner.commentOnPR({ owner, repo, prNumber }, review.comment);
 
     if (!hasIteratorMarker) {
       await jira.postComment(
