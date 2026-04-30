@@ -125,8 +125,7 @@ async function main(): Promise<void> {
 
   const sinceStr = since.toISOString().slice(0, 10);
   const untilStr = until.toISOString().slice(0, 10);
-  const label =
-    opts.since || opts.until ? `${sinceStr} – ${untilStr}` : `Last ${opts.days} days`;
+  const label = opts.since || opts.until ? `${sinceStr} – ${untilStr}` : `Last ${opts.days} days`;
 
   if (opts.json) {
     process.stdout.write(formatJson(groups, total, label) + '\n');
@@ -136,8 +135,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err: unknown) => {
-  process.stderr.write(
-    `ferry-cost failed: ${err instanceof Error ? err.message : String(err)}\n`,
-  );
+  process.stderr.write(`ferry-cost failed: ${err instanceof Error ? err.message : String(err)}\n`);
   process.exit(1);
 });

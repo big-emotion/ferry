@@ -58,28 +58,45 @@ await Promise.all([
 // Copy it alongside the bundle and fix the relative path so the bundle
 // resolves it from .ferry/schemas/ instead of the source tree.
 copyFileSync('src/schemas/event.v1.schema.json', '.ferry/schemas/event.v1.schema.json');
-for (const f of ['validate-action.js', 'skip-task-type-action.js', 'refiner-action.js', 'dev-action.js', 'review-action.js', 'iterate-action.js']) {
+for (const f of [
+  'validate-action.js',
+  'skip-task-type-action.js',
+  'refiner-action.js',
+  'dev-action.js',
+  'review-action.js',
+  'iterate-action.js',
+]) {
   const p = `.ferry/${f}`;
-  writeFileSync(p, readFileSync(p, 'utf8').replaceAll(
-    '"../../schemas/event.v1.schema.json"',
-    '"./schemas/event.v1.schema.json"',
-  ));
+  writeFileSync(
+    p,
+    readFileSync(p, 'utf8').replaceAll(
+      '"../../schemas/event.v1.schema.json"',
+      '"./schemas/event.v1.schema.json"',
+    ),
+  );
 }
 
 // Minimal package.json so `npm ci` in .ferry/ installs only the three
 // packages that the bundled scripts still resolve at runtime via createRequire.
-writeFileSync('.ferry/package.json', JSON.stringify({
-  name: 'ferry-actions',
-  version: '0.0.0',
-  private: true,
-  type: 'module',
-  dependencies: {
-    'ajv': '^8.0.0',
-    'ajv-formats': '^3.0.1',
-    '@octokit/rest': '^22.0.1',
-    '@anthropic-ai/sdk': '^0.91.1',
-  },
-}, null, 2) + '\n');
+writeFileSync(
+  '.ferry/package.json',
+  JSON.stringify(
+    {
+      name: 'ferry-actions',
+      version: '0.0.0',
+      private: true,
+      type: 'module',
+      dependencies: {
+        ajv: '^8.0.0',
+        'ajv-formats': '^3.0.1',
+        '@octokit/rest': '^22.0.1',
+        '@anthropic-ai/sdk': '^0.91.1',
+      },
+    },
+    null,
+    2,
+  ) + '\n',
+);
 
 execSync('npm install --prefer-offline', { cwd: '.ferry', stdio: 'inherit' });
 
@@ -91,30 +108,47 @@ execSync('npm install --prefer-offline', { cwd: '.ferry', stdio: 'inherit' });
 const validateActionDir = '.github/actions/ferry-envelope-validate';
 mkdirSync(`${validateActionDir}/schemas`, { recursive: true });
 copyFileSync('.ferry/validate-action.js', `${validateActionDir}/validate-action.js`);
-copyFileSync('src/schemas/event.v1.schema.json', `${validateActionDir}/schemas/event.v1.schema.json`);
-writeFileSync(`${validateActionDir}/package.json`, JSON.stringify({
-  name: 'ferry-envelope-validate-action',
-  version: '0.0.0',
-  private: true,
-  type: 'module',
-  dependencies: {
-    'ajv': '^8.0.0',
-    'ajv-formats': '^3.0.1',
-  },
-}, null, 2) + '\n');
+copyFileSync(
+  'src/schemas/event.v1.schema.json',
+  `${validateActionDir}/schemas/event.v1.schema.json`,
+);
+writeFileSync(
+  `${validateActionDir}/package.json`,
+  JSON.stringify(
+    {
+      name: 'ferry-envelope-validate-action',
+      version: '0.0.0',
+      private: true,
+      type: 'module',
+      dependencies: {
+        ajv: '^8.0.0',
+        'ajv-formats': '^3.0.1',
+      },
+    },
+    null,
+    2,
+  ) + '\n',
+);
 execSync('npm install --prefer-offline', { cwd: validateActionDir, stdio: 'inherit' });
 
 const emitAuditActionDir = '.github/actions/ferry-emit-audit';
 copyFileSync('.ferry/emit-audit-action.js', `${emitAuditActionDir}/emit-audit-action.js`);
-writeFileSync(`${emitAuditActionDir}/package.json`, JSON.stringify({
-  name: 'ferry-emit-audit-action',
-  version: '0.0.0',
-  private: true,
-  type: 'module',
-  dependencies: {
-    '@octokit/rest': '^22.0.1',
-  },
-}, null, 2) + '\n');
+writeFileSync(
+  `${emitAuditActionDir}/package.json`,
+  JSON.stringify(
+    {
+      name: 'ferry-emit-audit-action',
+      version: '0.0.0',
+      private: true,
+      type: 'module',
+      dependencies: {
+        '@octokit/rest': '^22.0.1',
+      },
+    },
+    null,
+    2,
+  ) + '\n',
+);
 execSync('npm install --prefer-offline', { cwd: emitAuditActionDir, stdio: 'inherit' });
 
 // --- Agent runner composite action bundles (fixes issue #71) ---
@@ -163,23 +197,33 @@ for (const agent of agentActions) {
   copyFileSync('.ferry/skip-task-type-action.js', `${agent.actionDir}/skip-task-type-action.js`);
 
   // Copy event schema (used at runtime via createRequire)
-  copyFileSync('src/schemas/event.v1.schema.json', `${agent.actionDir}/schemas/event.v1.schema.json`);
+  copyFileSync(
+    'src/schemas/event.v1.schema.json',
+    `${agent.actionDir}/schemas/event.v1.schema.json`,
+  );
 
   // Copy bundled prompts (FERRY_BUNDLED_PROMPTS_DIR in action.yml points here)
   for (const name of agent.prompts) {
     copyFileSync(`prompts/${name}.md`, `${agent.actionDir}/prompts/${name}.md`);
   }
 
-  writeFileSync(`${agent.actionDir}/package.json`, JSON.stringify({
-    name: agent.packageName,
-    version: '0.0.0',
-    private: true,
-    type: 'module',
-    dependencies: {
-      'ajv': '^8.0.0',
-      'ajv-formats': '^3.0.1',
-    },
-  }, null, 2) + '\n');
+  writeFileSync(
+    `${agent.actionDir}/package.json`,
+    JSON.stringify(
+      {
+        name: agent.packageName,
+        version: '0.0.0',
+        private: true,
+        type: 'module',
+        dependencies: {
+          ajv: '^8.0.0',
+          'ajv-formats': '^3.0.1',
+        },
+      },
+      null,
+      2,
+    ) + '\n',
+  );
   execSync('npm install --prefer-offline', { cwd: agent.actionDir, stdio: 'inherit' });
 }
 
