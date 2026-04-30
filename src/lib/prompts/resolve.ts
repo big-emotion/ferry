@@ -6,7 +6,7 @@ export function resolvePromptPath(
   repoRoot: string,
   _checkExists: (p: string) => boolean = existsSync,
 ): string {
-  const overridesDir = process.env.FERRY_PROMPTS_DIR ?? path.join(repoRoot, 'prompts');
+  const overridesDir = process.env.FERRY_PROMPTS_DIR || path.join(repoRoot, 'prompts');
   const overridePath = path.join(overridesDir, `${name}.md`);
   if (_checkExists(overridePath)) {
     return overridePath;
@@ -23,7 +23,7 @@ export function loadProjectSnippet(
   _checkExists: (p: string) => boolean = existsSync,
   _readFile: (p: string, enc: BufferEncoding) => string = (p, enc) => readFileSync(p, enc),
 ): string | null {
-  const overridesDir = process.env.FERRY_PROMPTS_DIR ?? path.join(repoRoot, 'prompts');
+  const overridesDir = process.env.FERRY_PROMPTS_DIR || path.join(repoRoot, 'prompts');
   const candidates = [
     path.join(overridesDir, '_project.md'),
     path.join(repoRoot, '.ferry', 'prompts', '_project.md'),

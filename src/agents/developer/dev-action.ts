@@ -173,7 +173,7 @@ async function main(): Promise<void> {
         `[ferry:dev-action] DRY_RUN — not actionable: ${done.reason_if_not_actionable ?? 'no reason given'}`,
       );
     }
-    appendOutput(usage);
+    appendOutput({ ...usage, model });
     process.exit(0);
   }
 
@@ -215,7 +215,7 @@ async function main(): Promise<void> {
       console.log(
         '[ferry:dev-action] DRY_RUN — skipped: git push, PR creation, Jira transition, Jira comment',
       );
-      appendOutput(usage);
+      appendOutput({ ...usage, model });
       process.exit(0);
     }
 
@@ -253,7 +253,7 @@ async function main(): Promise<void> {
     throw err;
   }
 
-  appendOutput(usage);
+  appendOutput({ ...usage, model });
   process.exit(0);
 }
 
