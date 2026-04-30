@@ -62,10 +62,7 @@ describe('loadProjectSnippet', () => {
     const readSpy = vi.fn(() => 'ferry default content');
     const result = loadProjectSnippet(REPO_ROOT, check, readSpy);
     expect(result).toBe('ferry default content');
-    expect(readSpy).toHaveBeenCalledWith(
-      '/workspace/repo/.ferry/prompts/_project.md',
-      'utf8',
-    );
+    expect(readSpy).toHaveBeenCalledWith('/workspace/repo/.ferry/prompts/_project.md', 'utf8');
   });
 
   it('prefers prompts/_project.md over .ferry/prompts/_project.md', () => {
