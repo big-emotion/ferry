@@ -1,0 +1,73 @@
+name: Ferry — Dev
+description: Runs the Ferry developer agent. Writes code to the consumer repo, creates a feature branch, and opens a PR. Assumes the consumer repo is checked out with fetch-depth 0.
+inputs:
+  envelope_payload:
+    description: JSON-encoded github.event.client_payload
+    required: true
+  jira_base_url:
+    description: Jira base URL (e.g. https://your-org.atlassian.net)
+    required: true
+  jira_email:
+    description: Atlassian account email
+    required: true
+  jira_api_token:
+    description: Atlassian API token
+    required: true
+  review_transition_id:
+    description: Jira transition ID to move the ticket to In Review after the PR is opened
+    required: true
+  anthropic_api_key:
+    description: Anthropic API key
+    required: true
+  github_token:
+    description: GitHub token with contents:write and pull-requests:write
+    required: true
+  model:
+    description: Claude model ID to use
+    required: false
+    default: claude-sonnet-4-6
+outputs:
+  input_tokens:
+    description: Number of input tokens consumed
+    value: ${{ steps.run-developer.outputs.input_tokens }}
+  output_tokens:
+    description: Number of output tokens consumed
+    value: ${{ steps.run-developer.outputs.output_tokens }}
+runs:
+  using: composite
+  steps:
+    - name: Set up Node.js
+      uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af  # v4.1.0
+      with:
+        node-version: '20'
+        cache: npm
+        cache-dependency-path: ${{ github.action_path }}/../../.ferry/package-lock.json
+    - name: Install Ferry action dependencies
+      shell: bash
+      run: npm ci --prefer-offline
+      working-directory: ${{ github.action_path }}/../../.ferry
+    - name: Install gitleaks
+      shell: bash
+      run: |
+        curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz" \
+          | tar -xz -C /usr/local/bin gitleaks
+    - name: Skip Task tickets (FR6)
+      shell: bash
+      run: node "$GITHUB_ACTION_PATH/../../.ferry/skip-task-type-action.js"
+      env:
+        FERRY_ENVELOPE_PAYLOAD: ${{ inputs.envelope_payload }}
+    - name: Run Developer agent
+      id: run-developer
+      shell: bash
+      run: node "$GITHUB_ACTION_PATH/../../.ferry/dev-action.js"
+      env:
+        FERRY_ENVELOPE_PAYLOAD: ${{ inputs.envelope_payload }}
+        FERRY_JIRA_BASE_URL: ${{ inputs.jira_base_url }}
+        FERRY_JIRA_EMAIL: ${{ inputs.jira_email }}
+        FERRY_JIRA_API_TOKEN: ${{ inputs.jira_api_token }}
+        FERRY_REVIEW_TRANSITION_ID: ${{ inputs.review_transition_id }}
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+        GH_TOKEN: ${{ inputs.github_token }}
+        GITHUB_REPO: ${{ github.repository }}
+        FERRY_MODEL: ${{ inputs.model }}

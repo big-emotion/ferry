@@ -1,0 +1,74 @@
+# Copy this file to .github/workflows/ferry-review.yml in your repository.
+# Replace @v1 with the Ferry release tag you want to pin (e.g. @v1.2.3).
+# Required secrets: FERRY_JIRA_BASE_URL, FERRY_JIRA_EMAIL, FERRY_JIRA_API_TOKEN,
+#                   FERRY_ITER_TRANSITION_ID, ANTHROPIC_API_KEY
+# Required variables: FERRY_AUDIT_ISSUE (GitHub Issue number for the audit log)
+# Optional variables: FERRY_REVIEW_MODEL (default: claude-sonnet-4-6)
+
+name: Ferry — Review
+
+on:
+  repository_dispatch:
+    types: [ferry-review]
+
+# cancel-in-progress: false — writes fingerprints to state.iteration_history; must complete atomically
+concurrency:
+  group: ferry-${{ github.workflow }}-${{ github.event.client_payload.ticket_key || 'ferry-invalid-payload-sinkhole' }}
+  cancel-in-progress: false
+
+jobs:
+  gate-envelope:
+    name: Validate event envelope
+    runs-on: ubuntu-latest
+    steps:
+      - uses: big-emotion/ferry/actions/envelope-validate@v1
+        with:
+          payload: ${{ toJson(github.event.client_payload) }}
+
+  run-agent:
+    name: Run Reviewer agent
+    needs: [gate-envelope]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      checks: read
+    outputs:
+      input_tokens: ${{ steps.run-review.outputs.input_tokens }}
+      output_tokens: ${{ steps.run-review.outputs.output_tokens }}
+      model: ${{ steps.run-review.outputs.model }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: run-review
+        uses: big-emotion/ferry/actions/review@v1
+        with:
+          envelope_payload: ${{ toJson(github.event.client_payload) }}
+          jira_base_url: ${{ secrets.FERRY_JIRA_BASE_URL }}
+          jira_email: ${{ secrets.FERRY_JIRA_EMAIL }}
+          jira_api_token: ${{ secrets.FERRY_JIRA_API_TOKEN }}
+          iter_transition_id: ${{ secrets.FERRY_ITER_TRANSITION_ID }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ github.token }}
+          model: ${{ vars.FERRY_REVIEW_MODEL || 'claude-sonnet-4-6' }}
+
+  emit-audit:
+    name: Emit audit line
+    needs: [run-agent]
+    if: needs.run-agent.result != 'skipped'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - uses: big-emotion/ferry/actions/emit-audit@v1
+        with:
+          ticket: ${{ github.event.client_payload.ticket_key }}
+          phase: review
+          run_id: ${{ github.event.client_payload.event_id }}
+          model: ${{ needs.run-agent.outputs.model || 'claude-sonnet-4-6' }}
+          outcome: ${{ needs.run-agent.result }}
+          input_tokens: ${{ needs.run-agent.outputs.input_tokens || '0' }}
+          output_tokens: ${{ needs.run-agent.outputs.output_tokens || '0' }}
+          audit_issue: ${{ vars.FERRY_AUDIT_ISSUE }}
+          github_token: ${{ github.token }}
+          start_ms: ${{ github.run_id }}

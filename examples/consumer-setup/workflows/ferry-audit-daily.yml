@@ -1,0 +1,31 @@
+# Copy this file to .github/workflows/ferry-audit-daily.yml in your repository.
+# This workflow runs daily governance checks (spend monitoring, event pruning).
+
+name: Ferry — Audit Daily
+
+on:
+  schedule:
+    - cron: '0 9 * * *'
+  workflow_dispatch: {}
+
+concurrency:
+  group: ferry-audit-daily
+  cancel-in-progress: true
+
+jobs:
+  daily-spend-check:
+    name: Daily provider spend check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Spend check
+        run: echo "Daily spend check placeholder — no-op until Ferry ships Story 8.1"
+
+  prune-processed-events:
+    name: Prune ferry-processed-events (>24h)
+    needs: [daily-spend-check]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Prune
+        run: echo "Prune placeholder — no-op until Ferry ships Story 1.3"

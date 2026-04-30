@@ -1,0 +1,43 @@
+# Copy this file to .github/workflows/ferry-reconciler.yml in your repository.
+# Replace @v1 with the Ferry release tag you want to pin (e.g. @v1.2.3).
+# Required variables: FERRY_AUDIT_ISSUE (GitHub Issue number for the audit log)
+
+name: Ferry — Reconciler
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch: {}
+
+# cancel-in-progress: true — idempotent sweep; a newer sweep supersedes an older one safely
+concurrency:
+  group: ferry-reconciler
+  cancel-in-progress: true
+
+jobs:
+  reconcile:
+    name: Reconcile Ferry-managed tickets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reconcile
+        run: echo "Reconciler placeholder — no-op until Ferry ships Story 8.3"
+
+  emit-audit:
+    name: Emit audit line
+    needs: [reconcile]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - uses: big-emotion/ferry/actions/emit-audit@v1
+        with:
+          ticket: reconciler
+          phase: reconcile
+          run_id: ${{ github.run_id }}
+          model: placeholder
+          outcome: ${{ needs.reconcile.result }}
+          audit_issue: ${{ vars.FERRY_AUDIT_ISSUE }}
+          github_token: ${{ github.token }}
+          start_ms: ${{ github.run_id }}

@@ -78,18 +78,33 @@ For each Ferry column (**Refinement**, **In Development**, **In Review**, **Iter
 
   Set `phase` to `refine` / `dev` / `review` / `iterate` to match the column.
 
-## Step 5 — Add repository secrets
+## Step 5 — Add repository secrets and variables
 
 In your target repo: **Settings → Secrets and variables → Actions**.
 
-| Secret                    | Value                                        |
-|---------------------------|----------------------------------------------|
-| `FERRY_APP_ID`            | App ID from step 1                           |
-| `FERRY_PRIVATE_KEY`       | Full PEM contents of the private key         |
-| `FERRY_JIRA_BASE_URL`     | `https://your-org.atlassian.net`             |
-| `FERRY_JIRA_EMAIL`        | Atlassian account email from step 3          |
-| `FERRY_JIRA_API_TOKEN`    | Atlassian API token from step 3              |
-| `FERRY_ANTHROPIC_API_KEY` | Anthropic API key                            |
+**Secrets** (Settings → Secrets → Actions → New repository secret):
+
+| Secret                       | Value                                                         |
+|------------------------------|---------------------------------------------------------------|
+| `FERRY_APP_ID`               | App ID from step 1                                            |
+| `FERRY_PRIVATE_KEY`          | Full PEM contents of the private key from step 1              |
+| `FERRY_JIRA_BASE_URL`        | `https://your-org.atlassian.net`                              |
+| `FERRY_JIRA_EMAIL`           | Atlassian account email from step 3                           |
+| `FERRY_JIRA_API_TOKEN`       | Atlassian API token from step 3                               |
+| `ANTHROPIC_API_KEY`          | Anthropic API key                                             |
+| `FERRY_REVIEW_TRANSITION_ID` | Jira transition ID for the "In Review" column transition      |
+| `FERRY_ITER_TRANSITION_ID`   | Jira transition ID for the "Iteration" column transition      |
+
+**Variables** (Settings → Variables → Actions → New repository variable):
+
+| Variable             | Value                                                          |
+|----------------------|----------------------------------------------------------------|
+| `FERRY_AUDIT_ISSUE`  | GitHub Issue number to use as the Ferry audit log              |
+| `FERRY_MODEL`        | (optional) Developer model override, default `claude-sonnet-4-6` |
+| `FERRY_REVIEW_MODEL` | (optional) Reviewer model override, default `claude-sonnet-4-6` |
+| `FERRY_ITER_MODEL`   | (optional) Iterator model override, default `claude-sonnet-4-6` |
+
+To find the Jira transition IDs, use the Jira REST API: `GET /rest/api/3/issue/{issueKey}/transitions`.
 
 ## Step 6 — Set provider spend caps
 
@@ -99,26 +114,26 @@ Ferry warns at 50% of cap via the daily cron, but a hard cap on the provider sid
 - **Google AI Studio** → Billing → enable budget alerts.
 - **OpenAI Platform** → Billing → set hard limit.
 
-## Step 7 — Copy Ferry files into your repo
+## Step 7 — Add caller workflows to your repository
 
-From this Ferry repository, copy the following paths into your target repo at the same paths:
+Copy the six workflow stubs from [`examples/consumer-setup/workflows/`](examples/consumer-setup/workflows/) into `.github/workflows/` in your target repo:
 
-| Source                                    | Purpose                              |
-|-------------------------------------------|--------------------------------------|
-| `.ferry/`                                 | Pre-built action bundles             |
-| `.github/workflows/refine.yml`            | Refiner agent workflow               |
-| `.github/workflows/dev.yml`               | Developer agent workflow             |
-| `.github/workflows/review.yml`            | Reviewer agent workflow              |
-| `.github/workflows/iterate.yml`           | Iterator agent workflow              |
-| `.github/workflows/reconciler.yml`        | Missed-event recovery (cron)         |
-| `.github/workflows/audit-daily.yml`       | Daily cost-governance check (cron)   |
-| `.github/actions/ferry-envelope-validate/`| Composite action — envelope validation |
-| `.github/actions/ferry-emit-audit/`       | Composite action — audit logging     |
-| `.github/CODEOWNERS`                      | Code ownership rules                 |
+| File to copy                                                              | Triggers on              |
+|---------------------------------------------------------------------------|--------------------------|
+| `examples/consumer-setup/workflows/ferry-refine.yml`                     | `ferry-refine` dispatch  |
+| `examples/consumer-setup/workflows/ferry-dev.yml`                        | `ferry-dev` dispatch     |
+| `examples/consumer-setup/workflows/ferry-review.yml`                     | `ferry-review` dispatch  |
+| `examples/consumer-setup/workflows/ferry-iterate.yml`                    | `ferry-iterate` dispatch |
+| `examples/consumer-setup/workflows/ferry-reconciler.yml`                 | Every 15 minutes (cron)  |
+| `examples/consumer-setup/workflows/ferry-audit-daily.yml`                | Daily at 09:00 UTC       |
 
-> The `.ferry/` directory contains pre-built JavaScript bundles. Do not edit them by hand — they are regenerated from source by running `npm run build:ferry` in this repository.
+Each file is ~40 lines and references `big-emotion/ferry/actions/*@v1` directly — no `.ferry/` bundle or composite action copy required.
 
-Commit and push all copied files to the default branch of your target repo.
+Pin to a specific release tag by replacing `@v1` with e.g. `@v1.2.3`. To upgrade Ferry, bump the tag in all six files.
+
+Also copy `.github/CODEOWNERS` from the Ferry repository to protect workflow files from unreviewed edits.
+
+> **Upgrading from the file-copy path:** If you previously installed Ferry by copying `.ferry/`, `.github/workflows/`, and `.github/actions/` manually, replace those copies with the six caller workflow stubs above, delete your local `.ferry/` directory and the copied composite actions, and confirm the new workflows trigger correctly before removing the old files.
 
 ---
 
