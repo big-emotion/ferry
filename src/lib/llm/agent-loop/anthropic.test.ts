@@ -6,8 +6,20 @@ import type { McpServerConfig } from './types.js';
 
 type FakeResponse = {
   stop_reason: string;
-  content: Array<{ type: string; id?: string; name?: string; input?: unknown; text?: string; server_name?: string }>;
-  usage?: { input_tokens: number; output_tokens: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number };
+  content: Array<{
+    type: string;
+    id?: string;
+    name?: string;
+    input?: unknown;
+    text?: string;
+    server_name?: string;
+  }>;
+  usage?: {
+    input_tokens: number;
+    output_tokens: number;
+    cache_creation_input_tokens?: number;
+    cache_read_input_tokens?: number;
+  };
 };
 
 function makeMock(
@@ -18,12 +30,20 @@ function makeMock(
   let betaIdx = 0;
   const regularCreate = vi.fn().mockImplementation(async () => {
     const r = regularResponses[regIdx++];
-    return { stop_reason: r.stop_reason, content: r.content, usage: r.usage ?? { input_tokens: 10, output_tokens: 5 } };
+    return {
+      stop_reason: r.stop_reason,
+      content: r.content,
+      usage: r.usage ?? { input_tokens: 10, output_tokens: 5 },
+    };
   });
   const betaCreate = vi.fn().mockImplementation(async () => {
     const src = betaResponses ?? regularResponses;
     const r = src[betaIdx++];
-    return { stop_reason: r.stop_reason, content: r.content, usage: r.usage ?? { input_tokens: 10, output_tokens: 5 } };
+    return {
+      stop_reason: r.stop_reason,
+      content: r.content,
+      usage: r.usage ?? { input_tokens: 10, output_tokens: 5 },
+    };
   });
   return {
     messages: { create: regularCreate },
@@ -35,10 +55,19 @@ function makeMock(
 
 const doneResponse: FakeResponse = {
   stop_reason: 'tool_use',
-  content: [{ type: 'tool_use', id: 'tu_done', name: 'done', input: { actionable: true, summary: 'done' } }],
+  content: [
+    {
+      type: 'tool_use',
+      id: 'tu_done',
+      name: 'done',
+      input: { actionable: true, summary: 'done' },
+    },
+  ],
 };
 
-const noopExecuteTool = vi.fn<(r: string, n: string, i: Record<string, unknown>) => Promise<string>>();
+const noopExecuteTool = vi.fn<
+  (r: string, n: string, i: Record<string, unknown>) => Promise<string>
+>();
 
 const baseInput = {
   system: 's',
@@ -116,7 +145,12 @@ describe('createAnthropicAgentLoop — MCP connector', () => {
       expect.objectContaining({
         betas: ['mcp-client-2025-11-20'],
         mcp_servers: [
-          { type: 'url', name: 'context7', url: 'https://mcp.context7.com/mcp', authorization_token: 'tok-123' },
+          {
+            type: 'url',
+            name: 'context7',
+            url: 'https://mcp.context7.com/mcp',
+            authorization_token: 'tok-123',
+          },
         ],
       }),
     );
@@ -196,7 +230,12 @@ describe('createAnthropicAgentLoop — MCP connector', () => {
       stop_reason: 'tool_use',
       content: [
         { type: 'mcp_tool_use', id: 'mcp_1', name: 'get-library-docs', server_name: 'context7' },
-        { type: 'tool_use', id: 'tu_done', name: 'done', input: { actionable: true, summary: 'ok' } },
+        {
+          type: 'tool_use',
+          id: 'tu_done',
+          name: 'done',
+          input: { actionable: true, summary: 'ok' },
+        },
       ],
     };
 

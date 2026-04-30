@@ -214,7 +214,7 @@ export function createAnthropicAgentLoop(opts: {
         const blockInput = block.input as Record<string, unknown>;
 
         if (name === 'done') {
-          done = blockInput as DonePayload;
+          done = blockInput as unknown as DonePayload;
           toolResults.push({ type: 'tool_result', tool_use_id: id, content: 'ok' });
           continue;
         }
