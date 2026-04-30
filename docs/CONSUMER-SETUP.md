@@ -59,6 +59,10 @@ Go to **Settings → Secrets and variables → Actions** in your GitHub repo and
 | `FERRY_JIRA_EMAIL` | Your Atlassian account email | Your Atlassian account |
 | `FERRY_JIRA_API_TOKEN` | Atlassian API token | [Generate here](https://id.atlassian.com/manage-profile/security/api-tokens) |
 | `ANTHROPIC_API_KEY` | Anthropic API key (for Claude) | [Get here](https://console.anthropic.com/account/keys) |
+| `FERRY_REVIEW_TRANSITION_ID` | Jira transition ID → Review column | See [Configuration Reference](CONFIGURATION.md#required-for-specific-agents) |
+| `FERRY_ITER_TRANSITION_ID` | Jira transition ID → Iteration column | See [Configuration Reference](CONFIGURATION.md#required-for-specific-agents) |
+
+You also need one **repository variable**: `FERRY_AUDIT_ISSUE` (the number of a blank GitHub Issue to use as Ferry's audit log). See the [Configuration Reference](CONFIGURATION.md) for all available variables and the full `ferry.config.json` schema.
 
 ### Step 4: Configure Jira → GitHub webhook
 
@@ -121,9 +125,9 @@ Or use the Jira-GitHub app integration if your team already has it.
 
 ## Customization
 
-Ferry uses Claude Sonnet 4.6 by default. To change the model or add other providers (Google AI, OpenAI):
-- Edit the workflow file and change the `FERRY_MODEL` env var
-- Add additional API keys as secrets if using a different provider
+For a full reference of all configurable parameters — models, limits, Jira label capabilities, and the complete `ferry.config.json` schema — see **[docs/CONFIGURATION.md](CONFIGURATION.md)**.
+
+In brief: create a `ferry.config.json` at the root of your repo and specify the model and provider for each agent. Set `FERRY_REVIEW_MODEL` or `FERRY_ITER_MODEL` as GitHub repository variables if you want per-repo overrides without editing the config file. For alternative LLM providers (OpenAI, Google AI), add the corresponding API key secret and set the provider in `ferry.config.json`.
 
 ---
 
