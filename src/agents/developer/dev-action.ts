@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { validateEnvelope } from '../../lib/envelope/validate.js';
 import { delimitUntrusted } from '../../lib/llm/delimit-untrusted.js';
 import { createTrackerFromEnv } from '../../lib/io/tracker/factory.js';
+import { isDryRun } from '../../lib/dry-run.js';
 import { scanWithGitleaks } from '../../lib/safety/scan.js';
 import { FerryError } from '../../lib/errors/index.js';
 import { GitHubActionsRunner } from '../../lib/dispatch/runner/github-actions/index.js';
@@ -96,10 +97,15 @@ async function main(): Promise<void> {
   const envelope = validateEnvelope(JSON.parse(rawPayload));
   const { ticket_key: ticketKey, event_id: eventId } = envelope;
 
+  const dryRun = isDryRun();
+  if (dryRun) {
+    console.error('[ferry:dev-action] DRY_RUN mode — no branch push, no PR, no Jira writes');
+  }
+
   const anthropicApiKey = requireEnv('ANTHROPIC_API_KEY');
-  const reviewTransitionId = requireEnv('FERRY_REVIEW_TRANSITION_ID');
-  const githubToken = requireEnv('GITHUB_TOKEN');
-  const githubRepo = requireEnv('GITHUB_REPO');
+  const reviewTransitionId = dryRun ? '' : requireEnv('FERRY_REVIEW_TRANSITION_ID');
+  const githubToken = dryRun ? '' : requireEnv('GITHUB_TOKEN');
+  const githubRepo = dryRun ? process.env.GITHUB_REPO ?? 'unknown/unknown' : requireEnv('GITHUB_REPO');
   const jiraBaseUrl = requireEnv('FERRY_JIRA_BASE_URL');
 
   const [owner, repo] = githubRepo.split('/');
@@ -225,6 +231,10 @@ async function main(): Promise<void> {
       if (!status.trim()) return 'nothing to commit';
       await scan();
       execSync(`git commit -m ${JSON.stringify(message)}`, { cwd: repoRoot });
+      if (dryRun) {
+        console.error(`[ferry:dev-action] DRY_RUN — checkpoint committed locally (push skipped): ${message.slice(0, 80)}`);
+        return 'committed (dry-run: push skipped)';
+      }
       execSync(`git push origin ${branchName} --force-with-lease`, { cwd: repoRoot });
       console.error(`[ferry:dev-action] checkpoint: ${message.slice(0, 80)}`);
       return 'committed and pushed';
@@ -258,10 +268,16 @@ async function main(): Promise<void> {
   const idempotencyMarker = `[ferry:dev:${eventId}]`;
 
   if (!done.actionable) {
-    await tracker.postComment(
-      ticketKey,
-      `${idempotencyMarker} Cannot implement — ${done.reason_if_not_actionable ?? 'no reason given'}`,
-    );
+    if (!dryRun) {
+      await tracker.postComment(
+        ticketKey,
+        `${idempotencyMarker} Cannot implement — ${done.reason_if_not_actionable ?? 'no reason given'}`,
+      );
+    } else {
+      console.log(
+        `[ferry:dev-action] DRY_RUN — not actionable: ${done.reason_if_not_actionable ?? 'no reason given'}`,
+      );
+    }
     appendOutput(usage);
     process.exit(0);
   }
@@ -282,6 +298,27 @@ async function main(): Promise<void> {
         cwd: REPO_ROOT,
       });
     }
+
+    if (dryRun) {
+      let diffOutput = '(no local changes)';
+      try {
+        diffOutput = execSync('git diff HEAD~1..HEAD --stat 2>/dev/null || git show --stat HEAD 2>/dev/null || echo "(no commits yet)"', {
+          cwd: REPO_ROOT,
+          encoding: 'utf8',
+          shell: true,
+        });
+      } catch {
+        // best-effort
+      }
+      console.log('[ferry:dev-action] DRY_RUN — implementation summary:');
+      console.log(`  summary: ${done.summary}`);
+      console.log('  local commits (not pushed):');
+      console.log(diffOutput);
+      console.log('[ferry:dev-action] DRY_RUN — skipped: git push, PR creation, Jira transition, Jira comment');
+      appendOutput(usage);
+      process.exit(0);
+    }
+
     execSync(`git push origin ${branchName} --force-with-lease`, { cwd: REPO_ROOT });
 
     const prTitle = formatPullRequestTitle({ ticketKey, summary: done.summary });
@@ -300,13 +337,15 @@ async function main(): Promise<void> {
       `${idempotencyMarker} Implementation complete — PR: ${prUrl}. Moved to Review.`,
     );
   } catch (err) {
-    try {
-      await tracker.postComment(
-        ticketKey,
-        `${idempotencyMarker} Dev run failed in post-implementation step — manual intervention required.`,
-      );
-    } catch {
-      // best-effort comment; don't mask the original error
+    if (!dryRun) {
+      try {
+        await tracker.postComment(
+          ticketKey,
+          `${idempotencyMarker} Dev run failed in post-implementation step — manual intervention required.`,
+        );
+      } catch {
+        // best-effort comment; don't mask the original error
+      }
     }
     throw err;
   }
