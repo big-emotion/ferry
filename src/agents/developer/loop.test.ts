@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { FerryError } from '../../lib/error.js';
 import { createAnthropicAgentLoop } from '../../lib/llm/agent-loop/anthropic.js';
+import type { AgentLoopResult } from '../../lib/llm/agent-loop/types.js';
 
 function makeAnthropicMock(responses: Array<{
   stop_reason: string;
@@ -27,9 +28,10 @@ const noopExecuteTool = vi.fn<[string, string, Record<string, unknown>], Promise
 function makeLoop(
   mock: ReturnType<typeof makeAnthropicMock>,
   execTool = noopExecuteTool,
+  spawnSubagent?: (task: string) => Promise<AgentLoopResult>,
 ) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return createAnthropicAgentLoop({ model: 'm', client: mock as any, executeTool: execTool });
+  return createAnthropicAgentLoop({ model: 'm', client: mock as any, executeTool: execTool, spawnSubagent });
 }
 
 const defaultRunInput = {
@@ -165,5 +167,76 @@ describe('createAnthropicAgentLoop', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       createAnthropicAgentLoop({ model: 'm', client: mock as any, executeTool: execTool }).run(defaultRunInput),
     ).rejects.toMatchObject({ code: 'state-invariant' });
+  });
+
+  it('spawn_subagent delegates to handler and propagates usage', async () => {
+    const subResult: AgentLoopResult = {
+      done: { actionable: true, summary: 'Sub-task done' },
+      usage: { input_tokens: 50, output_tokens: 30, cache_creation_input_tokens: 5, cache_read_input_tokens: 10 },
+      iterations: 2,
+    };
+    const spawnHandler = vi.fn<[string], Promise<AgentLoopResult>>().mockResolvedValueOnce(subResult);
+
+    const mock = makeAnthropicMock([
+      {
+        stop_reason: 'tool_use',
+        content: [{ type: 'tool_use', id: 'tu_spawn', name: 'spawn_subagent', input: { task: 'implement feature X' } }],
+        usage: { input_tokens: 100, output_tokens: 20 },
+      },
+      {
+        stop_reason: 'tool_use',
+        content: [{ type: 'tool_use', id: 'tu_done', name: 'done', input: { actionable: true, summary: 'All done' } }],
+        usage: { input_tokens: 40, output_tokens: 10 },
+      },
+    ]);
+
+    const result = await makeLoop(mock, undefined, spawnHandler).run(defaultRunInput);
+
+    expect(spawnHandler).toHaveBeenCalledWith('implement feature X');
+    expect(result.usage.input_tokens).toBe(190); // 100 + 50 + 40
+    expect(result.usage.output_tokens).toBe(60);  // 20 + 30 + 10
+    expect(result.usage.cache_creation_input_tokens).toBe(5);
+    expect(result.usage.cache_read_input_tokens).toBe(10);
+  });
+
+  it('spawn_subagent returns is_error when sub-agent actionable is false', async () => {
+    const subResult: AgentLoopResult = {
+      done: { actionable: false, summary: 'Could not do it', reason_if_not_actionable: 'too complex' },
+      usage: { input_tokens: 20, output_tokens: 10, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      iterations: 1,
+    };
+    const spawnHandler = vi.fn<[string], Promise<AgentLoopResult>>().mockResolvedValueOnce(subResult);
+
+    let capturedToolResults: unknown[] | null = null;
+    const mock = {
+      messages: {
+        create: vi.fn().mockImplementation(async (params: { messages: Array<{ role: string; content: unknown }> }) => {
+          if (params.messages.length >= 3) {
+            const lastMsg = params.messages[params.messages.length - 1];
+            capturedToolResults = Array.isArray(lastMsg.content) ? lastMsg.content as unknown[] : null;
+          }
+          if (params.messages.length <= 2) {
+            return {
+              stop_reason: 'tool_use',
+              content: [{ type: 'tool_use', id: 'tu_spawn', name: 'spawn_subagent', input: { task: 'hard task' } }],
+              usage: { input_tokens: 10, output_tokens: 5 },
+            };
+          }
+          return {
+            stop_reason: 'tool_use',
+            content: [{ type: 'tool_use', id: 'tu_done', name: 'done', input: { actionable: false, summary: 'Blocked' } }],
+            usage: { input_tokens: 10, output_tokens: 5 },
+          };
+        }),
+      },
+    };
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await createAnthropicAgentLoop({ model: 'm', client: mock as any, executeTool: noopExecuteTool, spawnSubagent: spawnHandler }).run(defaultRunInput);
+
+    expect(capturedToolResults).not.toBeNull();
+    expect(capturedToolResults).toContainEqual(
+      expect.objectContaining({ type: 'tool_result', is_error: true, content: 'Sub-agent could not complete task: too complex' }),
+    );
   });
 });

@@ -1,18 +1,19 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { execSync } from 'node:child_process';
 import type { MessageParam, ContentBlock, ToolResultBlockParam, Tool as AnthropicTool } from '@anthropic-ai/sdk/resources/messages.js';
 import { FerryError } from '../../error.js';
 import type { AgentTool, AgentLoop, AgentLoopResult, AgentLoopUsage, DonePayload, McpServerConfig } from './types.js';
 
-export type { AgentTool, AgentLoop, AgentLoopResult, AgentLoopUsage, DonePayload, McpServerConfig };
-
 type ToolExecutor = (repoRoot: string, name: string, input: Record<string, unknown>) => Promise<string>;
+type CommitProgressHandler = (repoRoot: string, branchName: string, message: string, secretScan: () => Promise<void>) => Promise<string>;
+type SpawnSubagentHandler = (task: string) => Promise<AgentLoopResult>;
 
 export function createAnthropicAgentLoop(opts: {
   apiKey?: string;
   model: string;
   client?: Anthropic;
   executeTool: ToolExecutor;
+  commitProgress?: CommitProgressHandler;
+  spawnSubagent?: SpawnSubagentHandler;
 }): AgentLoop {
   const anthropic = opts.client ?? new Anthropic({ apiKey: opts.apiKey });
 
@@ -26,6 +27,9 @@ export function createAnthropicAgentLoop(opts: {
     mcpServers?: McpServerConfig[];
     depth?: number;
   }): Promise<AgentLoopResult> {
+    if (input.mcpServers?.length) {
+      throw new FerryError('state-invariant', { reason: 'mcp-not-implemented' });
+    }
     const { system, initialPrompt, tools, repoRoot, branchName, secretScan, depth = 0 } = input;
     const maxIterations = parseInt(process.env.FERRY_DEV_MAX_ITERATIONS ?? '200', 10);
     const maxInputTokens = parseInt(process.env.FERRY_DEV_MAX_INPUT_TOKENS ?? '500000', 10);
@@ -109,37 +113,23 @@ export function createAnthropicAgentLoop(opts: {
           continue;
         }
 
-        if (block.name === 'commit_progress') {
+        if (block.name === 'commit_progress' && opts.commitProgress) {
           const { message } = block.input as { message: string };
           console.error(`[ferry:dev-tool] depth=${depth} iter=${iter} tool=commit_progress arg=${message.slice(0, 120)}`);
           try {
-            execSync('git add -A', { cwd: repoRoot });
-            const status = execSync('git status --porcelain', { cwd: repoRoot, encoding: 'utf8' });
-            if (!status.trim()) {
-              toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: 'nothing to commit' });
-            } else {
-              await secretScan();
-              execSync(`git commit -m ${JSON.stringify(message)}`, { cwd: repoRoot });
-              execSync(`git push origin ${branchName} --force-with-lease`, { cwd: repoRoot });
-              console.error(`[ferry:dev-action] checkpoint: ${message.slice(0, 80)}`);
-              toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: 'committed and pushed' });
-            }
+            const result = await opts.commitProgress(repoRoot, branchName, message, secretScan);
+            toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: result });
           } catch (e) {
             toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: (e as Error).message, is_error: true });
           }
           continue;
         }
 
-        if (block.name === 'spawn_subagent') {
+        if (block.name === 'spawn_subagent' && opts.spawnSubagent) {
           const { task } = block.input as { task: string };
           console.error(`[ferry:dev-tool] depth=${depth} iter=${iter} tool=spawn_subagent arg=${task.slice(0, 120)}`);
           try {
-            const subResult = await runLoop({
-              ...input,
-              initialPrompt: task,
-              tools: tools.filter((t) => t.name !== 'spawn_subagent'),
-              depth: depth + 1,
-            });
+            const subResult = await opts.spawnSubagent(task);
             usage.input_tokens += subResult.usage.input_tokens;
             usage.output_tokens += subResult.usage.output_tokens;
             usage.cache_creation_input_tokens += subResult.usage.cache_creation_input_tokens;
