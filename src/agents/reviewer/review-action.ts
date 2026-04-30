@@ -9,7 +9,7 @@ import { FerryError } from '../../lib/errors/index.js';
 import { GitHubActionsRunner } from '../../lib/dispatch/runner/github-actions/index.js';
 import { detectMergeConflicts, buildFileList, runReviewLoop } from './review-loop.js';
 import { loadFerryConfig } from '../../lib/config.js';
-import { resolvePromptPath } from '../../lib/prompts/resolve.js';
+import { resolvePromptPath, loadProjectSnippet } from '../../lib/prompts/resolve.js';
 
 const REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
 
@@ -161,7 +161,13 @@ async function main(): Promise<void> {
   } catch {
     /* optional */
   }
-  const system = commentTemplate ? `${systemBase}\n\n---\n\n${commentTemplate}` : systemBase;
+  const projectSnippet = loadProjectSnippet(REPO_ROOT);
+  const systemParts = [
+    systemBase,
+    commentTemplate || null,
+    projectSnippet ? `## Project conventions\n\n${projectSnippet}` : null,
+  ].filter(Boolean) as string[];
+  const system = systemParts.join('\n\n---\n\n');
   const anthropic = new Anthropic({ apiKey: anthropicApiKey });
 
   const {

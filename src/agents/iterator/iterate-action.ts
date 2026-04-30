@@ -13,7 +13,7 @@ import { checkIterationCap } from './cap.js';
 import { decideIteratorTransition } from './transition.js';
 import { formatCommitMessage } from './prompt.js';
 import { loadFerryConfig } from '../../lib/config.js';
-import { resolvePromptPath } from '../../lib/prompts/resolve.js';
+import { resolvePromptPath, loadProjectSnippet } from '../../lib/prompts/resolve.js';
 
 const REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
 
@@ -112,7 +112,11 @@ async function main(): Promise<void> {
     return;
   }
 
-  const system = readFileSync(resolvePromptPath('iterate', REPO_ROOT), 'utf8');
+  const systemBase = readFileSync(resolvePromptPath('iterate', REPO_ROOT), 'utf8');
+  const projectSnippet = loadProjectSnippet(REPO_ROOT);
+  const system = projectSnippet
+    ? `${systemBase}\n\n## Project conventions\n\n${projectSnippet}`
+    : systemBase;
 
   execSync('git config user.name "ferry-bot"', { cwd: REPO_ROOT });
   execSync('git config user.email "ferry-bot@users.noreply.github.com"', { cwd: REPO_ROOT });

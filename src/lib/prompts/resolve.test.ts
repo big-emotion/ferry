@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { resolvePromptPath } from './resolve.js';
+import { resolvePromptPath, loadProjectSnippet } from './resolve.js';
 
 const REPO_ROOT = '/workspace/repo';
 
@@ -40,5 +40,54 @@ describe('resolvePromptPath', () => {
     const iterResult = resolvePromptPath('iterate', REPO_ROOT, check);
     expect(devResult).toBe('/workspace/repo/.ferry/prompts/dev.md');
     expect(iterResult).toBe('/workspace/repo/prompts/iterate.md');
+  });
+});
+
+describe('loadProjectSnippet', () => {
+  const read = () => 'project conventions content';
+
+  it('returns null when _project.md is absent from both locations', () => {
+    const check = () => false;
+    expect(loadProjectSnippet(REPO_ROOT, check, read)).toBeNull();
+  });
+
+  it('loads from prompts/_project.md when present', () => {
+    const check = (p: string) => p === '/workspace/repo/prompts/_project.md';
+    const result = loadProjectSnippet(REPO_ROOT, check, read);
+    expect(result).toBe('project conventions content');
+  });
+
+  it('loads from .ferry/prompts/_project.md when prompts/_project.md absent', () => {
+    const check = (p: string) => p === '/workspace/repo/.ferry/prompts/_project.md';
+    const readSpy = vi.fn(() => 'ferry default content');
+    const result = loadProjectSnippet(REPO_ROOT, check, readSpy);
+    expect(result).toBe('ferry default content');
+    expect(readSpy).toHaveBeenCalledWith('/workspace/repo/.ferry/prompts/_project.md', 'utf8');
+  });
+
+  it('prefers prompts/_project.md over .ferry/prompts/_project.md', () => {
+    const check = () => true;
+    const readSpy = vi.fn(() => 'content');
+    loadProjectSnippet(REPO_ROOT, check, readSpy);
+    expect(readSpy).toHaveBeenCalledWith('/workspace/repo/prompts/_project.md', 'utf8');
+    expect(readSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('truncates content exceeding 2048 bytes', () => {
+    const big = 'x'.repeat(3000);
+    const readBig = () => big;
+    const check = (p: string) => p === '/workspace/repo/prompts/_project.md';
+    const result = loadProjectSnippet(REPO_ROOT, check, readBig);
+    expect(result).toHaveLength(2048);
+    expect(result).toBe('x'.repeat(2048));
+  });
+
+  it('respects FERRY_PROMPTS_DIR for the first candidate', () => {
+    vi.stubEnv('FERRY_PROMPTS_DIR', '/custom/prompts');
+    const check = (p: string) => p === '/custom/prompts/_project.md';
+    const readSpy = vi.fn(() => 'custom content');
+    const result = loadProjectSnippet(REPO_ROOT, check, readSpy);
+    expect(result).toBe('custom content');
+    expect(readSpy).toHaveBeenCalledWith('/custom/prompts/_project.md', 'utf8');
   });
 });
