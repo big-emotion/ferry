@@ -59,6 +59,19 @@ describe('runRefiner happy path (Story 3-1)', () => {
     expect(captured).toContain('Add login button');
     expect(captured).toContain('<<<END UNTRUSTED>>>');
   });
+
+  it('prompt includes all required schema fields so LLM knows what to output', async () => {
+    let captured = '';
+    const captureLlm: LlmCall = async (prompt) => {
+      captured = prompt;
+      return { text: JSON.stringify(validPlan), usage: null };
+    };
+    await runRefiner({ ticket, callLlm: captureLlm, runLink: 'r' });
+    expect(captured).toContain('touch_paths');
+    expect(captured).toContain('output_locale');
+    expect(captured).toContain('subtasks');
+    expect(captured).toContain('audit_summary');
+  });
 });
 
 describe('runRefiner markdown fence stripping', () => {

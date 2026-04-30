@@ -6811,6 +6811,17 @@ var _require3 = createRequire3(import.meta.url);
 var ajvModule2 = _require3("ajv/dist/2020");
 var ajvInstance2 = new ajvModule2.Ajv2020({ strict: true });
 var validatePlan = ajvInstance2.compile(REFINER_OUTPUT_SCHEMA);
+var SCHEMA_EXAMPLE = `{
+  "subtasks": [
+    {
+      "title": "imperative verb, specific, max 200 chars",
+      "description": "concrete acceptance criteria, file paths, done criteria; max 4000 chars"
+    }
+  ],
+  "touch_paths": ["src/path/to/file.ts"],
+  "output_locale": "en",
+  "audit_summary": "one sentence summarising the plan"
+}`;
 function buildPrompt(input) {
   const block = [
     `TICKET ${input.ticket.key}`,
@@ -6822,9 +6833,11 @@ ${input.ticket.description}`,
 ${input.ticket.comments.join("\n---\n")}`
   ].join("\n\n");
   return [
-    "You are the Ferry Refiner. Plan the work as JSON matching the RefinerOutput schema.",
-    delimitUntrusted(block),
-    "Reply with JSON only."
+    "You are the Ferry Refiner. Decompose the ticket into concrete sub-tasks.",
+    "Reply with JSON only \u2014 no prose, no code fences \u2014 matching this exact schema:",
+    SCHEMA_EXAMPLE,
+    'Rules: max 12 subtasks (prefer 3\u20137). output_locale must be "en" or "fr" matching the ticket language. touch_paths lists every file the subtasks will touch (max 20).',
+    delimitUntrusted(block)
   ].join("\n\n");
 }
 function stripMarkdownFences(text) {
