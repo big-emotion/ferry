@@ -32,25 +32,14 @@ These are the **canonical** Ferry workflows. They define:
 
 ⚠️ **Do NOT copy these directly** to a consumer repo — they reference Ferry's internal `.github/actions/` directory. Instead, use the consumer workflow stubs (see `examples/consumer-setup/workflows/`).
 
-### `.github/actions/` — Ferry's Internal Actions
+### `.github/actions/` — Ferry's Composite Actions
 
-Local composite actions used by Ferry's internal workflows:
+Composite actions used by Ferry's internal workflows and consumer workflows:
 - `ferry-envelope-validate/` — Validates event payload
 - `ferry-emit-audit/` — Logs audit data
+- `ferry-run-refine/`, `ferry-run-dev/`, `ferry-run-review/`, `ferry-run-iterate/` — Run each agent
 
-These are only used internally. Consumer projects don't need them — they come bundled with Ferry's published workflows.
-
-### `actions/` — Published Reusable Actions
-
-These are the **consumer-facing** actions that other projects can use:
-- `refine/action.yml` — Reusable action for Refiner agent
-- `dev/action.yml` — Reusable action for Developer agent
-- `review/action.yml` — Reusable action for Reviewer agent
-- `iterate/action.yml` — Reusable action for Iterator agent
-- `envelope-validate/action.yml` — Validates event payloads
-- `emit-audit/action.yml` — Logs audit data
-
-These reference `.ferry/` scripts and can be called by consumer projects directly, or indirectly via the reusable workflows.
+Consumer workflows reference these via `uses: ferry-org/ferry/.github/actions/<name>@<ref>`.
 
 ### `examples/consumer-setup/` — Consumer Setup Templates
 
@@ -104,7 +93,7 @@ Root-level: `README.md` — Main entry point
        ↓
 2. Calls Ferry's reusable workflow (.github/workflows/refine.yml@v1)
        ↓
-3. Reusable workflow uses published action (actions/refine/action.yml)
+3. Reusable workflow uses composite action (.github/actions/ferry-run-refine/action.yml)
        ↓
 4. Action runs Node.js script (.ferry/refiner-action.js)
        ↓
@@ -120,7 +109,7 @@ Root-level: `README.md` — Main entry point
 | Agent behavior | `src/agents/` + `prompts/` | Rebuild with `npm run build:ferry` |
 | Schemas | `src/schemas/` | Rebuild with `npm run build:ferry` |
 | Reusable workflows | `.github/workflows/` | Affects all consumers |
-| Published actions | `actions/*/action.yml` | Affects all consumers |
+| Composite actions | `.github/actions/ferry-*/action.yml` | Affects all consumers |
 | Consumer setup docs | `examples/consumer-setup/` + `docs/CONSUMER-SETUP.md` | Affects new consumers |
 | Reviewer rules | `config/reviewer-rules.yaml` | Loaded at runtime by Reviewer agent |
 | Docs / rubric | `docs/` | Update in place |
