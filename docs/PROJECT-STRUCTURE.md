@@ -83,12 +83,19 @@ Plain-text system prompts used by each agent. These define agent behavior:
 - `reviewer.md` — Reviewer agent system prompt
 - `iterator.md` — Iterator agent system prompt
 
-### `docs/` and `README.md`
+### `config/` — Operational Configuration
 
-Documentation for Ferry:
-- `README.md` — Main overview
-- `CONSUMER.md` — What Ferry is (overview)
-- `CONSUMER-SETUP.md` — How to set up Ferry in your project
+Runtime config files consumed by Ferry agents:
+- `reviewer-rules.yaml` — Declarative reviewer rules (loaded by the Reviewer agent)
+
+### `docs/` — Documentation
+
+- `CONSUMER.md` — What Ferry is (overview for consumers)
+- `CONSUMER-SETUP.md` — How to set up Ferry in a consumer project
+- `PROJECT-STRUCTURE.md` — This file
+- `reviewer-rubric.md` — 4-dimension grading rubric for the `ferry-grade` CLI
+
+Root-level: `README.md` — Main entry point
 
 ## Data Flow
 
@@ -114,7 +121,9 @@ Documentation for Ferry:
 | Schemas | `src/schemas/` | Rebuild with `npm run build:ferry` |
 | Reusable workflows | `.github/workflows/` | Affects all consumers |
 | Published actions | `actions/*/action.yml` | Affects all consumers |
-| Consumer setup docs | `examples/consumer-setup/` + `CONSUMER-SETUP.md` | Affects new consumers |
+| Consumer setup docs | `examples/consumer-setup/` + `docs/CONSUMER-SETUP.md` | Affects new consumers |
+| Reviewer rules | `config/reviewer-rules.yaml` | Loaded at runtime by Reviewer agent |
+| Docs / rubric | `docs/` | Update in place |
 
 ## Building Ferry
 

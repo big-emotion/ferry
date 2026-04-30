@@ -1,7 +1,7 @@
 /**
  * Reviewer findings schema and rule-taxonomy validation.
  *
- * Findings must reference a `rule_id` drawn from `examples/reviewer-rules.yaml`
+ * Findings must reference a `rule_id` drawn from `config/reviewer-rules.yaml`
  * (plus the synthetic `ci-failure` id used by the CI gate). Unknown rule_ids
  * cause a `ReviewerFindingsSchemaError` so the agent can re-run once with the
  * taxonomy re-injected before escalating to `needs-human` (FR57).
@@ -38,7 +38,7 @@ function loadTaxonomy(): Set<string> {
   if (cachedTaxonomy) return cachedTaxonomy;
   const here = path.dirname(url.fileURLToPath(import.meta.url));
   const repoRoot = path.resolve(here, '..', '..', '..');
-  const yamlPath = path.join(repoRoot, 'examples', 'reviewer-rules.yaml');
+  const yamlPath = path.join(repoRoot, 'config', 'reviewer-rules.yaml');
   const ids = new Set<string>();
   try {
     const text = readFileSync(yamlPath, 'utf8');

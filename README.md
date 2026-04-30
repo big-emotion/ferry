@@ -23,9 +23,9 @@ Ferry connects your Jira board to a fully autonomous dev loop — Refiner, Devel
 
 **New to Ferry?** Start here:
 
-- 📖 **[CONSUMER.md](CONSUMER.md)** — What is Ferry? (5-min read)
-- ⚙️ **[CONSUMER-SETUP.md](CONSUMER-SETUP.md)** — How to add Ferry to your project (15 min setup)
-- 🏗️ **[PROJECT-STRUCTURE.md](PROJECT-STRUCTURE.md)** — How Ferry is organized (for maintainers)
+- 📖 **[docs/CONSUMER.md](docs/CONSUMER.md)** — What is Ferry? (5-min read)
+- ⚙️ **[docs/CONSUMER-SETUP.md](docs/CONSUMER-SETUP.md)** — How to add Ferry to your project (15 min setup)
+- 🏗️ **[docs/PROJECT-STRUCTURE.md](docs/PROJECT-STRUCTURE.md)** — How Ferry is organized (for maintainers)
 
 **Already using Ferry?** Jump to [Setup](#setup--7-steps-to-first-autonomous-pr) below.
 
@@ -104,13 +104,13 @@ Ferry **never merges** and **never moves Jira columns** autonomously except for 
 
 ## Setup — Using Ferry in your project
 
-> **Using Ferry in another repo?** See [**CONSUMER-SETUP.md**](CONSUMER-SETUP.md) for step-by-step instructions — it's 3 simple steps and takes ~15 minutes.
+> **Using Ferry in another repo?** See [**CONSUMER-SETUP.md**](docs/CONSUMER-SETUP.md) for step-by-step instructions — it's 3 simple steps and takes ~15 minutes.
 >
 > Everything below is for **developing Ferry itself** (i.e., maintaining this repository).
 
 ### Steps 1–7: For Ferry maintainers only
 
-If you're setting up Ferry in a **consumer project** (not this repository), stop here and follow [CONSUMER-SETUP.md](CONSUMER-SETUP.md) instead.
+If you're setting up Ferry in a **consumer project** (not this repository), stop here and follow [CONSUMER-SETUP.md](docs/CONSUMER-SETUP.md) instead.
 
 ### Step 1 — Create a GitHub App with scoped permissions
 
@@ -176,7 +176,7 @@ Optional: add label-based rules (`ferry:refine`, `ferry:dev`, …) using the sam
 
 ### Step 5 — Populate repository secrets
 
-> ℹ️ For **consumer projects**, see [CONSUMER-SETUP.md](CONSUMER-SETUP.md) for which 4 secrets are required.
+> ℹ️ For **consumer projects**, see [CONSUMER-SETUP.md](docs/CONSUMER-SETUP.md) for which 4 secrets are required.
 >
 > The secrets below apply when developing or customizing Ferry itself.
 
@@ -203,7 +203,7 @@ Ferry's daily cost-governance cron warns at **50%** of the cap.
 
 ### Step 7 — Deploy to your consumer project
 
-For each consumer project, follow the 3-step setup in [**CONSUMER-SETUP.md**](CONSUMER-SETUP.md):
+For each consumer project, follow the 3-step setup in [**CONSUMER-SETUP.md**](docs/CONSUMER-SETUP.md):
 1. Copy consumer workflow stubs from `examples/consumer-setup/workflows/`
 2. Add GitHub secrets (Jira credentials, API keys)
 3. Configure Jira webhook
@@ -219,11 +219,15 @@ The canonical agent prompts live in [`prompts/`](prompts/) — that is the singl
 The [`examples/`](examples/) directory ships reference artifacts you can copy into your install:
 
 - [`acme-corp-setup.md`](examples/acme-corp-setup.md) — concrete end-to-end pilot setup
-- [`state.v1.schema.json`](examples/state.v1.schema.json) — schema for the per-ticket state envelope
-- [`event.v1.schema.json`](examples/event.v1.schema.json) — schema for `repository_dispatch` payloads
 - [`ferry-audit.jsonl`](examples/ferry-audit.jsonl) — sample audit log lines (≥ 20 lines, all phases)
-- [`reviewer-rules.yaml`](examples/reviewer-rules.yaml) — declarative reviewer rules
-- [`reviewer-rubric.md`](examples/reviewer-rubric.md) — 4-dimension review-grading rubric
+
+The canonical schemas live in [`src/schemas/`](src/schemas/) (not duplicated here).
+
+Operational config lives in [`config/`](config/):
+- [`reviewer-rules.yaml`](config/reviewer-rules.yaml) — declarative reviewer rules (loaded at runtime)
+
+Project documentation lives in [`docs/`](docs/):
+- [`reviewer-rubric.md`](docs/reviewer-rubric.md) — 4-dimension review-grading rubric
 
 ---
 
@@ -235,7 +239,7 @@ A small interactive CLI is shipped to grade reviewer output and emit a `reviewer
 tsx scripts/ferry-grade.ts <pr-number>
 ```
 
-It prompts for four integers (Substantive / Specific / Correct / Actionable, each 0–2) and prints one JSON audit line. The verdict thresholds and the **Correct=0 cap** rule are documented in [`examples/reviewer-rubric.md`](examples/reviewer-rubric.md).
+It prompts for four integers (Substantive / Specific / Correct / Actionable, each 0–2) and prints one JSON audit line. The verdict thresholds and the **Correct=0 cap** rule are documented in [`docs/reviewer-rubric.md`](docs/reviewer-rubric.md).
 
 ---
 
