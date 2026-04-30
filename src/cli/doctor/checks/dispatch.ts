@@ -27,14 +27,11 @@ function triggerDispatch(repo: string, eventId: string): void {
       source: 'doctor-probe',
     },
   });
-  execSync(
-    `gh api repos/${repo}/dispatches --method POST --input -`,
-    {
-      input: payload,
-      encoding: 'utf8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    },
-  );
+  execSync(`gh api repos/${repo}/dispatches --method POST --input -`, {
+    input: payload,
+    encoding: 'utf8',
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
 }
 
 function listRecentRuns(repo: string, after: number): WorkflowRun[] {
@@ -140,8 +137,7 @@ export async function checkSyntheticDispatch(opts: {
   // Give the run a few more seconds to progress past the initial gate step
   await sleep(6_000);
   const updatedRuns = listRecentRuns(repo, baselineId);
-  const updated =
-    updatedRuns.find((r) => r.databaseId === confirmedRun.databaseId) ?? confirmedRun;
+  const updated = updatedRuns.find((r) => r.databaseId === confirmedRun.databaseId) ?? confirmedRun;
 
   const runUrl = updated.url;
 

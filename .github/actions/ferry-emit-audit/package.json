@@ -1,0 +1,9 @@
+{
+  "name": "ferry-emit-audit-action",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@octokit/rest": "^22.0.1"
+  }
+}

@@ -3,10 +3,7 @@ import { join } from 'node:path';
 import { workflowTemplates } from '../../init/templates.js';
 import type { CheckResult } from '../types.js';
 
-export function checkWorkflowDrift(opts: {
-  repoRoot: string;
-  ferryVersion: string;
-}): CheckResult {
+export function checkWorkflowDrift(opts: { repoRoot: string; ferryVersion: string }): CheckResult {
   const { repoRoot, ferryVersion } = opts;
   const workflowDir = join(repoRoot, '.github', 'workflows');
   const templates = workflowTemplates(ferryVersion);
