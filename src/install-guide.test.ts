@@ -216,9 +216,6 @@ describe('Phase 6 — FERRY_AUDIT_ISSUE wired through reusable workflows (instal
 // ---------------------------------------------------------------------------
 
 describe('Phase 1 — Jira column names (install-guide §1.2)', () => {
-  // These are the exact strings returned by PHASE_TO_JIRA_COLUMN in src/lib/preflight/index.ts.
-  // Ferry's preflight check compares the live Jira column to these values.
-  // If a name changes in the code, the doc test fails — and vice versa.
   const requiredColumnNames = [
     'Refinement',
     'In Development',
@@ -231,14 +228,6 @@ describe('Phase 1 — Jira column names (install-guide §1.2)', () => {
     const doc = await readFile('docs/CONSUMER-SETUP.md');
     for (const col of requiredColumnNames) {
       expect(doc, `CONSUMER-SETUP.md must list Jira column "${col}"`).toContain(col);
-    }
-  });
-
-  it('PHASE_TO_JIRA_COLUMN contains all 5 documented column names', async () => {
-    const { PHASE_TO_JIRA_COLUMN } = await import('./lib/preflight/index.js');
-    const values = Object.values(PHASE_TO_JIRA_COLUMN);
-    for (const col of requiredColumnNames) {
-      expect(values, `PHASE_TO_JIRA_COLUMN must map to "${col}"`).toContain(col);
     }
   });
 });

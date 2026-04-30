@@ -43,7 +43,7 @@ Four agents chain automatically:
 
 ### 1.2 — Verify Jira columns
 
-Ferry's preflight checks validate that the Jira ticket is in the expected column for each phase. The column names **must** match exactly:
+Ferry expects the Jira board to use these exact column names for each phase:
 
 | Column name (exact) | Phase triggered |
 |---|---|

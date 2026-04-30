@@ -180,7 +180,7 @@ The following are intentionally not configurable by consumers:
 | Parameter | Why hardcoded |
 |-----------|---------------|
 | Jira column transitions (except the two IDs above) | Managed by Ferry's internal state machine |
-| Branch naming (`ferry/<ticket-key>`) | Required by Ferry's state and preflight logic |
+| Branch naming (`ferry/<ticket-key>`) | Required by Ferry's state logic |
 | PR/comment fingerprint formats | Required for idempotency |
 | `FERRY_MODEL` env var used by Refiner/Developer workflows | Set to `claude-sonnet-4-6` internally; use `ferry.config.json` to change those models |
 | Audit issue comment format | Required for deduplication |

@@ -31,8 +31,7 @@ The canonical consumer-facing install guide is **`docs/CONSUMER-SETUP.md`**. Con
 Every agent workflow starts with a `repository_dispatch` event. The composite action at `.github/actions/ferry-envelope-validate` validates the payload against `src/schemas/event.v1.schema.json` using AJV in strict mode. Payload must match `EventEnvelopeV1` type (`src/lib/envelope/types.ts`).
 
 **Key invariants:**
-- All external writes are idempotent — comments and file operations use fingerprinting (e.g., `[ferry:dedupe] <eventId> <ticketKey> <runId>`)
-- Event deduplication: `src/lib/envelope/dedupe.ts` claims work by writing to audit issue; `src/lib/preflight/freshness.ts` uses ULID lexical ordering to detect when a newer event has superseded the current run
+- All external writes are idempotent — comments and file operations use fingerprinting (e.g., `[ferry:<role>:<run-id>] ...`)
 - Validation must never leak raw payload values — sanitize via AJV path reporting and trim large fields (e.g., `instructions` to 2000 chars)
 
 ### 2. **State Management** (`src/lib/state/`)
@@ -44,17 +43,7 @@ Durable ticket state lives in `.ferry/state.json` on the per-ticket branch `ferr
 - State uses different phase names than events: events use `refine | dev | review | iterate | reconcile`; state uses `refining | developing | reviewing | iterating | ready | paused | cancelled | needs-human`
 - Never write state ad hoc — use the shared state helpers
 
-### 3. **Preflight & Safety Gates** (`src/lib/preflight/`)
-
-Before any external write (branch commit, PR comment, Jira update), call `preflight()`:
-- Verify branch exists and matches expected state
-- Verify PR is still open (if applicable)
-- Verify HEAD SHA still matches what state expects
-- Verify Jira ticket column still matches expected phase
-
-This guards against race conditions between old and new runs.
-
-### 4. **IO Abstraction** (`src/lib/io/`)
+### 3. **IO Abstraction** (`src/lib/io/`)
 
 All external interactions (GitHub, Jira, LLM) go through shared IO helpers. **Critical rule:** Agent code under `src/agents/**` must never import `@octokit/rest` or Jira modules directly. Route all access through:
 - GitHub: `src/lib/dispatch/runner/github-actions/`
@@ -63,15 +52,15 @@ All external interactions (GitHub, Jira, LLM) go through shared IO helpers. **Cr
 
 This decoupling allows mocking and testing without touching real APIs.
 
-### 5. **Agent Entrypoints** (`src/agents/refiner/`, `developer/`, `reviewer/`, `iterator/`)
+### 4. **Agent Entrypoints** (`src/agents/refiner/`, `developer/`, `reviewer/`, `iterator/`)
 
 Each agent is a separate implementation. Key patterns:
 - Agents define their own LLM schemas (e.g., `src/agents/reviewer/schema.ts`)
-- Agents use shared preflight and state helpers
+- Agents use shared state helpers
 - Agent code is linted to forbid direct Octokit/Jira imports
 - Reviewer agent has special gates: `src/agents/reviewer/ci-gate.ts` (blocks on red CI), `src/agents/reviewer/transition.ts` (auto-moves Jira on verdict)
 
-### 6. **Scheduled Work** (`src/reconciler/`, `src/cost-governance/`)
+### 5. **Scheduled Work** (`src/reconciler/`, `src/cost-governance/`)
 
 These modules exist as library code but are currently **not wired to a workflow** — the example `reconciler.yml` and `audit-daily.yml` workflow stubs were removed. Keep the modules building and tested; consumers wire them up themselves.
 
@@ -80,11 +69,11 @@ These modules exist as library code but are currently **not wired to a workflow*
 
 The only workflow files in this repo are the agent dispatch workflows (`refine.yml`, `dev.yml`, `review.yml`, `iterate.yml`), the CI gate (`ferry-ci.yml`), and Claude Code helpers (`claude.yml`, `claude-code-review.yml`).
 
-### 7. **Composite Actions** (`.github/actions/`)
+### 6. **Composite Actions** (`.github/actions/`)
 
 Each agent has a composite action used by its workflow: `ferry-envelope-validate`, `ferry-emit-audit`, and `ferry-run-{refiner,developer,reviewer,iterator}`. Workflows are thin — most logic lives in `src/agents/**` and is invoked via these actions.
 
-### 8. **CLI Entrypoints** (`src/cli/`)
+### 7. **CLI Entrypoints** (`src/cli/`)
 
 Two consumer-facing CLIs are exposed via `package.json` `bin`:
 - `ferry-init` (`src/cli/init/`) — scaffolds Ferry into a new consumer repo
@@ -110,7 +99,6 @@ Files under `.github/**`, `src/schemas/**`, and `prompts/*.md` are CODEOWNERS-pr
 ## Comment & Fingerprint Conventions
 
 External writes use standardized prefixes for idempotency:
-- `[ferry:dedupe] <eventId> <ticketKey> <runId>` — claim work on audit issue
 - `[ferry:<role>:<run-id>] ...` — agent-specific comments (e.g., `[ferry:reviewer:abc123] ...`)
 - Do not invent new comment formats casually — all external writes must be repeatable
 
@@ -135,12 +123,6 @@ External writes use standardized prefixes for idempotency:
 2. Update agent schema in `src/agents/<agent>/schema.ts` if output format changes
 3. Test with Vitest: `npx vitest run src/agents/<agent>/<agent>.test.ts`
 4. Run full suite: `npm test`
-
-**Adding a new preflight check:**
-1. Add check logic to `src/lib/preflight/index.ts`
-2. Update the `PreflightEnvelope` / `PreflightDeps` interfaces (also in `src/lib/preflight/index.ts`) if the new check needs new inputs
-3. Add tests in `src/lib/preflight/preflight.test.ts`
-4. Update call sites to check the new condition
 
 **Modifying state shape:**
 1. Update schema in `src/schemas/state.v1.schema.json`
