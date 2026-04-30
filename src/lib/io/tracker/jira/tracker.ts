@@ -24,4 +24,8 @@ export class JiraTracker implements IssueTracker {
   async postTransition(key: string, transitionId: string): Promise<void> {
     await this.client.postTransition(key, transitionId);
   }
+
+  async getSubtasks(key: string): Promise<string[]> {
+    return this.client.getSubtasks(key);
+  }
 }

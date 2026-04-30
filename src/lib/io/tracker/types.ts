@@ -11,4 +11,5 @@ export interface IssueTracker {
   getIssue(key: string): Promise<TrackerIssue>;
   postComment(key: string, body: string): Promise<void>;
   postTransition(key: string, transitionId: string): Promise<void>;
+  getSubtasks(key: string): Promise<string[]>;
 }

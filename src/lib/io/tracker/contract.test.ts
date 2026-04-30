@@ -51,6 +51,10 @@ describe('IssueTracker contract — InMemoryTracker', () => {
     expect(issue.comments).toContain('Appended');
   });
 
+  it('postComment throws when the issue does not exist', async () => {
+    await expect(tracker.postComment('UNKNOWN-1', 'body')).rejects.toThrow('UNKNOWN-1');
+  });
+
   it('postTransition records the transition', async () => {
     await tracker.postTransition('PROJ-1', '31');
     expect(tracker.postedTransitions).toEqual([{ key: 'PROJ-1', transitionId: '31' }]);
@@ -61,5 +65,16 @@ describe('IssueTracker contract — InMemoryTracker', () => {
     await tracker.postTransition('PROJ-1', '31');
     expect(tracker.postedTransitions).toHaveLength(2);
     expect(tracker.postedTransitions[1].transitionId).toBe('31');
+  });
+
+  it('getSubtasks returns empty array when none are seeded', async () => {
+    const subtasks = await tracker.getSubtasks('PROJ-1');
+    expect(subtasks).toEqual([]);
+  });
+
+  it('getSubtasks returns seeded subtask summaries', async () => {
+    tracker.seedSubtasks('PROJ-1', ['- [PROJ-2] First subtask', '- [PROJ-3] Second subtask']);
+    const subtasks = await tracker.getSubtasks('PROJ-1');
+    expect(subtasks).toEqual(['- [PROJ-2] First subtask', '- [PROJ-3] Second subtask']);
   });
 });

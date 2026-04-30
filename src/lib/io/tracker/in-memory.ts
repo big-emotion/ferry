@@ -4,9 +4,14 @@ export class InMemoryTracker implements IssueTracker {
   readonly issues = new Map<string, TrackerIssue>();
   readonly postedComments: Array<{ key: string; body: string }> = [];
   readonly postedTransitions: Array<{ key: string; transitionId: string }> = [];
+  private readonly subtaskMap = new Map<string, string[]>();
 
   seed(issue: TrackerIssue): void {
     this.issues.set(issue.key, { ...issue, comments: [...issue.comments] });
+  }
+
+  seedSubtasks(parentKey: string, summaries: string[]): void {
+    this.subtaskMap.set(parentKey, [...summaries]);
   }
 
   async getIssue(key: string): Promise<TrackerIssue> {
@@ -16,12 +21,17 @@ export class InMemoryTracker implements IssueTracker {
   }
 
   async postComment(key: string, body: string): Promise<void> {
-    this.postedComments.push({ key, body });
     const issue = this.issues.get(key);
-    if (issue) issue.comments.push(body);
+    if (!issue) throw new Error(`InMemoryTracker: issue ${key} not found`);
+    this.postedComments.push({ key, body });
+    issue.comments.push(body);
   }
 
   async postTransition(key: string, transitionId: string): Promise<void> {
     this.postedTransitions.push({ key, transitionId });
+  }
+
+  async getSubtasks(key: string): Promise<string[]> {
+    return this.subtaskMap.get(key) ?? [];
   }
 }

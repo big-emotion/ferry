@@ -36,22 +36,6 @@ function detectTestRunner(packageJsonPath: string): string {
   }
 }
 
-async function fetchSubtaskSummaries(ticketKey: string): Promise<string[]> {
-  const baseUrl = requireEnv('FERRY_JIRA_BASE_URL');
-  const email = requireEnv('FERRY_JIRA_EMAIL');
-  const apiToken = requireEnv('FERRY_JIRA_API_TOKEN');
-  const authHeader = `Basic ${Buffer.from(`${email}:${apiToken}`).toString('base64')}`;
-
-  const jql = encodeURIComponent(`parent=${ticketKey} ORDER BY created ASC`);
-  const resp = await fetch(
-    `${baseUrl.replace(/\/+$/, '')}/rest/api/3/search?jql=${jql}&fields=summary&maxResults=50`,
-    { headers: { Authorization: authHeader, Accept: 'application/json' } },
-  );
-  if (!resp.ok) return [];
-  const data = (await resp.json()) as { issues?: Array<{ key: string; fields: { summary: string } }> };
-  return (data.issues ?? []).map((i) => `- [${i.key}] ${i.fields.summary}`);
-}
-
 function repoTree(repoRoot: string): string {
   try {
     return execFileSync('find', [
@@ -91,7 +75,7 @@ async function main(): Promise<void> {
     comments ? `COMMENTS:\n${comments}` : '',
   ].filter(Boolean).join('\n');
 
-  const subtasks = await fetchSubtaskSummaries(ticketKey);
+  const subtasks = await tracker.getSubtasks(ticketKey);
   const testRunner = detectTestRunner(path.join(REPO_ROOT, 'package.json'));
   const tree = repoTree(REPO_ROOT);
 

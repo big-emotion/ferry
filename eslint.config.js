@@ -46,6 +46,10 @@ export default [
               message: 'Agents must use src/lib/io/tracker/factory.ts, not Jira modules directly',
             },
             {
+              group: ['**/tracker/jira*'],
+              message: 'Import JiraTracker only through src/lib/io/tracker/factory.ts',
+            },
+            {
               group: ['node-fetch', 'undici'],
               message: 'Do not fetch APIs directly from agents; use the IO layer',
             },
