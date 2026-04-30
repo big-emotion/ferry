@@ -1,66 +1,46 @@
-import { appendFileSync, readFileSync } from 'node:fs';
 import Anthropic from '@anthropic-ai/sdk';
+import { resolveAnthropicAuth } from '../../lib/llm/anthropic-auth.js';
 import { validateEnvelope } from '../../lib/envelope/validate.js';
 import { delimitUntrusted } from '../../lib/llm/delimit-untrusted.js';
-import { createTrackerFromEnv } from '../../lib/io/tracker/factory.js';
 import { checkIdempotencyMarker } from '../../lib/io/idempotency.js';
 import { gateCi } from './ci-gate.js';
-import { FerryError } from '../../lib/errors/index.js';
-import { GitHubActionsRunner } from '../../lib/dispatch/runner/github-actions/index.js';
 import { detectMergeConflicts, buildFileList, runReviewLoop } from './review-loop.js';
-import { loadFerryConfig } from '../../lib/config.js';
-import { resolvePromptPath, loadProjectSnippet } from '../../lib/prompts/resolve.js';
 import { resolveCapabilities } from '../../lib/labels/capabilities.js';
-import { resolveAnthropicAuth } from '../../lib/llm/anthropic-auth.js';
+import {
+  requireEnv,
+  appendOutput,
+  buildSystem,
+  loadOptionalPrompt,
+  buildTicketBlock,
+  createGitHubContext,
+  logCapabilities,
+  byEventId,
+  byPrHeadSha,
+} from '../../lib/agent-runtime/index.js';
 
 const REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
-
-function requireEnv(key: string): string {
-  const val = process.env[key];
-  if (!val) throw new FerryError('state-invariant', { reason: 'missing-env', key });
-  return val;
-}
 
 async function main(): Promise<void> {
   const rawPayload = requireEnv('FERRY_ENVELOPE_PAYLOAD');
   const envelope = validateEnvelope(JSON.parse(rawPayload));
   const { ticket_key: ticketKey, event_id: eventId } = envelope;
 
-  const githubToken = requireEnv('GITHUB_TOKEN');
   const iterTransitionId = requireEnv('FERRY_ITER_TRANSITION_ID');
-  const githubRepo = requireEnv('GITHUB_REPO');
-
-  const ferryCfg = loadFerryConfig(REPO_ROOT);
+  const { owner, repo, runner, tracker, ferryCfg } = createGitHubContext(REPO_ROOT);
   const model = ferryCfg.models.review.model;
-
-  const [owner, repo] = githubRepo.split('/');
-  if (!owner || !repo) {
-    throw new FerryError('state-invariant', { reason: 'invalid-github-repo', githubRepo });
-  }
-  const runner = new GitHubActionsRunner(githubToken, owner, repo);
-  const tracker = createTrackerFromEnv();
 
   const issue = await tracker.getIssue(ticketKey);
   const existingComments = issue.comments;
 
   const capabilities = resolveCapabilities(issue.labels, ferryCfg.labels);
-  if (capabilities.triggeredLabels.length > 0) {
-    console.error(
-      `[ferry:review-action] label capabilities: labels=[${capabilities.triggeredLabels.join(',')}] mcp=[${capabilities.mcpServerNames.join(',')}]`,
-    );
-  }
-  if (capabilities.unknownFerryLabels.length > 0) {
-    console.error(
-      `[ferry:review-action] unknown ferry labels (ignored): ${capabilities.unknownFerryLabels.join(', ')}`,
-    );
-  }
+  logCapabilities('[ferry:review-action]', capabilities);
 
   // Find PR for this ticket's branch
   const branchName = `ferry/${ticketKey}`;
   const prs = await runner.listPRsForBranch(owner, repo, branchName);
 
   if (prs.length === 0) {
-    const errorMarker = `[ferry:reviewer:${eventId}]`;
+    const errorMarker = byEventId('reviewer', eventId);
     const { skipped } = checkIdempotencyMarker(errorMarker, existingComments);
     if (!skipped) {
       await tracker.postComment(
@@ -80,7 +60,7 @@ async function main(): Promise<void> {
 
   // Idempotency keyed on head SHA — a new push always produces a new SHA,
   // so the review runs fresh after each iteration regardless of event_id.
-  const idempotencyMarker = `[ferry:reviewer:${headSha.slice(0, 7)}]`;
+  const idempotencyMarker = byPrHeadSha('reviewer', headSha);
   const { skipped } = checkIdempotencyMarker(idempotencyMarker, existingComments);
   if (skipped) {
     console.error(`[ferry:review-action] already processed ${headSha.slice(0, 7)}, skipping`);
@@ -131,15 +111,7 @@ async function main(): Promise<void> {
     .map((c) => `${c.sha.slice(0, 7)} ${c.message.split('\n')[0]}`)
     .join('\n');
 
-  // Build ticket context
-  const ticketBlock = [
-    `TICKET: ${ticketKey}`,
-    `TITLE: ${issue.summary}`,
-    `TYPE: ${issue.issueType}`,
-    `DESCRIPTION:\n${issue.description}`,
-  ]
-    .filter(Boolean)
-    .join('\n');
+  const ticketBlock = buildTicketBlock(ticketKey, issue);
 
   const mergeConflictWarning = hasMergeConflicts
     ? `\n⚠️  MERGE CONFLICTS DETECTED — mergeable=${String(mergeable)}${conflictedFiles.length > 0 ? `, conflicted files: ${conflictedFiles.join(', ')}` : ''}`
@@ -167,20 +139,10 @@ async function main(): Promise<void> {
     .filter((l) => l !== null)
     .join('\n');
 
-  const systemBase = readFileSync(resolvePromptPath('review', REPO_ROOT), 'utf8');
-  let commentTemplate = '';
-  try {
-    commentTemplate = readFileSync(resolvePromptPath('review-comment', REPO_ROOT), 'utf8');
-  } catch {
-    /* optional */
-  }
-  const projectSnippet = loadProjectSnippet(REPO_ROOT);
-  const systemParts = [
-    systemBase,
-    commentTemplate || null,
-    projectSnippet ? `## Project conventions\n\n${projectSnippet}` : null,
-  ].filter(Boolean) as string[];
-  const system = systemParts.join('\n\n---\n\n');
+  const system = buildSystem('review', REPO_ROOT, {
+    extraParts: [loadOptionalPrompt('review-comment', REPO_ROOT)],
+    separator: '\n\n---\n\n',
+  });
   const anthropic = new Anthropic(resolveAnthropicAuth({ apiKeyEnv: 'ANTHROPIC_API_KEY' }));
 
   const {
@@ -233,19 +195,6 @@ async function main(): Promise<void> {
   }
 
   appendOutput({ input_tokens: inputTokens, output_tokens: outputTokens, model });
-}
-
-function appendOutput(usage: {
-  input_tokens: number;
-  output_tokens: number;
-  model?: string;
-}): void {
-  const githubOutput = process.env.GITHUB_OUTPUT;
-  if (githubOutput) {
-    let out = `input_tokens=${usage.input_tokens}\noutput_tokens=${usage.output_tokens}\n`;
-    if (usage.model) out += `model=${usage.model}\n`;
-    appendFileSync(githubOutput, out);
-  }
 }
 
 main().catch((err) => {
