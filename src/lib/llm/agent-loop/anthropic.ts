@@ -91,7 +91,8 @@ export function createAnthropicAgentLoop(opts: {
   maxInputTokens?: number;
   maxTokens?: number;
 }): AgentLoop {
-  const anthropic = opts.client ?? new Anthropic({ apiKey: opts.apiKey, authToken: opts.authToken });
+  const anthropic =
+    opts.client ?? new Anthropic({ apiKey: opts.apiKey, authToken: opts.authToken });
 
   async function runLoop(input: {
     system: string;

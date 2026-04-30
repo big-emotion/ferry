@@ -328,7 +328,9 @@ describe('createAnthropicAgentLoop — LOG_VERBOSITY=debug structured events', (
       .map((c) => c[0] as string)
       .filter((s) => typeof s === 'string' && s.startsWith('{'));
     expect(jsonCalls.length).toBeGreaterThanOrEqual(1);
-    const turnEvent = JSON.parse(jsonCalls.find((s) => s.includes('"type":"turn"') ?? false) ?? jsonCalls[0]) as Record<string, unknown>;
+    const turnEvent = JSON.parse(
+      jsonCalls.find((s) => s.includes('"type":"turn"') ?? false) ?? jsonCalls[0],
+    ) as Record<string, unknown>;
     expect(turnEvent).toMatchObject({
       type: 'turn',
       iter: 1,

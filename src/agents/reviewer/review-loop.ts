@@ -140,7 +140,7 @@ export async function runReviewLoop(opts: {
       type: 'turn',
       iter: iter + 1,
       depth: 0,
-      stop_reason: response.stop_reason,
+      stop_reason: response.stop_reason ?? 'unknown',
       tools: toolCount,
       mcp_tools: 0,
       in: response.usage.input_tokens,
