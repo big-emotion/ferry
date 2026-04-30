@@ -47,9 +47,7 @@ describe('concurrency group-key expression', () => {
       // Pattern may vary for workflows supporting both repository_dispatch and workflow_call:
       // - Simple: inputs.ticket_key || github.event.client_payload.ticket_key || 'sinkhole'
       // - With validation: inputs.ticket_key || (validation && client_payload.ticket_key) || 'sinkhole'
-      expect(content, `${name}: missing sinkhole fallback`).toContain(
-        `|| '${SINKHOLE_GROUP}'`,
-      );
+      expect(content, `${name}: missing sinkhole fallback`).toContain(`|| '${SINKHOLE_GROUP}'`);
     },
   );
 });
