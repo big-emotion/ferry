@@ -37,7 +37,11 @@ jobs:
 # Required secrets: FERRY_APP_ID, FERRY_PRIVATE_KEY, FERRY_JIRA_BASE_URL,
 #                   FERRY_JIRA_EMAIL, FERRY_JIRA_API_TOKEN, FERRY_ANTHROPIC_API_KEY
 # Required variables: FERRY_AUDIT_ISSUE (GitHub Issue number for the audit log)
-# Optional variables: FERRY_MODEL (default: claude-sonnet-4-6)
+# Optional variables: FERRY_DEV_MODEL (default: claude-sonnet-4-6)
+#                     FERRY_DEV_MAX_ITERATIONS (default: 200)
+#                     FERRY_DEV_MAX_INPUT_TOKENS (default: 500000)
+#                     FERRY_ANTHROPIC_BASE_URL (default: https://api.anthropic.com, var or secret)
+#                     FERRY_PROMPTS_DIR (default: <workspace>/prompts)
 
 name: Ferry — Dev
 
