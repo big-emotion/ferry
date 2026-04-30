@@ -223,9 +223,6 @@ The [`examples/`](examples/) directory ships reference artifacts you can copy in
 
 The canonical schemas live in [`src/schemas/`](src/schemas/) (not duplicated here).
 
-Operational config lives in [`config/`](config/):
-- [`reviewer-rules.yaml`](config/reviewer-rules.yaml) — declarative reviewer rules (loaded at runtime)
-
 Project documentation lives in [`docs/`](docs/):
 - [`reviewer-rubric.md`](docs/reviewer-rubric.md) — 4-dimension review-grading rubric
 

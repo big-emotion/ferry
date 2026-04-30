@@ -1,15 +1,11 @@
 /**
  * Reviewer findings schema and rule-taxonomy validation.
  *
- * Findings must reference a `rule_id` drawn from `config/reviewer-rules.yaml`
- * (plus the synthetic `ci-failure` id used by the CI gate). Unknown rule_ids
- * cause a `ReviewerFindingsSchemaError` so the agent can re-run once with the
- * taxonomy re-injected before escalating to `needs-human` (FR57).
+ * Findings must reference a `rule_id` drawn from `RULE_IDS` (plus the synthetic
+ * `ci-failure` id used by the CI gate). Unknown rule_ids cause a
+ * `ReviewerFindingsSchemaError` so the agent can re-run once with the taxonomy
+ * re-injected before escalating to `needs-human` (FR57).
  */
-
-import { readFileSync } from 'node:fs';
-import path from 'node:path';
-import url from 'node:url';
 
 export interface ReviewerFinding {
   rule_id: string;
@@ -29,33 +25,23 @@ export class ReviewerFindingsSchemaError extends Error {
   }
 }
 
-/** Synthetic IDs that are not declared in reviewer-rules.yaml but are valid. */
-const SYNTHETIC_RULE_IDS = new Set<string>(['ci-failure']);
+export const RULE_IDS = [
+  'no-co-authored-by',
+  'conventional-commit',
+  'tests-accompany-source-changes',
+  'no-skipped-tests',
+  'no-hardcoded-secrets',
+  'gitleaks-clean',
+  'schema-version-bumped-when-shape-changes',
+  'ferry-never-merges',
+  'ferry-never-moves-jira-columns-except-allowed',
+] as const;
 
-let cachedTaxonomy: Set<string> | undefined;
-
-function loadTaxonomy(): Set<string> {
-  if (cachedTaxonomy) return cachedTaxonomy;
-  const here = path.dirname(url.fileURLToPath(import.meta.url));
-  const repoRoot = path.resolve(here, '..', '..', '..');
-  const yamlPath = path.join(repoRoot, 'config', 'reviewer-rules.yaml');
-  const ids = new Set<string>();
-  try {
-    const text = readFileSync(yamlPath, 'utf8');
-    const re = /^\s*-\s*id:\s*([A-Za-z0-9_-]+)\s*$/gm;
-    let match: RegExpExecArray | null;
-    while ((match = re.exec(text)) !== null) {
-      ids.add(match[1]);
-    }
-  } catch {
-    // taxonomy file missing — leave empty so unknown ids are rejected loudly
-  }
-  cachedTaxonomy = ids;
-  return cachedTaxonomy;
-}
+/** Synthetic IDs not declared in RULE_IDS but valid (emitted by the CI gate). */
+const SYNTHETIC_RULE_IDS = ['ci-failure'] as const;
 
 export function knownRuleIds(): Set<string> {
-  return new Set([...loadTaxonomy(), ...SYNTHETIC_RULE_IDS]);
+  return new Set<string>([...RULE_IDS, ...SYNTHETIC_RULE_IDS]);
 }
 
 export function validateFindings(findings: ReviewerFinding[]): ReviewerFinding[] {
