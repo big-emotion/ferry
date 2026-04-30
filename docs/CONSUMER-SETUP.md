@@ -45,7 +45,11 @@ These workflows call Ferry's reusable workflows from the Ferry repository. Updat
 
 **Important:** You do NOT need to copy any `.github/actions/` files to your repo — Ferry's actions are provided by the Ferry repo itself.
 
-### Step 2: Add GitHub secrets
+### Step 2: Allow Actions to write to your repository
+
+Go to **Settings → Actions → General → Workflow permissions** and select **Read and write permissions**. Ferry's workflows declare explicit minimal permissions, but GitHub enforces that those permissions cannot exceed the repo-level ceiling.
+
+### Step 3: Add GitHub secrets
 
 Go to **Settings → Secrets and variables → Actions** in your GitHub repo and add:
 
@@ -56,7 +60,7 @@ Go to **Settings → Secrets and variables → Actions** in your GitHub repo and
 | `FERRY_JIRA_API_TOKEN` | Atlassian API token | [Generate here](https://id.atlassian.com/manage-profile/security/api-tokens) |
 | `ANTHROPIC_API_KEY` | Anthropic API key (for Claude) | [Get here](https://console.anthropic.com/account/keys) |
 
-### Step 3: Configure Jira → GitHub webhook
+### Step 4: Configure Jira → GitHub webhook
 
 Ferry is triggered when you move a ticket column or add a label in Jira.
 
@@ -110,6 +114,8 @@ Or use the Jira-GitHub app integration if your team already has it.
 | Refiner never posts a comment | Check Jira API credentials, verify the Jira URL is correct |
 | Code looks wrong | This is normal early on — Ferry improves with feedback; iterate it |
 | "Action not found: `./.github/actions/ferry-envelope-validate`" | You copied Ferry's internal workflows. Use the consumer stubs instead, which call Ferry's reusable workflows — see Step 1 |
+| "Resource not accessible by integration" or `checks: read` permission error | Repo workflow permissions ceiling is too low. Enable **Read and write permissions** under Settings → Actions → General → Workflow permissions — see Step 2 |
+| Review workflow hangs indefinitely (never starts running jobs) | You have a `concurrency:` block in your consumer `ferry-review.yml`. Remove it — concurrency is managed by Ferry's reusable workflow; duplicating the group expression causes a deadlock because `github.workflow` resolves to the caller's name in both contexts |
 
 ---
 
