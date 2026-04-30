@@ -10,6 +10,11 @@ export interface LlmRoute {
   model: string;
 }
 
+export interface LabelCapability {
+  mcp_servers?: string[];
+  tools?: string[];
+}
+
 export interface FerryConfig {
   models: {
     refiner: LlmRoute;
@@ -33,6 +38,7 @@ export interface FerryConfig {
     refine_allowlist: string[];
     dev_allowlist: string[];
   };
+  labels?: Record<string, LabelCapability>;
 }
 
 export const DEFAULT_FERRY_CONFIG: FerryConfig = {
@@ -146,6 +152,25 @@ function validateConfigShape(raw: unknown): ValidationError[] {
     }
   }
 
+  if (c.labels !== undefined) {
+    if (!c.labels || typeof c.labels !== 'object' || Array.isArray(c.labels)) {
+      errs.push('labels: must be an object mapping label names to capability entries');
+    } else {
+      for (const [labelName, entry] of Object.entries(c.labels as Record<string, unknown>)) {
+        const fieldPath = `labels.${labelName}`;
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+          errs.push(`${fieldPath}: must be an object`);
+          continue;
+        }
+        const e = entry as Record<string, unknown>;
+        if (e.mcp_servers !== undefined)
+          errs.push(...validateStringArray(e.mcp_servers, `${fieldPath}.mcp_servers`));
+        if (e.tools !== undefined)
+          errs.push(...validateStringArray(e.tools, `${fieldPath}.tools`));
+      }
+    }
+  }
+
   return errs;
 }
 
@@ -226,6 +251,21 @@ function mergeWithDefaults(raw: RawConfig): FerryConfig {
   const strArr = (val: unknown, def: string[]): string[] =>
     Array.isArray(val) ? (val as string[]) : def;
 
+  const labelsRaw = raw.labels;
+  let labels: Record<string, LabelCapability> | undefined;
+  if (labelsRaw && typeof labelsRaw === 'object' && !Array.isArray(labelsRaw)) {
+    labels = {};
+    for (const [name, entry] of Object.entries(labelsRaw as Record<string, unknown>)) {
+      if (entry && typeof entry === 'object' && !Array.isArray(entry)) {
+        const e = entry as Record<string, unknown>;
+        labels[name] = {
+          ...(Array.isArray(e.mcp_servers) ? { mcp_servers: e.mcp_servers as string[] } : {}),
+          ...(Array.isArray(e.tools) ? { tools: e.tools as string[] } : {}),
+        };
+      }
+    }
+  }
+
   return {
     models: {
       refiner: route(m.refiner, DEFAULT_FERRY_CONFIG.models.refiner),
@@ -256,6 +296,7 @@ function mergeWithDefaults(raw: RawConfig): FerryConfig {
       ),
       dev_allowlist: strArr(t.dev_allowlist, DEFAULT_FERRY_CONFIG.ticket_types.dev_allowlist),
     },
+    ...(labels !== undefined ? { labels } : {}),
   };
 }
 

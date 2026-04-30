@@ -250,4 +250,82 @@ describe('loadFerryConfig', () => {
       expect(cfg.ticket_types.refine_allowlist).toEqual(['Story', 'Bug']);
     });
   });
+
+  describe('labels section', () => {
+    it('is undefined when not specified in config', () => {
+      mockConfigFile('ferry.config.json', JSON.stringify({}));
+      const cfg = loadFerryConfig('/repo');
+      expect(cfg.labels).toBeUndefined();
+    });
+
+    it('is undefined when no config file exists', () => {
+      mockNoConfigFile();
+      const cfg = loadFerryConfig('/repo');
+      expect(cfg.labels).toBeUndefined();
+    });
+
+    it('parses a labels section with mcp_servers', () => {
+      mockConfigFile(
+        'ferry.config.json',
+        JSON.stringify({
+          labels: {
+            'ferry:mcp/context7': { mcp_servers: ['context7'] },
+          },
+        }),
+      );
+      const cfg = loadFerryConfig('/repo');
+      expect(cfg.labels).toBeDefined();
+      expect(cfg.labels!['ferry:mcp/context7']).toEqual({ mcp_servers: ['context7'] });
+    });
+
+    it('parses a labels section with mcp_servers and tools', () => {
+      mockConfigFile(
+        'ferry.config.json',
+        JSON.stringify({
+          labels: {
+            'ferry:mcp/sentry': { mcp_servers: ['sentry'], tools: ['fetch_runtime_logs'] },
+          },
+        }),
+      );
+      const cfg = loadFerryConfig('/repo');
+      expect(cfg.labels!['ferry:mcp/sentry']).toEqual({
+        mcp_servers: ['sentry'],
+        tools: ['fetch_runtime_logs'],
+      });
+    });
+
+    it('parses a profile label that expands to multiple servers', () => {
+      mockConfigFile(
+        'ferry.config.json',
+        JSON.stringify({
+          labels: {
+            'ferry:profile/frontend': { mcp_servers: ['context7', 'playwright'] },
+          },
+        }),
+      );
+      const cfg = loadFerryConfig('/repo');
+      expect(cfg.labels!['ferry:profile/frontend'].mcp_servers).toEqual(['context7', 'playwright']);
+    });
+
+    it('throws on invalid labels shape (not an object)', () => {
+      mockConfigFile('ferry.config.json', JSON.stringify({ labels: 'bad' }));
+      expect(() => loadFerryConfig('/repo')).toThrow(FerryError);
+    });
+
+    it('throws when a label entry has non-string-array mcp_servers', () => {
+      mockConfigFile(
+        'ferry.config.json',
+        JSON.stringify({ labels: { 'ferry:mcp/x': { mcp_servers: [1, 2] } } }),
+      );
+      expect(() => loadFerryConfig('/repo')).toThrow(FerryError);
+    });
+
+    it('throws when a label entry has non-string-array tools', () => {
+      mockConfigFile(
+        'ferry.config.json',
+        JSON.stringify({ labels: { 'ferry:mcp/x': { tools: 42 } } }),
+      );
+      expect(() => loadFerryConfig('/repo')).toThrow(FerryError);
+    });
+  });
 });

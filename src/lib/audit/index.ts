@@ -14,6 +14,8 @@ export interface AuditPayload {
   outcome: string;
   usage: AuditUsage | null;
   start: number;
+  triggeredLabels?: string[];
+  resolvedMcpServers?: string[];
 }
 
 export interface AuditOpts {
@@ -25,7 +27,7 @@ export interface AuditOpts {
 
 export async function emitAudit(payload: AuditPayload, opts: AuditOpts): Promise<void> {
   const { octokit, owner, repo, auditIssue } = opts;
-  const { ticket, phase, runId, model, outcome, usage, start } = payload;
+  const { ticket, phase, runId, model, outcome, usage, start, triggeredLabels, resolvedMcpServers } = payload;
 
   const marker = `[ferry:audit:${runId}]`;
 
@@ -42,7 +44,7 @@ export async function emitAudit(payload: AuditPayload, opts: AuditOpts): Promise
     if (existing.data.length < 100) break;
   }
 
-  const auditLine = {
+  const auditLine: Record<string, unknown> = {
     ticket,
     phase,
     run_id: runId,
@@ -54,6 +56,9 @@ export async function emitAudit(payload: AuditPayload, opts: AuditOpts): Promise
     duration_ms: Math.round(Date.now() - start),
     timestamp: new Date().toISOString(),
   };
+
+  if (triggeredLabels !== undefined) auditLine.triggered_labels = triggeredLabels;
+  if (resolvedMcpServers !== undefined) auditLine.resolved_mcp_servers = resolvedMcpServers;
 
   const body = `${marker}\n${JSON.stringify(auditLine)}`;
 

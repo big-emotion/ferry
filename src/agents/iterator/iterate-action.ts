@@ -9,11 +9,13 @@ import { FerryError } from '../../lib/errors/index.js';
 import { GitHubActionsRunner } from '../../lib/dispatch/runner/github-actions/index.js';
 import { TOOL_SCHEMAS, COMMIT_PROGRESS_SCHEMA, executeTool } from '../developer/tools.js';
 import { createAnthropicAgentLoop } from '../../lib/llm/agent-loop/anthropic.js';
+import type { McpServerConfig } from '../../lib/llm/agent-loop/types.js';
 import { checkIterationCap } from './cap.js';
 import { decideIteratorTransition } from './transition.js';
 import { formatCommitMessage } from './prompt.js';
 import { loadFerryConfig } from '../../lib/config.js';
 import { resolvePromptPath, loadProjectSnippet } from '../../lib/prompts/resolve.js';
+import { resolveCapabilities, filterMcpServers } from '../../lib/labels/capabilities.js';
 
 const REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
 
@@ -21,6 +23,24 @@ function requireEnv(key: string): string {
   const val = process.env[key];
   if (!val) throw new FerryError('state-invariant', { reason: 'missing-env', key });
   return val;
+}
+
+function loadMcpServers(): McpServerConfig[] {
+  const raw = process.env.AGENT_MCP_SERVERS;
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (s): s is McpServerConfig =>
+        s !== null &&
+        typeof s === 'object' &&
+        typeof (s as Record<string, unknown>).name === 'string' &&
+        typeof (s as Record<string, unknown>).url === 'string',
+    );
+  } catch {
+    return [];
+  }
 }
 
 async function main(): Promise<void> {
@@ -45,6 +65,24 @@ async function main(): Promise<void> {
 
   const issue = await tracker.getIssue(ticketKey);
   const existingComments = issue.comments;
+
+  // Labels are re-read from Jira on each iterate-action invocation (each review→iterate cycle),
+  // so a label added between iterations takes effect on the next cycle.
+  const mcpPool = loadMcpServers();
+  const capabilities = resolveCapabilities(issue.labels, ferryCfg.labels);
+  const hasLabelsConfig = ferryCfg.labels !== undefined;
+  const mcpServers = filterMcpServers(mcpPool, capabilities, hasLabelsConfig);
+
+  if (capabilities.triggeredLabels.length > 0) {
+    console.error(
+      `[ferry:iterate-action] label capabilities: labels=[${capabilities.triggeredLabels.join(',')}] mcp=[${capabilities.mcpServerNames.join(',')}]`,
+    );
+  }
+  if (capabilities.unknownFerryLabels.length > 0) {
+    console.error(
+      `[ferry:iterate-action] unknown ferry labels (ignored): ${capabilities.unknownFerryLabels.join(', ')}`,
+    );
+  }
 
   const priorIterations = existingComments.filter(
     (c) => c.includes('[ferry:iterator:') && c.includes('complete. Pushed fixes to PR#'),
@@ -221,6 +259,7 @@ async function main(): Promise<void> {
     repoRoot: REPO_ROOT,
     branchName,
     secretScan,
+    mcpServers,
   });
 
   console.error(

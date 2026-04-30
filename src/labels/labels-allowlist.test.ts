@@ -11,7 +11,7 @@ function walkTs(dir: string): string[] {
     const full = join(dir, entry);
     if (statSync(full).isDirectory()) {
       files.push(...walkTs(full));
-    } else if (full.endsWith('.ts')) {
+    } else if (full.endsWith('.ts') && !full.endsWith('.test.ts')) {
       files.push(full);
     }
   }
