@@ -86,4 +86,3 @@ describe('formatPullRequestBody (Story 4-4)', () => {
     expect(body.endsWith('\n')).toBe(true);
   });
 });
-
