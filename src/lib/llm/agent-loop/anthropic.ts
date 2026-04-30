@@ -117,7 +117,9 @@ export function createAnthropicAgentLoop(opts: {
 
     // Separate HTTP (server-side) and stdio (client-side) MCP servers.
     const allServers = input.mcpServers ?? [];
-    const httpServers = allServers.filter((s): s is HttpMcpServerConfig => isHttpMcpServer(s) && 'url' in s);
+    const httpServers = allServers.filter(
+      (s): s is HttpMcpServerConfig => isHttpMcpServer(s) && 'url' in s,
+    );
     const stdioServers = allServers.filter((s): s is StdioMcpServerConfig => isStdioMcpServer(s));
 
     const hasHttp = httpServers.length > 0;

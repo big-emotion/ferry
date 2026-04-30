@@ -14,7 +14,9 @@ const { mockPool, MockMcpClientPool } = vi.hoisted(() => {
     callTool: vi.fn().mockResolvedValue('mcp result'),
     close: vi.fn().mockResolvedValue(undefined),
   };
-  const ctor = vi.fn().mockImplementation(() => pool);
+  const ctor = vi.fn().mockImplementation(function () {
+    return pool;
+  });
   return { mockPool: pool, MockMcpClientPool: ctor };
 });
 
@@ -93,7 +95,9 @@ const baseInput = {
 };
 
 function restorePoolDefaults(): void {
-  MockMcpClientPool.mockImplementation(() => mockPool);
+  MockMcpClientPool.mockImplementation(function () {
+    return mockPool;
+  });
   mockPool.connect.mockResolvedValue(undefined);
   mockPool.getTools.mockReturnValue([]);
   mockPool.hasTool.mockReturnValue(false);
@@ -511,7 +515,11 @@ describe('createAnthropicAgentLoop — stdio MCP tools', () => {
 
     expect(capturedToolResults).not.toBeNull();
     expect(capturedToolResults).toContainEqual(
-      expect.objectContaining({ type: 'tool_result', is_error: true, content: 'permission denied' }),
+      expect.objectContaining({
+        type: 'tool_result',
+        is_error: true,
+        content: 'permission denied',
+      }),
     );
   });
 });

@@ -24,7 +24,10 @@ function makeClientMock(
     description?: string;
     inputSchema: { properties?: Record<string, unknown>; required?: string[] };
   }> = [],
-  callResult: { content: Array<{ type: string; text?: string; mimeType?: string }>; isError?: boolean } = {
+  callResult: {
+    content: Array<{ type: string; text?: string; mimeType?: string }>;
+    isError?: boolean;
+  } = {
     content: [{ type: 'text', text: 'ok' }],
   },
 ): ClientMock {
@@ -71,7 +74,9 @@ describe('McpClientPool', () => {
       },
     ];
 
-    vi.mocked(StdioMcpClient).mockImplementation(() => makeClientMock(tools) as unknown as InstanceType<typeof StdioMcpClient>);
+    vi.mocked(StdioMcpClient).mockImplementation(function () {
+      return makeClientMock(tools) as unknown as InstanceType<typeof StdioMcpClient>;
+    });
 
     const pool = new McpClientPool();
     await pool.connect([stdioServer]);
@@ -97,7 +102,9 @@ describe('McpClientPool', () => {
       { name: 'tool_c', inputSchema: {} },
     ];
 
-    vi.mocked(StdioMcpClient).mockImplementation(() => makeClientMock(tools) as unknown as InstanceType<typeof StdioMcpClient>);
+    vi.mocked(StdioMcpClient).mockImplementation(function () {
+      return makeClientMock(tools) as unknown as InstanceType<typeof StdioMcpClient>;
+    });
 
     const pool = new McpClientPool();
     await pool.connect([{ ...stdioServer, allowed_tools: ['tool_a', 'tool_c'] }]);
@@ -112,7 +119,9 @@ describe('McpClientPool', () => {
       { name: 'tool_b', inputSchema: {} },
     ];
 
-    vi.mocked(StdioMcpClient).mockImplementation(() => makeClientMock(tools) as unknown as InstanceType<typeof StdioMcpClient>);
+    vi.mocked(StdioMcpClient).mockImplementation(function () {
+      return makeClientMock(tools) as unknown as InstanceType<typeof StdioMcpClient>;
+    });
 
     const pool = new McpClientPool();
     await pool.connect([{ ...stdioServer, denied_tools: ['tool_b'] }]);
@@ -126,7 +135,9 @@ describe('McpClientPool', () => {
       content: [{ type: 'text', text: 'Hello, world!' }],
     });
 
-    vi.mocked(StdioMcpClient).mockImplementation(() => clientMock as unknown as InstanceType<typeof StdioMcpClient>);
+    vi.mocked(StdioMcpClient).mockImplementation(function () {
+      return clientMock as unknown as InstanceType<typeof StdioMcpClient>;
+    });
 
     const pool = new McpClientPool();
     await pool.connect([stdioServer]);
@@ -139,7 +150,9 @@ describe('McpClientPool', () => {
   it('throws for unknown tool names', async () => {
     const pool = new McpClientPool();
     await pool.connect([]);
-    await expect(pool.callTool('unknown', {})).rejects.toThrow('MCP tool not found in pool: unknown');
+    await expect(pool.callTool('unknown', {})).rejects.toThrow(
+      'MCP tool not found in pool: unknown',
+    );
   });
 
   it('throws when tool returns isError: true', async () => {
@@ -149,7 +162,9 @@ describe('McpClientPool', () => {
       isError: true,
     });
 
-    vi.mocked(StdioMcpClient).mockImplementation(() => clientMock as unknown as InstanceType<typeof StdioMcpClient>);
+    vi.mocked(StdioMcpClient).mockImplementation(function () {
+      return clientMock as unknown as InstanceType<typeof StdioMcpClient>;
+    });
 
     const pool = new McpClientPool();
     await pool.connect([stdioServer]);
@@ -159,7 +174,9 @@ describe('McpClientPool', () => {
 
   it('closes all clients when close() is called', async () => {
     const clientMock = makeClientMock([{ name: 'tool_x', inputSchema: {} }]);
-    vi.mocked(StdioMcpClient).mockImplementation(() => clientMock as unknown as InstanceType<typeof StdioMcpClient>);
+    vi.mocked(StdioMcpClient).mockImplementation(function () {
+      return clientMock as unknown as InstanceType<typeof StdioMcpClient>;
+    });
 
     const pool = new McpClientPool();
     await pool.connect([stdioServer]);
@@ -172,10 +189,11 @@ describe('McpClientPool', () => {
 
   it('merges tools from multiple servers', async () => {
     let callCount = 0;
-    vi.mocked(StdioMcpClient).mockImplementation(() => {
+    vi.mocked(StdioMcpClient).mockImplementation(function () {
       const toolName = callCount === 0 ? 'server1_tool' : 'server2_tool';
       callCount++;
-      return makeClientMock([{ name: toolName, inputSchema: {} }]) as unknown as InstanceType<typeof StdioMcpClient>;
+      const mock = makeClientMock([{ name: toolName, inputSchema: {} }]);
+      return mock as unknown as InstanceType<typeof StdioMcpClient>;
     });
 
     const server2: StdioMcpServerConfig = {
@@ -201,7 +219,9 @@ describe('McpClientPool', () => {
       content: [{ type: 'image', mimeType: 'image/png' }],
     });
 
-    vi.mocked(StdioMcpClient).mockImplementation(() => clientMock as unknown as InstanceType<typeof StdioMcpClient>);
+    vi.mocked(StdioMcpClient).mockImplementation(function () {
+      return clientMock as unknown as InstanceType<typeof StdioMcpClient>;
+    });
 
     const pool = new McpClientPool();
     await pool.connect([stdioServer]);
@@ -218,7 +238,9 @@ describe('McpClientPool', () => {
       close: vi.fn(),
     };
 
-    vi.mocked(StdioMcpClient).mockImplementation(() => clientMock as unknown as InstanceType<typeof StdioMcpClient>);
+    vi.mocked(StdioMcpClient).mockImplementation(function () {
+      return clientMock as unknown as InstanceType<typeof StdioMcpClient>;
+    });
 
     const pool = new McpClientPool();
     await expect(pool.connect([stdioServer])).rejects.toThrow(
