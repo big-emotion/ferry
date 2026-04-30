@@ -29,7 +29,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Validate event envelope
-        uses: ./.github/actions/ferry-envelope-validate
+        uses: big-emotion/ferry/.github/actions/ferry-envelope-validate@adbe9160b5f3140482aa8263e037a9d3a6cb8819
         with:
           payload: ${{ inputs.payload || toJson(github.event.client_payload) }}
 
@@ -51,44 +51,26 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up Node.js
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
-        with:
-          node-version: '20'
-
-      - name: Install Ferry action dependencies
-        shell: bash
-        run: npm ci --prefer-offline
-        working-directory: .ferry
-
       - name: Install gitleaks
         shell: bash
         run: |
           curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz \
             | tar -xz -C /usr/local/bin gitleaks
 
-      - name: Skip Task tickets (FR6)
-        shell: bash
-        run: node .ferry/skip-task-type-action.js
-        env:
-          FERRY_ENVELOPE_PAYLOAD: ${{ inputs.payload || toJson(github.event.client_payload) }}
-
       - name: Run Iterator agent
         id: run-iterator
-        shell: bash
-        run: node .ferry/iterate-action.js
-        env:
-          FERRY_ENVELOPE_PAYLOAD: ${{ inputs.payload || toJson(github.event.client_payload) }}
-          FERRY_JIRA_BASE_URL: ${{ secrets.FERRY_JIRA_BASE_URL }}
-          FERRY_JIRA_EMAIL: ${{ secrets.FERRY_JIRA_EMAIL }}
-          FERRY_JIRA_API_TOKEN: ${{ secrets.FERRY_JIRA_API_TOKEN }}
-          FERRY_REVIEW_TRANSITION_ID: ${{ secrets.FERRY_REVIEW_TRANSITION_ID }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          GITHUB_TOKEN: ${{ github.token }}
-          GH_TOKEN: ${{ github.token }}
-          GITHUB_REPO: ${{ github.repository }}
-          FERRY_ITER_MODEL: ${{ vars.FERRY_ITER_MODEL || 'claude-sonnet-4-6' }}
-          FERRY_DEV_MAX_INPUT_TOKENS: ${{ vars.FERRY_ITER_MAX_INPUT_TOKENS || '500000' }}
+        uses: big-emotion/ferry/.github/actions/ferry-run-iterator@adbe9160b5f3140482aa8263e037a9d3a6cb8819
+        with:
+          payload: ${{ inputs.payload || toJson(github.event.client_payload) }}
+          jira_base_url: ${{ secrets.FERRY_JIRA_BASE_URL }}
+          jira_email: ${{ secrets.FERRY_JIRA_EMAIL }}
+          jira_api_token: ${{ secrets.FERRY_JIRA_API_TOKEN }}
+          ferry_review_transition_id: ${{ secrets.FERRY_REVIEW_TRANSITION_ID }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ github.token }}
+          github_repo: ${{ github.repository }}
+          ferry_iter_model: ${{ vars.FERRY_ITER_MODEL || 'claude-sonnet-4-6' }}
+          ferry_iter_max_input_tokens: ${{ vars.FERRY_ITER_MAX_INPUT_TOKENS || '500000' }}
 
   emit-audit:
     name: Emit audit line
@@ -102,7 +84,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Emit audit line
-        uses: ./.github/actions/ferry-emit-audit
+        uses: big-emotion/ferry/.github/actions/ferry-emit-audit@adbe9160b5f3140482aa8263e037a9d3a6cb8819
         with:
           ticket: ${{ inputs.ticket_key || github.event.client_payload.ticket_key }}
           phase: iterate
