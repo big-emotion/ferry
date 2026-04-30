@@ -165,8 +165,7 @@ function validateConfigShape(raw: unknown): ValidationError[] {
         const e = entry as Record<string, unknown>;
         if (e.mcp_servers !== undefined)
           errs.push(...validateStringArray(e.mcp_servers, `${fieldPath}.mcp_servers`));
-        if (e.tools !== undefined)
-          errs.push(...validateStringArray(e.tools, `${fieldPath}.tools`));
+        if (e.tools !== undefined) errs.push(...validateStringArray(e.tools, `${fieldPath}.tools`));
       }
     }
   }

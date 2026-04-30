@@ -63,9 +63,7 @@ describe('resolveCapabilities', () => {
     expect(result.unknownFerryLabels).toEqual(['ferry:mcp/evil-server']);
     expect(result.mcpServerNames).toEqual([]);
     expect(result.triggeredLabels).toEqual([]);
-    expect(spy).toHaveBeenCalledWith(
-      expect.stringContaining('ferry:mcp/evil-server'),
-    );
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining('ferry:mcp/evil-server'));
   });
 
   it('handles mix of known labels, unknown ferry labels, and non-ferry labels', () => {

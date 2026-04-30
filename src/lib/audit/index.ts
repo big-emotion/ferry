@@ -27,7 +27,17 @@ export interface AuditOpts {
 
 export async function emitAudit(payload: AuditPayload, opts: AuditOpts): Promise<void> {
   const { octokit, owner, repo, auditIssue } = opts;
-  const { ticket, phase, runId, model, outcome, usage, start, triggeredLabels, resolvedMcpServers } = payload;
+  const {
+    ticket,
+    phase,
+    runId,
+    model,
+    outcome,
+    usage,
+    start,
+    triggeredLabels,
+    resolvedMcpServers,
+  } = payload;
 
   const marker = `[ferry:audit:${runId}]`;
 

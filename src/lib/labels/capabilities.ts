@@ -19,7 +19,12 @@ export function resolveCapabilities(
   configLabels: Record<string, LabelCapability> | undefined,
 ): ResolvedCapabilities {
   if (!configLabels) {
-    return { mcpServerNames: [], serverAllowedTools: {}, triggeredLabels: [], unknownFerryLabels: [] };
+    return {
+      mcpServerNames: [],
+      serverAllowedTools: {},
+      triggeredLabels: [],
+      unknownFerryLabels: [],
+    };
   }
 
   const triggeredLabels: string[] = [];
