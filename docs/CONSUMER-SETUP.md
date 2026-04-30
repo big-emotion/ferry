@@ -349,6 +349,85 @@ In brief: create `ferry.config.json` (or `ferry.config.yaml` / `ferry.config.yml
 
 ---
 
+## Customizing agent prompts
+
+Ferry ships a default system prompt for each of the four agents (Refiner, Developer, Reviewer, Iterator). You can adapt them to your project in three ways, from safest to most invasive.
+
+### 1. Per-agent extension (recommended) — `prompts/<agent>.extra.md`
+
+Drop a file at `prompts/<agent>.extra.md` in your repo root. Its contents are appended to Ferry's bundled prompt under the heading `## Project-specific guidance for <agent>`. The bundled prompt — including tool contracts, output format, comment fingerprints (`[ferry:<role>:<run-id>]`), and Jira transition rules (FR18, FR24, FR28) — stays intact.
+
+| Filename | Augments |
+|---|---|
+| `prompts/refiner.extra.md` | Refiner |
+| `prompts/dev.extra.md` | Developer |
+| `prompts/review.extra.md` | Reviewer |
+| `prompts/iterate.extra.md` | Iterator |
+
+Each file is capped at **4096 bytes** (truncated with a warning if exceeded). Use these to inject project-specific guidance: review checklists, security rules, naming conventions, tone, domain glossary, etc.
+
+**Example — `prompts/review.extra.md`:**
+
+```markdown
+# Project-specific review guidance
+
+In addition to checking the ticket ACs, evaluate every change across these
+five dimensions. Surface findings inside the existing "Issues requiring
+changes" section — do not invent new sections.
+
+## 1. Correctness
+- Edge cases handled (null, empty, boundaries, error paths)?
+- Do tests verify behaviour, not just call the function?
+
+## 2. Readability
+- Names descriptive and consistent with project conventions?
+- Control flow straightforward (no deeply nested logic)?
+
+## 3. Architecture
+- Follows existing patterns, or introduces a new one (and is it justified)?
+- Module boundaries respected? No circular dependencies?
+
+## 4. Security
+- User input validated/sanitised at boundaries?
+- Secrets out of code, logs, VCS?
+- Queries parameterised, output encoded?
+
+## 5. Performance
+- N+1 queries? Unbounded loops? Missing pagination on list endpoints?
+
+## Severity hint
+Prefix each issue's **Why** with `[critical]`, `[important]`, or `[suggestion]`.
+Block the PR (`approved: false`) only on `[critical]` findings.
+```
+
+### 2. Global project snippet — `prompts/_project.md`
+
+A single file appended to **all** agent prompts under `## Project conventions`. Capped at 2048 bytes. Use this for repo-wide conventions that apply to every agent (build commands, monorepo layout, branch naming).
+
+### 3. Full override — `prompts/<agent>.md` (advanced, not recommended)
+
+Drops a file at `prompts/<agent>.md` (without `.extra`) and Ferry replaces the bundled prompt entirely. **This breaks the Ferry contract** — you become responsible for tool calls, output schema, comment fingerprints, and FR transitions. `ferry-doctor` will warn when it detects a full override and suggest the `.extra.md` form instead.
+
+### Composition order
+
+When all three layers are present, the final system prompt is composed as:
+
+```
+<bundled prompt for the agent>
+## Project-specific guidance for <agent>
+<contents of prompts/<agent>.extra.md>
+## Project conventions
+<contents of prompts/_project.md>
+```
+
+The bundled contract comes first so it carries the most weight; your customisations refine it without overriding it.
+
+### Pointing Ferry at a different prompts directory
+
+Set `FERRY_PROMPTS_DIR` (env var or workflow input) to use a directory other than `prompts/` — useful for monorepos or for sharing prompts across multiple repos via a submodule.
+
+---
+
 ## Support
 
 - **Ferry repo:** https://github.com/big-emotion/ferry

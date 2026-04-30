@@ -108,11 +108,13 @@ External writes use standardized prefixes for idempotency:
 3. Update agent prompts if provider has different constraints
 4. Add provider-integration tests in `src/lib/llm/call.test.ts`
 
-**Changing agent behavior:**
+**Changing agent behavior (contributors editing the bundled defaults):**
 1. Update system prompt in `prompts/<agent>.md`
 2. Update agent schema in `src/agents/<agent>/schema.ts` if output format changes
 3. Test with Vitest: `npx vitest run src/agents/<agent>/<agent>.test.ts`
 4. Run full suite: `npm test`
+
+> Consumers should NOT edit `prompts/<agent>.md` directly — that breaks Ferry's contract. They use `prompts/<agent>.extra.md` to enrich the bundled prompt without replacing it. See the "Customizing agent prompts" section of `docs/CONSUMER-SETUP.md`. The resolver lives in `src/lib/prompts/resolve.ts`; composition happens in `src/lib/agent-runtime/prompt.ts`.
 
 ## Requirements & Constraints
 

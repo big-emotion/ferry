@@ -204,7 +204,7 @@ Do NOT copy Ferry's internal workflows (`.github/workflows/*.yml`) or actions (`
 
 ## Examples
 
-The canonical agent prompts live in [`prompts/`](prompts/) — that is the single source of truth for each agent's LLM instructions and expected output schema.
+The canonical agent prompts live in [`prompts/`](prompts/) — that is the single source of truth for each agent's LLM instructions and expected output schema. Consumers can enrich them per project without breaking the Ferry contract: see [Customizing agent prompts](docs/CONSUMER-SETUP.md#customizing-agent-prompts).
 
 The [`examples/`](examples/) directory ships reference artifacts you can copy into your install:
 
