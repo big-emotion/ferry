@@ -8,13 +8,13 @@ export interface AgentTool {
   };
 }
 
-// Minimal MCP server descriptor — wired up in #39; carried here so #39 doesn't reshape the interface.
+// MCP server descriptor for HTTP/SSE remote servers (stdio is out of scope).
 export interface McpServerConfig {
   name: string;
-  command?: string;
-  args?: string[];
-  url?: string;
-  headers?: Record<string, string>;
+  url: string;
+  authorization_token?: string;
+  allowed_tools?: string[];
+  denied_tools?: string[];
 }
 
 export interface DonePayload {

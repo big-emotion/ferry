@@ -28,6 +28,56 @@ type CommitProgressHandler = (
 ) => Promise<string>;
 type SpawnSubagentHandler = (task: string) => Promise<AgentLoopResult>;
 
+interface McpServerParam {
+  type: 'url';
+  name: string;
+  url: string;
+  authorization_token?: string;
+}
+
+interface McpToolsetParam {
+  type: 'mcp_toolset';
+  mcp_server_name: string;
+  allowed_tools?: string[];
+  denied_tools?: string[];
+}
+
+type ContentLike = { type: string; [key: string]: unknown };
+
+interface ApiResponse {
+  stop_reason: string;
+  content: ContentLike[];
+  usage: {
+    input_tokens: number;
+    output_tokens: number;
+    cache_creation_input_tokens?: number;
+    cache_read_input_tokens?: number;
+  };
+}
+
+interface BetaMessagesClient {
+  create(params: Record<string, unknown>): Promise<ApiResponse>;
+}
+
+function buildMcpParams(mcpServers: McpServerConfig[]): {
+  mcpServerParams: McpServerParam[];
+  mcpToolsets: McpToolsetParam[];
+} {
+  const mcpServerParams: McpServerParam[] = mcpServers.map((s) => ({
+    type: 'url',
+    name: s.name,
+    url: s.url,
+    ...(s.authorization_token ? { authorization_token: s.authorization_token } : {}),
+  }));
+  const mcpToolsets: McpToolsetParam[] = mcpServers.map((s) => ({
+    type: 'mcp_toolset',
+    mcp_server_name: s.name,
+    ...(s.allowed_tools?.length ? { allowed_tools: s.allowed_tools } : {}),
+    ...(s.denied_tools?.length ? { denied_tools: s.denied_tools } : {}),
+  }));
+  return { mcpServerParams, mcpToolsets };
+}
+
 export function createAnthropicAgentLoop(opts: {
   apiKey?: string;
   model: string;
@@ -51,15 +101,18 @@ export function createAnthropicAgentLoop(opts: {
     mcpServers?: McpServerConfig[];
     depth?: number;
   }): Promise<AgentLoopResult> {
-    if (input.mcpServers?.length) {
-      throw new FerryError('state-invariant', { reason: 'mcp-not-implemented' });
-    }
     const { system, initialPrompt, tools, repoRoot, branchName, secretScan, depth = 0 } = input;
     const maxIterations =
       opts.maxIterations ?? parseInt(process.env.FERRY_DEV_MAX_ITERATIONS ?? '200', 10);
     const maxInputTokens =
       opts.maxInputTokens ?? parseInt(process.env.FERRY_DEV_MAX_INPUT_TOKENS ?? '500000', 10);
     const maxTokens = opts.maxTokens ?? parseInt(process.env.FERRY_DEV_MAX_TOKENS ?? '16384', 10);
+
+    const mcpServers = (input.mcpServers ?? []).filter((s) => s.url);
+    const hasMcp = mcpServers.length > 0;
+    const { mcpServerParams, mcpToolsets } = hasMcp
+      ? buildMcpParams(mcpServers)
+      : { mcpServerParams: [], mcpToolsets: [] };
 
     // Cached system prompt + tools — static across the run, marked once.
     const systemBlocks = [
@@ -68,6 +121,8 @@ export function createAnthropicAgentLoop(opts: {
     const anthropicTools = tools.map((t, i) =>
       i === tools.length - 1 ? { ...t, cache_control: { type: 'ephemeral' as const } } : t,
     ) as unknown as AnthropicTool[];
+
+    const allTools = [...anthropicTools, ...(mcpToolsets as unknown as AnthropicTool[])];
 
     const messages: MessageParam[] = [
       {
@@ -99,27 +154,46 @@ export function createAnthropicAgentLoop(opts: {
         });
       }
 
-      const response = await anthropic.messages.create({
+      const baseParams = {
         model: opts.model,
         max_tokens: maxTokens,
         system: systemBlocks,
-        tools: anthropicTools,
+        tools: allTools,
         messages,
-      });
+      };
+
+      const response: ApiResponse = hasMcp
+        ? await (
+            anthropic as unknown as { beta: { messages: BetaMessagesClient } }
+          ).beta.messages.create({
+            ...baseParams,
+            mcp_servers: mcpServerParams,
+            betas: ['mcp-client-2025-11-20'],
+          })
+        : ((await anthropic.messages.create(baseParams)) as unknown as ApiResponse);
 
       usage.input_tokens += response.usage.input_tokens;
       usage.output_tokens += response.usage.output_tokens;
       usage.cache_creation_input_tokens += response.usage.cache_creation_input_tokens ?? 0;
       usage.cache_read_input_tokens += response.usage.cache_read_input_tokens ?? 0;
-      messages.push({ role: 'assistant', content: response.content as ContentBlock[] });
 
+      const contentBlocks = response.content;
+      messages.push({ role: 'assistant', content: contentBlocks as unknown as ContentBlock[] });
+
+      const mcpToolUseCount = contentBlocks.filter((b) => b.type === 'mcp_tool_use').length;
       console.error(
-        `[ferry:dev-loop] depth=${depth} iter=${iter} stop_reason=${response.stop_reason} tools=${response.content.filter((b) => b.type === 'tool_use').length} in=${response.usage.input_tokens} cache_w=${response.usage.cache_creation_input_tokens ?? 0} cache_r=${response.usage.cache_read_input_tokens ?? 0} out=${response.usage.output_tokens}`,
+        `[ferry:dev-loop] depth=${depth} iter=${iter} stop_reason=${response.stop_reason} tools=${contentBlocks.filter((b) => b.type === 'tool_use').length} mcp_tools=${mcpToolUseCount} in=${response.usage.input_tokens} cache_w=${response.usage.cache_creation_input_tokens ?? 0} cache_r=${response.usage.cache_read_input_tokens ?? 0} out=${response.usage.output_tokens}`,
       );
 
-      for (const block of response.content) {
-        if (block.type === 'text' && block.text.trim()) {
+      for (const block of contentBlocks) {
+        if (block.type === 'text' && typeof block.text === 'string' && block.text.trim()) {
           console.error(`[ferry:dev-think] ${block.text.trim()}`);
+        }
+        if (block.type === 'mcp_tool_use') {
+          // Executed server-side by the Anthropic MCP connector — log only.
+          console.error(
+            `[ferry:dev-tool] depth=${depth} iter=${iter} mcp_tool=${String(block.name ?? 'unknown')} server=${String(block.server_name ?? 'unknown')}`,
+          );
         }
       }
 
@@ -132,27 +206,31 @@ export function createAnthropicAgentLoop(opts: {
 
       const toolResults: ToolResultBlockParam[] = [];
 
-      for (const block of response.content) {
+      for (const block of contentBlocks) {
         if (block.type !== 'tool_use') continue;
 
-        if (block.name === 'done') {
-          done = block.input as DonePayload;
-          toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: 'ok' });
+        const id = block.id as string;
+        const name = block.name as string;
+        const blockInput = block.input as Record<string, unknown>;
+
+        if (name === 'done') {
+          done = blockInput as unknown as DonePayload;
+          toolResults.push({ type: 'tool_result', tool_use_id: id, content: 'ok' });
           continue;
         }
 
-        if (block.name === 'commit_progress' && opts.commitProgress) {
-          const { message } = block.input as { message: string };
+        if (name === 'commit_progress' && opts.commitProgress) {
+          const { message } = blockInput as { message: string };
           console.error(
             `[ferry:dev-tool] depth=${depth} iter=${iter} tool=commit_progress arg=${message.slice(0, 120)}`,
           );
           try {
             const result = await opts.commitProgress(repoRoot, branchName, message, secretScan);
-            toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: result });
+            toolResults.push({ type: 'tool_result', tool_use_id: id, content: result });
           } catch (e) {
             toolResults.push({
               type: 'tool_result',
-              tool_use_id: block.id,
+              tool_use_id: id,
               content: (e as Error).message,
               is_error: true,
             });
@@ -160,8 +238,8 @@ export function createAnthropicAgentLoop(opts: {
           continue;
         }
 
-        if (block.name === 'spawn_subagent' && opts.spawnSubagent) {
-          const { task } = block.input as { task: string };
+        if (name === 'spawn_subagent' && opts.spawnSubagent) {
+          const { task } = blockInput as { task: string };
           console.error(
             `[ferry:dev-tool] depth=${depth} iter=${iter} tool=spawn_subagent arg=${task.slice(0, 120)}`,
           );
@@ -174,21 +252,21 @@ export function createAnthropicAgentLoop(opts: {
             if (!subResult.done.actionable) {
               toolResults.push({
                 type: 'tool_result',
-                tool_use_id: block.id,
+                tool_use_id: id,
                 content: `Sub-agent could not complete task: ${subResult.done.reason_if_not_actionable ?? 'no reason given'}`,
                 is_error: true,
               });
             } else {
               toolResults.push({
                 type: 'tool_result',
-                tool_use_id: block.id,
+                tool_use_id: id,
                 content: subResult.done.summary,
               });
             }
           } catch (e) {
             toolResults.push({
               type: 'tool_result',
-              tool_use_id: block.id,
+              tool_use_id: id,
               content: (e as Error).message,
               is_error: true,
             });
@@ -196,20 +274,19 @@ export function createAnthropicAgentLoop(opts: {
           continue;
         }
 
-        const blockInput = block.input as Record<string, unknown>;
         const argHint =
           blockInput.path ?? blockInput.source ?? blockInput.command ?? blockInput.pattern ?? '';
         console.error(
-          `[ferry:dev-tool] depth=${depth} iter=${iter} tool=${block.name}${argHint ? ` arg=${String(argHint).slice(0, 120)}` : ''}`,
+          `[ferry:dev-tool] depth=${depth} iter=${iter} tool=${name}${argHint ? ` arg=${String(argHint).slice(0, 120)}` : ''}`,
         );
 
         try {
-          const result = await opts.executeTool(repoRoot, block.name, blockInput);
-          toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: result });
+          const result = await opts.executeTool(repoRoot, name, blockInput);
+          toolResults.push({ type: 'tool_result', tool_use_id: id, content: result });
         } catch (e) {
           toolResults.push({
             type: 'tool_result',
-            tool_use_id: block.id,
+            tool_use_id: id,
             content: (e as Error).message,
             is_error: true,
           });

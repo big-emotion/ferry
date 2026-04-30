@@ -254,6 +254,60 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) to contribute.
 
 ---
 
+## MCP remote servers (HTTP/SSE)
+
+The developer agent can call **remote MCP servers** directly through the Anthropic Messages API (beta connector `mcp-client-2025-11-20`). The API proxies all MCP tool calls server-side — Ferry does not run any local MCP client.
+
+### Enabling MCP for the developer agent
+
+Set the `AGENT_MCP_SERVERS` environment variable (repository variable or secret) to a JSON array:
+
+```json
+[
+  {
+    "name": "context7",
+    "url": "https://mcp.context7.com/mcp"
+  },
+  {
+    "name": "github",
+    "url": "https://api.githubcopilot.com/mcp",
+    "authorization_token": "<your-token>",
+    "allowed_tools": ["search_code", "get_file_contents"]
+  }
+]
+```
+
+Each entry accepts:
+
+| Field               | Required | Description                                     |
+| ------------------- | -------- | ----------------------------------------------- |
+| `name`              | yes      | Logical name used in prompts and audit logs      |
+| `url`               | yes      | HTTP/SSE endpoint — **must be `https://`**       |
+| `authorization_token` | no     | Bearer token forwarded to the MCP server         |
+| `allowed_tools`     | no       | Allowlist — only these MCP tools are exposed     |
+| `denied_tools`      | no       | Denylist — these MCP tools are hidden            |
+
+**Constraints**
+
+- HTTP/SSE transport only — stdio MCP servers are not supported via this path.
+- Tool calls only — MCP prompts and resources are not in scope.
+- Only available when the developer agent uses the Anthropic provider; not supported on Bedrock or Vertex.
+- Not eligible for Anthropic Zero Data Retention.
+
+**First-party example — context7**
+
+[context7](https://github.com/upstash/context7) serves up-to-date library documentation as an MCP tool. To enable it:
+
+```json
+AGENT_MCP_SERVERS=[{"name":"context7","url":"https://mcp.context7.com/mcp"}]
+```
+
+**Audit logs**
+
+`mcp_tool_use` blocks are logged to stderr as `[ferry:dev-tool] mcp_tool=<name> server=<server>` and reflected in the token-usage counters in the final `[ferry:dev-action]` summary line.
+
+---
+
 ## Cost governance
 
 Ferry is designed for a typical pilot budget: **≤ 200€/provider/month**, **≤ 1.50€ average per story**. A daily cron checks provider usage and warns at 50% of the cap. HTTP 429/402 responses auto-pause affected tickets via the `ferry:paused` label.
