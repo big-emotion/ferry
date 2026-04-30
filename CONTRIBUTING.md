@@ -7,9 +7,10 @@ npm ci
 npm test
 npm run typecheck
 npm run lint
+npm run format:check
 ```
 
-All four gates must pass before opening a PR against `main`. CI runs them automatically on every push.
+All gates (tests, typecheck, lint, format, and gitleaks in CI) must pass before opening a PR against `main`. CI runs them automatically on every push.
 
 ## Workflow
 
@@ -31,9 +32,9 @@ The `src/agents/__lint-fixtures__/` directory contains intentionally broken code
 ## Shared library conventions
 
 - All external writes (GitHub comments, Jira comments) must go through `checkIdempotencyMarker` / `appendMarker` (`src/lib/io/idempotency.ts`) — every comment must carry a `[ferry:<role>:<run-id>]` prefix.
-- Any Jira content (ticket body, comments) passed to an LLM must be wrapped with `delimitUntrusted()` from `src/lib/sanitization/delimit-untrusted.ts`.
+- Any Jira content (ticket body, comments) passed to an LLM must be wrapped with `delimitUntrusted()` from `src/lib/llm/delimit-untrusted.ts`.
 - `preflight()` must run before any agent performs external writes.
-- Agent output must pass `src/lib/secret-scan/scan.ts` before being committed to a branch.
+- Agent output must pass `src/lib/safety/scan.ts` before being committed to a branch.
 
 ## Adding a new agent phase
 

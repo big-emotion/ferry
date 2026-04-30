@@ -125,10 +125,10 @@ External writes use standardized prefixes for idempotency:
 ## Common Workflows
 
 **Adding a new LLM provider:**
-1. Implement provider client in `src/lib/llm/<provider>/`
-2. Extend `src/lib/llm/factory.ts` to instantiate it
+1. Implement the provider invoker in `src/lib/llm/<provider>.ts` (flat layout — see `anthropic.ts`, `openai.ts`, `google.ts`)
+2. Extend `src/lib/llm/call.ts` (`createLlmCall`) with a branch that wires the new invoker
 3. Update agent prompts if provider has different constraints
-4. Add tests in `src/lib/llm/<provider>/<provider>.test.ts`
+4. Add provider-integration tests in `src/lib/llm/call.test.ts`
 
 **Changing agent behavior:**
 1. Update system prompt in `prompts/<agent>.md`
@@ -138,7 +138,7 @@ External writes use standardized prefixes for idempotency:
 
 **Adding a new preflight check:**
 1. Add check logic to `src/lib/preflight/index.ts`
-2. Update type in `src/lib/preflight/types.ts` if needed
+2. Update the `PreflightEnvelope` / `PreflightDeps` interfaces (also in `src/lib/preflight/index.ts`) if the new check needs new inputs
 3. Add tests in `src/lib/preflight/preflight.test.ts`
 4. Update call sites to check the new condition
 
