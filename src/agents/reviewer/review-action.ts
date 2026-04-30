@@ -1,6 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { resolveAnthropicAuth } from '../../lib/llm/anthropic-auth.js';
-import { validateEnvelope } from '../../lib/envelope/validate.js';
 import { delimitUntrusted } from '../../lib/llm/delimit-untrusted.js';
 import { checkIdempotencyMarker } from '../../lib/io/idempotency.js';
 import { gateCi } from './ci-gate.js';
@@ -16,13 +15,13 @@ import {
   logCapabilities,
   byEventId,
   byPrHeadSha,
+  runAgent,
 } from '../../lib/agent-runtime/index.js';
+import type { EventEnvelopeV1 } from '../../lib/envelope/types.js';
 
 const REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
 
-async function main(): Promise<void> {
-  const rawPayload = requireEnv('FERRY_ENVELOPE_PAYLOAD');
-  const envelope = validateEnvelope(JSON.parse(rawPayload));
+async function main(envelope: EventEnvelopeV1): Promise<void> {
   const { ticket_key: ticketKey, event_id: eventId } = envelope;
 
   const iterTransitionId = requireEnv('FERRY_ITER_TRANSITION_ID');
@@ -197,7 +196,4 @@ async function main(): Promise<void> {
   appendOutput({ input_tokens: inputTokens, output_tokens: outputTokens, model });
 }
 
-main().catch((err) => {
-  console.error('[ferry:review-action] fatal:', (err as Error).message);
-  process.exit(1);
-});
+void runAgent('reviewer', main);

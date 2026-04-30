@@ -1,11 +1,10 @@
 import { pathToFileURL } from 'node:url';
 import Anthropic from '@anthropic-ai/sdk';
-import { validateEnvelope } from '../../lib/envelope/validate.js';
 import { createTrackerFromEnv } from '../../lib/io/tracker/factory.js';
 import { isDryRun } from '../../lib/dry-run.js';
-import { FerryError } from '../../lib/errors/index.js';
 import { loadFerryConfig } from '../../lib/config.js';
 import { resolveAnthropicAuth } from '../../lib/llm/anthropic-auth.js';
+import { runAgent } from '../../lib/agent-runtime/index.js';
 import { runRefiner } from './refine.js';
 import { prepareBatch, applyBatch } from './batch.js';
 import { filterExistingSubtasks } from './idempotency.js';
@@ -14,12 +13,6 @@ import type { LlmCall } from './refine.js';
 import type { EventEnvelopeV1 } from '../../lib/envelope/types.js';
 
 const REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
-
-function requireEnv(key: string): string {
-  const val = process.env[key];
-  if (!val) throw new FerryError('state-invariant', { reason: 'missing-env', key });
-  return val;
-}
 
 export interface RefinerActionDeps {
   tracker: IssueTracker;
@@ -72,10 +65,7 @@ export async function run(envelope: EventEnvelopeV1, deps: RefinerActionDeps): P
   );
 }
 
-async function main(): Promise<void> {
-  const rawPayload = requireEnv('FERRY_ENVELOPE_PAYLOAD');
-  const envelope = validateEnvelope(JSON.parse(rawPayload));
-
+async function main(envelope: EventEnvelopeV1): Promise<void> {
   const anthropicAuth = resolveAnthropicAuth({ apiKeyEnv: 'ANTHROPIC_API_KEY' });
   const anthropic = new Anthropic(anthropicAuth);
   const ferryCfg = loadFerryConfig(REPO_ROOT);
@@ -107,8 +97,5 @@ async function main(): Promise<void> {
 
 // Only invoke main() when executed directly (not when imported by tests).
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main().catch((err) => {
-    console.error('[ferry:refiner-action] fatal:', (err as Error).message);
-    process.exit(1);
-  });
+  void runAgent('refiner', main);
 }

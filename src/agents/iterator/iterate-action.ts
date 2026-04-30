@@ -1,5 +1,4 @@
 import { execFileSync } from 'node:child_process';
-import { validateEnvelope } from '../../lib/envelope/validate.js';
 import { delimitUntrusted } from '../../lib/llm/delimit-untrusted.js';
 import { checkIdempotencyMarker } from '../../lib/io/idempotency.js';
 import { TOOL_SCHEMAS, COMMIT_PROGRESS_SCHEMA, executeTool } from '../developer/tools.js';
@@ -24,13 +23,13 @@ import {
   createGitHubContext,
   byEventId,
   byReviewCommentId,
+  runAgent,
 } from '../../lib/agent-runtime/index.js';
+import type { EventEnvelopeV1 } from '../../lib/envelope/types.js';
 
 const REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
 
-async function main(): Promise<void> {
-  const rawPayload = requireEnv('FERRY_ENVELOPE_PAYLOAD');
-  const envelope = validateEnvelope(JSON.parse(rawPayload));
+async function main(envelope: EventEnvelopeV1): Promise<void> {
   const { ticket_key: ticketKey, event_id: eventId } = envelope;
 
   const anthropicAuth = resolveAnthropicAuth({ apiKeyEnv: 'ANTHROPIC_API_KEY' });
@@ -220,7 +219,4 @@ async function main(): Promise<void> {
   process.exit(0);
 }
 
-main().catch((err) => {
-  console.error('[ferry:iterate-action] fatal:', (err as Error).message);
-  process.exit(1);
-});
+void runAgent('iterator', main);
