@@ -8,8 +8,8 @@
 
 import { createRequire } from 'module';
 import type { ValidateFunction } from 'ajv';
-import { FerryError } from '../../lib/error.js';
-import { delimitUntrusted } from '../../lib/sanitization/delimit-untrusted.js';
+import { FerryError } from '../../lib/errors/index.js';
+import { delimitUntrusted } from '../../lib/llm/delimit-untrusted.js';
 import { REFINER_OUTPUT_SCHEMA, REFINER_TOUCH_PATHS_CAP, type RefinerOutput } from './schema.js';
 
 const _require = createRequire(import.meta.url);

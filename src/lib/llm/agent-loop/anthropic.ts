@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { MessageParam, ContentBlock, ToolResultBlockParam, Tool as AnthropicTool } from '@anthropic-ai/sdk/resources/messages.js';
-import { FerryError } from '../../error.js';
+import { FerryError } from '../../errors/index.js';
 import type { AgentTool, AgentLoop, AgentLoopResult, AgentLoopUsage, DonePayload, McpServerConfig } from './types.js';
 
 type ToolExecutor = (repoRoot: string, name: string, input: Record<string, unknown>) => Promise<string>;

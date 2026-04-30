@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { FerryError } from '../../lib/error.js';
+import { FerryError } from '../../lib/errors/index.js';
 import { createAnthropicAgentLoop } from '../../lib/llm/agent-loop/anthropic.js';
 import type { AgentLoopResult } from '../../lib/llm/agent-loop/types.js';
 

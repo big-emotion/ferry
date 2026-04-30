@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { prepareBatch, applyBatch, SUBTASK_CAP } from './batch.js';
 import type { RefinerOutput } from './schema.js';
-import { FerryError } from '../../lib/error.js';
+import { FerryError } from '../../lib/errors/index.js';
 
 function makePlan(n: number): RefinerOutput {
   return {

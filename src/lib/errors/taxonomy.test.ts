@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { mapError } from './index.js';
-import { FerryError } from '../error.js';
+import { mapError } from './taxonomy.js';
+import { FerryError } from './index.js';
 
 describe('mapError', () => {
   it('maps transient to no labels and outcome transient', () => {

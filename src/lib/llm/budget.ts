@@ -1,4 +1,4 @@
-import { FerryError } from '../error.js';
+import { FerryError } from '../errors/index.js';
 
 export interface SessionBudget {
   checkBefore(estimatedInputCostEur: number): void;

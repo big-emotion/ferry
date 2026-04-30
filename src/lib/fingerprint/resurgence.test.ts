@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { detectResurgence } from './resurgence.js';
-import { FerryError } from '../error.js';
+import { FerryError } from '../errors/index.js';
 
 describe('resurgence detection', () => {
   it('proceeds when no resurgent fingerprints', () => {

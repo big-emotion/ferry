@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { validateEnvelope } from './validate.js';
-import { FerryError } from '../error.js';
+import { FerryError } from '../errors/index.js';
 
 const VALID_ENVELOPE = {
   version: 'v1',

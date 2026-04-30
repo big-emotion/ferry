@@ -6,7 +6,7 @@ vi.mock('node:fs/promises', () => ({
   unlink: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock('../secret-scan/scan.js', () => ({
+vi.mock('../safety/scan.js', () => ({
   scanWithGitleaks: vi.fn().mockResolvedValue({ leaksFound: false, findings: [] }),
 }));
 
@@ -28,7 +28,7 @@ vi.mock('./jira-rest.js', () => {
 
 // --- imports after mocks ---
 
-import { scanWithGitleaks } from '../secret-scan/scan.js';
+import { scanWithGitleaks } from '../safety/scan.js';
 import { createJiraRestClientFromEnv } from './jira-rest.js';
 import {
   postComment,

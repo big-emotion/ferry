@@ -1,4 +1,4 @@
-import { FerryError } from '../error.js';
+import { FerryError } from '../errors/index.js';
 import { retry } from '../io/retry.js';
 import type { LlmRoute } from './config.js';
 import { invokeAnthropic } from './anthropic.js';

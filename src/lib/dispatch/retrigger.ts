@@ -7,7 +7,7 @@
  * are not blocked by the dedupe ledger.
  */
 
-import { delimitUntrusted } from '../sanitization/delimit-untrusted.js';
+import { delimitUntrusted } from '../llm/delimit-untrusted.js';
 
 export type RetriggerSource = 'jira-label' | 'jira-mention';
 export type RetriggerPhase = 'refine' | 'dev' | 'review' | 'iterate';

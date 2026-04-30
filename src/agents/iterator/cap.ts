@@ -4,7 +4,7 @@
  * findings) proceed normally.
  */
 
-import { FerryError } from '../../lib/error.js';
+import { FerryError } from '../../lib/errors/index.js';
 
 export interface CapInput {
   iteration: number;

@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import os from 'os';
 import { loadState, writeState } from './index.js';
-import { FerryError } from '../error.js';
+import { FerryError } from '../errors/index.js';
 import type { FerryStateV1 } from './types.js';
 
 const VALID_STATE: FerryStateV1 = {

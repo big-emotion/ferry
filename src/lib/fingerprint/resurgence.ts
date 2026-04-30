@@ -6,7 +6,7 @@
  * `iteration >= 1` so we escalate immediately instead of looping (FR27).
  */
 
-import { FerryError } from '../error.js';
+import { FerryError } from '../errors/index.js';
 
 export interface ResurgenceInput {
   iteration: number;

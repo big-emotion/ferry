@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
-import { FerryError } from '../error.js';
+import { FerryError } from '../errors/index.js';
 
 export interface GitleaksFinding {
   ruleId: string;

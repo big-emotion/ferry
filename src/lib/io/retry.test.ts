@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { FerryError } from '../error.js';
+import { FerryError } from '../errors/index.js';
 import { retry } from './retry.js';
 
 function flushAsync(): Promise<void> {
