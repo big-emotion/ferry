@@ -7,6 +7,7 @@ import type {
 } from '@anthropic-ai/sdk/resources/messages.js';
 import { FerryError } from '../../errors/index.js';
 import { emitDebug } from '../debug-log.js';
+import { McpClientPool } from '../../mcp/pool.js';
 import type {
   AgentTool,
   AgentLoop,
@@ -14,7 +15,10 @@ import type {
   AgentLoopUsage,
   DonePayload,
   McpServerConfig,
+  HttpMcpServerConfig,
+  StdioMcpServerConfig,
 } from './types.js';
+import { isStdioMcpServer, isHttpMcpServer } from './types.js';
 
 type ToolExecutor = (
   repoRoot: string,
@@ -60,7 +64,7 @@ interface BetaMessagesClient {
   create(params: Record<string, unknown>): Promise<ApiResponse>;
 }
 
-function buildMcpParams(mcpServers: McpServerConfig[]): {
+function buildMcpParams(mcpServers: HttpMcpServerConfig[]): {
   mcpServerParams: McpServerParam[];
   mcpToolsets: McpToolsetParam[];
 } {
@@ -111,19 +115,94 @@ export function createAnthropicAgentLoop(opts: {
       opts.maxInputTokens ?? parseInt(process.env.FERRY_DEV_MAX_INPUT_TOKENS ?? '500000', 10);
     const maxTokens = opts.maxTokens ?? parseInt(process.env.FERRY_DEV_MAX_TOKENS ?? '16384', 10);
 
-    const mcpServers = (input.mcpServers ?? []).filter((s) => s.url);
-    const hasMcp = mcpServers.length > 0;
-    const { mcpServerParams, mcpToolsets } = hasMcp
-      ? buildMcpParams(mcpServers)
+    // Separate HTTP (server-side) and stdio (client-side) MCP servers.
+    const allServers = input.mcpServers ?? [];
+    const httpServers = allServers.filter((s): s is HttpMcpServerConfig => isHttpMcpServer(s) && 'url' in s);
+    const stdioServers = allServers.filter((s): s is StdioMcpServerConfig => isStdioMcpServer(s));
+
+    const hasHttp = httpServers.length > 0;
+    const { mcpServerParams, mcpToolsets } = hasHttp
+      ? buildMcpParams(httpServers)
       : { mcpServerParams: [], mcpToolsets: [] };
 
-    // Cached system prompt + tools — static across the run, marked once.
+    // Connect stdio MCP servers and collect their tools.
+    const pool = new McpClientPool();
+    try {
+      if (stdioServers.length > 0) {
+        await pool.connect(stdioServers);
+        if (pool.getTools().length > 0) {
+          console.error(
+            `[ferry:dev-loop] depth=${depth} stdio_mcp_tools=${pool.getTools().length} servers=${stdioServers.map((s) => s.name).join(',')}`,
+          );
+        }
+      }
+
+      return await runLoopCore({
+        system,
+        initialPrompt,
+        tools,
+        repoRoot,
+        branchName,
+        secretScan,
+        depth,
+        maxIterations,
+        maxInputTokens,
+        maxTokens,
+        hasHttp,
+        mcpServerParams,
+        mcpToolsets,
+        pool,
+      });
+    } finally {
+      await pool.close();
+    }
+  }
+
+  async function runLoopCore(params: {
+    system: string;
+    initialPrompt: string;
+    tools: AgentTool[];
+    repoRoot: string;
+    branchName: string;
+    secretScan: () => Promise<void>;
+    depth: number;
+    maxIterations: number;
+    maxInputTokens: number;
+    maxTokens: number;
+    hasHttp: boolean;
+    mcpServerParams: McpServerParam[];
+    mcpToolsets: McpToolsetParam[];
+    pool: McpClientPool;
+  }): Promise<AgentLoopResult> {
+    const {
+      system,
+      initialPrompt,
+      tools,
+      repoRoot,
+      branchName,
+      secretScan,
+      depth,
+      maxIterations,
+      maxInputTokens,
+      maxTokens,
+      hasHttp,
+      mcpServerParams,
+      mcpToolsets,
+      pool,
+    } = params;
+
+    // Merge native tools with stdio MCP tools; put cache breakpoint on the last entry.
+    const nativeAndStdioTools = [...tools, ...pool.getTools()];
+    const anthropicTools = nativeAndStdioTools.map((t, i) =>
+      i === nativeAndStdioTools.length - 1
+        ? { ...t, cache_control: { type: 'ephemeral' as const } }
+        : t,
+    ) as unknown as AnthropicTool[];
+
+    // Cached system prompt — static across the run.
     const systemBlocks = [
       { type: 'text' as const, text: system, cache_control: { type: 'ephemeral' as const } },
     ];
-    const anthropicTools = tools.map((t, i) =>
-      i === tools.length - 1 ? { ...t, cache_control: { type: 'ephemeral' as const } } : t,
-    ) as unknown as AnthropicTool[];
 
     const allTools = [...anthropicTools, ...(mcpToolsets as unknown as AnthropicTool[])];
 
@@ -167,7 +246,7 @@ export function createAnthropicAgentLoop(opts: {
         messages,
       };
 
-      const response: ApiResponse = hasMcp
+      const response: ApiResponse = hasHttp
         ? await (
             anthropic as unknown as { beta: { messages: BetaMessagesClient } }
           ).beta.messages.create({
@@ -284,6 +363,26 @@ export function createAnthropicAgentLoop(opts: {
                 content: subResult.done.summary,
               });
             }
+          } catch (e) {
+            toolResults.push({
+              type: 'tool_result',
+              tool_use_id: id,
+              content: (e as Error).message,
+              is_error: true,
+            });
+          }
+          continue;
+        }
+
+        // Dispatch to stdio MCP pool if the tool is provided by a connected server.
+        if (pool.hasTool(name)) {
+          const serverName = pool.getServerName(name) ?? 'unknown';
+          console.error(
+            `[ferry:dev-tool] depth=${depth} iter=${iter} mcp_stdio=${name} server=${serverName}`,
+          );
+          try {
+            const result = await pool.callTool(name, blockInput);
+            toolResults.push({ type: 'tool_result', tool_use_id: id, content: result });
           } catch (e) {
             toolResults.push({
               type: 'tool_result',

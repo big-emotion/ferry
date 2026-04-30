@@ -40,7 +40,7 @@ describe('loadMcpServers', () => {
     expect(loadMcpServers()).toEqual([]);
   });
 
-  it('filters out entries without name or url', () => {
+  it('filters out entries without name or url or stdio command', () => {
     vi.stubEnv(
       'AGENT_MCP_SERVERS',
       JSON.stringify([
@@ -48,6 +48,7 @@ describe('loadMcpServers', () => {
         { name: 'no-url' },
         { url: 'http://no-name' },
         null,
+        { name: 'stdio-no-command', type: 'stdio' },
       ]),
     );
     const result = loadMcpServers();
@@ -55,7 +56,7 @@ describe('loadMcpServers', () => {
     expect(result[0].name).toBe('valid');
   });
 
-  it('returns valid servers with all fields preserved', () => {
+  it('returns valid HTTP servers with all fields preserved', () => {
     vi.stubEnv(
       'AGENT_MCP_SERVERS',
       JSON.stringify([
@@ -68,6 +69,44 @@ describe('loadMcpServers', () => {
       url: 'http://srv',
       authorization_token: 'tok',
     });
+  });
+
+  it('returns valid stdio servers', () => {
+    vi.stubEnv(
+      'AGENT_MCP_SERVERS',
+      JSON.stringify([
+        {
+          type: 'stdio',
+          name: 'filesystem',
+          command: 'npx',
+          args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp'],
+          env: { MCP_LOG: 'debug' },
+        },
+      ]),
+    );
+    const result = loadMcpServers();
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      type: 'stdio',
+      name: 'filesystem',
+      command: 'npx',
+      args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp'],
+      env: { MCP_LOG: 'debug' },
+    });
+  });
+
+  it('accepts mixed HTTP and stdio servers in the same array', () => {
+    vi.stubEnv(
+      'AGENT_MCP_SERVERS',
+      JSON.stringify([
+        { name: 'remote', url: 'https://mcp.example.com' },
+        { type: 'stdio', name: 'local', command: 'node', args: ['mcp-server.js'] },
+      ]),
+    );
+    const result = loadMcpServers();
+    expect(result).toHaveLength(2);
+    expect(result[0].name).toBe('remote');
+    expect(result[1].name).toBe('local');
   });
 });
 
