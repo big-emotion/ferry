@@ -3,6 +3,10 @@ import { mkdirSync, copyFileSync, writeFileSync, readFileSync } from 'fs';
 import { execSync } from 'child_process';
 
 mkdirSync('.ferry/schemas', { recursive: true });
+mkdirSync('.ferry/prompts', { recursive: true });
+for (const name of ['refiner', 'dev', 'review', 'review-comment', 'iterate']) {
+  copyFileSync(`prompts/${name}.md`, `.ferry/prompts/${name}.md`);
+}
 
 const shared = {
   bundle: true,

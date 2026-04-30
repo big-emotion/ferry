@@ -18,10 +18,9 @@ import {
 import { createAnthropicAgentLoop } from '../../lib/llm/agent-loop/anthropic.js';
 import type { AgentLoop } from '../../lib/llm/agent-loop/types.js';
 import { loadFerryConfig } from '../../lib/config.js';
+import { resolvePromptPath } from '../../lib/prompts/resolve.js';
 
 const REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
-const SYSTEM_PROMPT_PATH =
-  process.env.FERRY_PROMPT_PATH ?? path.join(REPO_ROOT, 'prompts', 'dev.md');
 
 function requireEnv(key: string): string {
   const val = process.env[key];
@@ -123,7 +122,7 @@ async function main(): Promise<void> {
     'When you have finished implementing, call the `done` tool.',
   ].join('\n');
 
-  const system = readFileSync(SYSTEM_PROMPT_PATH, 'utf8');
+  const system = readFileSync(resolvePromptPath('dev', REPO_ROOT), 'utf8');
   const ferryCfg = loadFerryConfig(REPO_ROOT);
   const model = ferryCfg.models.dev.model;
 
