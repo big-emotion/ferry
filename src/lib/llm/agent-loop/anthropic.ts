@@ -35,6 +35,9 @@ export function createAnthropicAgentLoop(opts: {
   executeTool: ToolExecutor;
   commitProgress?: CommitProgressHandler;
   spawnSubagent?: SpawnSubagentHandler;
+  maxIterations?: number;
+  maxInputTokens?: number;
+  maxTokens?: number;
 }): AgentLoop {
   const anthropic = opts.client ?? new Anthropic({ apiKey: opts.apiKey });
 
@@ -52,9 +55,9 @@ export function createAnthropicAgentLoop(opts: {
       throw new FerryError('state-invariant', { reason: 'mcp-not-implemented' });
     }
     const { system, initialPrompt, tools, repoRoot, branchName, secretScan, depth = 0 } = input;
-    const maxIterations = parseInt(process.env.FERRY_DEV_MAX_ITERATIONS ?? '200', 10);
-    const maxInputTokens = parseInt(process.env.FERRY_DEV_MAX_INPUT_TOKENS ?? '500000', 10);
-    const maxTokens = parseInt(process.env.FERRY_DEV_MAX_TOKENS ?? '16384', 10);
+    const maxIterations = opts.maxIterations ?? parseInt(process.env.FERRY_DEV_MAX_ITERATIONS ?? '200', 10);
+    const maxInputTokens = opts.maxInputTokens ?? parseInt(process.env.FERRY_DEV_MAX_INPUT_TOKENS ?? '500000', 10);
+    const maxTokens = opts.maxTokens ?? parseInt(process.env.FERRY_DEV_MAX_TOKENS ?? '16384', 10);
 
     // Cached system prompt + tools — static across the run, marked once.
     const systemBlocks = [

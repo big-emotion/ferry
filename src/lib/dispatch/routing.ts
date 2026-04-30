@@ -37,21 +37,29 @@ export function phaseToDispatchType(phase: keyof RoutingTable): DispatchType {
 /**
  * Story 2-1 AC4 / FR6: ticket-type filter.
  *
- * Ferry processes Story / Bug / Spike issues. Task issues are skipped by design
+ * Ferry processes Story / Bug / Spike issues by default. Task issues are skipped by design
  * (Tasks are sub-tasks created by the Refiner — re-processing them would loop).
  * Defensive: missing `ticket_type` defaults to processing — Jira Automation rules
  * are the operator's responsibility; we don't want a broken rule to silently skip
  * everything.
+ *
+ * The allowlist is configurable via ferry.config (ticket_types.dev_allowlist /
+ * ticket_types.refine_allowlist). Pass the appropriate list from FerryConfig;
+ * omit to use the default set.
  */
 export type TicketType = 'Story' | 'Task' | 'Bug' | 'Spike';
 
-const PROCESSED_TICKET_TYPES = new Set<TicketType>(['Story', 'Bug', 'Spike']);
+const DEFAULT_PROCESSED_TICKET_TYPES: ReadonlySet<string> = new Set<TicketType>(['Story', 'Bug', 'Spike']);
 
-export function shouldProcessTicketType(ticketType: TicketType | undefined): boolean {
+export function shouldProcessTicketType(
+  ticketType: TicketType | undefined,
+  allowlist?: readonly string[],
+): boolean {
   if (ticketType === undefined) {
     return true;
   }
-  return PROCESSED_TICKET_TYPES.has(ticketType);
+  const allowed = allowlist ? new Set(allowlist) : DEFAULT_PROCESSED_TICKET_TYPES;
+  return allowed.has(ticketType);
 }
 
 export interface SkipCommentInput {

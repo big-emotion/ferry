@@ -94,8 +94,12 @@ export async function runReviewLoop(opts: {
   owner: string;
   repo: string;
   headSha: string;
+  maxIterations?: number;
+  maxTokens?: number;
 }): Promise<{ result: ReviewResult; inputTokens: number; outputTokens: number }> {
   const { anthropic, model, system, initialPrompt, fileMap, runner, owner, repo, headSha } = opts;
+  const maxIterations = opts.maxIterations ?? MAX_ITERATIONS;
+  const maxTokens = opts.maxTokens ?? 16384;
 
   const tools = REVIEW_TOOLS.map((t, i) =>
     i === REVIEW_TOOLS.length - 1 ? { ...t, cache_control: { type: 'ephemeral' as const } } : t,
@@ -112,10 +116,10 @@ export async function runReviewLoop(opts: {
   let outputTokens = 0;
   let result: ReviewResult | null = null;
 
-  for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
+  for (let iter = 0; iter < maxIterations; iter++) {
     const response = await anthropic.messages.create({
       model,
-      max_tokens: 16384,
+      max_tokens: maxTokens,
       system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
       tools,
       messages,

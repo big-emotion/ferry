@@ -9,6 +9,7 @@ import { gateCi } from './ci-gate.js';
 import { FerryError } from '../../lib/errors/index.js';
 import { GitHubActionsRunner } from '../../lib/dispatch/runner/github-actions/index.js';
 import { detectMergeConflicts, buildFileList, runReviewLoop } from './review-loop.js';
+import { loadFerryConfig } from '../../lib/config.js';
 
 const REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
 const SYSTEM_PROMPT_PATH =
@@ -32,7 +33,8 @@ async function main(): Promise<void> {
   const iterTransitionId = requireEnv('FERRY_ITER_TRANSITION_ID');
   const githubRepo = requireEnv('GITHUB_REPO');
 
-  const model = process.env.FERRY_REVIEW_MODEL ?? 'claude-sonnet-4-6';
+  const ferryCfg = loadFerryConfig(REPO_ROOT);
+  const model = ferryCfg.models.review.model;
 
   const [owner, repo] = githubRepo.split('/');
   if (!owner || !repo) {
@@ -180,6 +182,8 @@ async function main(): Promise<void> {
     owner,
     repo,
     headSha,
+    maxIterations: ferryCfg.limits.max_agent_iterations,
+    maxTokens: ferryCfg.limits.max_tokens_per_message,
   });
 
   console.error(
