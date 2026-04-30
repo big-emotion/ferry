@@ -42,15 +42,11 @@ function readPrivateKey(path: string): string {
 }
 
 function parseConfig(argv: string[]): DoctorConfig {
-  const repo =
-    getArg(argv, '--repo') ?? process.env['FERRY_DOCTOR_REPO'] ?? detectRepo() ?? '';
+  const repo = getArg(argv, '--repo') ?? process.env['FERRY_DOCTOR_REPO'] ?? detectRepo() ?? '';
 
   const appId = getArg(argv, '--app-id') ?? process.env['FERRY_APP_ID'] ?? '';
 
-  let privateKey =
-    getArg(argv, '--private-key') ??
-    process.env['FERRY_PRIVATE_KEY'] ??
-    '';
+  let privateKey = getArg(argv, '--private-key') ?? process.env['FERRY_PRIVATE_KEY'] ?? '';
   const pkPath = getArg(argv, '--private-key-path');
   if (pkPath && !privateKey) {
     try {

@@ -10,7 +10,11 @@ const REQUIRED_PERMISSIONS: Record<string, string> = {
 };
 
 function base64url(buf: Buffer): string {
-  return buf.toString('base64').replace(/={1,2}$/, '').replace(/\+/g, '-').replace(/\//g, '_');
+  return buf
+    .toString('base64')
+    .replace(/={1,2}$/, '')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_');
 }
 
 export function makeAppJwt(appId: string, privateKey: string): string {
@@ -120,9 +124,7 @@ export async function checkGitHubApp(opts: {
 
   // Find installation matching the repo's owner, fall back to first available
   const [owner] = repo.split('/') as [string, string];
-  const byOwner = installations.find(
-    (i) => i.account.login.toLowerCase() === owner.toLowerCase(),
-  );
+  const byOwner = installations.find((i) => i.account.login.toLowerCase() === owner.toLowerCase());
   const installation: Installation = byOwner ?? (installations[0] as Installation);
 
   // Mint installation access token
