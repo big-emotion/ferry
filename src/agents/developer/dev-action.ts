@@ -105,7 +105,9 @@ async function main(): Promise<void> {
   const anthropicApiKey = requireEnv('ANTHROPIC_API_KEY');
   const reviewTransitionId = dryRun ? '' : requireEnv('FERRY_REVIEW_TRANSITION_ID');
   const githubToken = dryRun ? '' : requireEnv('GITHUB_TOKEN');
-  const githubRepo = dryRun ? process.env.GITHUB_REPO ?? 'unknown/unknown' : requireEnv('GITHUB_REPO');
+  const githubRepo = dryRun
+    ? process.env.GITHUB_REPO ?? 'unknown/unknown'
+    : requireEnv('GITHUB_REPO');
   const jiraBaseUrl = requireEnv('FERRY_JIRA_BASE_URL');
 
   const [owner, repo] = githubRepo.split('/');
@@ -232,7 +234,9 @@ async function main(): Promise<void> {
       await scan();
       execSync(`git commit -m ${JSON.stringify(message)}`, { cwd: repoRoot });
       if (dryRun) {
-        console.error(`[ferry:dev-action] DRY_RUN — checkpoint committed locally (push skipped): ${message.slice(0, 80)}`);
+        console.error(
+          `[ferry:dev-action] DRY_RUN — checkpoint committed locally (push skipped): ${message.slice(0, 80)}`,
+        );
         return 'committed (dry-run: push skipped)';
       }
       execSync(`git push origin ${branchName} --force-with-lease`, { cwd: repoRoot });
@@ -302,11 +306,14 @@ async function main(): Promise<void> {
     if (dryRun) {
       let diffOutput = '(no local changes)';
       try {
-        diffOutput = execSync('git diff HEAD~1..HEAD --stat 2>/dev/null || git show --stat HEAD 2>/dev/null || echo "(no commits yet)"', {
-          cwd: REPO_ROOT,
-          encoding: 'utf8',
-          shell: true,
-        });
+        diffOutput = execFileSync(
+          'sh',
+          [
+            '-c',
+            'git diff HEAD~1..HEAD --stat 2>/dev/null || git show --stat HEAD 2>/dev/null || echo "(no commits yet)"',
+          ],
+          { cwd: REPO_ROOT, encoding: 'utf8' },
+        );
       } catch {
         // best-effort
       }
@@ -314,7 +321,9 @@ async function main(): Promise<void> {
       console.log(`  summary: ${done.summary}`);
       console.log('  local commits (not pushed):');
       console.log(diffOutput);
-      console.log('[ferry:dev-action] DRY_RUN — skipped: git push, PR creation, Jira transition, Jira comment');
+      console.log(
+        '[ferry:dev-action] DRY_RUN — skipped: git push, PR creation, Jira transition, Jira comment',
+      );
       appendOutput(usage);
       process.exit(0);
     }

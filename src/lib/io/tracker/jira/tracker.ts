@@ -29,7 +29,11 @@ export class JiraTracker implements IssueTracker {
     return this.client.getSubtasks(key);
   }
 
-  async createSubtask(parentKey: string, title: string, description: string): Promise<{ id: string }> {
+  async createSubtask(
+    parentKey: string,
+    title: string,
+    description: string,
+  ): Promise<{ id: string }> {
     const result = await this.client.createSubtask(parentKey, title, textToAdf(description));
     return { id: result.key };
   }

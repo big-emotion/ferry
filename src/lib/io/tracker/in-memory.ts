@@ -36,7 +36,11 @@ export class InMemoryTracker implements IssueTracker {
     return this.subtaskMap.get(key) ?? [];
   }
 
-  async createSubtask(parentKey: string, title: string, description: string): Promise<{ id: string }> {
+  async createSubtask(
+    parentKey: string,
+    title: string,
+    description: string,
+  ): Promise<{ id: string }> {
     const id = `subtask-${this.createdSubtasks.length + 1}`;
     this.createdSubtasks.push({ parentKey, title, description });
     return { id };
