@@ -1,12 +1,6 @@
-/**
- * Story 4-4: PR title + body formatters and state transition (FR16 / FR18).
- */
-
 import type { ValidationEntry } from '../../lib/llm/agent-loop/types.js';
 
 export { ValidationEntry };
-
-export const DRAFT_PR_OPTS = { draft: true } as const;
 
 export interface PrTitleInput {
   ticketKey: string;
@@ -59,13 +53,3 @@ export function formatPullRequestBody(input: PrBodyInput): string {
   ].join('\n');
 }
 
-export interface TransitionInput<S extends Record<string, unknown>> {
-  state: S;
-  prNumber: number;
-}
-
-export function transitionToReview<S extends Record<string, unknown>>(
-  input: TransitionInput<S>,
-): S & { phase: 'reviewing'; pr_number: number } {
-  return { ...input.state, phase: 'reviewing', pr_number: input.prNumber };
-}

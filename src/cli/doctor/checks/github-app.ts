@@ -1,5 +1,5 @@
 import { createSign } from 'node:crypto';
-import { httpsGet, httpsPost } from '../http.js';
+import { httpsGet, httpsPost } from '../../http.js';
 import type { CheckResult } from '../types.js';
 
 const REQUIRED_PERMISSIONS: Record<string, string> = {

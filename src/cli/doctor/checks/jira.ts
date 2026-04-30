@@ -1,4 +1,4 @@
-import { httpsGet } from '../http.js';
+import { httpsGet } from '../../http.js';
 import type { CheckResult } from '../types.js';
 
 function jiraAuthHeader(email: string, token: string): string {

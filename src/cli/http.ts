@@ -6,7 +6,7 @@ export interface HttpResponse {
   body: string;
 }
 
-export function httpsRequest(options: RequestOptions, body?: string): Promise<HttpResponse> {
+function httpsRequest(options: RequestOptions, body?: string): Promise<HttpResponse> {
   return new Promise((resolve, reject) => {
     const req = https.request(options, (res) => {
       let data = '';

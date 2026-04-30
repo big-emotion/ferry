@@ -6,7 +6,7 @@ import type { BatchPrepared } from './batch.js';
 
 const MARKER_REGEX = /\[ferry:refiner-subtask:[^\]]+\]/;
 
-export function extractSubtaskMarker(description: string): string | null {
+function extractSubtaskMarker(description: string): string | null {
   const match = description.match(MARKER_REGEX);
   return match ? match[0] : null;
 }

@@ -48,7 +48,7 @@ This decoupling allows mocking and testing without touching real APIs.
 Each agent is a separate implementation. Key patterns:
 - Agents define their own LLM schemas (e.g., `src/agents/reviewer/schema.ts`)
 - Agent code is linted to forbid direct Octokit/Jira imports
-- Reviewer agent has special gates: `src/agents/reviewer/ci-gate.ts` (blocks on red CI), `src/agents/reviewer/transition.ts` (auto-moves Jira on verdict)
+- Reviewer agent has a CI gate (`src/agents/reviewer/ci-gate.ts`) that blocks reviews when CI is red
 
 ### 4. **Scheduled Work** (`src/reconciler/`, `src/cost-governance/`)
 

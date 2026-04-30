@@ -1,5 +1,4 @@
-import https from 'node:https';
-import type { RequestOptions } from 'node:https';
+import { httpsPost } from '../../http.js';
 import { printSuccess, printError, printWarn, print } from '../prompt.js';
 import type { StepResult } from '../types.js';
 
@@ -20,26 +19,6 @@ const BILLING_LINKS = [
     tip: 'Set a monthly hard limit',
   },
 ];
-
-function httpsPost(
-  options: RequestOptions,
-  body: string,
-): Promise<{ statusCode: number; body: string }> {
-  return new Promise((resolve, reject) => {
-    const req = https.request(options, (res) => {
-      let data = '';
-      res.on('data', (chunk: Buffer | string) => {
-        data += typeof chunk === 'string' ? chunk : chunk.toString('utf8');
-      });
-      res.on('end', () => {
-        resolve({ statusCode: res.statusCode ?? 0, body: data });
-      });
-    });
-    req.on('error', reject);
-    req.write(body);
-    req.end();
-  });
-}
 
 export async function verifyAnthropicKey(apiKey: string): Promise<boolean> {
   const body = JSON.stringify({

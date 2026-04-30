@@ -1,10 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  formatPullRequestTitle,
-  formatPullRequestBody,
-  transitionToReview,
-  DRAFT_PR_OPTS,
-} from './pr.js';
+import { formatPullRequestTitle, formatPullRequestBody } from './pr.js';
 
 describe('formatPullRequestTitle (Story 4-4 FR16)', () => {
   it('prefixes with the ticket key (no brackets)', () => {
@@ -92,19 +87,3 @@ describe('formatPullRequestBody (Story 4-4)', () => {
   });
 });
 
-describe('transitionToReview (Story 4-4 FR18)', () => {
-  it('sets phase=reviewing and pr_number while preserving other fields', () => {
-    const state = { ticket_key: 'CHAN-27', phase: 'developing', other: 'preserved' };
-    const next = transitionToReview({ state, prNumber: 42 });
-    expect(next.phase).toBe('reviewing');
-    expect(next.pr_number).toBe(42);
-    expect(next.other).toBe('preserved');
-    expect(state.phase).toBe('developing'); // input not mutated
-  });
-});
-
-describe('DRAFT_PR_OPTS', () => {
-  it('is { draft: true }', () => {
-    expect(DRAFT_PR_OPTS).toEqual({ draft: true });
-  });
-});

@@ -1,4 +1,4 @@
-import { httpsPost } from '../http.js';
+import { httpsPost } from '../../http.js';
 import type { CheckResult } from '../types.js';
 
 async function probeAnthropic(apiKey: string): Promise<{ ok: boolean; detail: string }> {

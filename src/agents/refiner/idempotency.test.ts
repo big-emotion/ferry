@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { extractSubtaskMarker, filterExistingSubtasks } from './idempotency.js';
+import { filterExistingSubtasks } from './idempotency.js';
 import { prepareBatch } from './batch.js';
 import type { RefinerOutput } from './schema.js';
 
@@ -13,17 +13,6 @@ const plan: RefinerOutput = {
   output_locale: 'en',
   audit_summary: '3 planned',
 };
-
-describe('extractSubtaskMarker (Story 3-3)', () => {
-  it('returns the marker substring when present', () => {
-    expect(extractSubtaskMarker('do A\n\n[ferry:refiner-subtask:plan-1:0]')).toBe(
-      '[ferry:refiner-subtask:plan-1:0]',
-    );
-  });
-  it('returns null when absent', () => {
-    expect(extractSubtaskMarker('plain description')).toBeNull();
-  });
-});
 
 describe('filterExistingSubtasks (Story 3-3 FR12)', () => {
   it('drops sub-tasks whose marker is already present in existing list', () => {
