@@ -5,6 +5,7 @@ import { createTrackerFromEnv } from '../../lib/io/tracker/factory.js';
 import { isDryRun } from '../../lib/dry-run.js';
 import { FerryError } from '../../lib/errors/index.js';
 import { loadFerryConfig } from '../../lib/config.js';
+import { resolveAnthropicAuth } from '../../lib/llm/anthropic-auth.js';
 import { runRefiner } from './refine.js';
 import { prepareBatch, applyBatch } from './batch.js';
 import { filterExistingSubtasks } from './idempotency.js';
@@ -75,8 +76,8 @@ async function main(): Promise<void> {
   const rawPayload = requireEnv('FERRY_ENVELOPE_PAYLOAD');
   const envelope = validateEnvelope(JSON.parse(rawPayload));
 
-  const anthropicApiKey = requireEnv('ANTHROPIC_API_KEY');
-  const anthropic = new Anthropic({ apiKey: anthropicApiKey });
+  const anthropicAuth = resolveAnthropicAuth({ apiKeyEnv: 'ANTHROPIC_API_KEY' });
+  const anthropic = new Anthropic(anthropicAuth);
   const ferryCfg = loadFerryConfig(REPO_ROOT);
   const model = ferryCfg.models.refiner.model;
 

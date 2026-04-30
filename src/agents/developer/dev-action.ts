@@ -21,6 +21,7 @@ import type { AgentLoop, McpServerConfig } from '../../lib/llm/agent-loop/types.
 import { loadFerryConfig } from '../../lib/config.js';
 import { resolvePromptPath, loadProjectSnippet } from '../../lib/prompts/resolve.js';
 import { resolveCapabilities, filterMcpServers } from '../../lib/labels/capabilities.js';
+import { resolveAnthropicAuth } from '../../lib/llm/anthropic-auth.js';
 
 const REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
 
@@ -102,7 +103,7 @@ async function main(): Promise<void> {
     console.error('[ferry:dev-action] DRY_RUN mode — no branch push, no PR, no Jira writes');
   }
 
-  const anthropicApiKey = requireEnv('ANTHROPIC_API_KEY');
+  const anthropicAuth = resolveAnthropicAuth({ apiKeyEnv: 'ANTHROPIC_API_KEY' });
   const reviewTransitionId = dryRun ? '' : requireEnv('FERRY_REVIEW_TRANSITION_ID');
   const githubToken = dryRun ? '' : requireEnv('GITHUB_TOKEN');
   const githubRepo = dryRun
@@ -221,7 +222,7 @@ async function main(): Promise<void> {
 
   let loop!: AgentLoop;
   loop = createAnthropicAgentLoop({
-    apiKey: anthropicApiKey,
+    ...anthropicAuth,
     model,
     maxIterations: ferryCfg.limits.max_agent_iterations,
     maxInputTokens: ferryCfg.limits.max_tokens_per_run,
@@ -335,7 +336,10 @@ async function main(): Promise<void> {
       ticketKey,
       jiraBaseUrl,
       runId: eventId,
-      tldr: done.summary,
+      summary: done.summary,
+      subtasks,
+      validation: done.validation ?? [],
+      notes: done.notes ?? [],
     });
 
     const prUrl = await runner.createPR(owner, repo, branchName, 'main', prTitle, prBody);
