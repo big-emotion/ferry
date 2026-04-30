@@ -14,43 +14,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  gate-envelope:
-    name: Validate event envelope
-    runs-on: ubuntu-latest
-    steps:
-      - uses: big-emotion/ferry/actions/envelope-validate@v1
-        with:
-          payload: ${{ toJson(github.event.client_payload) }}
-
-  run-agent:
-    name: Run Refiner agent
-    needs: [gate-envelope]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: big-emotion/ferry/actions/refine@v1
-        with:
-          envelope_payload: ${{ toJson(github.event.client_payload) }}
-          jira_base_url: ${{ secrets.FERRY_JIRA_BASE_URL }}
-          jira_email: ${{ secrets.FERRY_JIRA_EMAIL }}
-          jira_api_token: ${{ secrets.FERRY_JIRA_API_TOKEN }}
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-
-  emit-audit:
-    name: Emit audit line
-    needs: [run-agent]
-    if: needs.run-agent.result != 'skipped'
-    runs-on: ubuntu-latest
-    permissions:
-      issues: write
-    steps:
-      - uses: big-emotion/ferry/actions/emit-audit@v1
-        with:
-          ticket: ${{ github.event.client_payload.ticket_key }}
-          phase: refine
-          run_id: ${{ github.event.client_payload.event_id }}
-          model: claude-sonnet-4-6
-          outcome: ${{ needs.run-agent.result }}
-          audit_issue: ${{ vars.FERRY_AUDIT_ISSUE }}
-          github_token: ${{ github.token }}
-          start_ms: ${{ github.run_id }}
+  refine:
+    uses: big-emotion/ferry/.github/workflows/refine.yml@v1
+    with:
+      ticket_key: ${{ github.event.client_payload.ticket_key }}
+      event_id: ${{ github.event.client_payload.event_id }}
+      payload: ${{ toJson(github.event.client_payload) }}
+    secrets: inherit

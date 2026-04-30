@@ -15,29 +15,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  reconcile:
-    name: Reconcile Ferry-managed tickets
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Reconcile
-        run: echo "Reconciler placeholder — no-op until Ferry ships Story 8.3"
-
-  emit-audit:
-    name: Emit audit line
-    needs: [reconcile]
-    if: always()
-    runs-on: ubuntu-latest
-    permissions:
-      issues: write
-    steps:
-      - uses: big-emotion/ferry/actions/emit-audit@v1
-        with:
-          ticket: reconciler
-          phase: reconcile
-          run_id: ${{ github.run_id }}
-          model: placeholder
-          outcome: ${{ needs.reconcile.result }}
-          audit_issue: ${{ vars.FERRY_AUDIT_ISSUE }}
-          github_token: ${{ github.token }}
-          start_ms: ${{ github.run_id }}
+  reconciler:
+    uses: big-emotion/ferry/.github/workflows/reconciler.yml@v1
+    secrets: inherit

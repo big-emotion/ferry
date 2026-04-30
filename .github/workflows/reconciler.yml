@@ -4,6 +4,7 @@ on:
   schedule:
     - cron: '*/15 * * * *'
   workflow_dispatch: {}
+  workflow_call: {}
 
 # cancel-in-progress: true — idempotent sweep; a newer sweep supersedes an older one safely
 concurrency:
