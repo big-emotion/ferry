@@ -6,6 +6,7 @@ import type {
   Tool as AnthropicTool,
 } from '@anthropic-ai/sdk/resources/messages.js';
 import { FerryError } from '../../errors/index.js';
+import { emitDebug } from '../debug-log.js';
 import type {
   AgentTool,
   AgentLoop,
@@ -80,6 +81,7 @@ function buildMcpParams(mcpServers: McpServerConfig[]): {
 
 export function createAnthropicAgentLoop(opts: {
   apiKey?: string;
+  authToken?: string;
   model: string;
   client?: Anthropic;
   executeTool: ToolExecutor;
@@ -89,7 +91,7 @@ export function createAnthropicAgentLoop(opts: {
   maxInputTokens?: number;
   maxTokens?: number;
 }): AgentLoop {
-  const anthropic = opts.client ?? new Anthropic({ apiKey: opts.apiKey });
+  const anthropic = opts.client ?? new Anthropic({ apiKey: opts.apiKey, authToken: opts.authToken });
 
   async function runLoop(input: {
     system: string;
@@ -138,9 +140,11 @@ export function createAnthropicAgentLoop(opts: {
     };
     let done: DonePayload | null = null;
     let iter = 0;
+    const loopStart = Date.now();
 
     while (iter < maxIterations) {
       iter++;
+      const iterStart = Date.now();
 
       if (
         usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens >
@@ -181,9 +185,25 @@ export function createAnthropicAgentLoop(opts: {
       messages.push({ role: 'assistant', content: contentBlocks as unknown as ContentBlock[] });
 
       const mcpToolUseCount = contentBlocks.filter((b) => b.type === 'mcp_tool_use').length;
+      const toolUseCount = contentBlocks.filter((b) => b.type === 'tool_use').length;
+      const cacheW = response.usage.cache_creation_input_tokens ?? 0;
+      const cacheR = response.usage.cache_read_input_tokens ?? 0;
       console.error(
-        `[ferry:dev-loop] depth=${depth} iter=${iter} stop_reason=${response.stop_reason} tools=${contentBlocks.filter((b) => b.type === 'tool_use').length} mcp_tools=${mcpToolUseCount} in=${response.usage.input_tokens} cache_w=${response.usage.cache_creation_input_tokens ?? 0} cache_r=${response.usage.cache_read_input_tokens ?? 0} out=${response.usage.output_tokens}`,
+        `[ferry:dev-loop] depth=${depth} iter=${iter} stop_reason=${response.stop_reason} tools=${toolUseCount} mcp_tools=${mcpToolUseCount} in=${response.usage.input_tokens} cache_w=${cacheW} cache_r=${cacheR} out=${response.usage.output_tokens}`,
       );
+      emitDebug({
+        type: 'turn',
+        iter,
+        depth,
+        stop_reason: response.stop_reason,
+        tools: toolUseCount,
+        mcp_tools: mcpToolUseCount,
+        in: response.usage.input_tokens,
+        cache_w: cacheW,
+        cache_r: cacheR,
+        out: response.usage.output_tokens,
+        elapsed_ms: Date.now() - iterStart,
+      });
 
       for (const block of contentBlocks) {
         if (block.type === 'text' && typeof block.text === 'string' && block.text.trim()) {
@@ -319,7 +339,18 @@ export function createAnthropicAgentLoop(opts: {
 
       messages.push({ role: 'user', content: toolResults });
 
-      if (done) return { done, usage, iterations: iter };
+      if (done) {
+        emitDebug({
+          type: 'result',
+          subtype: 'success',
+          iterations: iter,
+          total_in:
+            usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens,
+          total_out: usage.output_tokens,
+          elapsed_ms: Date.now() - loopStart,
+        });
+        return { done, usage, iterations: iter };
+      }
     }
 
     throw new FerryError('state-invariant', {

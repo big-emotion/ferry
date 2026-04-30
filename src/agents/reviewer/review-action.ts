@@ -11,6 +11,7 @@ import { detectMergeConflicts, buildFileList, runReviewLoop } from './review-loo
 import { loadFerryConfig } from '../../lib/config.js';
 import { resolvePromptPath, loadProjectSnippet } from '../../lib/prompts/resolve.js';
 import { resolveCapabilities } from '../../lib/labels/capabilities.js';
+import { resolveAnthropicAuth } from '../../lib/llm/anthropic-auth.js';
 
 const REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
 
@@ -25,7 +26,6 @@ async function main(): Promise<void> {
   const envelope = validateEnvelope(JSON.parse(rawPayload));
   const { ticket_key: ticketKey, event_id: eventId } = envelope;
 
-  const anthropicApiKey = requireEnv('ANTHROPIC_API_KEY');
   const githubToken = requireEnv('GITHUB_TOKEN');
   const iterTransitionId = requireEnv('FERRY_ITER_TRANSITION_ID');
   const githubRepo = requireEnv('GITHUB_REPO');
@@ -181,7 +181,7 @@ async function main(): Promise<void> {
     projectSnippet ? `## Project conventions\n\n${projectSnippet}` : null,
   ].filter(Boolean) as string[];
   const system = systemParts.join('\n\n---\n\n');
-  const anthropic = new Anthropic({ apiKey: anthropicApiKey });
+  const anthropic = new Anthropic(resolveAnthropicAuth({ apiKeyEnv: 'ANTHROPIC_API_KEY' }));
 
   const {
     result: review,

@@ -2,14 +2,15 @@ import Anthropic from '@anthropic-ai/sdk';
 import { FerryError } from '../errors/index.js';
 import { computeCostEur } from './pricing.js';
 import type { LlmResult } from './call.js';
+import type { AnthropicClientOptions } from './anthropic-auth.js';
 
 export async function invokeAnthropic(opts: {
-  apiKey: string;
+  auth: AnthropicClientOptions;
   model: string;
   prompt: string;
   maxTokens: number;
 }): Promise<LlmResult> {
-  const client = new Anthropic({ apiKey: opts.apiKey });
+  const client = new Anthropic(opts.auth);
 
   try {
     const msg = await client.messages.create({
