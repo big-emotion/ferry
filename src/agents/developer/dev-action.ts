@@ -289,7 +289,10 @@ async function main(): Promise<void> {
       ticketKey,
       jiraBaseUrl,
       runId: eventId,
-      tldr: done.summary,
+      summary: done.summary,
+      subtasks,
+      validation: done.validation ?? [],
+      notes: done.notes ?? [],
     });
 
     const prUrl = await runner.createPR(owner, repo, branchName, 'main', prTitle, prBody);
