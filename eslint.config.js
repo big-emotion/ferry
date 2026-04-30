@@ -25,7 +25,7 @@ export default [
       '@typescript-eslint/no-explicit-any': 'error',
     },
   },
-  // Agent code must never import Octokit directly — must go through src/lib/io/github.ts
+  // Agent code must never import Octokit or Jira modules directly
   {
     files: ['src/agents/**/*.ts'],
     languageOptions: {
@@ -42,12 +42,12 @@ export default [
               message: 'Import Octokit only through src/lib/io/github.ts',
             },
             {
-              group: ['src/lib/io/github.js', 'src/lib/io/jira.js', 'src/lib/io/github.ts', 'src/lib/io/jira.ts'],
-              message: 'Use the IO wrappers (src/lib/io/github.ts and src/lib/io/jira.ts), not direct REST clients',
+              group: ['**/io/jira*'],
+              message: 'Agents must use src/lib/io/tracker/factory.ts, not Jira modules directly',
             },
             {
               group: ['node-fetch', 'undici'],
-              message: 'Do not fetch Jira directly from agents; use src/lib/io/jira.ts',
+              message: 'Do not fetch APIs directly from agents; use the IO layer',
             },
           ],
         },

@@ -5,8 +5,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { Octokit } from '@octokit/rest';
 import { validateEnvelope } from '../../lib/envelope/validate.js';
 import { delimitUntrusted } from '../../lib/sanitization/delimit-untrusted.js';
-import { createJiraRestClientFromEnv } from '../../lib/io/jira-rest.js';
-import { adfToText, textToAdf } from '../../lib/io/jira-adf.js';
+import { createTrackerFromEnv } from '../../lib/io/tracker/factory.js';
 import { checkIdempotencyMarker } from '../../lib/io/idempotency.js';
 import { scanWithGitleaks } from '../../lib/secret-scan/scan.js';
 import { FerryError } from '../../lib/error.js';
@@ -41,10 +40,10 @@ async function main(): Promise<void> {
   }
 
   const octokit = new Octokit({ auth: githubToken });
-  const jira = createJiraRestClientFromEnv();
+  const tracker = createTrackerFromEnv();
 
-  const issue = await jira.getIssue(ticketKey);
-  const existingComments = issue.fields.comment.comments.map((c) => adfToText(c.body));
+  const issue = await tracker.getIssue(ticketKey);
+  const existingComments = issue.comments;
 
   const priorIterations = existingComments.filter(
     (c) => c.includes('[ferry:iterator:') && c.includes('complete. Pushed fixes to PR#'),
@@ -65,10 +64,7 @@ async function main(): Promise<void> {
     const eventMarker = `[ferry:iterator:${eventId}]`;
     const { skipped } = checkIdempotencyMarker(eventMarker, existingComments);
     if (!skipped) {
-      await jira.postComment(
-        ticketKey,
-        textToAdf(`${eventMarker} No open PR found for branch ${branchName}. Cannot iterate.`),
-      );
+      await tracker.postComment(ticketKey, `${eventMarker} No open PR found for branch ${branchName}. Cannot iterate.`);
     }
     appendOutput({ input_tokens: 0, output_tokens: 0, model });
     return;
@@ -89,10 +85,7 @@ async function main(): Promise<void> {
     const eventMarker = `[ferry:iterator:${eventId}]`;
     const { skipped } = checkIdempotencyMarker(eventMarker, existingComments);
     if (!skipped) {
-      await jira.postComment(
-        ticketKey,
-        textToAdf(`${eventMarker} No review comment found on PR#${prNumber}. Cannot iterate.`),
-      );
+      await tracker.postComment(ticketKey, `${eventMarker} No review comment found on PR#${prNumber}. Cannot iterate.`);
     }
     appendOutput({ input_tokens: 0, output_tokens: 0, model });
     return;
@@ -112,10 +105,7 @@ async function main(): Promise<void> {
 
   const reviewComment = latestReview.body ?? '';
   if (/\*\*Verdict\*\*:\s*Approved\b/.test(reviewComment)) {
-    await jira.postComment(
-      ticketKey,
-      textToAdf(`${idempotencyMarker} PR#${prNumber} review shows Approved — no iteration needed.`),
-    );
+    await tracker.postComment(ticketKey, `${idempotencyMarker} PR#${prNumber} review shows Approved — no iteration needed.`);
     appendOutput({ input_tokens: 0, output_tokens: 0, model });
     return;
   }
@@ -130,10 +120,7 @@ async function main(): Promise<void> {
     execFileSync('git', ['fetch', 'origin', branchName], { cwd: REPO_ROOT });
     execFileSync('git', ['checkout', branchName], { cwd: REPO_ROOT });
   } catch {
-    await jira.postComment(
-      ticketKey,
-      textToAdf(`${idempotencyMarker} Branch ${branchName} not found on origin. Cannot iterate.`),
-    );
+    await tracker.postComment(ticketKey, `${idempotencyMarker} Branch ${branchName} not found on origin. Cannot iterate.`);
     appendOutput({ input_tokens: 0, output_tokens: 0, model });
     return;
   }
@@ -152,12 +139,11 @@ async function main(): Promise<void> {
     { cwd: REPO_ROOT, encoding: 'utf8' },
   ).trim();
 
-  const description = adfToText(issue.fields.description);
   const ticketBlock = [
     `TICKET: ${ticketKey}`,
-    `TITLE: ${issue.fields.summary}`,
-    `TYPE: ${issue.fields.issuetype.name}`,
-    `DESCRIPTION:\n${description}`,
+    `TITLE: ${issue.summary}`,
+    `TYPE: ${issue.issueType}`,
+    `DESCRIPTION:\n${issue.description}`,
   ].filter(Boolean).join('\n');
 
   const initialPrompt = [
@@ -203,9 +189,9 @@ async function main(): Promise<void> {
   console.error(`[ferry:iterate-action] done in ${iterations} iterations — actionable=${done.actionable} in=${usage.input_tokens} cache_w=${usage.cache_creation_input_tokens} cache_r=${usage.cache_read_input_tokens} out=${usage.output_tokens}`);
 
   if (!done.actionable) {
-    await jira.postComment(
+    await tracker.postComment(
       ticketKey,
-      textToAdf(`${idempotencyMarker} Cannot fix — ${done.reason_if_not_actionable ?? 'no reason given'}`),
+      `${idempotencyMarker} Cannot fix — ${done.reason_if_not_actionable ?? 'no reason given'}`,
     );
     appendOutput({ ...usage, model });
     process.exit(0);
@@ -226,14 +212,12 @@ async function main(): Promise<void> {
   }
   execFileSync('git', ['push', 'origin', branchName, '--force-with-lease'], { cwd: REPO_ROOT });
 
-  await jira.postTransition(ticketKey, reviewTransitionId);
+  await tracker.postTransition(ticketKey, reviewTransitionId);
 
   const { next_iteration } = decideIteratorTransition({ current_iteration: priorIterations });
-  await jira.postComment(
+  await tracker.postComment(
     ticketKey,
-    textToAdf(
-      `${idempotencyMarker} Iteration ${next_iteration} complete. Pushed fixes to PR#${prNumber}. Moved back to Review.`,
-    ),
+    `${idempotencyMarker} Iteration ${next_iteration} complete. Pushed fixes to PR#${prNumber}. Moved back to Review.`,
   );
 
   appendOutput({ ...usage, model });
