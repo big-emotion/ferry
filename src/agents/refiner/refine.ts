@@ -92,7 +92,10 @@ function buildPrompt(input: RefinerInput): string {
 }
 
 function stripMarkdownFences(text: string): string {
-  return text.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '').trim();
+  return text
+    .replace(/^```(?:json)?\s*\n?/, '')
+    .replace(/\n?```\s*$/, '')
+    .trim();
 }
 
 function parseJsonOrThrow(text: string): unknown {
