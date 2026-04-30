@@ -16,7 +16,7 @@ import {
   executeTool,
 } from './tools.js';
 import { createAnthropicAgentLoop } from '../../lib/llm/agent-loop/anthropic.js';
-import type { AgentLoop } from '../../lib/llm/agent-loop/types.js';
+import type { AgentLoop, McpServerConfig } from '../../lib/llm/agent-loop/types.js';
 import { loadFerryConfig } from '../../lib/config.js';
 import { resolvePromptPath, loadProjectSnippet } from '../../lib/prompts/resolve.js';
 
@@ -26,6 +26,24 @@ function requireEnv(key: string): string {
   const val = process.env[key];
   if (!val) throw new FerryError('state-invariant', { reason: 'missing-env', key });
   return val;
+}
+
+function loadMcpServers(): McpServerConfig[] {
+  const raw = process.env.AGENT_MCP_SERVERS;
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (s): s is McpServerConfig =>
+        s !== null &&
+        typeof s === 'object' &&
+        typeof (s as Record<string, unknown>).name === 'string' &&
+        typeof (s as Record<string, unknown>).url === 'string',
+    );
+  } catch {
+    return [];
+  }
 }
 
 function detectTestRunner(packageJsonPath: string): string {
@@ -173,6 +191,10 @@ async function main(): Promise<void> {
   };
 
   const allToolSchemas = [...TOOL_SCHEMAS, COMMIT_PROGRESS_SCHEMA, SPAWN_SUBAGENT_SCHEMA];
+  const mcpServers = loadMcpServers();
+  if (mcpServers.length > 0) {
+    console.error(`[ferry:dev-action] MCP servers: ${mcpServers.map((s) => s.name).join(', ')}`);
+  }
 
   let loop!: AgentLoop;
   loop = createAnthropicAgentLoop({
@@ -200,6 +222,7 @@ async function main(): Promise<void> {
         repoRoot: REPO_ROOT,
         branchName,
         secretScan,
+        mcpServers,
       }),
   });
 
@@ -210,6 +233,7 @@ async function main(): Promise<void> {
     repoRoot: REPO_ROOT,
     branchName,
     secretScan,
+    mcpServers,
   });
 
   console.error(
