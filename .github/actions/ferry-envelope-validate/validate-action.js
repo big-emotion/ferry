@@ -1,56 +1,67 @@
-// Self-contained envelope validation bundle for ferry-envelope-validate composite action.
-// AJV is loaded via createRequire so it resolves from this action's own node_modules.
-import { createRequire } from 'module';
-import { appendFileSync } from 'fs';
+// src/lib/envelope/validate-action.ts
+import { appendFileSync } from "fs";
 
-const _require = createRequire(import.meta.url);
+// src/lib/envelope/validate.ts
+import { createRequire } from "module";
 
-const eventSchema = _require('./schemas/event.v1.schema.json');
-const { Ajv2020 } = _require('ajv/dist/2020');
-const addFormats = _require('ajv-formats');
+// src/lib/errors/index.ts
+var FerryError = class extends Error {
+  constructor(code, context) {
+    super(`[ferry:${code}]${context ? ` ${JSON.stringify(context)}` : ""}`);
+    this.code = code;
+    this.context = context;
+    this.name = "FerryError";
+  }
+  code;
+  context;
+};
 
-const ajv = new Ajv2020({ strict: true });
-addFormats.default(ajv);
-const validateFn = ajv.compile(eventSchema);
-
-function validateEnvelope(raw) {
-  if (!validateFn(raw)) {
+// src/lib/envelope/validate.ts
+var _require = createRequire(import.meta.url);
+var eventSchema = _require("./schemas/event.v1.schema.json");
+var ajvModule = _require("ajv/dist/2020");
+var ajvInstance = new ajvModule.Ajv2020({ strict: true });
+_require("ajv-formats").default(ajvInstance);
+var validateFn = ajvInstance.compile(eventSchema);
+function validateEnvelope(raw2) {
+  if (!validateFn(raw2)) {
     const safePaths = (validateFn.errors ?? []).map((e) => `${e.instancePath} ${e.keyword}`);
-    const err = new Error(`[ferry:state-invariant] ${JSON.stringify({ paths: safePaths })}`);
-    err.name = 'FerryError';
-    throw err;
+    throw new FerryError("state-invariant", { paths: safePaths });
   }
-  if (raw.instructions !== undefined) {
-    raw.instructions = raw.instructions.slice(0, 2000);
+  const envelope = raw2;
+  if (envelope.instructions !== void 0) {
+    envelope.instructions = envelope.instructions.slice(0, 2e3);
   }
-  return raw;
+  return envelope;
 }
 
-const raw = process.env.FERRY_ENVELOPE_PAYLOAD;
+// src/lib/envelope/validate-action.ts
+var raw = process.env.FERRY_ENVELOPE_PAYLOAD;
 if (!raw) {
-  console.error('[ferry:envelope] FERRY_ENVELOPE_PAYLOAD is not set');
+  console.error("[ferry:envelope] FERRY_ENVELOPE_PAYLOAD is not set");
   process.exit(1);
 }
-
-let parsed;
+var parsed;
 try {
   parsed = JSON.parse(raw);
 } catch {
-  console.error('[ferry:envelope] FERRY_ENVELOPE_PAYLOAD is not valid JSON');
+  console.error("[ferry:envelope] FERRY_ENVELOPE_PAYLOAD is not valid JSON");
   process.exit(1);
 }
-
 try {
   const envelope = validateEnvelope(parsed);
   const output = process.env.GITHUB_OUTPUT;
   if (output) {
     appendFileSync(
       output,
-      `ticket_key=${envelope.ticket_key}\nphase=${envelope.phase}\nevent_id=${envelope.event_id}\n`,
+      `ticket_key=${envelope.ticket_key}
+phase=${envelope.phase}
+event_id=${envelope.event_id}
+`
     );
   }
   process.exit(0);
 } catch (e) {
-  console.error('[ferry:envelope] Envelope validation failed:', e.message);
+  console.error("[ferry:envelope] Envelope validation failed:", e.message);
   process.exit(1);
 }

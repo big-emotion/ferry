@@ -1,0 +1,75 @@
+name: Ferry — Run Developer Agent
+description: >
+  Runs the Developer agent. Self-contained; no .ferry/ needed in the consumer workspace.
+  Bundle and dependencies are resolved from github.action_path (the ferry repo).
+inputs:
+  payload:
+    description: JSON-encoded event envelope payload
+    required: true
+  jira_base_url:
+    description: Jira base URL
+    required: true
+  jira_email:
+    description: Jira account email
+    required: true
+  jira_api_token:
+    description: Jira API token
+    required: true
+  ferry_review_transition_id:
+    description: Jira transition ID to move ticket to In Review
+    required: true
+  anthropic_api_key:
+    description: Anthropic API key
+    required: true
+  github_token:
+    description: GitHub token with contents:write and pull-requests:write
+    required: true
+  github_repo:
+    description: GitHub repository (owner/repo)
+    required: true
+  ferry_model:
+    description: Model override (e.g. claude-opus-4-5)
+    required: false
+    default: ''
+outputs:
+  input_tokens:
+    description: Number of LLM input tokens consumed
+    value: ${{ steps.run-developer.outputs.input_tokens }}
+  output_tokens:
+    description: Number of LLM output tokens consumed
+    value: ${{ steps.run-developer.outputs.output_tokens }}
+runs:
+  using: composite
+  steps:
+    - name: Set up Node.js
+      uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af  # v4.1.0
+      with:
+        node-version: '20'
+    - name: Install Ferry agent dependencies
+      shell: bash
+      run: npm ci --prefer-offline
+      working-directory: ${{ github.action_path }}
+    - name: Skip Task tickets (FR6)
+      shell: bash
+      run: node ${{ github.action_path }}/skip-task-type-action.js
+      env:
+        FERRY_ENVELOPE_PAYLOAD: ${{ inputs.payload }}
+        FERRY_JIRA_BASE_URL: ${{ inputs.jira_base_url }}
+        FERRY_JIRA_EMAIL: ${{ inputs.jira_email }}
+        FERRY_JIRA_API_TOKEN: ${{ inputs.jira_api_token }}
+    - name: Run Developer agent
+      id: run-developer
+      shell: bash
+      run: node ${{ github.action_path }}/dev-action.js
+      env:
+        FERRY_ENVELOPE_PAYLOAD: ${{ inputs.payload }}
+        FERRY_JIRA_BASE_URL: ${{ inputs.jira_base_url }}
+        FERRY_JIRA_EMAIL: ${{ inputs.jira_email }}
+        FERRY_JIRA_API_TOKEN: ${{ inputs.jira_api_token }}
+        FERRY_REVIEW_TRANSITION_ID: ${{ inputs.ferry_review_transition_id }}
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+        GH_TOKEN: ${{ inputs.github_token }}
+        GITHUB_REPO: ${{ inputs.github_repo }}
+        FERRY_MODEL: ${{ inputs.ferry_model }}
+        FERRY_BUNDLED_PROMPTS_DIR: ${{ github.action_path }}/prompts
