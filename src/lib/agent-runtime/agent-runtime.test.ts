@@ -106,9 +106,7 @@ describe('buildTicketBlock', () => {
 
   it('builds base ticket block without optional fields', () => {
     const result = buildTicketBlock('PROJ-1', issue);
-    expect(result).toBe(
-      'TICKET: PROJ-1\nTITLE: Fix bug\nTYPE: Bug\nDESCRIPTION:\nIt is broken.',
-    );
+    expect(result).toBe('TICKET: PROJ-1\nTITLE: Fix bug\nTYPE: Bug\nDESCRIPTION:\nIt is broken.');
   });
 
   it('includes LABELS when opts.labels is provided', () => {
@@ -143,10 +141,7 @@ describe('buildSystem', () => {
   it('returns base system when no project snippet is found', () => {
     const noSnippet = () => false;
     const readBase = (p: string) => (p.includes('dev.md') ? 'base system' : '');
-    const result = buildSystem('dev', REPO_ROOT, {
-      _checkExists: noSnippet,
-      _readFile: readBase,
-    });
+    const result = buildSystem('dev', REPO_ROOT, { _checkExists: noSnippet, _readFile: readBase });
     expect(result).toBe('base system');
   });
 

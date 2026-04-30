@@ -130,7 +130,10 @@ async function main(): Promise<void> {
 
   const mergeConflicts = fetchAndMergeMain(REPO_ROOT);
 
-  const existingLog = execFileSync('git', ['log', 'origin/main..HEAD', '--oneline'], { cwd: REPO_ROOT, encoding: 'utf8' }).trim();
+  const existingLog = execFileSync('git', ['log', 'origin/main..HEAD', '--oneline'], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+  }).trim();
 
   const ticketBlock = buildTicketBlock(ticketKey, issue);
 

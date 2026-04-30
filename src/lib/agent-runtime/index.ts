@@ -1,10 +1,6 @@
 export { requireEnv, loadMcpServers } from './env.js';
 export { byEventId, byPrHeadSha, byReviewCommentId } from './idempotency.js';
-export {
-  buildSystem,
-  loadOptionalPrompt,
-  buildTicketBlock,
-} from './prompt.js';
+export { buildSystem, loadOptionalPrompt, buildTicketBlock } from './prompt.js';
 export { appendOutput } from './output.js';
 export {
   configureFerryGitUser,

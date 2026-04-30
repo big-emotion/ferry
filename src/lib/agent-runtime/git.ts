@@ -25,10 +25,7 @@ export function makeCommitProgress(logPrefix: string): CommitProgressFn {
   };
 }
 
-export function checkoutExistingBranch(
-  branchName: string,
-  repoRoot: string,
-): 'ok' | 'not-found' {
+export function checkoutExistingBranch(branchName: string, repoRoot: string): 'ok' | 'not-found' {
   try {
     execFileSync('git', ['ls-remote', '--exit-code', '--heads', 'origin', branchName], {
       cwd: repoRoot,
