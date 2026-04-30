@@ -13,6 +13,7 @@ import { createAnthropicAgentLoop } from '../../lib/llm/agent-loop/anthropic.js'
 import { checkIterationCap } from './cap.js';
 import { decideIteratorTransition } from './transition.js';
 import { formatCommitMessage } from './prompt.js';
+import { loadFerryConfig } from '../../lib/config.js';
 
 const REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
 const SYSTEM_PROMPT_PATH =
@@ -34,7 +35,8 @@ async function main(): Promise<void> {
   const githubToken = requireEnv('GITHUB_TOKEN');
   const githubRepo = requireEnv('GITHUB_REPO');
 
-  const model = process.env.FERRY_ITER_MODEL ?? 'claude-sonnet-4-6';
+  const ferryCfg = loadFerryConfig(REPO_ROOT);
+  const model = ferryCfg.models.iterate.model;
   const [owner, repo] = githubRepo.split('/');
   if (!owner || !repo) {
     throw new FerryError('state-invariant', { reason: 'invalid-github-repo', githubRepo });
@@ -49,7 +51,7 @@ async function main(): Promise<void> {
   const priorIterations = existingComments.filter(
     (c) => c.includes('[ferry:iterator:') && c.includes('complete. Pushed fixes to PR#'),
   ).length;
-  checkIterationCap({ iteration: priorIterations, hasFindings: true });
+  checkIterationCap({ iteration: priorIterations, hasFindings: true }, ferryCfg.limits.max_iterations);
 
   const branchName = `ferry/${ticketKey}`;
   const prs = await runner.listPRsForBranch(owner, repo, branchName);
@@ -188,12 +190,12 @@ async function main(): Promise<void> {
     }
   };
 
-  process.env.FERRY_DEV_MAX_ITERATIONS ??= '200';
-  process.env.FERRY_DEV_MAX_INPUT_TOKENS ??= '500000';
-
   const loop = createAnthropicAgentLoop({
     apiKey: anthropicApiKey,
     model,
+    maxIterations: ferryCfg.limits.max_agent_iterations,
+    maxInputTokens: ferryCfg.limits.max_tokens_per_run,
+    maxTokens: ferryCfg.limits.max_tokens_per_message,
     executeTool,
     commitProgress: async (repoRoot, branchName, message, scan) => {
       execSync('git add -A', { cwd: repoRoot });

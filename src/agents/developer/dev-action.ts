@@ -17,6 +17,7 @@ import {
 } from './tools.js';
 import { createAnthropicAgentLoop } from '../../lib/llm/agent-loop/anthropic.js';
 import type { AgentLoop } from '../../lib/llm/agent-loop/types.js';
+import { loadFerryConfig } from '../../lib/config.js';
 
 const REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
 const SYSTEM_PROMPT_PATH =
@@ -123,7 +124,8 @@ async function main(): Promise<void> {
   ].join('\n');
 
   const system = readFileSync(SYSTEM_PROMPT_PATH, 'utf8');
-  const model = process.env.FERRY_DEV_MODEL ?? 'claude-opus-4-5';
+  const ferryCfg = loadFerryConfig(REPO_ROOT);
+  const model = ferryCfg.models.dev.model;
 
   // Branch is determined upfront from the ticket key so restarts resume the same branch.
   const branchName = `ferry/${ticketKey}`;
@@ -173,6 +175,9 @@ async function main(): Promise<void> {
   loop = createAnthropicAgentLoop({
     apiKey: anthropicApiKey,
     model,
+    maxIterations: ferryCfg.limits.max_agent_iterations,
+    maxInputTokens: ferryCfg.limits.max_tokens_per_run,
+    maxTokens: ferryCfg.limits.max_tokens_per_message,
     executeTool,
     commitProgress: async (repoRoot, branchName, message, scan) => {
       execSync('git add -A', { cwd: repoRoot });
