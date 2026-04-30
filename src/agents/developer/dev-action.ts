@@ -25,6 +25,7 @@ import {
 import { createAnthropicAgentLoop } from '../../lib/llm/agent-loop/anthropic.js';
 import type { AgentLoop } from '../../lib/llm/agent-loop/types.js';
 import { resolveCapabilities, filterMcpServers } from '../../lib/labels/capabilities.js';
+import { resolveAnthropicAuth } from '../../lib/llm/anthropic-auth.js';
 import { detectTestRunner, repoTree, packageJsonPath } from './workspace.js';
 
 const REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
@@ -34,7 +35,7 @@ async function main(): Promise<void> {
   const envelope = validateEnvelope(JSON.parse(rawPayload));
   const { ticket_key: ticketKey, event_id: eventId } = envelope;
 
-  const anthropicApiKey = requireEnv('ANTHROPIC_API_KEY');
+  const anthropicAuth = resolveAnthropicAuth({ apiKeyEnv: 'ANTHROPIC_API_KEY' });
   const reviewTransitionId = requireEnv('FERRY_REVIEW_TRANSITION_ID');
   const jiraBaseUrl = requireEnv('FERRY_JIRA_BASE_URL');
   const { owner, repo, runner, tracker, ferryCfg } = createGitHubContext(REPO_ROOT);
@@ -106,7 +107,7 @@ async function main(): Promise<void> {
 
   let loop!: AgentLoop;
   loop = createAnthropicAgentLoop({
-    apiKey: anthropicApiKey,
+    ...anthropicAuth,
     model,
     maxIterations: ferryCfg.limits.max_agent_iterations,
     maxInputTokens: ferryCfg.limits.max_tokens_per_run,

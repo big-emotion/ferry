@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import Anthropic from '@anthropic-ai/sdk';
 import { FerryError } from '../../errors/index.js';
 import { createAnthropicAgentLoop } from './anthropic.js';
@@ -299,5 +299,106 @@ describe('createAnthropicAgentLoop — MCP connector', () => {
 
     const server: McpServerConfig = { name: 'context7', url: 'https://mcp.context7.com/mcp' };
     await expect(loop.run({ ...baseInput, mcpServers: [server] })).rejects.toThrow(FerryError);
+  });
+});
+
+describe('createAnthropicAgentLoop — LOG_VERBOSITY=debug structured events', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+
+  it('emits debug "turn" JSON event when LOG_VERBOSITY=debug', async () => {
+    vi.stubEnv('LOG_VERBOSITY', 'debug');
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const mock = makeMock([doneResponse]);
+    const loop = createAnthropicAgentLoop({
+      model: 'm',
+      client: mock as unknown as Anthropic,
+      executeTool: noopExecuteTool,
+    });
+
+    await loop.run(baseInput);
+
+    const jsonCalls = spy.mock.calls
+      .map((c) => c[0] as string)
+      .filter((s) => typeof s === 'string' && s.startsWith('{'));
+    expect(jsonCalls.length).toBeGreaterThanOrEqual(1);
+    const turnEvent = JSON.parse(
+      jsonCalls.find((s) => s.includes('"type":"turn"') ?? false) ?? jsonCalls[0],
+    ) as Record<string, unknown>;
+    expect(turnEvent).toMatchObject({
+      type: 'turn',
+      iter: 1,
+      depth: 0,
+      stop_reason: 'tool_use',
+    });
+    expect(typeof turnEvent['elapsed_ms']).toBe('number');
+  });
+
+  it('emits debug "result" JSON event on completion when LOG_VERBOSITY=debug', async () => {
+    vi.stubEnv('LOG_VERBOSITY', 'debug');
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const mock = makeMock([doneResponse]);
+    const loop = createAnthropicAgentLoop({
+      model: 'm',
+      client: mock as unknown as Anthropic,
+      executeTool: noopExecuteTool,
+    });
+
+    await loop.run(baseInput);
+
+    const jsonCalls = spy.mock.calls
+      .map((c) => c[0] as string)
+      .filter((s) => typeof s === 'string' && s.startsWith('{'));
+    const resultRaw = jsonCalls.find((s) => s.includes('"type":"result"'));
+    expect(resultRaw).toBeDefined();
+    const resultEvent = JSON.parse(resultRaw!) as Record<string, unknown>;
+    expect(resultEvent).toMatchObject({
+      type: 'result',
+      subtype: 'success',
+      iterations: 1,
+    });
+    expect(typeof resultEvent['elapsed_ms']).toBe('number');
+  });
+
+  it('does not emit JSON events when LOG_VERBOSITY is unset', async () => {
+    vi.stubEnv('LOG_VERBOSITY', '');
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const mock = makeMock([doneResponse]);
+    const loop = createAnthropicAgentLoop({
+      model: 'm',
+      client: mock as unknown as Anthropic,
+      executeTool: noopExecuteTool,
+    });
+
+    await loop.run(baseInput);
+
+    const jsonCalls = spy.mock.calls
+      .map((c) => c[0] as string)
+      .filter((s) => typeof s === 'string' && s.startsWith('{'));
+    expect(jsonCalls).toHaveLength(0);
+  });
+
+  it('still emits terse [ferry:dev-loop] line when debug is on (additive)', async () => {
+    vi.stubEnv('LOG_VERBOSITY', 'debug');
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const mock = makeMock([doneResponse]);
+    const loop = createAnthropicAgentLoop({
+      model: 'm',
+      client: mock as unknown as Anthropic,
+      executeTool: noopExecuteTool,
+    });
+
+    await loop.run(baseInput);
+
+    const terseCalls = spy.mock.calls
+      .map((c) => c[0] as string)
+      .filter((s) => typeof s === 'string' && s.includes('[ferry:dev-loop]'));
+    expect(terseCalls.length).toBeGreaterThanOrEqual(1);
   });
 });

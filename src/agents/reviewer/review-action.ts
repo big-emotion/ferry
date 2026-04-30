@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { resolveAnthropicAuth } from '../../lib/llm/anthropic-auth.js';
 import { validateEnvelope } from '../../lib/envelope/validate.js';
 import { delimitUntrusted } from '../../lib/llm/delimit-untrusted.js';
 import { checkIdempotencyMarker } from '../../lib/io/idempotency.js';
@@ -24,7 +25,6 @@ async function main(): Promise<void> {
   const envelope = validateEnvelope(JSON.parse(rawPayload));
   const { ticket_key: ticketKey, event_id: eventId } = envelope;
 
-  const anthropicApiKey = requireEnv('ANTHROPIC_API_KEY');
   const iterTransitionId = requireEnv('FERRY_ITER_TRANSITION_ID');
   const { owner, repo, runner, tracker, ferryCfg } = createGitHubContext(REPO_ROOT);
   const model = ferryCfg.models.review.model;
@@ -143,7 +143,7 @@ async function main(): Promise<void> {
     extraParts: [loadOptionalPrompt('review-comment', REPO_ROOT)],
     separator: '\n\n---\n\n',
   });
-  const anthropic = new Anthropic({ apiKey: anthropicApiKey });
+  const anthropic = new Anthropic(resolveAnthropicAuth({ apiKeyEnv: 'ANTHROPIC_API_KEY' }));
 
   const {
     result: review,

@@ -4,6 +4,7 @@ import { delimitUntrusted } from '../../lib/llm/delimit-untrusted.js';
 import { checkIdempotencyMarker } from '../../lib/io/idempotency.js';
 import { TOOL_SCHEMAS, COMMIT_PROGRESS_SCHEMA, executeTool } from '../developer/tools.js';
 import { createAnthropicAgentLoop } from '../../lib/llm/agent-loop/anthropic.js';
+import { resolveAnthropicAuth } from '../../lib/llm/anthropic-auth.js';
 import { checkIterationCap } from './cap.js';
 import { decideIteratorTransition } from './transition.js';
 import { formatCommitMessage } from './prompt.js';
@@ -32,7 +33,7 @@ async function main(): Promise<void> {
   const envelope = validateEnvelope(JSON.parse(rawPayload));
   const { ticket_key: ticketKey, event_id: eventId } = envelope;
 
-  const anthropicApiKey = requireEnv('ANTHROPIC_API_KEY');
+  const anthropicAuth = resolveAnthropicAuth({ apiKeyEnv: 'ANTHROPIC_API_KEY' });
   const reviewTransitionId = requireEnv('FERRY_REVIEW_TRANSITION_ID');
   const { owner, repo, runner, tracker, ferryCfg } = createGitHubContext(REPO_ROOT);
   const model = ferryCfg.models.iterate.model;
@@ -157,7 +158,7 @@ async function main(): Promise<void> {
   const secretScan = makeSecretScan(REPO_ROOT);
 
   const loop = createAnthropicAgentLoop({
-    apiKey: anthropicApiKey,
+    ...anthropicAuth,
     model,
     maxIterations: ferryCfg.limits.max_agent_iterations,
     maxInputTokens: ferryCfg.limits.max_tokens_per_run,
