@@ -34,6 +34,20 @@ describe('resolvePromptPath', () => {
     expect(result).toBe('/workspace/repo/.ferry/prompts/review.md');
   });
 
+  it('uses FERRY_BUNDLED_PROMPTS_DIR as the default fallback when set', () => {
+    vi.stubEnv('FERRY_BUNDLED_PROMPTS_DIR', '/action/path/prompts');
+    const check = () => false;
+    const result = resolvePromptPath('dev', REPO_ROOT, check);
+    expect(result).toBe('/action/path/prompts/dev.md');
+  });
+
+  it('consumer override still wins when FERRY_BUNDLED_PROMPTS_DIR is set', () => {
+    vi.stubEnv('FERRY_BUNDLED_PROMPTS_DIR', '/action/path/prompts');
+    const check = (p: string) => p === '/workspace/repo/prompts/dev.md';
+    const result = resolvePromptPath('dev', REPO_ROOT, check);
+    expect(result).toBe('/workspace/repo/prompts/dev.md');
+  });
+
   it('only the named phase falls back; other phases unaffected', () => {
     const check = (p: string) => p === '/workspace/repo/prompts/iterate.md';
     const devResult = resolvePromptPath('dev', REPO_ROOT, check);

@@ -1,0 +1,54 @@
+name: Ferry — Run Refiner Agent
+description: >
+  Runs the Refiner agent. Self-contained; no .ferry/ needed in the consumer workspace.
+  Bundle and dependencies are resolved from github.action_path (the ferry repo).
+inputs:
+  payload:
+    description: JSON-encoded event envelope payload
+    required: true
+  jira_base_url:
+    description: Jira base URL
+    required: true
+  jira_email:
+    description: Jira account email
+    required: true
+  jira_api_token:
+    description: Jira API token
+    required: true
+  anthropic_api_key:
+    description: Anthropic API key
+    required: true
+  ferry_model:
+    description: Model override (e.g. claude-sonnet-4-6)
+    required: false
+    default: ''
+runs:
+  using: composite
+  steps:
+    - name: Set up Node.js
+      uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af  # v4.1.0
+      with:
+        node-version: '20'
+    - name: Install Ferry agent dependencies
+      shell: bash
+      run: npm ci --prefer-offline
+      working-directory: ${{ github.action_path }}
+    - name: Skip Task tickets (FR6)
+      shell: bash
+      run: node ${{ github.action_path }}/skip-task-type-action.js
+      env:
+        FERRY_ENVELOPE_PAYLOAD: ${{ inputs.payload }}
+        FERRY_JIRA_BASE_URL: ${{ inputs.jira_base_url }}
+        FERRY_JIRA_EMAIL: ${{ inputs.jira_email }}
+        FERRY_JIRA_API_TOKEN: ${{ inputs.jira_api_token }}
+    - name: Run Refiner agent
+      shell: bash
+      run: node ${{ github.action_path }}/refiner-action.js
+      env:
+        FERRY_ENVELOPE_PAYLOAD: ${{ inputs.payload }}
+        FERRY_JIRA_BASE_URL: ${{ inputs.jira_base_url }}
+        FERRY_JIRA_EMAIL: ${{ inputs.jira_email }}
+        FERRY_JIRA_API_TOKEN: ${{ inputs.jira_api_token }}
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
+        FERRY_MODEL: ${{ inputs.ferry_model }}
+        FERRY_BUNDLED_PROMPTS_DIR: ${{ github.action_path }}/prompts

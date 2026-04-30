@@ -117,4 +117,70 @@ writeFileSync(`${emitAuditActionDir}/package.json`, JSON.stringify({
 }, null, 2) + '\n');
 execSync('npm install --prefer-offline', { cwd: emitAuditActionDir, stdio: 'inherit' });
 
+// --- Agent runner composite action bundles (fixes issue #71) ---
+// Each agent has a self-contained composite action under .github/actions/ferry-run-{agent}/.
+// The bundle + prompts + schema live in the action directory; consumers need no .ferry/.
+
+const agentActions = [
+  {
+    actionDir: '.github/actions/ferry-run-refiner',
+    packageName: 'ferry-run-refiner-action',
+    bundle: '.ferry/refiner-action.js',
+    bundleOut: 'refiner-action.js',
+    prompts: ['refiner'],
+  },
+  {
+    actionDir: '.github/actions/ferry-run-developer',
+    packageName: 'ferry-run-developer-action',
+    bundle: '.ferry/dev-action.js',
+    bundleOut: 'dev-action.js',
+    prompts: ['dev'],
+  },
+  {
+    actionDir: '.github/actions/ferry-run-reviewer',
+    packageName: 'ferry-run-reviewer-action',
+    bundle: '.ferry/review-action.js',
+    bundleOut: 'review-action.js',
+    prompts: ['review', 'review-comment'],
+  },
+  {
+    actionDir: '.github/actions/ferry-run-iterator',
+    packageName: 'ferry-run-iterator-action',
+    bundle: '.ferry/iterate-action.js',
+    bundleOut: 'iterate-action.js',
+    prompts: ['iterate'],
+  },
+];
+
+for (const agent of agentActions) {
+  mkdirSync(`${agent.actionDir}/schemas`, { recursive: true });
+  mkdirSync(`${agent.actionDir}/prompts`, { recursive: true });
+
+  // Copy the already-built bundle (schema path already fixed above)
+  copyFileSync(agent.bundle, `${agent.actionDir}/${agent.bundleOut}`);
+
+  // Copy skip-task bundle into each agent action dir
+  copyFileSync('.ferry/skip-task-type-action.js', `${agent.actionDir}/skip-task-type-action.js`);
+
+  // Copy event schema (used at runtime via createRequire)
+  copyFileSync('src/schemas/event.v1.schema.json', `${agent.actionDir}/schemas/event.v1.schema.json`);
+
+  // Copy bundled prompts (FERRY_BUNDLED_PROMPTS_DIR in action.yml points here)
+  for (const name of agent.prompts) {
+    copyFileSync(`prompts/${name}.md`, `${agent.actionDir}/prompts/${name}.md`);
+  }
+
+  writeFileSync(`${agent.actionDir}/package.json`, JSON.stringify({
+    name: agent.packageName,
+    version: '0.0.0',
+    private: true,
+    type: 'module',
+    dependencies: {
+      'ajv': '^8.0.0',
+      'ajv-formats': '^3.0.1',
+    },
+  }, null, 2) + '\n');
+  execSync('npm install --prefer-offline', { cwd: agent.actionDir, stdio: 'inherit' });
+}
+
 console.log('Built .ferry/ action bundles.');

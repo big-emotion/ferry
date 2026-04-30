@@ -11,9 +11,12 @@ export function resolvePromptPath(
   if (_checkExists(overridePath)) {
     return overridePath;
   }
-  const defaultPath = path.join(repoRoot, '.ferry', 'prompts', `${name}.md`);
+  // FERRY_BUNDLED_PROMPTS_DIR is set by composite actions so bundled prompts are found
+  // without needing .ferry/ in the consumer workspace (fixes issue #71).
+  const bundledDir =
+    process.env.FERRY_BUNDLED_PROMPTS_DIR ?? path.join(repoRoot, '.ferry', 'prompts');
   console.error(`[ferry:prompts] ${name}: consumer override not found, using shipped default`);
-  return defaultPath;
+  return path.join(bundledDir, `${name}.md`);
 }
 
 const PROJECT_SNIPPET_MAX_BYTES = 2048;
