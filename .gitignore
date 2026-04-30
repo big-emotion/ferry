@@ -3,7 +3,9 @@ node_modules/
 
 # Build output
 dist/
+.ferry/
 *.js.map
+*.tsbuildinfo
 
 # Environment variables
 .env
@@ -16,15 +18,23 @@ Thumbs.db
 
 # Editor
 .idea/
+.vscode/
 *.swp
 *.swo
+*.orig
 
 # Test coverage
 coverage/
 
-# Temporary files
+# Temporary files & logs
 *.tmp
 *.log
+logs/
+
+# Caches
+.eslintcache
+.turbo/
+.playwright-mcp/
 
 # BMAD
 _bmad/

@@ -19,6 +19,18 @@ Ferry connects your Jira board to a fully autonomous dev loop — Refiner, Devel
 
 ---
 
+## Quick Start
+
+**New to Ferry?** Start here:
+
+- 📖 **[CONSUMER.md](CONSUMER.md)** — What is Ferry? (5-min read)
+- ⚙️ **[CONSUMER-SETUP.md](CONSUMER-SETUP.md)** — How to add Ferry to your project (15 min setup)
+- 🏗️ **[PROJECT-STRUCTURE.md](PROJECT-STRUCTURE.md)** — How Ferry is organized (for maintainers)
+
+**Already using Ferry?** Jump to [Setup](#setup--7-steps-to-first-autonomous-pr) below.
+
+---
+
 ## What Ferry is — and isn't
 
 **Ferry is:**
@@ -90,13 +102,15 @@ Ferry **never merges** and **never moves Jira columns** autonomously except for 
 
 ---
 
-## Setup — 7 steps to first autonomous PR
+## Setup — Using Ferry in your project
 
-> **Fast path:** Steps 1–2 take ~5 minutes (GitHub App creation). Steps 3–7 are copy-paste — no local CLI, no script execution. A Jira+GitHub user familiar with both tools can complete everything in under 30 minutes.
+> **Using Ferry in another repo?** See [**CONSUMER-SETUP.md**](CONSUMER-SETUP.md) for step-by-step instructions — it's 3 simple steps and takes ~15 minutes.
 >
-> 📋 **Installing Ferry in your own repo?** See [`INSTALL.md`](INSTALL.md) for a self-contained guide covering exactly which files to copy and how to configure secrets.
->
-> 💡 **Pilot example:** see [`examples/acme-corp-setup.md`](examples/acme-corp-setup.md) for a concrete, end-to-end walkthrough using a sample pilot project.
+> Everything below is for **developing Ferry itself** (i.e., maintaining this repository).
+
+### Steps 1–7: For Ferry maintainers only
+
+If you're setting up Ferry in a **consumer project** (not this repository), stop here and follow [CONSUMER-SETUP.md](CONSUMER-SETUP.md) instead.
 
 ### Step 1 — Create a GitHub App with scoped permissions
 
@@ -148,29 +162,29 @@ For each Ferry column on your Jira board (Refinement, In Development, In Review,
 
   ```json
   {
-    "event_type": "ferry-dispatch",
+    "event_type": "ferry-refine",
     "client_payload": {
-      "phase": "refine",
       "ticket_key": "{{issue.key}}",
-      "issue_type": "{{issue.issuetype.name}}",
-      "actor": "{{initiator.displayName}}",
-      "source": "jira-column",
-      "ts": "{{now}}"
+      "event_id": "{{#randomString}}20{{/randomString}}"
     }
   }
   ```
 
-  Set `phase` to one of: `refine`, `dev`, `review`, `iterate` — matching the column.
+  Set `event_type` to one of: `ferry-refine`, `ferry-dev`, `ferry-review`, `ferry-iterate` — matching the column.
 
-Optional: add label-based rules (`agent:refiner`, `agent:developer`, …) and `@mention`-based rules using the same dispatch shape with `source: "jira-label"` or `"jira-comment"`.
+Optional: add label-based rules (`ferry:refine`, `ferry:dev`, …) using the same dispatch shape.
 
-### Step 5 — Populate 6 repository secrets
+### Step 5 — Populate repository secrets
+
+> ℹ️ For **consumer projects**, see [CONSUMER-SETUP.md](CONSUMER-SETUP.md) for which 4 secrets are required.
+>
+> The secrets below apply when developing or customizing Ferry itself.
 
 In the target repo: **Settings → Secrets and variables → Actions → New repository secret**.
 
 | Secret                    | Description                                                                                 |
 | ------------------------- | ------------------------------------------------------------------------------------------- |
-| `FERRY_APP_ID`            | GitHub App ID from step 1                                                                   |
+| `FERRY_APP_ID`            | GitHub App ID from step 1 (Ferry's internal app)                                            |
 | `FERRY_PRIVATE_KEY`       | Full PEM contents of the App private key from step 1                                        |
 | `FERRY_JIRA_BASE_URL`     | e.g. `https://your-org.atlassian.net`                                                       |
 | `FERRY_JIRA_EMAIL`        | Atlassian account email from step 3                                                         |
@@ -187,23 +201,14 @@ Ferry's design budget is **≤ 200€/provider/month** with an average **≤ 1.5
 
 Ferry's daily cost-governance cron warns at **50%** of the cap.
 
-### Step 7 — Copy Ferry files into the target repo
+### Step 7 — Deploy to your consumer project
 
-From this Ferry repository, copy the following into the corresponding paths of the target repo:
+For each consumer project, follow the 3-step setup in [**CONSUMER-SETUP.md**](CONSUMER-SETUP.md):
+1. Copy consumer workflow stubs from `examples/consumer-setup/workflows/`
+2. Add GitHub secrets (Jira credentials, API keys)
+3. Configure Jira webhook
 
-| What to copy | Destination in target repo | Purpose |
-|---|---|---|
-| `.ferry/` (entire directory) | `.ferry/` | Pre-built action bundles + minimal deps |
-| `.github/workflows/*.yml` | `.github/workflows/` | Agent workflow definitions |
-| `.github/actions/ferry-envelope-validate/` | `.github/actions/ferry-envelope-validate/` | Composite action — envelope validation |
-| `.github/actions/ferry-emit-audit/` | `.github/actions/ferry-emit-audit/` | Composite action — audit logging |
-| `.github/CODEOWNERS` | `.github/CODEOWNERS` | Code ownership rules |
-
-> **Note:** The `.ferry/` directory contains pre-built JavaScript bundles and a minimal `package-lock.json`. Do not edit these files by hand — they are regenerated from Ferry's source by running `npm run build:ferry` in this repository.
-
-Commit and push all copied files.
-
-The first dispatch (e.g. moving a ticket to **Refinement**) will trigger `refine.yml`. Watch the **Actions** tab on the target repo for the run, then check the Jira ticket for the refiner's comment.
+Do NOT copy Ferry's internal workflows (`.github/workflows/*.yml`) or actions (`.github/actions/`) directly — they reference internal paths. Use the consumer stubs instead.
 
 ---
 
