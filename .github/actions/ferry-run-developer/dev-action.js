@@ -123,8 +123,17 @@ var require_fast_content_type_parse = __commonJS({
 // src/agents/developer/dev-action.ts
 import { execSync as execSync2, execFileSync as execFileSync3 } from "node:child_process";
 
-// src/lib/envelope/validate.ts
-import { createRequire } from "module";
+// src/lib/llm/delimit-untrusted.ts
+var OPEN = "<<<UNTRUSTED>>>";
+var CLOSE = "<<<END UNTRUSTED>>>";
+var OPEN_ESCAPE = "<<<UNTRUSTED-LITERAL>>>";
+var CLOSE_ESCAPE = "<<<END UNTRUSTED-LITERAL>>>";
+function delimitUntrusted(value) {
+  const escaped = value.split(OPEN).join(OPEN_ESCAPE).split(CLOSE).join(CLOSE_ESCAPE);
+  return `${OPEN}
+${escaped}
+${CLOSE}`;
+}
 
 // src/lib/errors/index.ts
 var FerryError = class extends Error {
@@ -137,37 +146,6 @@ var FerryError = class extends Error {
   code;
   context;
 };
-
-// src/lib/envelope/validate.ts
-var _require = createRequire(import.meta.url);
-var eventSchema = _require("./schemas/event.v1.schema.json");
-var ajvModule = _require("ajv/dist/2020");
-var ajvInstance = new ajvModule.Ajv2020({ strict: true });
-_require("ajv-formats").default(ajvInstance);
-var validateFn = ajvInstance.compile(eventSchema);
-function validateEnvelope(raw) {
-  if (!validateFn(raw)) {
-    const safePaths = (validateFn.errors ?? []).map((e) => `${e.instancePath} ${e.keyword}`);
-    throw new FerryError("state-invariant", { paths: safePaths });
-  }
-  const envelope = raw;
-  if (envelope.instructions !== void 0) {
-    envelope.instructions = envelope.instructions.slice(0, 2e3);
-  }
-  return envelope;
-}
-
-// src/lib/llm/delimit-untrusted.ts
-var OPEN = "<<<UNTRUSTED>>>";
-var CLOSE = "<<<END UNTRUSTED>>>";
-var OPEN_ESCAPE = "<<<UNTRUSTED-LITERAL>>>";
-var CLOSE_ESCAPE = "<<<END UNTRUSTED-LITERAL>>>";
-function delimitUntrusted(value) {
-  const escaped = value.split(OPEN).join(OPEN_ESCAPE).split(CLOSE).join(CLOSE_ESCAPE);
-  return `${OPEN}
-${escaped}
-${CLOSE}`;
-}
 
 // src/lib/agent-runtime/env.ts
 function requireEnv(key) {
@@ -193,6 +171,45 @@ function loadMcpServers() {
     return parsed.filter(isValidMcpServer);
   } catch {
     return [];
+  }
+}
+
+// src/lib/envelope/validate.ts
+import { createRequire } from "module";
+var _require = createRequire(import.meta.url);
+var eventSchema = _require("./schemas/event.v1.schema.json");
+var ajvModule = _require("ajv/dist/2020");
+var ajvInstance = new ajvModule.Ajv2020({ strict: true });
+_require("ajv-formats").default(ajvInstance);
+var validateFn = ajvInstance.compile(eventSchema);
+function validateEnvelope(raw) {
+  if (!validateFn(raw)) {
+    const safePaths = (validateFn.errors ?? []).map((e) => `${e.instancePath} ${e.keyword}`);
+    throw new FerryError("state-invariant", { paths: safePaths });
+  }
+  const envelope = raw;
+  if (envelope.instructions !== void 0) {
+    envelope.instructions = envelope.instructions.slice(0, 2e3);
+  }
+  return envelope;
+}
+
+// src/lib/agent-runtime/run-agent.ts
+var LOG_PREFIX = {
+  refiner: "[ferry:refiner-action]",
+  developer: "[ferry:dev-action]",
+  reviewer: "[ferry:review-action]",
+  iterator: "[ferry:iterate-action]"
+};
+async function runAgent(role, handler2) {
+  const prefix = LOG_PREFIX[role];
+  try {
+    const rawPayload = requireEnv("FERRY_ENVELOPE_PAYLOAD");
+    const envelope = validateEnvelope(JSON.parse(rawPayload));
+    await handler2(envelope);
+  } catch (err) {
+    console.error(`${prefix} fatal:`, err.message);
+    process.exit(1);
   }
 }
 
@@ -289,6 +306,24 @@ import { execSync, execFileSync } from "node:child_process";
 function configureFerryGitUser(repoRoot) {
   execSync('git config user.name "ferry-bot"', { cwd: repoRoot });
   execSync('git config user.email "ferry-bot@users.noreply.github.com"', { cwd: repoRoot });
+}
+function makeCommitProgress(logPrefix, options = {}) {
+  return async (repoRoot, branchName, message, scan) => {
+    execSync("git add -A", { cwd: repoRoot });
+    const status = execSync("git status --porcelain", { cwd: repoRoot, encoding: "utf8" });
+    if (!status.trim()) return "nothing to commit";
+    await scan();
+    execSync(`git commit -m ${JSON.stringify(message)}`, { cwd: repoRoot });
+    if (options.dryRun) {
+      console.error(
+        `${logPrefix} DRY_RUN \u2014 checkpoint committed locally (push skipped): ${message.slice(0, 80)}`
+      );
+      return "committed (dry-run: push skipped)";
+    }
+    execSync(`git push origin ${branchName} --force-with-lease`, { cwd: repoRoot });
+    console.error(`${logPrefix} checkpoint: ${message.slice(0, 80)}`);
+    return "committed and pushed";
+  };
 }
 
 // src/lib/safety/scan.ts
@@ -11939,9 +11974,7 @@ function packageJsonPath(repoRoot) {
 
 // src/agents/developer/dev-action.ts
 var REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
-async function main() {
-  const rawPayload = requireEnv("FERRY_ENVELOPE_PAYLOAD");
-  const envelope = validateEnvelope(JSON.parse(rawPayload));
+async function main(envelope) {
   const { ticket_key: ticketKey, event_id: eventId } = envelope;
   const dryRun = isDryRun();
   if (dryRun) {
@@ -12017,22 +12050,7 @@ ${existingLog}`;
     maxInputTokens: ferryCfg.limits.max_tokens_per_run,
     maxTokens: ferryCfg.limits.max_tokens_per_message,
     executeTool,
-    commitProgress: async (repoRoot, branchName2, message, scan) => {
-      execSync2("git add -A", { cwd: repoRoot });
-      const status = execSync2("git status --porcelain", { cwd: repoRoot, encoding: "utf8" });
-      if (!status.trim()) return "nothing to commit";
-      await scan();
-      execSync2(`git commit -m ${JSON.stringify(message)}`, { cwd: repoRoot });
-      if (dryRun) {
-        console.error(
-          `[ferry:dev-action] DRY_RUN \u2014 checkpoint committed locally (push skipped): ${message.slice(0, 80)}`
-        );
-        return "committed (dry-run: push skipped)";
-      }
-      execSync2(`git push origin ${branchName2} --force-with-lease`, { cwd: repoRoot });
-      console.error(`[ferry:dev-action] checkpoint: ${message.slice(0, 80)}`);
-      return "committed and pushed";
-    },
+    commitProgress: makeCommitProgress("[ferry:dev-action]", { dryRun }),
     spawnSubagent: (task) => loop.run({
       system,
       initialPrompt: task,
@@ -12139,10 +12157,7 @@ ${existingLog}`;
   appendOutput({ ...usage, model });
   process.exit(0);
 }
-main().catch((err) => {
-  console.error("[ferry:dev-action] fatal:", err.message);
-  process.exit(1);
-});
+void runAgent("developer", main);
 /*! Bundled license information:
 
 @octokit/request-error/dist-src/index.js:

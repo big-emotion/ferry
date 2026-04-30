@@ -123,40 +123,6 @@ var require_fast_content_type_parse = __commonJS({
 // src/agents/iterator/iterate-action.ts
 import { execFileSync as execFileSync2 } from "node:child_process";
 
-// src/lib/envelope/validate.ts
-import { createRequire } from "module";
-
-// src/lib/errors/index.ts
-var FerryError = class extends Error {
-  constructor(code, context) {
-    super(`[ferry:${code}]${context ? ` ${JSON.stringify(context)}` : ""}`);
-    this.code = code;
-    this.context = context;
-    this.name = "FerryError";
-  }
-  code;
-  context;
-};
-
-// src/lib/envelope/validate.ts
-var _require = createRequire(import.meta.url);
-var eventSchema = _require("./schemas/event.v1.schema.json");
-var ajvModule = _require("ajv/dist/2020");
-var ajvInstance = new ajvModule.Ajv2020({ strict: true });
-_require("ajv-formats").default(ajvInstance);
-var validateFn = ajvInstance.compile(eventSchema);
-function validateEnvelope(raw) {
-  if (!validateFn(raw)) {
-    const safePaths = (validateFn.errors ?? []).map((e) => `${e.instancePath} ${e.keyword}`);
-    throw new FerryError("state-invariant", { paths: safePaths });
-  }
-  const envelope = raw;
-  if (envelope.instructions !== void 0) {
-    envelope.instructions = envelope.instructions.slice(0, 2e3);
-  }
-  return envelope;
-}
-
 // src/lib/llm/delimit-untrusted.ts
 var OPEN = "<<<UNTRUSTED>>>";
 var CLOSE = "<<<END UNTRUSTED>>>";
@@ -6775,6 +6741,18 @@ Anthropic.Messages = Messages2;
 Anthropic.Models = Models2;
 Anthropic.Beta = Beta;
 
+// src/lib/errors/index.ts
+var FerryError = class extends Error {
+  constructor(code, context) {
+    super(`[ferry:${code}]${context ? ` ${JSON.stringify(context)}` : ""}`);
+    this.code = code;
+    this.context = context;
+    this.name = "FerryError";
+  }
+  code;
+  context;
+};
+
 // src/lib/llm/debug-log.ts
 function isDebugEnabled(env) {
   return (env ?? process.env)["LOG_VERBOSITY"] === "debug";
@@ -7415,6 +7393,45 @@ function loadMcpServers() {
   }
 }
 
+// src/lib/envelope/validate.ts
+import { createRequire } from "module";
+var _require = createRequire(import.meta.url);
+var eventSchema = _require("./schemas/event.v1.schema.json");
+var ajvModule = _require("ajv/dist/2020");
+var ajvInstance = new ajvModule.Ajv2020({ strict: true });
+_require("ajv-formats").default(ajvInstance);
+var validateFn = ajvInstance.compile(eventSchema);
+function validateEnvelope(raw) {
+  if (!validateFn(raw)) {
+    const safePaths = (validateFn.errors ?? []).map((e) => `${e.instancePath} ${e.keyword}`);
+    throw new FerryError("state-invariant", { paths: safePaths });
+  }
+  const envelope = raw;
+  if (envelope.instructions !== void 0) {
+    envelope.instructions = envelope.instructions.slice(0, 2e3);
+  }
+  return envelope;
+}
+
+// src/lib/agent-runtime/run-agent.ts
+var LOG_PREFIX = {
+  refiner: "[ferry:refiner-action]",
+  developer: "[ferry:dev-action]",
+  reviewer: "[ferry:review-action]",
+  iterator: "[ferry:iterate-action]"
+};
+async function runAgent(role, handler2) {
+  const prefix = LOG_PREFIX[role];
+  try {
+    const rawPayload = requireEnv("FERRY_ENVELOPE_PAYLOAD");
+    const envelope = validateEnvelope(JSON.parse(rawPayload));
+    await handler2(envelope);
+  } catch (err) {
+    console.error(`${prefix} fatal:`, err.message);
+    process.exit(1);
+  }
+}
+
 // src/lib/agent-runtime/idempotency.ts
 function byEventId(role, eventId) {
   return `[ferry:${role}:${eventId}]`;
@@ -7512,13 +7529,19 @@ function configureFerryGitUser(repoRoot) {
   execSync('git config user.name "ferry-bot"', { cwd: repoRoot });
   execSync('git config user.email "ferry-bot@users.noreply.github.com"', { cwd: repoRoot });
 }
-function makeCommitProgress(logPrefix) {
+function makeCommitProgress(logPrefix, options = {}) {
   return async (repoRoot, branchName, message, scan) => {
     execSync("git add -A", { cwd: repoRoot });
     const status = execSync("git status --porcelain", { cwd: repoRoot, encoding: "utf8" });
     if (!status.trim()) return "nothing to commit";
     await scan();
     execSync(`git commit -m ${JSON.stringify(message)}`, { cwd: repoRoot });
+    if (options.dryRun) {
+      console.error(
+        `${logPrefix} DRY_RUN \u2014 checkpoint committed locally (push skipped): ${message.slice(0, 80)}`
+      );
+      return "committed (dry-run: push skipped)";
+    }
     execSync(`git push origin ${branchName} --force-with-lease`, { cwd: repoRoot });
     console.error(`${logPrefix} checkpoint: ${message.slice(0, 80)}`);
     return "committed and pushed";
@@ -11918,9 +11941,7 @@ function createGitHubContext(repoRoot) {
 
 // src/agents/iterator/iterate-action.ts
 var REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
-async function main() {
-  const rawPayload = requireEnv("FERRY_ENVELOPE_PAYLOAD");
-  const envelope = validateEnvelope(JSON.parse(rawPayload));
+async function main(envelope) {
   const { ticket_key: ticketKey, event_id: eventId } = envelope;
   const anthropicAuth = resolveAnthropicAuth({ apiKeyEnv: "ANTHROPIC_API_KEY" });
   const reviewTransitionId = requireEnv("FERRY_REVIEW_TRANSITION_ID");
@@ -12073,10 +12094,7 @@ ${existingLog}` : "",
   appendOutput({ ...usage, model });
   process.exit(0);
 }
-main().catch((err) => {
-  console.error("[ferry:iterate-action] fatal:", err.message);
-  process.exit(1);
-});
+void runAgent("iterator", main);
 /*! Bundled license information:
 
 @octokit/request-error/dist-src/index.js:

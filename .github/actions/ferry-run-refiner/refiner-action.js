@@ -6234,8 +6234,14 @@ Anthropic.Messages = Messages2;
 Anthropic.Models = Models2;
 Anthropic.Beta = Beta;
 
-// src/lib/envelope/validate.ts
-import { createRequire } from "module";
+// src/lib/io/spend-cap.ts
+function classifyHttpStatus(status) {
+  if (status === 429 || status === 402) return "spend-cap";
+  if (status >= 500) return "transient";
+  if (status >= 200 && status < 300) return "ok";
+  if (status >= 400) return "spend-cap";
+  return "transient";
+}
 
 // src/lib/errors/index.ts
 var FerryError = class extends Error {
@@ -6248,34 +6254,6 @@ var FerryError = class extends Error {
   code;
   context;
 };
-
-// src/lib/envelope/validate.ts
-var _require = createRequire(import.meta.url);
-var eventSchema = _require("./schemas/event.v1.schema.json");
-var ajvModule = _require("ajv/dist/2020");
-var ajvInstance = new ajvModule.Ajv2020({ strict: true });
-_require("ajv-formats").default(ajvInstance);
-var validateFn = ajvInstance.compile(eventSchema);
-function validateEnvelope(raw) {
-  if (!validateFn(raw)) {
-    const safePaths = (validateFn.errors ?? []).map((e) => `${e.instancePath} ${e.keyword}`);
-    throw new FerryError("state-invariant", { paths: safePaths });
-  }
-  const envelope = raw;
-  if (envelope.instructions !== void 0) {
-    envelope.instructions = envelope.instructions.slice(0, 2e3);
-  }
-  return envelope;
-}
-
-// src/lib/io/spend-cap.ts
-function classifyHttpStatus(status) {
-  if (status === 429 || status === 402) return "spend-cap";
-  if (status >= 500) return "transient";
-  if (status >= 200 && status < 300) return "ok";
-  if (status >= 400) return "spend-cap";
-  return "transient";
-}
 
 // src/lib/io/jira-rest.ts
 var JiraRestClient = class {
@@ -6480,8 +6458,8 @@ function isDryRun() {
 // src/lib/config.ts
 import { existsSync, readFileSync } from "node:fs";
 import * as path2 from "node:path";
-import { createRequire as createRequire2 } from "node:module";
-var _require2 = createRequire2(import.meta.url);
+import { createRequire } from "node:module";
+var _require = createRequire(import.meta.url);
 var DEFAULT_FERRY_CONFIG = {
   models: {
     refiner: { provider: "anthropic", model: "claude-sonnet-4-6" },
@@ -6611,7 +6589,7 @@ function readJsonConfig(filePath) {
 function readYamlConfig(filePath) {
   let parseYaml;
   try {
-    const mod = _require2("yaml");
+    const mod = _require("yaml");
     parseYaml = mod.parse;
   } catch {
     throw new FerryError("state-invariant", {
@@ -6756,6 +6734,60 @@ function resolveAnthropicAuth(input) {
   }
   throw new FerryError("state-invariant", { reason: "missing-env", key: input.apiKeyEnv });
 }
+
+// src/lib/agent-runtime/env.ts
+function requireEnv(key) {
+  const val = process.env[key];
+  if (!val) throw new FerryError("state-invariant", { reason: "missing-env", key });
+  return val;
+}
+
+// src/lib/envelope/validate.ts
+import { createRequire as createRequire2 } from "module";
+var _require2 = createRequire2(import.meta.url);
+var eventSchema = _require2("./schemas/event.v1.schema.json");
+var ajvModule = _require2("ajv/dist/2020");
+var ajvInstance = new ajvModule.Ajv2020({ strict: true });
+_require2("ajv-formats").default(ajvInstance);
+var validateFn = ajvInstance.compile(eventSchema);
+function validateEnvelope(raw) {
+  if (!validateFn(raw)) {
+    const safePaths = (validateFn.errors ?? []).map((e) => `${e.instancePath} ${e.keyword}`);
+    throw new FerryError("state-invariant", { paths: safePaths });
+  }
+  const envelope = raw;
+  if (envelope.instructions !== void 0) {
+    envelope.instructions = envelope.instructions.slice(0, 2e3);
+  }
+  return envelope;
+}
+
+// src/lib/agent-runtime/run-agent.ts
+var LOG_PREFIX = {
+  refiner: "[ferry:refiner-action]",
+  developer: "[ferry:dev-action]",
+  reviewer: "[ferry:review-action]",
+  iterator: "[ferry:iterate-action]"
+};
+async function runAgent(role, handler) {
+  const prefix = LOG_PREFIX[role];
+  try {
+    const rawPayload = requireEnv("FERRY_ENVELOPE_PAYLOAD");
+    const envelope = validateEnvelope(JSON.parse(rawPayload));
+    await handler(envelope);
+  } catch (err) {
+    console.error(`${prefix} fatal:`, err.message);
+    process.exit(1);
+  }
+}
+
+// src/lib/dispatch/routing.ts
+var PHASE_TO_WORKFLOW = Object.freeze({
+  refine: Object.freeze({ workflow: "refine.yml", dispatchType: "ferry-refine" }),
+  dev: Object.freeze({ workflow: "dev.yml", dispatchType: "ferry-dev" }),
+  review: Object.freeze({ workflow: "review.yml", dispatchType: "ferry-review" }),
+  iterate: Object.freeze({ workflow: "iterate.yml", dispatchType: "ferry-iterate" })
+});
 
 // src/agents/refiner/refine.ts
 import { createRequire as createRequire3 } from "module";
@@ -6931,11 +6963,6 @@ function filterExistingSubtasks(prepared, existingDescriptions) {
 
 // src/agents/refiner/refiner-action.ts
 var REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
-function requireEnv(key) {
-  const val = process.env[key];
-  if (!val) throw new FerryError("state-invariant", { reason: "missing-env", key });
-  return val;
-}
 async function run(envelope, deps) {
   const { ticket_key: ticketKey, event_id: eventId } = envelope;
   const dryRun = isDryRun();
@@ -6976,9 +7003,7 @@ async function run(envelope, deps) {
     `${idempotencyMarker} Refined. Created ${applied.createdCount} sub-task(s). See run: ${runLink}`
   );
 }
-async function main() {
-  const rawPayload = requireEnv("FERRY_ENVELOPE_PAYLOAD");
-  const envelope = validateEnvelope(JSON.parse(rawPayload));
+async function main(envelope) {
   const anthropicAuth = resolveAnthropicAuth({ apiKeyEnv: "ANTHROPIC_API_KEY" });
   const anthropic = new Anthropic(anthropicAuth);
   const ferryCfg = loadFerryConfig(REPO_ROOT);
@@ -7003,10 +7028,7 @@ async function main() {
   await run(envelope, { tracker, callLlm });
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main().catch((err) => {
-    console.error("[ferry:refiner-action] fatal:", err.message);
-    process.exit(1);
-  });
+  void runAgent("refiner", main);
 }
 export {
   run
