@@ -37,6 +37,7 @@ runs:
       shell: bash
       run: node ${{ github.action_path }}/skip-task-type-action.js
       env:
+        FERRY_AGENT_ROLE: refiner
         FERRY_ENVELOPE_PAYLOAD: ${{ inputs.payload }}
         FERRY_JIRA_BASE_URL: ${{ inputs.jira_base_url }}
         FERRY_JIRA_EMAIL: ${{ inputs.jira_email }}
