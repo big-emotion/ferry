@@ -5,11 +5,13 @@
   "private": true,
   "type": "module",
   "bin": {
-    "ferry-init": "./dist/cli/init/index.js"
+    "ferry-init": "./dist/cli/init/index.js",
+    "ferry-doctor": "./dist/cli/doctor/index.js"
   },
   "scripts": {
     "build:ferry": "node scripts/build-ferry-actions.mjs",
     "ferry-init": "tsx src/cli/init/index.ts",
+    "ferry-doctor": "tsx src/cli/doctor/index.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
