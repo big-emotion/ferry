@@ -1,4 +1,5 @@
 # Ferry protected paths — changes require human reviewer
-/.github/**       @jnk
-/src/schemas/**   @jnk
-prompt.*.md       @jnk
+/.github/**             @jnk
+/src/schemas/**         @jnk
+/prompts/*.md           @jnk
+/.github/actions/*/prompts/*.md   @jnk
