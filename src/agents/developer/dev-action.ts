@@ -1,12 +1,19 @@
-import { appendFileSync, readFileSync } from 'node:fs';
-import { execFileSync, execSync } from 'node:child_process';
-import * as path from 'node:path';
+import { execSync } from 'node:child_process';
 import { validateEnvelope } from '../../lib/envelope/validate.js';
 import { delimitUntrusted } from '../../lib/llm/delimit-untrusted.js';
-import { createTrackerFromEnv } from '../../lib/io/tracker/factory.js';
-import { scanWithGitleaks } from '../../lib/safety/scan.js';
-import { FerryError } from '../../lib/errors/index.js';
-import { GitHubActionsRunner } from '../../lib/dispatch/runner/github-actions/index.js';
+import {
+  requireEnv,
+  loadMcpServers,
+  buildSystem,
+  buildTicketBlock,
+  appendOutput,
+  configureFerryGitUser,
+  makeCommitProgress,
+  makeSecretScan,
+  logCapabilities,
+  createGitHubContext,
+  byEventId,
+} from '../../lib/agent-runtime/index.js';
 import { formatDeveloperCommit } from './commit.js';
 import { formatPullRequestTitle, formatPullRequestBody } from './pr.js';
 import {
@@ -16,80 +23,11 @@ import {
   executeTool,
 } from './tools.js';
 import { createAnthropicAgentLoop } from '../../lib/llm/agent-loop/anthropic.js';
-import type { AgentLoop, McpServerConfig } from '../../lib/llm/agent-loop/types.js';
-import { loadFerryConfig } from '../../lib/config.js';
-import { resolvePromptPath, loadProjectSnippet } from '../../lib/prompts/resolve.js';
+import type { AgentLoop } from '../../lib/llm/agent-loop/types.js';
 import { resolveCapabilities, filterMcpServers } from '../../lib/labels/capabilities.js';
+import { detectTestRunner, repoTree, packageJsonPath } from './workspace.js';
 
 const REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
-
-function requireEnv(key: string): string {
-  const val = process.env[key];
-  if (!val) throw new FerryError('state-invariant', { reason: 'missing-env', key });
-  return val;
-}
-
-function loadMcpServers(): McpServerConfig[] {
-  const raw = process.env.AGENT_MCP_SERVERS;
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter(
-      (s): s is McpServerConfig =>
-        s !== null &&
-        typeof s === 'object' &&
-        typeof (s as Record<string, unknown>).name === 'string' &&
-        typeof (s as Record<string, unknown>).url === 'string',
-    );
-  } catch {
-    return [];
-  }
-}
-
-function detectTestRunner(packageJsonPath: string): string {
-  try {
-    const pkg = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as Record<string, unknown>;
-    const deps = { ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) } as Record<
-      string,
-      string
-    >;
-    if (deps.vitest) return 'vitest';
-    if (deps.jest) return 'jest';
-    if (deps.mocha) return 'mocha';
-    if (deps.ava) return 'ava';
-    const scripts = (pkg.scripts ?? {}) as Record<string, string>;
-    if (Object.values(scripts).some((s) => s.includes('node:test'))) return 'node:test';
-    return 'none';
-  } catch {
-    return 'none';
-  }
-}
-
-function repoTree(repoRoot: string): string {
-  try {
-    return execFileSync(
-      'find',
-      [
-        repoRoot,
-        '-maxdepth',
-        '2',
-        '-not',
-        '-path',
-        '*/node_modules/*',
-        '-not',
-        '-path',
-        '*/.git/*',
-      ],
-      { encoding: 'utf8' },
-    )
-      .split('\n')
-      .filter(Boolean)
-      .join('\n');
-  } catch {
-    return '(unavailable)';
-  }
-}
 
 async function main(): Promise<void> {
   const rawPayload = requireEnv('FERRY_ENVELOPE_PAYLOAD');
@@ -98,35 +36,16 @@ async function main(): Promise<void> {
 
   const anthropicApiKey = requireEnv('ANTHROPIC_API_KEY');
   const reviewTransitionId = requireEnv('FERRY_REVIEW_TRANSITION_ID');
-  const githubToken = requireEnv('GITHUB_TOKEN');
-  const githubRepo = requireEnv('GITHUB_REPO');
   const jiraBaseUrl = requireEnv('FERRY_JIRA_BASE_URL');
+  const { owner, repo, runner, tracker, ferryCfg } = createGitHubContext(REPO_ROOT);
 
-  const [owner, repo] = githubRepo.split('/');
-  if (!owner || !repo) {
-    throw new FerryError('state-invariant', { reason: 'invalid-github-repo', githubRepo });
-  }
-
-  const runner = new GitHubActionsRunner(githubToken, owner, repo);
-  const tracker = createTrackerFromEnv();
   const issue = await tracker.getIssue(ticketKey);
-  const description = issue.description;
-  const comments = issue.comments.map((c) => `Comment: ${c}`).join('\n');
   const labels = issue.labels.join(', ');
-
-  const ticketBlock = [
-    `TICKET: ${ticketKey}`,
-    `TITLE: ${issue.summary}`,
-    `TYPE: ${issue.issueType}`,
-    `LABELS: ${labels || 'none'}`,
-    `DESCRIPTION:\n${description}`,
-    comments ? `COMMENTS:\n${comments}` : '',
-  ]
-    .filter(Boolean)
-    .join('\n');
+  const comments = issue.comments.map((c) => `Comment: ${c}`).join('\n');
+  const ticketBlock = buildTicketBlock(ticketKey, issue, { labels, comments });
 
   const subtasks = await tracker.getSubtasks(ticketKey);
-  const testRunner = detectTestRunner(path.join(REPO_ROOT, 'package.json'));
+  const testRunner = detectTestRunner(packageJsonPath(REPO_ROOT));
   const tree = repoTree(REPO_ROOT);
 
   const initialPrompt = [
@@ -141,19 +60,13 @@ async function main(): Promise<void> {
     'When you have finished implementing, call the `done` tool.',
   ].join('\n');
 
-  const systemBase = readFileSync(resolvePromptPath('dev', REPO_ROOT), 'utf8');
-  const projectSnippet = loadProjectSnippet(REPO_ROOT);
-  const system = projectSnippet
-    ? `${systemBase}\n\n## Project conventions\n\n${projectSnippet}`
-    : systemBase;
-  const ferryCfg = loadFerryConfig(REPO_ROOT);
+  const system = buildSystem('dev', REPO_ROOT);
   const model = ferryCfg.models.dev.model;
 
   // Branch is determined upfront from the ticket key so restarts resume the same branch.
   const branchName = `ferry/${ticketKey}`;
 
-  execSync('git config user.name "ferry-bot"', { cwd: REPO_ROOT });
-  execSync('git config user.email "ferry-bot@users.noreply.github.com"', { cwd: REPO_ROOT });
+  configureFerryGitUser(REPO_ROOT);
 
   let resumeContext = '';
   try {
@@ -178,38 +91,18 @@ async function main(): Promise<void> {
     console.error(`[ferry:dev-action] created branch ${branchName}`);
   }
 
-  const secretScan = async () => {
-    const scanResult = await scanWithGitleaks({
-      path: REPO_ROOT,
-      binaryPath: process.env.GITLEAKS_PATH ?? 'gitleaks',
-    });
-    if (scanResult.leaksFound) {
-      throw new FerryError('state-invariant', {
-        reason: 'secret-scan-hit',
-        findings: scanResult.findings.length,
-      });
-    }
-  };
-
-  const allToolSchemas = [...TOOL_SCHEMAS, COMMIT_PROGRESS_SCHEMA, SPAWN_SUBAGENT_SCHEMA];
+  const secretScan = makeSecretScan(REPO_ROOT);
   const mcpPool = loadMcpServers();
   const capabilities = resolveCapabilities(issue.labels, ferryCfg.labels);
   const hasLabelsConfig = ferryCfg.labels !== undefined;
   const mcpServers = filterMcpServers(mcpPool, capabilities, hasLabelsConfig);
 
-  if (capabilities.triggeredLabels.length > 0) {
-    console.error(
-      `[ferry:dev-action] label capabilities: labels=[${capabilities.triggeredLabels.join(',')}] mcp=[${capabilities.mcpServerNames.join(',')}]`,
-    );
-  }
-  if (capabilities.unknownFerryLabels.length > 0) {
-    console.error(
-      `[ferry:dev-action] unknown ferry labels (ignored): ${capabilities.unknownFerryLabels.join(', ')}`,
-    );
-  }
+  logCapabilities('[ferry:dev-action]', capabilities);
   if (mcpServers.length > 0) {
     console.error(`[ferry:dev-action] MCP servers: ${mcpServers.map((s) => s.name).join(', ')}`);
   }
+
+  const allToolSchemas = [...TOOL_SCHEMAS, COMMIT_PROGRESS_SCHEMA, SPAWN_SUBAGENT_SCHEMA];
 
   let loop!: AgentLoop;
   loop = createAnthropicAgentLoop({
@@ -219,16 +112,7 @@ async function main(): Promise<void> {
     maxInputTokens: ferryCfg.limits.max_tokens_per_run,
     maxTokens: ferryCfg.limits.max_tokens_per_message,
     executeTool,
-    commitProgress: async (repoRoot, branchName, message, scan) => {
-      execSync('git add -A', { cwd: repoRoot });
-      const status = execSync('git status --porcelain', { cwd: repoRoot, encoding: 'utf8' });
-      if (!status.trim()) return 'nothing to commit';
-      await scan();
-      execSync(`git commit -m ${JSON.stringify(message)}`, { cwd: repoRoot });
-      execSync(`git push origin ${branchName} --force-with-lease`, { cwd: repoRoot });
-      console.error(`[ferry:dev-action] checkpoint: ${message.slice(0, 80)}`);
-      return 'committed and pushed';
-    },
+    commitProgress: makeCommitProgress('[ferry:dev-action]'),
     spawnSubagent: (task) =>
       loop.run({
         system,
@@ -255,7 +139,7 @@ async function main(): Promise<void> {
     `[ferry:dev-action] done in ${iterations} iterations — actionable=${done.actionable} in=${usage.input_tokens} cache_w=${usage.cache_creation_input_tokens} cache_r=${usage.cache_read_input_tokens} out=${usage.output_tokens}`,
   );
 
-  const idempotencyMarker = `[ferry:dev:${eventId}]`;
+  const idempotencyMarker = byEventId('dev', eventId);
 
   if (!done.actionable) {
     await tracker.postComment(
@@ -316,16 +200,6 @@ async function main(): Promise<void> {
 
   appendOutput(usage);
   process.exit(0);
-}
-
-function appendOutput(usage: { input_tokens: number; output_tokens: number }): void {
-  const githubOutput = process.env.GITHUB_OUTPUT;
-  if (githubOutput) {
-    appendFileSync(
-      githubOutput,
-      `input_tokens=${usage.input_tokens}\noutput_tokens=${usage.output_tokens}\n`,
-    );
-  }
 }
 
 main().catch((err) => {
