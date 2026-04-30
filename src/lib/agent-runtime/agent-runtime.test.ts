@@ -134,7 +134,6 @@ describe('buildTicketBlock', () => {
 
 describe('buildSystem', () => {
   const REPO_ROOT = '/workspace/repo';
-  const _checkExists = (p: string) => p.includes('prompts/dev.md');
   const _readFile = (p: string) => {
     if (p.includes('dev.md')) return 'base system';
     if (p.includes('_project.md')) return 'project conventions';
