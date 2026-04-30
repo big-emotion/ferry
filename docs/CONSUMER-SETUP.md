@@ -41,7 +41,7 @@ curl -o .github/workflows/ferry-review.yml https://raw.githubusercontent.com/big
 curl -o .github/workflows/ferry-iterate.yml https://raw.githubusercontent.com/big-emotion/ferry/main/examples/consumer-setup/workflows/ferry-iterate.yml
 ```
 
-These workflows call Ferry's reusable workflows from the Ferry repository. Update the version tag (`@v1` → `@main` for latest, or pin to a release like `@v1.2.3`).
+These workflows call Ferry's reusable workflows from the Ferry repository at `@main`, so they always use the latest version automatically.
 
 **Important:** You do NOT need to copy any `.github/actions/` files to your repo — Ferry's actions are provided by the Ferry repo itself.
 
@@ -68,9 +68,11 @@ You also need one **repository variable**: `FERRY_AUDIT_ISSUE` (the number of a 
 
 Ferry is triggered when you move a ticket column or add a label in Jira.
 
+Create one automation rule per phase (refine, dev, review, iterate).
+
 1. In Jira, go to **Project Settings → Automations**
 2. Create a new rule:
-   - **Trigger:** Column transition (e.g., "To In Development")
+   - **Trigger:** Column transition (e.g., "To Refinement")
    - **Action:** Call webhook
    - **URL:** `https://api.github.com/repos/YOUR_ORG/YOUR_REPO/dispatches`
    - **Body:**
@@ -78,14 +80,21 @@ Ferry is triggered when you move a ticket column or add a label in Jira.
      {
        "event_type": "ferry-refine",
        "client_payload": {
+         "version": "v1",
+         "event_id": "{{now.toMillis}}-{{issue.key}}-{{issue.id}}",
          "ticket_key": "{{issue.key}}",
-         "event_id": "{{#randomString}}20{{/randomString}}"
+         "phase": "refine",
+         "source": "jira-column",
+         "ts": "{{now.jiraDate}}",
+         "issue_type": "{{issue.issuetype.name}}"
        }
      }
      ```
    - **Authentication:** Use GitHub Personal Access Token (PAT) with `repo` scope
 
-Or use the Jira-GitHub app integration if your team already has it.
+Repeat for each phase, changing `event_type` (`ferry-dev`, `ferry-review`, `ferry-iterate`) and `phase` (`dev`, `review`, `iterate`) to match.
+
+> **`event_id` format:** `{{now.toMillis}}-{{issue.key}}-{{issue.id}}` produces e.g. `1746047810000-CHAN-27-10042`. The schema validates this exact pattern — do not use `{{#randomString}}` or a plain timestamp without the ticket key and issue ID suffix.
 
 ---
 
@@ -117,6 +126,7 @@ Or use the Jira-GitHub app integration if your team already has it.
 | "Missing secret" error | All four secrets must be added to GitHub repo settings |
 | Refiner never posts a comment | Check Jira API credentials, verify the Jira URL is correct |
 | Code looks wrong | This is normal early on — Ferry improves with feedback; iterate it |
+| `event_id pattern` validation error | Your Jira automation is sending an `event_id` that doesn't match the required format. Use `{{now.toMillis}}-{{issue.key}}-{{issue.id}}` — see Step 4 |
 | "Action not found: `./.github/actions/ferry-envelope-validate`" | You copied Ferry's internal workflows. Use the consumer stubs instead, which call Ferry's reusable workflows — see Step 1 |
 | "Resource not accessible by integration" or `checks: read` permission error | Repo workflow permissions ceiling is too low. Enable **Read and write permissions** under Settings → Actions → General → Workflow permissions — see Step 2 |
 | Review workflow hangs indefinitely (never starts running jobs) | You have a `concurrency:` block in your consumer `ferry-review.yml`. Remove it — concurrency is managed by Ferry's reusable workflow; duplicating the group expression causes a deadlock because `github.workflow` resolves to the caller's name in both contexts |
