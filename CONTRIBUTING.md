@@ -33,7 +33,6 @@ The `src/agents/__lint-fixtures__/` directory contains intentionally broken code
 
 - All external writes (GitHub comments, Jira comments) must go through `checkIdempotencyMarker` / `appendMarker` (`src/lib/io/idempotency.ts`) — every comment must carry a `[ferry:<role>:<run-id>]` prefix.
 - Any Jira content (ticket body, comments) passed to an LLM must be wrapped with `delimitUntrusted()` from `src/lib/llm/delimit-untrusted.ts`.
-- `preflight()` must run before any agent performs external writes.
 - Agent output must pass `src/lib/safety/scan.ts` before being committed to a branch.
 
 ## Adding a new agent phase

@@ -53,7 +53,7 @@ Jira column move / label / @mention
         ↓
   repository_dispatch
         ↓
-  gate-envelope (validate + dedupe)
+  gate-envelope (validate)
         ↓
   ┌─────────────┐
   │   Refiner   │  → reads ticket → creates sub-tasks → awaits human approval

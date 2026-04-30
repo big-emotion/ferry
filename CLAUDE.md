@@ -46,7 +46,7 @@ This decoupling allows mocking and testing without touching real APIs.
 ### 3. **Agent Entrypoints** (`src/agents/refiner/`, `developer/`, `reviewer/`, `iterator/`)
 
 Each agent is a separate implementation. Key patterns:
-- Agents define their own LLM schemas (e.g., `src/agents/reviewer/schema.ts`)
+- Agents define their own LLM schemas (e.g., `src/agents/refiner/schema.ts`, or inline tool-call schemas in `src/agents/reviewer/review-loop.ts`)
 - Agent code is linted to forbid direct Octokit/Jira imports
 - Reviewer agent has a CI gate (`src/agents/reviewer/ci-gate.ts`) that blocks reviews when CI is red
 
