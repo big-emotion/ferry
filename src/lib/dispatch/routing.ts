@@ -49,7 +49,11 @@ export function phaseToDispatchType(phase: keyof RoutingTable): DispatchType {
  */
 export type TicketType = 'Story' | 'Task' | 'Bug' | 'Spike';
 
-const DEFAULT_PROCESSED_TICKET_TYPES: ReadonlySet<string> = new Set<TicketType>(['Story', 'Bug', 'Spike']);
+const DEFAULT_PROCESSED_TICKET_TYPES: ReadonlySet<string> = new Set<TicketType>([
+  'Story',
+  'Bug',
+  'Spike',
+]);
 
 export function shouldProcessTicketType(
   ticketType: TicketType | undefined,

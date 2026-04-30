@@ -49,7 +49,10 @@ async function main(): Promise<void> {
   const priorIterations = existingComments.filter(
     (c) => c.includes('[ferry:iterator:') && c.includes('complete. Pushed fixes to PR#'),
   ).length;
-  checkIterationCap({ iteration: priorIterations, hasFindings: true }, ferryCfg.limits.max_iterations);
+  checkIterationCap(
+    { iteration: priorIterations, hasFindings: true },
+    ferryCfg.limits.max_iterations,
+  );
 
   const branchName = `ferry/${ticketKey}`;
   const prs = await runner.listPRsForBranch(owner, repo, branchName);

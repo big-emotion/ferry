@@ -89,7 +89,9 @@ describe('loadFerryConfig', () => {
       const cfg = loadFerryConfig('/repo');
       expect(cfg.limits.max_iterations).toBe(5);
       expect(cfg.limits.max_tokens_per_run).toBe(200000);
-      expect(cfg.limits.max_agent_iterations).toBe(DEFAULT_FERRY_CONFIG.limits.max_agent_iterations);
+      expect(cfg.limits.max_agent_iterations).toBe(
+        DEFAULT_FERRY_CONFIG.limits.max_agent_iterations,
+      );
     });
 
     it('loads ticket_types allowlists from JSON config', () => {
@@ -132,10 +134,7 @@ describe('loadFerryConfig', () => {
     });
 
     it('throws with field path in error for invalid limit type', () => {
-      mockConfigFile(
-        'ferry.config.json',
-        JSON.stringify({ limits: { max_iterations: -1 } }),
-      );
+      mockConfigFile('ferry.config.json', JSON.stringify({ limits: { max_iterations: -1 } }));
       let thrown: FerryError | null = null;
       try {
         loadFerryConfig('/repo');
@@ -212,7 +211,9 @@ describe('loadFerryConfig', () => {
       mockNoConfigFile();
       vi.stubEnv('FERRY_DEV_MAX_ITERATIONS', 'not-a-number');
       const cfg = loadFerryConfig('/repo');
-      expect(cfg.limits.max_agent_iterations).toBe(DEFAULT_FERRY_CONFIG.limits.max_agent_iterations);
+      expect(cfg.limits.max_agent_iterations).toBe(
+        DEFAULT_FERRY_CONFIG.limits.max_agent_iterations,
+      );
     });
   });
 
