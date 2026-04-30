@@ -361,4 +361,3 @@ In brief: create `ferry.config.json` (or `ferry.config.yaml` / `ferry.config.yml
 
 - **Ferry repo:** https://github.com/big-emotion/ferry
 - **Issues:** GitHub Issues on the Ferry repo
-- **Architecture reference:** [docs/PROJECT-STRUCTURE.md](PROJECT-STRUCTURE.md)

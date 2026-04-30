@@ -17,17 +17,7 @@ Jira board  ──▶  repository_dispatch  ──▶  GitHub Actions  ──▶
 
 Ferry connects your Jira board to a fully autonomous dev loop — Refiner, Developer, Reviewer, and Iterator agents run as GitHub Actions workflows, triggered by column transitions and labels on your Jira tickets.
 
----
-
-## Quick Start
-
-**New to Ferry?** Start here:
-
-- 📖 **[docs/CONSUMER.md](docs/CONSUMER.md)** — What is Ferry? (5-min read)
-- ⚙️ **[docs/CONSUMER-SETUP.md](docs/CONSUMER-SETUP.md)** — How to add Ferry to your project (15 min setup)
-- 🏗️ **[docs/PROJECT-STRUCTURE.md](docs/PROJECT-STRUCTURE.md)** — How Ferry is organized (for maintainers)
-
-**Already using Ferry?** Jump to [Setup](#setup--7-steps-to-first-autonomous-pr) below.
+**New to Ferry?** Follow [**docs/CONSUMER-SETUP.md**](docs/CONSUMER-SETUP.md) — the canonical install guide (~20 min).
 
 ---
 
@@ -223,9 +213,6 @@ The [`examples/`](examples/) directory ships reference artifacts you can copy in
 
 The canonical schemas live in [`src/schemas/`](src/schemas/) (not duplicated here).
 
-Project documentation lives in [`docs/`](docs/):
-- [`reviewer-rubric.md`](docs/reviewer-rubric.md) — 4-dimension review-grading rubric
-
 ---
 
 ## Reviewer-grade tool
@@ -236,7 +223,7 @@ A small interactive CLI is shipped to grade reviewer output and emit a `reviewer
 tsx scripts/ferry-grade.ts <pr-number>
 ```
 
-It prompts for four integers (Substantive / Specific / Correct / Actionable, each 0–2) and prints one JSON audit line. The verdict thresholds and the **Correct=0 cap** rule are documented in [`docs/reviewer-rubric.md`](docs/reviewer-rubric.md).
+It prompts for four integers (Substantive / Specific / Correct / Actionable, each 0–2) and prints one JSON audit line. Verdict thresholds and the **Correct=0 cap** rule are defined in [`scripts/grade.ts`](scripts/grade.ts).
 
 ---
 
