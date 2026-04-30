@@ -83,4 +83,38 @@ writeFileSync('.ferry/package.json', JSON.stringify({
 
 execSync('npm install --prefer-offline', { cwd: '.ferry', stdio: 'inherit' });
 
+// --- Self-contained composite action bundles ---
+// Copy the built validate-action bundle and schema into the composite action
+// directory so consumers can use `uses: big-emotion/ferry/.github/actions/…@v1`
+// without needing .ferry/ in their own workspace (fixes issue #64).
+
+const validateActionDir = '.github/actions/ferry-envelope-validate';
+mkdirSync(`${validateActionDir}/schemas`, { recursive: true });
+copyFileSync('.ferry/validate-action.js', `${validateActionDir}/validate-action.js`);
+copyFileSync('src/schemas/event.v1.schema.json', `${validateActionDir}/schemas/event.v1.schema.json`);
+writeFileSync(`${validateActionDir}/package.json`, JSON.stringify({
+  name: 'ferry-envelope-validate-action',
+  version: '0.0.0',
+  private: true,
+  type: 'module',
+  dependencies: {
+    'ajv': '^8.0.0',
+    'ajv-formats': '^3.0.1',
+  },
+}, null, 2) + '\n');
+execSync('npm install --prefer-offline', { cwd: validateActionDir, stdio: 'inherit' });
+
+const emitAuditActionDir = '.github/actions/ferry-emit-audit';
+copyFileSync('.ferry/emit-audit-action.js', `${emitAuditActionDir}/emit-audit-action.js`);
+writeFileSync(`${emitAuditActionDir}/package.json`, JSON.stringify({
+  name: 'ferry-emit-audit-action',
+  version: '0.0.0',
+  private: true,
+  type: 'module',
+  dependencies: {
+    '@octokit/rest': '^22.0.1',
+  },
+}, null, 2) + '\n');
+execSync('npm install --prefer-offline', { cwd: emitAuditActionDir, stdio: 'inherit' });
+
 console.log('Built .ferry/ action bundles.');
