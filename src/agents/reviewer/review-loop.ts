@@ -1,5 +1,9 @@
 import Anthropic from '@anthropic-ai/sdk';
-import type { MessageParam, ToolResultBlockParam, ContentBlock } from '@anthropic-ai/sdk/resources/messages.js';
+import type {
+  MessageParam,
+  ToolResultBlockParam,
+  ContentBlock,
+} from '@anthropic-ai/sdk/resources/messages.js';
 import type { CIRunner, PRFile } from '../../lib/dispatch/runner/types.js';
 import { FerryError } from '../../lib/errors/index.js';
 import type { CiStatus } from './ci-gate.js';
@@ -39,7 +43,8 @@ export const REVIEW_TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'finish_review',
-    description: 'Post the review verdict and end the review loop. Call once you have inspected all relevant files.',
+    description:
+      'Post the review verdict and end the review loop. Call once you have inspected all relevant files.',
     input_schema: {
       type: 'object',
       properties: {
@@ -49,7 +54,8 @@ export const REVIEW_TOOLS: Anthropic.Tool[] = [
         },
         comment: {
           type: 'string',
-          description: 'Full review comment in Markdown. Follow the required format from the system prompt.',
+          description:
+            'Full review comment in Markdown. Follow the required format from the system prompt.',
         },
       },
       required: ['approved', 'comment'],
@@ -92,9 +98,7 @@ export async function runReviewLoop(opts: {
   const { anthropic, model, system, initialPrompt, fileMap, runner, owner, repo, headSha } = opts;
 
   const tools = REVIEW_TOOLS.map((t, i) =>
-    i === REVIEW_TOOLS.length - 1
-      ? ({ ...t, cache_control: { type: 'ephemeral' as const } })
-      : t,
+    i === REVIEW_TOOLS.length - 1 ? { ...t, cache_control: { type: 'ephemeral' as const } } : t,
   );
 
   const messages: MessageParam[] = [
@@ -157,7 +161,10 @@ export async function runReviewLoop(opts: {
         } else if (!patch) {
           content = '(no patch — binary, empty, or content unchanged)';
         } else {
-          content = patch.length > MAX_PATCH_CHARS ? patch.slice(0, MAX_PATCH_CHARS) + '\n... (truncated)' : patch;
+          content =
+            patch.length > MAX_PATCH_CHARS
+              ? patch.slice(0, MAX_PATCH_CHARS) + '\n... (truncated)'
+              : patch;
         }
         toolResults.push({ type: 'tool_result', tool_use_id: block.id, content });
         continue;
@@ -185,9 +192,11 @@ export async function runReviewLoop(opts: {
       if (msg.role === 'user' && Array.isArray(msg.content)) {
         const content = msg.content as ToolResultBlockParam[];
         if (content.some((b) => b.type === 'tool_result')) {
-          const last = content[content.length - 1];
-          const { cache_control: _cc, ...rest } = last as ToolResultBlockParam & { cache_control?: unknown };
-          content[content.length - 1] = rest as ToolResultBlockParam;
+          const entry = { ...content[content.length - 1] } as ToolResultBlockParam & {
+            cache_control?: unknown;
+          };
+          delete entry.cache_control;
+          content[content.length - 1] = entry as ToolResultBlockParam;
           break;
         }
       }
@@ -202,5 +211,8 @@ export async function runReviewLoop(opts: {
     if (result) return { result, inputTokens, outputTokens };
   }
 
-  throw new FerryError('state-invariant', { reason: 'review-iteration-cap-exceeded', cap: MAX_ITERATIONS });
+  throw new FerryError('state-invariant', {
+    reason: 'review-iteration-cap-exceeded',
+    cap: MAX_ITERATIONS,
+  });
 }

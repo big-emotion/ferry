@@ -1,17 +1,8 @@
 import * as path from 'node:path';
 
-const DENIED_WRITE_PREFIXES = [
-  '.github/',
-  '.ferry/',
-  'node_modules/',
-  '.git/',
-];
+const DENIED_WRITE_PREFIXES = ['.github/', '.ferry/', 'node_modules/', '.git/'];
 
-const DENIED_WRITE_FILES = [
-  'package-lock.json',
-  'yarn.lock',
-  'pnpm-lock.yaml',
-];
+const DENIED_WRITE_FILES = ['package-lock.json', 'yarn.lock', 'pnpm-lock.yaml'];
 
 const DENIED_BASH_PATTERNS: RegExp[] = [
   /\bgit\s+push\b/,

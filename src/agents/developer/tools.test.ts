@@ -22,11 +22,15 @@ describe('read_file', () => {
   });
 
   it('throws on missing file', async () => {
-    await expect(executeTool(tmpDir, 'read_file', { path: 'missing.txt' })).rejects.toThrow('read_file failed');
+    await expect(executeTool(tmpDir, 'read_file', { path: 'missing.txt' })).rejects.toThrow(
+      'read_file failed',
+    );
   });
 
   it('throws on path traversal', async () => {
-    await expect(executeTool(tmpDir, 'read_file', { path: '../etc/passwd' })).rejects.toThrow('Path traversal denied');
+    await expect(executeTool(tmpDir, 'read_file', { path: '../etc/passwd' })).rejects.toThrow(
+      'Path traversal denied',
+    );
   });
 });
 
@@ -58,7 +62,11 @@ describe('write_file', () => {
 describe('str_replace', () => {
   it('replaces a unique string', async () => {
     await fsp.writeFile(path.join(tmpDir, 'file.ts'), 'const a = 1;\nconst b = 2;\n');
-    await executeTool(tmpDir, 'str_replace', { path: 'file.ts', old_str: 'const a = 1;', new_str: 'const a = 99;' });
+    await executeTool(tmpDir, 'str_replace', {
+      path: 'file.ts',
+      old_str: 'const a = 1;',
+      new_str: 'const a = 99;',
+    });
     const content = await fsp.readFile(path.join(tmpDir, 'file.ts'), 'utf8');
     expect(content).toBe('const a = 99;\nconst b = 2;\n');
   });
@@ -81,7 +89,11 @@ describe('str_replace', () => {
     await fsp.mkdir(path.join(tmpDir, '.ferry'), { recursive: true });
     await fsp.writeFile(path.join(tmpDir, '.ferry/state.json'), '{}');
     await expect(
-      executeTool(tmpDir, 'str_replace', { path: '.ferry/state.json', old_str: '{}', new_str: '{"a":1}' }),
+      executeTool(tmpDir, 'str_replace', {
+        path: '.ferry/state.json',
+        old_str: '{}',
+        new_str: '{"a":1}',
+      }),
     ).rejects.toThrow('protected path');
   });
 });
@@ -95,15 +107,15 @@ describe('delete_file', () => {
   });
 
   it('throws on denied path', async () => {
-    await expect(
-      executeTool(tmpDir, 'delete_file', { path: 'package-lock.json' }),
-    ).rejects.toThrow('protected file');
+    await expect(executeTool(tmpDir, 'delete_file', { path: 'package-lock.json' })).rejects.toThrow(
+      'protected file',
+    );
   });
 
   it('throws on path traversal', async () => {
-    await expect(
-      executeTool(tmpDir, 'delete_file', { path: '../sibling.txt' }),
-    ).rejects.toThrow('Path traversal denied');
+    await expect(executeTool(tmpDir, 'delete_file', { path: '../sibling.txt' })).rejects.toThrow(
+      'Path traversal denied',
+    );
   });
 });
 
@@ -138,7 +150,9 @@ describe('list_dir', () => {
   });
 
   it('throws on path traversal', async () => {
-    await expect(executeTool(tmpDir, 'list_dir', { path: '../' })).rejects.toThrow('Path traversal denied');
+    await expect(executeTool(tmpDir, 'list_dir', { path: '../' })).rejects.toThrow(
+      'Path traversal denied',
+    );
   });
 });
 
@@ -161,8 +175,8 @@ describe('bash', () => {
   });
 
   it('throws on denied command (rm -rf)', async () => {
-    await expect(
-      executeTool(tmpDir, 'bash', { command: 'rm -rf /tmp/test' }),
-    ).rejects.toThrow('deny-list');
+    await expect(executeTool(tmpDir, 'bash', { command: 'rm -rf /tmp/test' })).rejects.toThrow(
+      'deny-list',
+    );
   });
 });

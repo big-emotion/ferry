@@ -60,9 +60,7 @@ export function adfToText(adf: AdfDoc | null | undefined): string {
   return adf.content
     .map((para) => {
       if (!Array.isArray(para.content)) return '';
-      return para.content
-        .map((node) => (node.type === 'text' ? node.text : '\n'))
-        .join('');
+      return para.content.map((node) => (node.type === 'text' ? node.text : '\n')).join('');
     })
     .join('\n\n');
 }

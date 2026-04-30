@@ -8,11 +8,7 @@ import { checkIdempotencyMarker } from '../../lib/io/idempotency.js';
 import { gateCi } from './ci-gate.js';
 import { FerryError } from '../../lib/errors/index.js';
 import { GitHubActionsRunner } from '../../lib/dispatch/runner/github-actions/index.js';
-import {
-  detectMergeConflicts,
-  buildFileList,
-  runReviewLoop,
-} from './review-loop.js';
+import { detectMergeConflicts, buildFileList, runReviewLoop } from './review-loop.js';
 
 const REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
 const SYSTEM_PROMPT_PATH =
@@ -95,8 +91,12 @@ async function main(): Promise<void> {
       return;
     }
 
-    const ciMessage = ciOutcome.findings[0]?.message ?? 'CI checks failed. See the Actions run for details.';
-    await tracker.postComment(ticketKey, `${idempotencyMarker} CI checks failed. Moved to Dev Iteration.`);
+    const ciMessage =
+      ciOutcome.findings[0]?.message ?? 'CI checks failed. See the Actions run for details.';
+    await tracker.postComment(
+      ticketKey,
+      `${idempotencyMarker} CI checks failed. Moved to Dev Iteration.`,
+    );
     await runner.commentOnPR(
       { owner, repo, prNumber },
       `${idempotencyMarker}\n\n**CI failed:** ${ciMessage}`,
@@ -126,7 +126,9 @@ async function main(): Promise<void> {
     `TITLE: ${issue.summary}`,
     `TYPE: ${issue.issueType}`,
     `DESCRIPTION:\n${issue.description}`,
-  ].filter(Boolean).join('\n');
+  ]
+    .filter(Boolean)
+    .join('\n');
 
   const mergeConflictWarning = hasMergeConflicts
     ? `\n⚠️  MERGE CONFLICTS DETECTED — mergeable=${String(mergeable)}${conflictedFiles.length > 0 ? `, conflicted files: ${conflictedFiles.join(', ')}` : ''}`
@@ -150,17 +152,25 @@ async function main(): Promise<void> {
     '',
     'Use get_file_patch to inspect individual file diffs, get_file_content for full file contents.',
     'When you have enough information, call finish_review.',
-  ].filter((l) => l !== null).join('\n');
+  ]
+    .filter((l) => l !== null)
+    .join('\n');
 
   const systemBase = readFileSync(SYSTEM_PROMPT_PATH, 'utf8');
   let commentTemplate = '';
-  try { commentTemplate = readFileSync(COMMENT_TEMPLATE_PATH, 'utf8'); } catch { /* optional */ }
-  const system = commentTemplate
-    ? `${systemBase}\n\n---\n\n${commentTemplate}`
-    : systemBase;
+  try {
+    commentTemplate = readFileSync(COMMENT_TEMPLATE_PATH, 'utf8');
+  } catch {
+    /* optional */
+  }
+  const system = commentTemplate ? `${systemBase}\n\n---\n\n${commentTemplate}` : systemBase;
   const anthropic = new Anthropic({ apiKey: anthropicApiKey });
 
-  const { result: review, inputTokens, outputTokens } = await runReviewLoop({
+  const {
+    result: review,
+    inputTokens,
+    outputTokens,
+  } = await runReviewLoop({
     anthropic,
     model,
     system,
@@ -177,7 +187,10 @@ async function main(): Promise<void> {
   );
 
   if (review.approved) {
-    await tracker.postComment(ticketKey, `${idempotencyMarker} Approved. PR#${prNumber} is ready to merge.`);
+    await tracker.postComment(
+      ticketKey,
+      `${idempotencyMarker} Approved. PR#${prNumber} is ready to merge.`,
+    );
     await runner.addLabelsToPR({ owner, repo, prNumber }, ['ferry:approved']);
     await runner.removeLabelFromPR({ owner, repo, prNumber }, 'ferry:reviewing').catch(() => {});
     await runner.commentOnPR({ owner, repo, prNumber }, review.comment);
@@ -203,7 +216,11 @@ async function main(): Promise<void> {
   appendOutput({ input_tokens: inputTokens, output_tokens: outputTokens, model });
 }
 
-function appendOutput(usage: { input_tokens: number; output_tokens: number; model?: string }): void {
+function appendOutput(usage: {
+  input_tokens: number;
+  output_tokens: number;
+  model?: string;
+}): void {
   const githubOutput = process.env.GITHUB_OUTPUT;
   if (githubOutput) {
     let out = `input_tokens=${usage.input_tokens}\noutput_tokens=${usage.output_tokens}\n`;

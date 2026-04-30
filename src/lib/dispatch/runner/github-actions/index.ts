@@ -1,6 +1,14 @@
 import { Octokit } from '@octokit/rest';
 import { PHASE_TO_WORKFLOW } from '../../routing.js';
-import type { CIRunner, PR, PRRef, PRFile, PRComment, CommitStatus, DispatchPayload } from '../types.js';
+import type {
+  CIRunner,
+  PR,
+  PRRef,
+  PRFile,
+  PRComment,
+  CommitStatus,
+  DispatchPayload,
+} from '../types.js';
 
 const MAX_CONTENT_CHARS = 40_000;
 
@@ -11,21 +19,21 @@ export class GitHubActionsRunner implements CIRunner {
 
   constructor(tokenOrOctokit: string | Octokit, owner: string, repo: string) {
     this.octokit =
-      typeof tokenOrOctokit === 'string'
-        ? new Octokit({ auth: tokenOrOctokit })
-        : tokenOrOctokit;
+      typeof tokenOrOctokit === 'string' ? new Octokit({ auth: tokenOrOctokit }) : tokenOrOctokit;
     this.defaultOwner = owner;
     this.defaultRepo = repo;
   }
 
   async dispatch(phase: string, payload: DispatchPayload): Promise<void> {
-    const route = (PHASE_TO_WORKFLOW as Record<string, { dispatchType: string } | undefined>)[phase];
+    const route = (PHASE_TO_WORKFLOW as Record<string, { dispatchType: string } | undefined>)[
+      phase
+    ];
     if (!route) throw new Error(`Unknown phase for dispatch: ${phase}`);
     await this.octokit.repos.createDispatchEvent({
       owner: this.defaultOwner,
       repo: this.defaultRepo,
       event_type: route.dispatchType,
-      client_payload: payload as Record<string, unknown>,
+      client_payload: payload as unknown as Record<string, unknown>,
     });
   }
 

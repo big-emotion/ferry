@@ -18,7 +18,9 @@ const { anthropicMockCreate, openaiMockCreate, googleMockGenerateContent } = vi.
 
 vi.mock('@anthropic-ai/sdk', () => {
   class RateLimitError extends Error {}
-  class APIError extends Error { status = 0; }
+  class APIError extends Error {
+    status = 0;
+  }
 
   const fn = vi.fn().mockImplementation(function (this: unknown) {
     (this as { messages: { create: unknown } }).messages = { create: anthropicMockCreate };
@@ -30,9 +32,13 @@ vi.mock('@anthropic-ai/sdk', () => {
 vi.mock('openai', () => {
   class RateLimitError extends Error {}
   class APIConnectionError extends Error {
-    constructor(opts: { message: string }) { super(opts.message); }
+    constructor(opts: { message: string }) {
+      super(opts.message);
+    }
   }
-  class APIError extends Error { status = 0; }
+  class APIError extends Error {
+    status = 0;
+  }
 
   const fn = vi.fn().mockImplementation(function (this: unknown) {
     (this as { chat: unknown }).chat = { completions: { create: openaiMockCreate } };
@@ -71,7 +77,10 @@ describe('createLlmCall', () => {
     it('throws FerryError("state-invariant") when FERRY_ANTHROPIC_KEY is missing', () => {
       vi.stubEnv('FERRY_ANTHROPIC_KEY', '');
       expect(() => createLlmCall(route)).toThrow(
-        expect.objectContaining({ code: 'state-invariant', context: { reason: 'missing-env', key: 'FERRY_ANTHROPIC_KEY' } }),
+        expect.objectContaining({
+          code: 'state-invariant',
+          context: { reason: 'missing-env', key: 'FERRY_ANTHROPIC_KEY' },
+        }),
       );
     });
 
@@ -123,7 +132,10 @@ describe('createLlmCall', () => {
     it('throws FerryError("state-invariant") when FERRY_OPENAI_KEY is missing', () => {
       vi.stubEnv('FERRY_OPENAI_KEY', '');
       expect(() => createLlmCall(route)).toThrow(
-        expect.objectContaining({ code: 'state-invariant', context: { reason: 'missing-env', key: 'FERRY_OPENAI_KEY' } }),
+        expect.objectContaining({
+          code: 'state-invariant',
+          context: { reason: 'missing-env', key: 'FERRY_OPENAI_KEY' },
+        }),
       );
     });
 
@@ -174,7 +186,10 @@ describe('createLlmCall', () => {
     it('throws FerryError("state-invariant") when FERRY_GOOGLE_AI_KEY is missing', () => {
       vi.stubEnv('FERRY_GOOGLE_AI_KEY', '');
       expect(() => createLlmCall(route)).toThrow(
-        expect.objectContaining({ code: 'state-invariant', context: { reason: 'missing-env', key: 'FERRY_GOOGLE_AI_KEY' } }),
+        expect.objectContaining({
+          code: 'state-invariant',
+          context: { reason: 'missing-env', key: 'FERRY_GOOGLE_AI_KEY' },
+        }),
       );
     });
 

@@ -1,10 +1,31 @@
 import Anthropic from '@anthropic-ai/sdk';
-import type { MessageParam, ContentBlock, ToolResultBlockParam, Tool as AnthropicTool } from '@anthropic-ai/sdk/resources/messages.js';
+import type {
+  MessageParam,
+  ContentBlock,
+  ToolResultBlockParam,
+  Tool as AnthropicTool,
+} from '@anthropic-ai/sdk/resources/messages.js';
 import { FerryError } from '../../errors/index.js';
-import type { AgentTool, AgentLoop, AgentLoopResult, AgentLoopUsage, DonePayload, McpServerConfig } from './types.js';
+import type {
+  AgentTool,
+  AgentLoop,
+  AgentLoopResult,
+  AgentLoopUsage,
+  DonePayload,
+  McpServerConfig,
+} from './types.js';
 
-type ToolExecutor = (repoRoot: string, name: string, input: Record<string, unknown>) => Promise<string>;
-type CommitProgressHandler = (repoRoot: string, branchName: string, message: string, secretScan: () => Promise<void>) => Promise<string>;
+type ToolExecutor = (
+  repoRoot: string,
+  name: string,
+  input: Record<string, unknown>,
+) => Promise<string>;
+type CommitProgressHandler = (
+  repoRoot: string,
+  branchName: string,
+  message: string,
+  secretScan: () => Promise<void>,
+) => Promise<string>;
 type SpawnSubagentHandler = (task: string) => Promise<AgentLoopResult>;
 
 export function createAnthropicAgentLoop(opts: {
@@ -40,17 +61,13 @@ export function createAnthropicAgentLoop(opts: {
       { type: 'text' as const, text: system, cache_control: { type: 'ephemeral' as const } },
     ];
     const anthropicTools = tools.map((t, i) =>
-      i === tools.length - 1
-        ? { ...t, cache_control: { type: 'ephemeral' as const } }
-        : t,
+      i === tools.length - 1 ? { ...t, cache_control: { type: 'ephemeral' as const } } : t,
     ) as unknown as AnthropicTool[];
 
     const messages: MessageParam[] = [
       {
         role: 'user',
-        content: [
-          { type: 'text', text: initialPrompt, cache_control: { type: 'ephemeral' } },
-        ],
+        content: [{ type: 'text', text: initialPrompt, cache_control: { type: 'ephemeral' } }],
       },
     ];
     const usage: AgentLoopUsage = {
@@ -65,7 +82,10 @@ export function createAnthropicAgentLoop(opts: {
     while (iter < maxIterations) {
       iter++;
 
-      if (usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens > maxInputTokens) {
+      if (
+        usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens >
+        maxInputTokens
+      ) {
         throw new FerryError('spend-cap', {
           reason: 'input-token-budget-exceeded',
           cap: maxInputTokens,
@@ -99,7 +119,10 @@ export function createAnthropicAgentLoop(opts: {
       }
 
       if (response.stop_reason !== 'tool_use') {
-        throw new FerryError('state-invariant', { reason: 'agent-stopped-without-done', stop_reason: response.stop_reason });
+        throw new FerryError('state-invariant', {
+          reason: 'agent-stopped-without-done',
+          stop_reason: response.stop_reason,
+        });
       }
 
       const toolResults: ToolResultBlockParam[] = [];
@@ -115,19 +138,28 @@ export function createAnthropicAgentLoop(opts: {
 
         if (block.name === 'commit_progress' && opts.commitProgress) {
           const { message } = block.input as { message: string };
-          console.error(`[ferry:dev-tool] depth=${depth} iter=${iter} tool=commit_progress arg=${message.slice(0, 120)}`);
+          console.error(
+            `[ferry:dev-tool] depth=${depth} iter=${iter} tool=commit_progress arg=${message.slice(0, 120)}`,
+          );
           try {
             const result = await opts.commitProgress(repoRoot, branchName, message, secretScan);
             toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: result });
           } catch (e) {
-            toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: (e as Error).message, is_error: true });
+            toolResults.push({
+              type: 'tool_result',
+              tool_use_id: block.id,
+              content: (e as Error).message,
+              is_error: true,
+            });
           }
           continue;
         }
 
         if (block.name === 'spawn_subagent' && opts.spawnSubagent) {
           const { task } = block.input as { task: string };
-          console.error(`[ferry:dev-tool] depth=${depth} iter=${iter} tool=spawn_subagent arg=${task.slice(0, 120)}`);
+          console.error(
+            `[ferry:dev-tool] depth=${depth} iter=${iter} tool=spawn_subagent arg=${task.slice(0, 120)}`,
+          );
           try {
             const subResult = await opts.spawnSubagent(task);
             usage.input_tokens += subResult.usage.input_tokens;
@@ -136,28 +168,46 @@ export function createAnthropicAgentLoop(opts: {
             usage.cache_read_input_tokens += subResult.usage.cache_read_input_tokens;
             if (!subResult.done.actionable) {
               toolResults.push({
-                type: 'tool_result', tool_use_id: block.id,
+                type: 'tool_result',
+                tool_use_id: block.id,
                 content: `Sub-agent could not complete task: ${subResult.done.reason_if_not_actionable ?? 'no reason given'}`,
                 is_error: true,
               });
             } else {
-              toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: subResult.done.summary });
+              toolResults.push({
+                type: 'tool_result',
+                tool_use_id: block.id,
+                content: subResult.done.summary,
+              });
             }
           } catch (e) {
-            toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: (e as Error).message, is_error: true });
+            toolResults.push({
+              type: 'tool_result',
+              tool_use_id: block.id,
+              content: (e as Error).message,
+              is_error: true,
+            });
           }
           continue;
         }
 
         const blockInput = block.input as Record<string, unknown>;
-        const argHint = blockInput.path ?? blockInput.source ?? blockInput.command ?? blockInput.pattern ?? '';
-        console.error(`[ferry:dev-tool] depth=${depth} iter=${iter} tool=${block.name}${argHint ? ` arg=${String(argHint).slice(0, 120)}` : ''}`);
+        const argHint =
+          blockInput.path ?? blockInput.source ?? blockInput.command ?? blockInput.pattern ?? '';
+        console.error(
+          `[ferry:dev-tool] depth=${depth} iter=${iter} tool=${block.name}${argHint ? ` arg=${String(argHint).slice(0, 120)}` : ''}`,
+        );
 
         try {
           const result = await opts.executeTool(repoRoot, block.name, blockInput);
           toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: result });
         } catch (e) {
-          toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: (e as Error).message, is_error: true });
+          toolResults.push({
+            type: 'tool_result',
+            tool_use_id: block.id,
+            content: (e as Error).message,
+            is_error: true,
+          });
         }
       }
 
@@ -170,8 +220,11 @@ export function createAnthropicAgentLoop(opts: {
           if (content.some((b) => b.type === 'tool_result')) {
             const lastIdx = content.length - 1;
             if ('cache_control' in content[lastIdx]) {
-              const { cache_control: _cc, ...rest } = content[lastIdx] as ToolResultBlockParam & { cache_control?: unknown };
-              content[lastIdx] = rest as ToolResultBlockParam;
+              const entry = { ...content[lastIdx] } as ToolResultBlockParam & {
+                cache_control?: unknown;
+              };
+              delete entry.cache_control;
+              content[lastIdx] = entry as ToolResultBlockParam;
             }
             break;
           }
@@ -187,7 +240,10 @@ export function createAnthropicAgentLoop(opts: {
       if (done) return { done, usage, iterations: iter };
     }
 
-    throw new FerryError('state-invariant', { reason: 'iteration-cap-exceeded', cap: maxIterations });
+    throw new FerryError('state-invariant', {
+      reason: 'iteration-cap-exceeded',
+      cap: maxIterations,
+    });
   }
 
   return {

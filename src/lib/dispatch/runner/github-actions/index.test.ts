@@ -305,9 +305,9 @@ describe('GitHubActionsRunner', () => {
     });
 
     it('throws for an unknown phase', async () => {
-      await expect(
-        runner.dispatch('unknown-phase', {} as never),
-      ).rejects.toThrow('Unknown phase for dispatch: unknown-phase');
+      await expect(runner.dispatch('unknown-phase', {} as never)).rejects.toThrow(
+        'Unknown phase for dispatch: unknown-phase',
+      );
     });
   });
 

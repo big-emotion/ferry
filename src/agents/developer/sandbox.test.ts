@@ -1,5 +1,4 @@
 import { describe, it, expect } from 'vitest';
-import * as path from 'node:path';
 import { assertPathUnderRoot, assertWriteAllowed, assertBashAllowed } from './sandbox.js';
 
 const ROOT = '/repo';
@@ -32,7 +31,9 @@ describe('assertWriteAllowed', () => {
   });
 
   it('denies writes to .github/', () => {
-    expect(() => assertWriteAllowed(ROOT, '/repo/.github/workflows/ci.yml')).toThrow('protected path');
+    expect(() => assertWriteAllowed(ROOT, '/repo/.github/workflows/ci.yml')).toThrow(
+      'protected path',
+    );
   });
 
   it('denies writes to .ferry/', () => {
@@ -40,7 +41,9 @@ describe('assertWriteAllowed', () => {
   });
 
   it('denies writes to node_modules/', () => {
-    expect(() => assertWriteAllowed(ROOT, '/repo/node_modules/lodash/index.js')).toThrow('protected path');
+    expect(() => assertWriteAllowed(ROOT, '/repo/node_modules/lodash/index.js')).toThrow(
+      'protected path',
+    );
   });
 
   it('denies writes to .git/', () => {

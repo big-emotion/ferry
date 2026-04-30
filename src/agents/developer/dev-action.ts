@@ -9,12 +9,18 @@ import { FerryError } from '../../lib/errors/index.js';
 import { GitHubActionsRunner } from '../../lib/dispatch/runner/github-actions/index.js';
 import { formatDeveloperCommit } from './commit.js';
 import { formatPullRequestTitle, formatPullRequestBody } from './pr.js';
-import { TOOL_SCHEMAS, COMMIT_PROGRESS_SCHEMA, SPAWN_SUBAGENT_SCHEMA, executeTool } from './tools.js';
+import {
+  TOOL_SCHEMAS,
+  COMMIT_PROGRESS_SCHEMA,
+  SPAWN_SUBAGENT_SCHEMA,
+  executeTool,
+} from './tools.js';
 import { createAnthropicAgentLoop } from '../../lib/llm/agent-loop/anthropic.js';
 import type { AgentLoop } from '../../lib/llm/agent-loop/types.js';
 
 const REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
-const SYSTEM_PROMPT_PATH = process.env.FERRY_PROMPT_PATH ?? path.join(REPO_ROOT, 'prompts', 'dev.md');
+const SYSTEM_PROMPT_PATH =
+  process.env.FERRY_PROMPT_PATH ?? path.join(REPO_ROOT, 'prompts', 'dev.md');
 
 function requireEnv(key: string): string {
   const val = process.env[key];
@@ -25,7 +31,10 @@ function requireEnv(key: string): string {
 function detectTestRunner(packageJsonPath: string): string {
   try {
     const pkg = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as Record<string, unknown>;
-    const deps = { ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) } as Record<string, string>;
+    const deps = { ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) } as Record<
+      string,
+      string
+    >;
     if (deps.vitest) return 'vitest';
     if (deps.jest) return 'jest';
     if (deps.mocha) return 'mocha';
@@ -40,17 +49,28 @@ function detectTestRunner(packageJsonPath: string): string {
 
 function repoTree(repoRoot: string): string {
   try {
-    return execFileSync('find', [
-      repoRoot,
-      '-maxdepth', '2',
-      '-not', '-path', '*/node_modules/*',
-      '-not', '-path', '*/.git/*',
-    ], { encoding: 'utf8' }).split('\n').filter(Boolean).join('\n');
+    return execFileSync(
+      'find',
+      [
+        repoRoot,
+        '-maxdepth',
+        '2',
+        '-not',
+        '-path',
+        '*/node_modules/*',
+        '-not',
+        '-path',
+        '*/.git/*',
+      ],
+      { encoding: 'utf8' },
+    )
+      .split('\n')
+      .filter(Boolean)
+      .join('\n');
   } catch {
     return '(unavailable)';
   }
 }
-
 
 async function main(): Promise<void> {
   const rawPayload = requireEnv('FERRY_ENVELOPE_PAYLOAD');
@@ -82,7 +102,9 @@ async function main(): Promise<void> {
     `LABELS: ${labels || 'none'}`,
     `DESCRIPTION:\n${description}`,
     comments ? `COMMENTS:\n${comments}` : '',
-  ].filter(Boolean).join('\n');
+  ]
+    .filter(Boolean)
+    .join('\n');
 
   const subtasks = await tracker.getSubtasks(ticketKey);
   const testRunner = detectTestRunner(path.join(REPO_ROOT, 'package.json'));
@@ -91,9 +113,7 @@ async function main(): Promise<void> {
   const initialPrompt = [
     delimitUntrusted(ticketBlock),
     '',
-    subtasks.length > 0
-      ? `SUBTASKS:\n${subtasks.join('\n')}`
-      : 'SUBTASKS: (none)',
+    subtasks.length > 0 ? `SUBTASKS:\n${subtasks.join('\n')}` : 'SUBTASKS: (none)',
     '',
     `TEST_RUNNER: ${testRunner}`,
     '',
@@ -113,16 +133,21 @@ async function main(): Promise<void> {
 
   let resumeContext = '';
   try {
-    execSync(`git ls-remote --exit-code --heads origin ${branchName}`, { cwd: REPO_ROOT, stdio: 'pipe' });
+    execSync(`git ls-remote --exit-code --heads origin ${branchName}`, {
+      cwd: REPO_ROOT,
+      stdio: 'pipe',
+    });
     execSync(`git fetch origin ${branchName}`, { cwd: REPO_ROOT });
     execSync(`git checkout ${branchName}`, { cwd: REPO_ROOT });
-    const existingLog = execSync(
-      'git log origin/main..HEAD --oneline',
-      { cwd: REPO_ROOT, encoding: 'utf8' },
-    ).trim();
+    const existingLog = execSync('git log origin/main..HEAD --oneline', {
+      cwd: REPO_ROOT,
+      encoding: 'utf8',
+    }).trim();
     if (existingLog) {
       resumeContext = `\nEXISTING WORK ON BRANCH (already committed — skip these, only do what remains):\n${existingLog}`;
-      console.error(`[ferry:dev-action] resuming branch ${branchName} — ${existingLog.split('\n').length} prior commit(s)`);
+      console.error(
+        `[ferry:dev-action] resuming branch ${branchName} — ${existingLog.split('\n').length} prior commit(s)`,
+      );
     }
   } catch {
     execSync(`git checkout -B ${branchName}`, { cwd: REPO_ROOT });
@@ -135,13 +160,15 @@ async function main(): Promise<void> {
       binaryPath: process.env.GITLEAKS_PATH ?? 'gitleaks',
     });
     if (scanResult.leaksFound) {
-      throw new FerryError('state-invariant', { reason: 'secret-scan-hit', findings: scanResult.findings.length });
+      throw new FerryError('state-invariant', {
+        reason: 'secret-scan-hit',
+        findings: scanResult.findings.length,
+      });
     }
   };
 
   const allToolSchemas = [...TOOL_SCHEMAS, COMMIT_PROGRESS_SCHEMA, SPAWN_SUBAGENT_SCHEMA];
 
-  // eslint-disable-next-line prefer-const
   let loop!: AgentLoop;
   loop = createAnthropicAgentLoop({
     apiKey: anthropicApiKey,
@@ -157,14 +184,15 @@ async function main(): Promise<void> {
       console.error(`[ferry:dev-action] checkpoint: ${message.slice(0, 80)}`);
       return 'committed and pushed';
     },
-    spawnSubagent: (task) => loop.run({
-      system,
-      initialPrompt: task,
-      tools: allToolSchemas.filter((t) => t.name !== 'spawn_subagent'),
-      repoRoot: REPO_ROOT,
-      branchName,
-      secretScan,
-    }),
+    spawnSubagent: (task) =>
+      loop.run({
+        system,
+        initialPrompt: task,
+        tools: allToolSchemas.filter((t) => t.name !== 'spawn_subagent'),
+        repoRoot: REPO_ROOT,
+        branchName,
+        secretScan,
+      }),
   });
 
   const { done, usage, iterations } = await loop.run({
@@ -176,7 +204,9 @@ async function main(): Promise<void> {
     secretScan,
   });
 
-  console.error(`[ferry:dev-action] done in ${iterations} iterations — actionable=${done.actionable} in=${usage.input_tokens} cache_w=${usage.cache_creation_input_tokens} cache_r=${usage.cache_read_input_tokens} out=${usage.output_tokens}`);
+  console.error(
+    `[ferry:dev-action] done in ${iterations} iterations — actionable=${done.actionable} in=${usage.input_tokens} cache_w=${usage.cache_creation_input_tokens} cache_r=${usage.cache_read_input_tokens} out=${usage.output_tokens}`,
+  );
 
   const idempotencyMarker = `[ferry:dev:${eventId}]`;
 
@@ -200,7 +230,9 @@ async function main(): Promise<void> {
   const finalStatus = execSync('git status --porcelain', { cwd: REPO_ROOT, encoding: 'utf8' });
   if (finalStatus.trim()) {
     await secretScan();
-    execSync(`git commit -m ${JSON.stringify(done.commit_message ?? commitMessage)}`, { cwd: REPO_ROOT });
+    execSync(`git commit -m ${JSON.stringify(done.commit_message ?? commitMessage)}`, {
+      cwd: REPO_ROOT,
+    });
   }
   execSync(`git push origin ${branchName} --force-with-lease`, { cwd: REPO_ROOT });
 
@@ -227,7 +259,10 @@ async function main(): Promise<void> {
 function appendOutput(usage: { input_tokens: number; output_tokens: number }): void {
   const githubOutput = process.env.GITHUB_OUTPUT;
   if (githubOutput) {
-    appendFileSync(githubOutput, `input_tokens=${usage.input_tokens}\noutput_tokens=${usage.output_tokens}\n`);
+    appendFileSync(
+      githubOutput,
+      `input_tokens=${usage.input_tokens}\noutput_tokens=${usage.output_tokens}\n`,
+    );
   }
 }
 
