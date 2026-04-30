@@ -7,6 +7,7 @@ import {
   buildTicketBlock,
   appendOutput,
   configureFerryGitUser,
+  makeCommitProgress,
   makeSecretScan,
   logCapabilities,
   createGitHubContext,
@@ -117,22 +118,7 @@ async function main(envelope: EventEnvelopeV1): Promise<void> {
     maxInputTokens: ferryCfg.limits.max_tokens_per_run,
     maxTokens: ferryCfg.limits.max_tokens_per_message,
     executeTool,
-    commitProgress: async (repoRoot, branchName, message, scan) => {
-      execSync('git add -A', { cwd: repoRoot });
-      const status = execSync('git status --porcelain', { cwd: repoRoot, encoding: 'utf8' });
-      if (!status.trim()) return 'nothing to commit';
-      await scan();
-      execSync(`git commit -m ${JSON.stringify(message)}`, { cwd: repoRoot });
-      if (dryRun) {
-        console.error(
-          `[ferry:dev-action] DRY_RUN — checkpoint committed locally (push skipped): ${message.slice(0, 80)}`,
-        );
-        return 'committed (dry-run: push skipped)';
-      }
-      execSync(`git push origin ${branchName} --force-with-lease`, { cwd: repoRoot });
-      console.error(`[ferry:dev-action] checkpoint: ${message.slice(0, 80)}`);
-      return 'committed and pushed';
-    },
+    commitProgress: makeCommitProgress('[ferry:dev-action]', { dryRun }),
     spawnSubagent: (task) =>
       loop.run({
         system,

@@ -12,13 +12,27 @@ export type CommitProgressFn = (
   secretScan: () => Promise<void>,
 ) => Promise<string>;
 
-export function makeCommitProgress(logPrefix: string): CommitProgressFn {
+export interface CommitProgressOptions {
+  /** When true, commit locally but skip the push. Used for DRY_RUN. */
+  dryRun?: boolean;
+}
+
+export function makeCommitProgress(
+  logPrefix: string,
+  options: CommitProgressOptions = {},
+): CommitProgressFn {
   return async (repoRoot, branchName, message, scan) => {
     execSync('git add -A', { cwd: repoRoot });
     const status = execSync('git status --porcelain', { cwd: repoRoot, encoding: 'utf8' });
     if (!status.trim()) return 'nothing to commit';
     await scan();
     execSync(`git commit -m ${JSON.stringify(message)}`, { cwd: repoRoot });
+    if (options.dryRun) {
+      console.error(
+        `${logPrefix} DRY_RUN — checkpoint committed locally (push skipped): ${message.slice(0, 80)}`,
+      );
+      return 'committed (dry-run: push skipped)';
+    }
     execSync(`git push origin ${branchName} --force-with-lease`, { cwd: repoRoot });
     console.error(`${logPrefix} checkpoint: ${message.slice(0, 80)}`);
     return 'committed and pushed';
