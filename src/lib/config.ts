@@ -121,11 +121,16 @@ function validateConfigShape(raw: unknown): ValidationError[] {
       errs.push('limits: must be an object');
     } else {
       const l = c.limits as Record<string, unknown>;
-      if (l.max_iterations !== undefined) errs.push(...validatePosInt(l.max_iterations, 'limits.max_iterations'));
-      if (l.max_agent_iterations !== undefined) errs.push(...validatePosInt(l.max_agent_iterations, 'limits.max_agent_iterations'));
-      if (l.max_tokens_per_run !== undefined) errs.push(...validatePosInt(l.max_tokens_per_run, 'limits.max_tokens_per_run'));
-      if (l.max_tokens_per_message !== undefined) errs.push(...validatePosInt(l.max_tokens_per_message, 'limits.max_tokens_per_message'));
-      if (l.max_cost_eur_per_run !== undefined) errs.push(...validatePosNumber(l.max_cost_eur_per_run, 'limits.max_cost_eur_per_run'));
+      if (l.max_iterations !== undefined)
+        errs.push(...validatePosInt(l.max_iterations, 'limits.max_iterations'));
+      if (l.max_agent_iterations !== undefined)
+        errs.push(...validatePosInt(l.max_agent_iterations, 'limits.max_agent_iterations'));
+      if (l.max_tokens_per_run !== undefined)
+        errs.push(...validatePosInt(l.max_tokens_per_run, 'limits.max_tokens_per_run'));
+      if (l.max_tokens_per_message !== undefined)
+        errs.push(...validatePosInt(l.max_tokens_per_message, 'limits.max_tokens_per_message'));
+      if (l.max_cost_eur_per_run !== undefined)
+        errs.push(...validatePosNumber(l.max_cost_eur_per_run, 'limits.max_cost_eur_per_run'));
     }
   }
 
@@ -134,8 +139,10 @@ function validateConfigShape(raw: unknown): ValidationError[] {
       errs.push('ticket_types: must be an object');
     } else {
       const t = c.ticket_types as Record<string, unknown>;
-      if (t.refine_allowlist !== undefined) errs.push(...validateStringArray(t.refine_allowlist, 'ticket_types.refine_allowlist'));
-      if (t.dev_allowlist !== undefined) errs.push(...validateStringArray(t.dev_allowlist, 'ticket_types.dev_allowlist'));
+      if (t.refine_allowlist !== undefined)
+        errs.push(...validateStringArray(t.refine_allowlist, 'ticket_types.refine_allowlist'));
+      if (t.dev_allowlist !== undefined)
+        errs.push(...validateStringArray(t.dev_allowlist, 'ticket_types.dev_allowlist'));
     }
   }
 
@@ -215,8 +222,7 @@ function mergeWithDefaults(raw: RawConfig): FerryConfig {
     };
   };
 
-  const num = (val: unknown, def: number): number =>
-    typeof val === 'number' ? val : def;
+  const num = (val: unknown, def: number): number => (typeof val === 'number' ? val : def);
   const strArr = (val: unknown, def: string[]): string[] =>
     Array.isArray(val) ? (val as string[]) : def;
 
@@ -229,13 +235,25 @@ function mergeWithDefaults(raw: RawConfig): FerryConfig {
     },
     limits: {
       max_iterations: num(l.max_iterations, DEFAULT_FERRY_CONFIG.limits.max_iterations),
-      max_agent_iterations: num(l.max_agent_iterations, DEFAULT_FERRY_CONFIG.limits.max_agent_iterations),
+      max_agent_iterations: num(
+        l.max_agent_iterations,
+        DEFAULT_FERRY_CONFIG.limits.max_agent_iterations,
+      ),
       max_tokens_per_run: num(l.max_tokens_per_run, DEFAULT_FERRY_CONFIG.limits.max_tokens_per_run),
-      max_tokens_per_message: num(l.max_tokens_per_message, DEFAULT_FERRY_CONFIG.limits.max_tokens_per_message),
-      max_cost_eur_per_run: num(l.max_cost_eur_per_run, DEFAULT_FERRY_CONFIG.limits.max_cost_eur_per_run),
+      max_tokens_per_message: num(
+        l.max_tokens_per_message,
+        DEFAULT_FERRY_CONFIG.limits.max_tokens_per_message,
+      ),
+      max_cost_eur_per_run: num(
+        l.max_cost_eur_per_run,
+        DEFAULT_FERRY_CONFIG.limits.max_cost_eur_per_run,
+      ),
     },
     ticket_types: {
-      refine_allowlist: strArr(t.refine_allowlist, DEFAULT_FERRY_CONFIG.ticket_types.refine_allowlist),
+      refine_allowlist: strArr(
+        t.refine_allowlist,
+        DEFAULT_FERRY_CONFIG.ticket_types.refine_allowlist,
+      ),
       dev_allowlist: strArr(t.dev_allowlist, DEFAULT_FERRY_CONFIG.ticket_types.dev_allowlist),
     },
   };

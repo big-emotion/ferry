@@ -1,6 +1,5 @@
 import { appendFileSync, readFileSync } from 'node:fs';
 import { execFileSync, execSync } from 'node:child_process';
-import * as path from 'node:path';
 import { validateEnvelope } from '../../lib/envelope/validate.js';
 import { delimitUntrusted } from '../../lib/llm/delimit-untrusted.js';
 import { createTrackerFromEnv } from '../../lib/io/tracker/factory.js';
@@ -14,10 +13,9 @@ import { checkIterationCap } from './cap.js';
 import { decideIteratorTransition } from './transition.js';
 import { formatCommitMessage } from './prompt.js';
 import { loadFerryConfig } from '../../lib/config.js';
+import { resolvePromptPath } from '../../lib/prompts/resolve.js';
 
 const REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
-const SYSTEM_PROMPT_PATH =
-  process.env.FERRY_PROMPT_PATH ?? path.join(REPO_ROOT, 'prompts', 'iterate.md');
 
 function requireEnv(key: string): string {
   const val = process.env[key];
@@ -51,7 +49,10 @@ async function main(): Promise<void> {
   const priorIterations = existingComments.filter(
     (c) => c.includes('[ferry:iterator:') && c.includes('complete. Pushed fixes to PR#'),
   ).length;
-  checkIterationCap({ iteration: priorIterations, hasFindings: true }, ferryCfg.limits.max_iterations);
+  checkIterationCap(
+    { iteration: priorIterations, hasFindings: true },
+    ferryCfg.limits.max_iterations,
+  );
 
   const branchName = `ferry/${ticketKey}`;
   const prs = await runner.listPRsForBranch(owner, repo, branchName);
@@ -111,7 +112,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  const system = readFileSync(SYSTEM_PROMPT_PATH, 'utf8');
+  const system = readFileSync(resolvePromptPath('iterate', REPO_ROOT), 'utf8');
 
   execSync('git config user.name "ferry-bot"', { cwd: REPO_ROOT });
   execSync('git config user.email "ferry-bot@users.noreply.github.com"', { cwd: REPO_ROOT });

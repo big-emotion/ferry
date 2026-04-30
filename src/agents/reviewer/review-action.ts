@@ -1,5 +1,4 @@
 import { appendFileSync, readFileSync } from 'node:fs';
-import * as path from 'node:path';
 import Anthropic from '@anthropic-ai/sdk';
 import { validateEnvelope } from '../../lib/envelope/validate.js';
 import { delimitUntrusted } from '../../lib/llm/delimit-untrusted.js';
@@ -10,12 +9,9 @@ import { FerryError } from '../../lib/errors/index.js';
 import { GitHubActionsRunner } from '../../lib/dispatch/runner/github-actions/index.js';
 import { detectMergeConflicts, buildFileList, runReviewLoop } from './review-loop.js';
 import { loadFerryConfig } from '../../lib/config.js';
+import { resolvePromptPath } from '../../lib/prompts/resolve.js';
 
 const REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
-const SYSTEM_PROMPT_PATH =
-  process.env.FERRY_PROMPT_PATH ?? path.join(REPO_ROOT, 'prompts', 'review.md');
-const COMMENT_TEMPLATE_PATH =
-  process.env.FERRY_REVIEW_TEMPLATE_PATH ?? path.join(REPO_ROOT, 'prompts', 'review-comment.md');
 
 function requireEnv(key: string): string {
   const val = process.env[key];
@@ -158,10 +154,10 @@ async function main(): Promise<void> {
     .filter((l) => l !== null)
     .join('\n');
 
-  const systemBase = readFileSync(SYSTEM_PROMPT_PATH, 'utf8');
+  const systemBase = readFileSync(resolvePromptPath('review', REPO_ROOT), 'utf8');
   let commentTemplate = '';
   try {
-    commentTemplate = readFileSync(COMMENT_TEMPLATE_PATH, 'utf8');
+    commentTemplate = readFileSync(resolvePromptPath('review-comment', REPO_ROOT), 'utf8');
   } catch {
     /* optional */
   }
