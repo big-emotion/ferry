@@ -44,6 +44,10 @@ describe('validateEnvelope', () => {
     );
   });
 
+  it('accepts Jira-style event_id (issue.key-issue.id)', () => {
+    expect(() => validateEnvelope({ ...VALID_ENVELOPE, event_id: 'CHAN-117-10042' })).not.toThrow();
+  });
+
   it('throws FerryError state-invariant for invalid ticket_key pattern', () => {
     expect(() => validateEnvelope({ ...VALID_ENVELOPE, ticket_key: 'proj-1' })).toThrow(FerryError);
   });
