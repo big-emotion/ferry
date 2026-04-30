@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { MessageParam, ToolResultBlockParam, ContentBlock } from '@anthropic-ai/sdk/resources/messages.js';
-import { Octokit } from '@octokit/rest';
+import type { CIRunner, PRFile } from '../../lib/dispatch/runner/types.js';
 import { FerryError } from '../../lib/error.js';
 import type { CiStatus } from './ci-gate.js';
 
@@ -8,7 +8,7 @@ export const MAX_PATCH_CHARS = 20_000;
 export const MAX_CONTENT_CHARS = 40_000;
 const MAX_ITERATIONS = 40;
 
-export { CiStatus };
+export type { CiStatus, PRFile as PrFile };
 
 export const REVIEW_TOOLS: Anthropic.Tool[] = [
   {
@@ -57,48 +57,12 @@ export const REVIEW_TOOLS: Anthropic.Tool[] = [
   },
 ];
 
-export type PrFile = { filename: string; status: string; additions: number; deletions: number; patch?: string };
-
 export interface ReviewResult {
   approved: boolean;
   comment: string;
 }
 
-export async function resolveCiStatus(
-  octokit: Octokit,
-  owner: string,
-  repo: string,
-  sha: string,
-): Promise<CiStatus> {
-  const { data } = await octokit.checks.listForRef({ owner, repo, ref: sha, per_page: 100 });
-  const runs = data.check_runs;
-  if (runs.some((r) => r.status !== 'completed')) return 'pending';
-  if (runs.some((r) => r.conclusion === 'failure' || r.conclusion === 'timed_out')) return 'red';
-  return 'green';
-}
-
-export async function fetchAllPrFiles(
-  octokit: Octokit,
-  owner: string,
-  repo: string,
-  prNumber: number,
-): Promise<PrFile[]> {
-  const files = await octokit.paginate(octokit.pulls.listFiles, {
-    owner,
-    repo,
-    pull_number: prNumber,
-    per_page: 100,
-  });
-  return files.map((f) => ({
-    filename: f.filename,
-    status: f.status,
-    additions: f.additions,
-    deletions: f.deletions,
-    patch: f.patch,
-  }));
-}
-
-export function detectMergeConflicts(files: PrFile[]): string[] {
+export function detectMergeConflicts(files: PRFile[]): string[] {
   const conflicted: string[] = [];
   for (const f of files) {
     if (f.patch && /^[+].*<{7}|^[+].*={7}|^[+].*>{7}/m.test(f.patch)) {
@@ -108,31 +72,10 @@ export function detectMergeConflicts(files: PrFile[]): string[] {
   return conflicted;
 }
 
-export function buildFileList(files: PrFile[]): string {
+export function buildFileList(files: PRFile[]): string {
   return files
     .map((f) => `${f.status.padEnd(8)} +${f.additions} -${f.deletions}  ${f.filename}`)
     .join('\n');
-}
-
-export async function getFileContent(
-  octokit: Octokit,
-  owner: string,
-  repo: string,
-  filename: string,
-  ref: string,
-): Promise<string> {
-  try {
-    const { data } = await octokit.repos.getContent({ owner, repo, path: filename, ref });
-    if ('content' in data && typeof data.content === 'string') {
-      const decoded = Buffer.from(data.content, 'base64').toString('utf8');
-      return decoded.length > MAX_CONTENT_CHARS
-        ? decoded.slice(0, MAX_CONTENT_CHARS) + '\n... (truncated)'
-        : decoded;
-    }
-    return '(binary file or directory — cannot display)';
-  } catch (e) {
-    return `(error fetching content: ${(e as Error).message})`;
-  }
 }
 
 export async function runReviewLoop(opts: {
@@ -141,12 +84,12 @@ export async function runReviewLoop(opts: {
   system: string;
   initialPrompt: string;
   fileMap: Map<string, string | undefined>;
-  octokit: Octokit;
+  runner: CIRunner;
   owner: string;
   repo: string;
   headSha: string;
 }): Promise<{ result: ReviewResult; inputTokens: number; outputTokens: number }> {
-  const { anthropic, model, system, initialPrompt, fileMap, octokit, owner, repo, headSha } = opts;
+  const { anthropic, model, system, initialPrompt, fileMap, runner, owner, repo, headSha } = opts;
 
   const tools = REVIEW_TOOLS.map((t, i) =>
     i === REVIEW_TOOLS.length - 1
@@ -223,7 +166,7 @@ export async function runReviewLoop(opts: {
       if (block.name === 'get_file_content') {
         const filename = input.filename as string;
         console.error(`[ferry:review-tool] iter=${iter + 1} get_file_content ${filename}`);
-        const content = await getFileContent(octokit, owner, repo, filename, headSha);
+        const content = await runner.getFileContent(owner, repo, filename, headSha);
         toolResults.push({ type: 'tool_result', tool_use_id: block.id, content });
         continue;
       }

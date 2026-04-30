@@ -8,6 +8,7 @@ import { createJiraRestClientFromEnv } from '../../lib/io/jira-rest.js';
 import { adfToText } from '../../lib/io/jira-adf.js';
 import { scanWithGitleaks } from '../../lib/secret-scan/scan.js';
 import { FerryError } from '../../lib/error.js';
+import { GitHubActionsRunner } from '../../lib/dispatch/runner/github-actions/index.js';
 import { formatDeveloperCommit } from './commit.js';
 import { formatPullRequestTitle, formatPullRequestBody } from './pr.js';
 import { runAgentLoop } from './loop.js';
@@ -74,9 +75,16 @@ async function main(): Promise<void> {
 
   const anthropicApiKey = requireEnv('ANTHROPIC_API_KEY');
   const reviewTransitionId = requireEnv('FERRY_REVIEW_TRANSITION_ID');
+  const githubToken = requireEnv('GITHUB_TOKEN');
   const githubRepo = requireEnv('GITHUB_REPO');
   const jiraBaseUrl = requireEnv('FERRY_JIRA_BASE_URL');
 
+  const [owner, repo] = githubRepo.split('/');
+  if (!owner || !repo) {
+    throw new FerryError('state-invariant', { reason: 'invalid-github-repo', githubRepo });
+  }
+
+  const runner = new GitHubActionsRunner(githubToken, owner, repo);
   const jira = createJiraRestClientFromEnv();
   const issue = await jira.getIssue(ticketKey);
   const description = adfToText(issue.fields.description);
@@ -210,21 +218,7 @@ async function main(): Promise<void> {
     tldr: done.summary,
   });
 
-  let prUrl: string;
-  try {
-    const result = execFileSync(
-      'gh',
-      ['pr', 'create', '--title', prTitle, '--body', prBody, '--base', 'main', '--head', branchName],
-      { cwd: REPO_ROOT, encoding: 'utf8' },
-    );
-    prUrl = result.trim();
-  } catch {
-    prUrl = execFileSync(
-      'gh',
-      ['pr', 'view', branchName, '--json', 'url', '-q', '.url'],
-      { cwd: REPO_ROOT, encoding: 'utf8' },
-    ).trim();
-  }
+  const prUrl = await runner.createPR(owner, repo, branchName, 'main', prTitle, prBody);
 
   // Jira transition
   await fetch(
