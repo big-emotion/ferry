@@ -1,6 +1,5 @@
 import { appendFileSync, readFileSync } from 'node:fs';
 import { execFileSync, execSync } from 'node:child_process';
-import * as path from 'node:path';
 import { validateEnvelope } from '../../lib/envelope/validate.js';
 import { delimitUntrusted } from '../../lib/llm/delimit-untrusted.js';
 import { createTrackerFromEnv } from '../../lib/io/tracker/factory.js';

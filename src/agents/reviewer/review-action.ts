@@ -1,5 +1,4 @@
 import { appendFileSync, readFileSync } from 'node:fs';
-import * as path from 'node:path';
 import Anthropic from '@anthropic-ai/sdk';
 import { validateEnvelope } from '../../lib/envelope/validate.js';
 import { delimitUntrusted } from '../../lib/llm/delimit-untrusted.js';
