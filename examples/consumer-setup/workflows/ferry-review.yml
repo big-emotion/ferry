@@ -1,0 +1,26 @@
+# Copy this file to .github/workflows/ferry-review.yml in your repository.
+# Replace @v1 with the Ferry release tag you want to pin (e.g. @v1.2.3).
+# Required secrets: FERRY_JIRA_BASE_URL, FERRY_JIRA_EMAIL, FERRY_JIRA_API_TOKEN,
+#                   FERRY_ITER_TRANSITION_ID, ANTHROPIC_API_KEY
+# Required variables: FERRY_AUDIT_ISSUE (GitHub Issue number for the audit log)
+# Optional variables: FERRY_REVIEW_MODEL (default: claude-sonnet-4-6)
+
+name: Ferry — Review
+
+on:
+  repository_dispatch:
+    types: [ferry-review]
+
+# cancel-in-progress: false — writes fingerprints to state.iteration_history; must complete atomically
+concurrency:
+  group: ferry-${{ github.workflow }}-${{ github.event.client_payload.ticket_key || 'ferry-invalid-payload-sinkhole' }}
+  cancel-in-progress: false
+
+jobs:
+  review:
+    uses: big-emotion/ferry/.github/workflows/review.yml@v1
+    with:
+      ticket_key: ${{ github.event.client_payload.ticket_key }}
+      event_id: ${{ github.event.client_payload.event_id }}
+      payload: ${{ toJson(github.event.client_payload) }}
+    secrets: inherit

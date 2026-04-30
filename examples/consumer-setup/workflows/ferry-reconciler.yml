@@ -1,0 +1,20 @@
+# Copy this file to .github/workflows/ferry-reconciler.yml in your repository.
+# Replace @v1 with the Ferry release tag you want to pin (e.g. @v1.2.3).
+# Required variables: FERRY_AUDIT_ISSUE (GitHub Issue number for the audit log)
+
+name: Ferry — Reconciler
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch: {}
+
+# cancel-in-progress: true — idempotent sweep; a newer sweep supersedes an older one safely
+concurrency:
+  group: ferry-reconciler
+  cancel-in-progress: true
+
+jobs:
+  reconciler:
+    uses: big-emotion/ferry/.github/workflows/reconciler.yml@v1
+    secrets: inherit

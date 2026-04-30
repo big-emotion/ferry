@@ -1,0 +1,71 @@
+name: Ferry — Review
+description: Runs the Ferry reviewer agent. Reviews the PR diff against the Jira acceptance criteria and posts structured feedback. Assumes the consumer repo is already checked out.
+inputs:
+  envelope_payload:
+    description: JSON-encoded github.event.client_payload
+    required: true
+  jira_base_url:
+    description: Jira base URL (e.g. https://your-org.atlassian.net)
+    required: true
+  jira_email:
+    description: Atlassian account email
+    required: true
+  jira_api_token:
+    description: Atlassian API token
+    required: true
+  iter_transition_id:
+    description: Jira transition ID to move the ticket to Iteration when changes are requested
+    required: true
+  anthropic_api_key:
+    description: Anthropic API key
+    required: true
+  github_token:
+    description: GitHub token with pull-requests:write and checks:read
+    required: true
+  model:
+    description: Claude model ID to use
+    required: false
+    default: claude-sonnet-4-6
+outputs:
+  input_tokens:
+    description: Number of input tokens consumed
+    value: ${{ steps.run-reviewer.outputs.input_tokens }}
+  output_tokens:
+    description: Number of output tokens consumed
+    value: ${{ steps.run-reviewer.outputs.output_tokens }}
+  model:
+    description: Model ID used by the agent
+    value: ${{ steps.run-reviewer.outputs.model }}
+runs:
+  using: composite
+  steps:
+    - name: Set up Node.js
+      uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af  # v4.1.0
+      with:
+        node-version: '20'
+        cache: npm
+        cache-dependency-path: ${{ github.action_path }}/../../.ferry/package-lock.json
+    - name: Install Ferry action dependencies
+      shell: bash
+      run: npm ci --prefer-offline
+      working-directory: ${{ github.action_path }}/../../.ferry
+    - name: Skip Task tickets (FR6)
+      shell: bash
+      run: node "$GITHUB_ACTION_PATH/../../.ferry/skip-task-type-action.js"
+      env:
+        FERRY_ENVELOPE_PAYLOAD: ${{ inputs.envelope_payload }}
+    - name: Run Reviewer agent
+      id: run-reviewer
+      shell: bash
+      run: node "$GITHUB_ACTION_PATH/../../.ferry/review-action.js"
+      env:
+        FERRY_ENVELOPE_PAYLOAD: ${{ inputs.envelope_payload }}
+        FERRY_JIRA_BASE_URL: ${{ inputs.jira_base_url }}
+        FERRY_JIRA_EMAIL: ${{ inputs.jira_email }}
+        FERRY_JIRA_API_TOKEN: ${{ inputs.jira_api_token }}
+        FERRY_ITER_TRANSITION_ID: ${{ inputs.iter_transition_id }}
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+        GH_TOKEN: ${{ inputs.github_token }}
+        GITHUB_REPO: ${{ github.repository }}
+        FERRY_REVIEW_MODEL: ${{ inputs.model }}

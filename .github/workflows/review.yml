@@ -3,10 +3,21 @@ name: Ferry — Review
 on:
   repository_dispatch:
     types: [ferry-review]
+  workflow_call:
+    inputs:
+      ticket_key:
+        required: true
+        type: string
+      event_id:
+        required: true
+        type: string
+      payload:
+        required: true
+        type: string
 
 # cancel-in-progress: false — writes fingerprints to state.iteration_history[] + PR review body; must complete atomically
 concurrency:
-  group: ferry-${{ github.workflow }}-${{ startsWith(github.event.client_payload.ticket_key, 'CHAN-') && github.event.client_payload.ticket_key || 'ferry-invalid-payload-sinkhole' }}
+  group: ferry-${{ github.workflow }}-${{ inputs.ticket_key || (startsWith(github.event.client_payload.ticket_key, 'CHAN-') && github.event.client_payload.ticket_key) || 'ferry-invalid-payload-sinkhole' }}
   cancel-in-progress: false
 
 jobs:
@@ -20,7 +31,7 @@ jobs:
       - name: Validate event envelope
         uses: ./.github/actions/ferry-envelope-validate
         with:
-          payload: ${{ toJson(github.event.client_payload) }}
+          payload: ${{ inputs.payload || toJson(github.event.client_payload) }}
 
   run-agent:
     name: Run Reviewer agent
@@ -55,14 +66,14 @@ jobs:
         shell: bash
         run: node .ferry/skip-task-type-action.js
         env:
-          FERRY_ENVELOPE_PAYLOAD: ${{ toJson(github.event.client_payload) }}
+          FERRY_ENVELOPE_PAYLOAD: ${{ inputs.payload || toJson(github.event.client_payload) }}
 
       - name: Run Reviewer agent
         id: run-reviewer
         shell: bash
         run: node .ferry/review-action.js
         env:
-          FERRY_ENVELOPE_PAYLOAD: ${{ toJson(github.event.client_payload) }}
+          FERRY_ENVELOPE_PAYLOAD: ${{ inputs.payload || toJson(github.event.client_payload) }}
           FERRY_JIRA_BASE_URL: ${{ secrets.FERRY_JIRA_BASE_URL }}
           FERRY_JIRA_EMAIL: ${{ secrets.FERRY_JIRA_EMAIL }}
           FERRY_JIRA_API_TOKEN: ${{ secrets.FERRY_JIRA_API_TOKEN }}
@@ -87,9 +98,9 @@ jobs:
       - name: Emit audit line
         uses: ./.github/actions/ferry-emit-audit
         with:
-          ticket: ${{ github.event.client_payload.ticket_key }}
+          ticket: ${{ inputs.ticket_key || github.event.client_payload.ticket_key }}
           phase: review
-          run_id: ${{ github.event.client_payload.event_id }}
+          run_id: ${{ inputs.event_id || github.event.client_payload.event_id }}
           model: ${{ needs.run-agent.outputs.model || 'claude-sonnet-4-6' }}
           outcome: ${{ needs.run-agent.result }}
           input_tokens: ${{ needs.run-agent.outputs.input_tokens || '0' }}

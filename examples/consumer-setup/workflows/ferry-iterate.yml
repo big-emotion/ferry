@@ -1,0 +1,27 @@
+# Copy this file to .github/workflows/ferry-iterate.yml in your repository.
+# Replace @v1 with the Ferry release tag you want to pin (e.g. @v1.2.3).
+# Required secrets: FERRY_JIRA_BASE_URL, FERRY_JIRA_EMAIL, FERRY_JIRA_API_TOKEN,
+#                   FERRY_REVIEW_TRANSITION_ID, ANTHROPIC_API_KEY
+# Required variables: FERRY_AUDIT_ISSUE (GitHub Issue number for the audit log)
+# Optional variables: FERRY_ITER_MODEL (default: claude-sonnet-4-6)
+#                     FERRY_ITER_MAX_INPUT_TOKENS (default: 500000)
+
+name: Ferry — Iterate
+
+on:
+  repository_dispatch:
+    types: [ferry-iterate]
+
+# cancel-in-progress: false — same as dev; writes state.json and branch commits
+concurrency:
+  group: ferry-${{ github.workflow }}-${{ github.event.client_payload.ticket_key || 'ferry-invalid-payload-sinkhole' }}
+  cancel-in-progress: false
+
+jobs:
+  iterate:
+    uses: big-emotion/ferry/.github/workflows/iterate.yml@v1
+    with:
+      ticket_key: ${{ github.event.client_payload.ticket_key }}
+      event_id: ${{ github.event.client_payload.event_id }}
+      payload: ${{ toJson(github.event.client_payload) }}
+    secrets: inherit
