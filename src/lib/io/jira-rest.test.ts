@@ -130,28 +130,37 @@ describe('JiraRestClient', () => {
   });
 
   describe('createSubtask', () => {
-    it('POSTs to /rest/api/3/issue with correct fields', async () => {
-      const fix = fixture('create-subtask-201.json');
-      const mockFetch = vi.fn().mockResolvedValue(makeMockResponse(201, fix));
-      vi.stubGlobal('fetch', mockFetch);
+    const adfDesc = {
+      version: 1 as const,
+      type: 'doc' as const,
+      content: [
+        {
+          type: 'paragraph' as const,
+          content: [{ type: 'text' as const, text: 'desc' }],
+        },
+      ],
+    };
 
-      const adfDesc = {
-        version: 1 as const,
-        type: 'doc' as const,
-        content: [
-          {
-            type: 'paragraph' as const,
-            content: [{ type: 'text' as const, text: 'desc' }],
-          },
-        ],
-      };
+    it('resolves issuetype from project metadata then POSTs to /rest/api/3/issue', async () => {
+      const issuetypesFix = fixture('get-issuetypes-ACME.json');
+      const createdFix = fixture('create-subtask-201.json');
+      const mockFetch = vi
+        .fn()
+        .mockResolvedValueOnce(makeMockResponse(200, issuetypesFix))
+        .mockResolvedValueOnce(makeMockResponse(201, createdFix));
+      vi.stubGlobal('fetch', mockFetch);
 
       const result = await client.createSubtask('ACME-1', 'Sub-task title', adfDesc);
 
-      const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
-      expect(url).toBe('https://acme-corp.atlassian.net/rest/api/3/issue');
-      expect(init.method).toBe('POST');
-      const body = JSON.parse(init.body as string) as {
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      const [issuetypesUrl] = mockFetch.mock.calls[0] as [string, RequestInit];
+      expect(issuetypesUrl).toBe(
+        'https://acme-corp.atlassian.net/rest/api/3/issue/createmeta/ACME/issuetypes',
+      );
+      const [createUrl, createInit] = mockFetch.mock.calls[1] as [string, RequestInit];
+      expect(createUrl).toBe('https://acme-corp.atlassian.net/rest/api/3/issue');
+      expect(createInit.method).toBe('POST');
+      const body = JSON.parse(createInit.body as string) as {
         fields: {
           project: { key: string };
           parent: { key: string };
@@ -166,30 +175,54 @@ describe('JiraRestClient', () => {
       expect(result.key).toBe('ACME-2');
     });
 
-    it('retries with "Sub-task" issuetype name when first attempt returns 400', async () => {
-      const fix = fixture('create-subtask-201.json');
-      const mockFetch = vi
-        .fn()
-        .mockResolvedValueOnce(makeMockResponse(400))
-        .mockResolvedValueOnce(makeMockResponse(201, fix));
-      vi.stubGlobal('fetch', mockFetch);
-
-      const adfDesc = {
-        version: 1 as const,
-        type: 'doc' as const,
-        content: [
-          { type: 'paragraph' as const, content: [{ type: 'text' as const, text: 'desc' }] },
+    it('resolves French locale issuetype name ("Sous-tâche")', async () => {
+      const frIssuetypes = {
+        issueTypes: [
+          { id: '10000', name: 'Récit', subtask: false },
+          { id: '10001', name: 'Sous-tâche', subtask: true },
         ],
       };
+      const createdFix = fixture('create-subtask-201.json');
+      const mockFetch = vi
+        .fn()
+        .mockResolvedValueOnce(makeMockResponse(200, frIssuetypes))
+        .mockResolvedValueOnce(makeMockResponse(201, createdFix));
+      vi.stubGlobal('fetch', mockFetch);
 
-      const result = await client.createSubtask('ACME-1', 'My subtask', adfDesc);
+      await client.createSubtask('CHAN-1', 'Ma sous-tâche', adfDesc);
 
-      expect(mockFetch).toHaveBeenCalledTimes(2);
-      const secondCall = JSON.parse(mockFetch.mock.calls[1][1].body as string) as {
+      const createInit = mockFetch.mock.calls[1][1] as RequestInit;
+      const body = JSON.parse(createInit.body as string) as {
         fields: { issuetype: { name: string } };
       };
-      expect(secondCall.fields.issuetype.name).toBe('Sub-task');
-      expect(result.key).toBe('ACME-2');
+      expect(body.fields.issuetype.name).toBe('Sous-tâche');
+    });
+
+    it('caches the issuetype resolution for the same project', async () => {
+      const issuetypesFix = fixture('get-issuetypes-ACME.json');
+      const createdFix = fixture('create-subtask-201.json');
+      const mockFetch = vi
+        .fn()
+        .mockResolvedValueOnce(makeMockResponse(200, issuetypesFix))
+        .mockResolvedValue(makeMockResponse(201, createdFix));
+      vi.stubGlobal('fetch', mockFetch);
+
+      await client.createSubtask('ACME-1', 'first', adfDesc);
+      await client.createSubtask('ACME-2', 'second', adfDesc);
+
+      const issuetypeCalls = (mockFetch.mock.calls as [string][]).filter(([url]) =>
+        url.includes('createmeta'),
+      );
+      expect(issuetypeCalls).toHaveLength(1);
+    });
+
+    it('throws FerryError("state-invariant") when project has no subtask issuetype', async () => {
+      const noSubtask = { issueTypes: [{ id: '10000', name: 'Story', subtask: false }] };
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(makeMockResponse(200, noSubtask)));
+
+      await expect(client.createSubtask('ACME-1', 'title', adfDesc)).rejects.toMatchObject({
+        code: 'state-invariant',
+      });
     });
   });
 

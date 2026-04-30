@@ -38,8 +38,15 @@ export interface JiraCreatedIssue {
   self: string;
 }
 
+interface JiraIssueType {
+  id: string;
+  name: string;
+  subtask: boolean;
+}
+
 export class JiraRestClient {
   private readonly authHeader: string;
+  private readonly subtaskTypeCache = new Map<string, string>();
 
   constructor(
     private readonly baseUrl: string,
@@ -88,37 +95,45 @@ export class JiraRestClient {
     return response.json() as Promise<JiraCommentResponse>;
   }
 
+  private async resolveSubtaskTypeName(projectKey: string): Promise<string> {
+    const cached = this.subtaskTypeCache.get(projectKey);
+    if (cached !== undefined) return cached;
+
+    const response = await fetch(
+      `${this.baseUrl}/rest/api/3/issue/createmeta/${projectKey}/issuetypes`,
+      { method: 'GET', headers: this.baseHeaders },
+    );
+    this.throwForStatus(response.status);
+    const data = (await response.json()) as { issueTypes: JiraIssueType[] };
+    const subtaskType = data.issueTypes.find((t) => t.subtask);
+    if (!subtaskType) {
+      throw new FerryError('state-invariant', { reason: 'no-subtask-issuetype', projectKey });
+    }
+    this.subtaskTypeCache.set(projectKey, subtaskType.name);
+    return subtaskType.name;
+  }
+
   async createSubtask(
     parentKey: string,
     summary: string,
     adfDescription: AdfDoc,
   ): Promise<JiraCreatedIssue> {
     const projectKey = parentKey.split('-')[0];
+    const issuetypeName = await this.resolveSubtaskTypeName(projectKey);
 
-    const buildBody = (issuetypeName: string) => ({
-      fields: {
-        project: { key: projectKey },
-        parent: { key: parentKey },
-        summary,
-        // Some Jira configurations use "Sub-task" instead of "Subtask" — see retry below.
-        issuetype: { name: issuetypeName },
-        description: adfDescription,
-      },
-    });
-
-    const reqOpts = (issuetypeName: string): RequestInit => ({
+    const response = await fetch(`${this.baseUrl}/rest/api/3/issue`, {
       method: 'POST',
       headers: { ...this.baseHeaders, 'Content-Type': 'application/json' },
-      body: JSON.stringify(buildBody(issuetypeName)),
+      body: JSON.stringify({
+        fields: {
+          project: { key: projectKey },
+          parent: { key: parentKey },
+          summary,
+          issuetype: { name: issuetypeName },
+          description: adfDescription,
+        },
+      }),
     });
-
-    let response = await fetch(`${this.baseUrl}/rest/api/3/issue`, reqOpts('Subtask'));
-
-    // Retry with alternate issuetype name on 400 — tenant-specific Jira config may differ.
-    if (response.status === 400) {
-      response = await fetch(`${this.baseUrl}/rest/api/3/issue`, reqOpts('Sub-task'));
-    }
-
     this.throwForStatus(response.status);
     return response.json() as Promise<JiraCreatedIssue>;
   }
