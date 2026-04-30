@@ -11,6 +11,11 @@ on:
   repository_dispatch:
     types: [ferry-dev]
 
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
 # cancel-in-progress: false — dev writes a branch and PR; cancellation mid-commit = state divergence
 concurrency:
   group: ferry-${{ github.workflow }}-${{ github.event.client_payload.ticket_key || 'ferry-invalid-payload-sinkhole' }}

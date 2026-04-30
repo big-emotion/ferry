@@ -12,6 +12,11 @@ on:
   repository_dispatch:
     types: [ferry-iterate]
 
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
 # cancel-in-progress: false — same as dev; writes state.json and branch commits
 concurrency:
   group: ferry-${{ github.workflow }}-${{ github.event.client_payload.ticket_key || 'ferry-invalid-payload-sinkhole' }}

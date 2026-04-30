@@ -11,6 +11,12 @@ on:
   repository_dispatch:
     types: [ferry-review]
 
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+  checks: read
+
 # cancel-in-progress: false — writes fingerprints to state.iteration_history; must complete atomically
 concurrency:
   group: ferry-${{ github.workflow }}-${{ github.event.client_payload.ticket_key || 'ferry-invalid-payload-sinkhole' }}

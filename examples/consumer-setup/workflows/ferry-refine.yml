@@ -9,6 +9,10 @@ on:
   repository_dispatch:
     types: [ferry-refine]
 
+permissions:
+  contents: read
+  issues: write
+
 concurrency:
   group: ferry-${{ github.workflow }}-${{ github.event.client_payload.ticket_key || 'ferry-invalid-payload-sinkhole' }}
   cancel-in-progress: true
