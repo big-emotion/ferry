@@ -372,7 +372,11 @@ describe('createAnthropicAgentLoop — stdio MCP tools', () => {
     const mcpTool = {
       name: 'list_files',
       description: 'List files in a directory',
-      input_schema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] },
+      input_schema: {
+        type: 'object',
+        properties: { path: { type: 'string' } },
+        required: ['path'],
+      },
     };
     mockPool.getTools.mockReturnValue([mcpTool]);
     mockPool.hasTool.mockImplementation((name: string) => name === 'list_files');
@@ -395,7 +399,11 @@ describe('createAnthropicAgentLoop — stdio MCP tools', () => {
 
   it('dispatches stdio MCP tool calls to the pool', async () => {
     mockPool.getTools.mockReturnValue([
-      { name: 'read_resource', description: 'Read', input_schema: { type: 'object', properties: {}, required: [] } },
+      {
+        name: 'read_resource',
+        description: 'Read',
+        input_schema: { type: 'object', properties: {}, required: [] },
+      },
     ]);
     mockPool.hasTool.mockImplementation((name: string) => name === 'read_resource');
     mockPool.callTool.mockResolvedValue('file contents here');
@@ -403,7 +411,12 @@ describe('createAnthropicAgentLoop — stdio MCP tools', () => {
     const toolCallResponse: FakeResponse = {
       stop_reason: 'tool_use',
       content: [
-        { type: 'tool_use', id: 'tu_mcp', name: 'read_resource', input: { uri: 'file:///tmp/test' } },
+        {
+          type: 'tool_use',
+          id: 'tu_mcp',
+          name: 'read_resource',
+          input: { uri: 'file:///tmp/test' },
+        },
       ],
     };
 
@@ -494,7 +507,12 @@ describe('createAnthropicAgentLoop — stdio MCP tools', () => {
               return {
                 stop_reason: 'tool_use',
                 content: [
-                  { type: 'tool_use', id: 'tu_done', name: 'done', input: { actionable: false, summary: 'gave up' } },
+                  {
+                    type: 'tool_use',
+                    id: 'tu_done',
+                    name: 'done',
+                    input: { actionable: false, summary: 'gave up' },
+                  },
                 ],
                 usage: { input_tokens: 5, output_tokens: 5 },
               };
