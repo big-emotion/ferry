@@ -102,6 +102,28 @@ describe('createLlmCall', () => {
       );
     });
 
+    it('uses CLAUDE_CODE_OAUTH_TOKEN when set, initialises SDK with authToken', async () => {
+      vi.stubEnv('CLAUDE_CODE_OAUTH_TOKEN', 'oauth-tok-xyz');
+      vi.stubEnv('FERRY_ANTHROPIC_KEY', '');
+      createLlmCall(route);
+      expect(Anthropic).toHaveBeenCalledWith(
+        expect.objectContaining({ authToken: 'oauth-tok-xyz' }),
+      );
+      expect(Anthropic).not.toHaveBeenCalledWith(
+        expect.objectContaining({ apiKey: expect.anything() }),
+      );
+    });
+
+    it('falls back to FERRY_ANTHROPIC_KEY when CLAUDE_CODE_OAUTH_TOKEN is unset', () => {
+      vi.stubEnv('FERRY_ANTHROPIC_KEY', 'sk-ant-abc');
+      vi.stubEnv('CLAUDE_CODE_OAUTH_TOKEN', '');
+      createLlmCall(route);
+      expect(Anthropic).toHaveBeenCalledWith(expect.objectContaining({ apiKey: 'sk-ant-abc' }));
+      expect(Anthropic).not.toHaveBeenCalledWith(
+        expect.objectContaining({ authToken: expect.anything() }),
+      );
+    });
+
     it('maps RateLimitError to FerryError("spend-cap") immediately (no retry)', async () => {
       vi.stubEnv('FERRY_ANTHROPIC_KEY', 'test-key');
       const RLE = Anthropic.RateLimitError as unknown as ZeroArgClass;

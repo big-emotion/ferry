@@ -1,9 +1,11 @@
+import Anthropic from '@anthropic-ai/sdk';
 import { FerryError } from '../errors/index.js';
 import { retry } from '../io/retry.js';
 import type { LlmRoute } from './config.js';
 import { invokeAnthropic } from './anthropic.js';
 import { invokeOpenAI } from './openai.js';
 import { invokeGoogle } from './google.js';
+import { resolveAnthropicAuth } from './anthropic-auth.js';
 
 export interface LlmUsage {
   inputTokens: number;
@@ -31,10 +33,11 @@ function requireEnv(key: string): string {
 
 export function createLlmCall(route: LlmRoute): LlmCall {
   if (route.provider === 'anthropic') {
-    const apiKey = requireEnv('FERRY_ANTHROPIC_KEY');
+    const auth = resolveAnthropicAuth({ apiKeyEnv: 'FERRY_ANTHROPIC_KEY' });
+    const client = new Anthropic(auth);
     return retry(
       (prompt: string) =>
-        invokeAnthropic({ apiKey, model: route.model, prompt, maxTokens: MAX_TOKENS }),
+        invokeAnthropic({ client, model: route.model, prompt, maxTokens: MAX_TOKENS }),
       { baseDelayMs: 2000, maxAttempts: 3 },
     );
   }
