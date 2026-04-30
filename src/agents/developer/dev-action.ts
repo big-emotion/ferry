@@ -1,7 +1,6 @@
 import { appendFileSync, readFileSync } from 'node:fs';
 import { execFileSync, execSync } from 'node:child_process';
 import * as path from 'node:path';
-import Anthropic from '@anthropic-ai/sdk';
 import { validateEnvelope } from '../../lib/envelope/validate.js';
 import { delimitUntrusted } from '../../lib/sanitization/delimit-untrusted.js';
 import { createJiraRestClientFromEnv } from '../../lib/io/jira-rest.js';
@@ -10,7 +9,8 @@ import { scanWithGitleaks } from '../../lib/secret-scan/scan.js';
 import { FerryError } from '../../lib/error.js';
 import { formatDeveloperCommit } from './commit.js';
 import { formatPullRequestTitle, formatPullRequestBody } from './pr.js';
-import { runAgentLoop } from './loop.js';
+import { TOOL_SCHEMAS, COMMIT_PROGRESS_SCHEMA, SPAWN_SUBAGENT_SCHEMA, executeTool } from './tools.js';
+import { createAnthropicAgentLoop } from '../../lib/llm/agent-loop/anthropic.js';
 
 const REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
 const SYSTEM_PROMPT_PATH = process.env.FERRY_PROMPT_PATH ?? path.join(REPO_ROOT, 'prompts', 'dev.md');
@@ -113,8 +113,8 @@ async function main(): Promise<void> {
   ].join('\n');
 
   const system = readFileSync(SYSTEM_PROMPT_PATH, 'utf8');
-  const anthropic = new Anthropic({ apiKey: anthropicApiKey });
   const model = process.env.FERRY_DEV_MODEL ?? 'claude-opus-4-5';
+  const loop = createAnthropicAgentLoop({ apiKey: anthropicApiKey, model, executeTool });
 
   // Branch is determined upfront from the ticket key so restarts resume the same branch.
   const branchName = `ferry/${ticketKey}`;
@@ -150,11 +150,11 @@ async function main(): Promise<void> {
     }
   };
 
-  const { done, usage, iterations } = await runAgentLoop({
-    anthropic,
-    model,
+  const allToolSchemas = [...TOOL_SCHEMAS, COMMIT_PROGRESS_SCHEMA, SPAWN_SUBAGENT_SCHEMA];
+  const { done, usage, iterations } = await loop.run({
     system,
     initialPrompt: initialPrompt + resumeContext,
+    tools: allToolSchemas,
     repoRoot: REPO_ROOT,
     branchName,
     secretScan,
