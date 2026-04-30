@@ -23,7 +23,17 @@ if (!issueType) process.exit(0);
 const skip = shouldSkipForTaskType(issueType);
 if (!skip.skip) process.exit(0);
 
-const role = 'refiner';
+const VALID_ROLES = ['refiner', 'developer', 'reviewer', 'iterator'] as const;
+type AgentRole = (typeof VALID_ROLES)[number];
+
+const rawRole = process.env.FERRY_AGENT_ROLE;
+if (!rawRole || !(VALID_ROLES as readonly string[]).includes(rawRole)) {
+  console.error(
+    `[ferry:dispatch] FERRY_AGENT_ROLE must be one of ${VALID_ROLES.join(', ')} — got: ${rawRole ?? '(unset)'}`,
+  );
+  process.exit(1);
+}
+const role = rawRole as AgentRole;
 const body = buildTaskSkipComment(role, envelope.event_id);
 
 await postComment({
