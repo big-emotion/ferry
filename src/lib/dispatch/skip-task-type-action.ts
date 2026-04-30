@@ -1,6 +1,6 @@
 import { postComment } from '../io/jira.js';
 import { validateEnvelope } from '../envelope/validate.js';
-import { buildTaskSkipComment, shouldSkipForTaskType } from './route.js';
+import { buildTaskSkipComment, shouldSkipForTaskType } from './routing.js';
 
 const raw = process.env.FERRY_ENVELOPE_PAYLOAD;
 if (!raw) {

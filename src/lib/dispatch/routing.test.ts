@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
+import { validateEnvelope } from '../envelope/validate.js';
 import {
   PHASE_TO_WORKFLOW,
   phaseToWorkflow,
   phaseToDispatchType,
-  shouldProcessTicketType,
-  skipCommentForTaskType,
-  type TicketType,
+  shouldSkipForTaskType,
+  buildTaskSkipComment,
 } from './routing.js';
 
 describe('PHASE_TO_WORKFLOW table', () => {
@@ -35,39 +35,44 @@ describe('phaseToWorkflow / phaseToDispatchType', () => {
   });
 });
 
-describe('shouldProcessTicketType (FR6 task-type filter)', () => {
-  it.each([
-    ['Story', true],
-    ['Bug', true],
-    ['Spike', true],
-  ] as const)('processes %s tickets', (type, expected) => {
-    expect(shouldProcessTicketType(type as TicketType)).toBe(expected);
+describe('shouldSkipForTaskType (FR6 task-type filter)', () => {
+  it('skips Task issue types', () => {
+    expect(shouldSkipForTaskType('Task')).toEqual({
+      skip: true,
+      reason: 'ticket type Task is not processed by Ferry',
+    });
   });
 
-  it('skips Task tickets', () => {
-    expect(shouldProcessTicketType('Task')).toBe(false);
-  });
-
-  it('skips when ticket_type is undefined (defensive — Jira may omit field)', () => {
-    expect(shouldProcessTicketType(undefined)).toBe(true);
+  it('does not skip Story / Bug / Spike issue types', () => {
+    expect(shouldSkipForTaskType('Story')).toEqual({ skip: false });
+    expect(shouldSkipForTaskType('Bug')).toEqual({ skip: false });
+    expect(shouldSkipForTaskType('Spike')).toEqual({ skip: false });
   });
 });
 
-describe('skipCommentForTaskType', () => {
-  it('returns the documented skip comment for FR6', () => {
-    const comment = skipCommentForTaskType({
-      runId: '01HXXX',
-      ticketType: 'Task',
-      phase: 'refine',
-    });
-    expect(comment).toBe(
-      '[ferry:refiner:01HXXX] Skipped — ticket type Task is not processed by Ferry',
+describe('buildTaskSkipComment', () => {
+  it('builds the documented skip comment in the required format', () => {
+    expect(buildTaskSkipComment('refiner', '01ARZ3NDEKTSV4RRFFQ69G5FAV')).toBe(
+      '[ferry:refiner:01ARZ3NDEKTSV4RRFFQ69G5FAV] Skipped — ticket type Task is not processed by Ferry',
     );
   });
 
-  it('uses the phase as the agent prefix', () => {
-    expect(skipCommentForTaskType({ runId: 'r1', ticketType: 'Task', phase: 'dev' })).toBe(
+  it('uses the role as the agent prefix', () => {
+    expect(buildTaskSkipComment('dev', 'r1')).toBe(
       '[ferry:dev:r1] Skipped — ticket type Task is not processed by Ferry',
     );
+  });
+
+  it('accepts envelope with issue_type', () => {
+    const env = validateEnvelope({
+      version: 'v1',
+      event_id: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
+      ticket_key: 'CHAN-27',
+      phase: 'refine',
+      source: 'jira-column',
+      ts: '2026-01-01T00:00:00Z',
+      issue_type: 'Task',
+    });
+    expect(env.issue_type).toBe('Task');
   });
 });
