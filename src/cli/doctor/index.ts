@@ -8,6 +8,7 @@ import { checkJira } from './checks/jira.js';
 import { checkLlmKeys } from './checks/llm.js';
 import { checkSyntheticDispatch } from './checks/dispatch.js';
 import { checkWorkflowDrift } from './checks/workflows.js';
+import { checkPromptOverrides } from './checks/prompts.js';
 import { renderTable } from './table.js';
 import type { DoctorConfig } from './types.js';
 
@@ -105,6 +106,7 @@ Checks run in order:
   4. LLM keys valid         — 1-token Anthropic sanity call
   5. Synthetic dispatch     — trigger ferry-refine + poll for run start
   6. Workflow files         — compare .github/workflows/ferry-*.yml vs current release
+  7. Prompt overrides       — warn on full prompts/<agent>.md overrides; suggest .extra.md
 
 Exit code: 0 if all checks green/yellow, 1 if any check red.
 `);
@@ -138,6 +140,7 @@ Exit code: 0 if all checks green/yellow, 1 if any check red.
     checkLlmKeys({ anthropicApiKey: config.anthropicApiKey }),
     checkSyntheticDispatch({ repo: config.repo, noDispatch: config.noDispatch }),
     checkWorkflowDrift({ repoRoot: config.repoRoot, ferryVersion: config.ferryVersion }),
+    checkPromptOverrides({ repoRoot: config.repoRoot }),
   ]);
 
   process.stdout.write(renderTable(results));

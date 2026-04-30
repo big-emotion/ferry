@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { generateKeyPairSync } from 'node:crypto';
 import { renderTable } from './table.js';
 import { checkWorkflowDrift } from './checks/workflows.js';
+import { checkPromptOverrides } from './checks/prompts.js';
 import { listRepoSecrets } from './checks/secrets.js';
 import { makeAppJwt } from './checks/github-app.js';
 import type { CheckResult } from './types.js';
@@ -151,6 +152,69 @@ describe('checkWorkflowDrift', () => {
     const result = checkWorkflowDrift({ repoRoot, ferryVersion: 'v1' });
     expect(result.status).toBe('red');
 
+    rmSync(repoRoot, { recursive: true, force: true });
+  });
+});
+
+// ── checkPromptOverrides ──────────────────────────────────────────────────────
+
+describe('checkPromptOverrides', () => {
+  it('returns green when prompts/ directory is missing', () => {
+    const repoRoot = mkdtempSync(join(tmpdir(), 'ferry-doctor-prompts-none-'));
+    const result = checkPromptOverrides({ repoRoot });
+    expect(result.status).toBe('green');
+    expect(result.detail).toContain('No prompts/ directory');
+    expect(result.remedy).toBeUndefined();
+    rmSync(repoRoot, { recursive: true, force: true });
+  });
+
+  it('returns yellow with single warning when prompts/refiner.md is present', () => {
+    const repoRoot = mkdtempSync(join(tmpdir(), 'ferry-doctor-prompts-refiner-'));
+    const promptsDir = join(repoRoot, 'prompts');
+    mkdirSync(promptsDir, { recursive: true });
+    writeFileSync(join(promptsDir, 'refiner.md'), '# custom refiner prompt\n', 'utf8');
+
+    const result = checkPromptOverrides({ repoRoot });
+    expect(result.status).toBe('yellow');
+    expect(result.detail).toContain('prompts/refiner.md');
+    expect(result.detail).toContain('prompts/refiner.extra.md');
+    expect(result.detail).not.toContain('prompts/dev.md');
+    expect(result.detail).not.toContain('prompts/review.md');
+    expect(result.detail).not.toContain('prompts/iterate.md');
+    expect(result.remedy).toBeTruthy();
+    rmSync(repoRoot, { recursive: true, force: true });
+  });
+
+  it('returns green when only safe forms (.extra.md, _project.md) exist', () => {
+    const repoRoot = mkdtempSync(join(tmpdir(), 'ferry-doctor-prompts-safe-'));
+    const promptsDir = join(repoRoot, 'prompts');
+    mkdirSync(promptsDir, { recursive: true });
+    writeFileSync(join(promptsDir, 'dev.extra.md'), '# extra dev guidance\n', 'utf8');
+    writeFileSync(join(promptsDir, '_project.md'), '# project context\n', 'utf8');
+
+    const result = checkPromptOverrides({ repoRoot });
+    expect(result.status).toBe('green');
+    expect(result.remedy).toBeUndefined();
+    rmSync(repoRoot, { recursive: true, force: true });
+  });
+
+  it('returns yellow with multiple warnings when several overrides are present', () => {
+    const repoRoot = mkdtempSync(join(tmpdir(), 'ferry-doctor-prompts-multi-'));
+    const promptsDir = join(repoRoot, 'prompts');
+    mkdirSync(promptsDir, { recursive: true });
+    writeFileSync(join(promptsDir, 'refiner.md'), '# custom\n', 'utf8');
+    writeFileSync(join(promptsDir, 'dev.md'), '# custom\n', 'utf8');
+    writeFileSync(join(promptsDir, 'review.md'), '# custom\n', 'utf8');
+
+    const result = checkPromptOverrides({ repoRoot });
+    expect(result.status).toBe('yellow');
+    expect(result.detail).toContain('prompts/refiner.md');
+    expect(result.detail).toContain('prompts/dev.md');
+    expect(result.detail).toContain('prompts/review.md');
+    expect(result.detail).not.toContain('prompts/iterate.md');
+    expect(result.remedy).toContain('refiner.md');
+    expect(result.remedy).toContain('dev.md');
+    expect(result.remedy).toContain('review.md');
     rmSync(repoRoot, { recursive: true, force: true });
   });
 });
