@@ -26,7 +26,7 @@ Four agents chain automatically:
 
 1. **Refiner** — reads the ticket, proposes a sub-task breakdown (you approve)
 2. **Developer** — writes code, opens a draft PR on `ferry/<TICKET-KEY>` (FR18: auto-transitions ticket to *In Review*)
-3. **Reviewer** — reviews the PR; on approval adds `ferry:approved` label; on changes requested auto-transitions ticket to *Changes Requested* (FR24)
+3. **Reviewer** — reviews the PR. On `merge-ready`, adds the `ferry:approved` label to the PR (the Jira ticket stays in *In Review* — you move it manually). On `changes-requested`, auto-transitions ticket to *Changes Requested* (FR24).
 4. **Iterator** — applies reviewer feedback, pushes commits, auto-transitions ticket back to *In Review* (FR28); up to 3 rounds
 
 **Ferry never merges.** You merge the PR when it's ready.
@@ -131,15 +131,13 @@ done
 
 These stubs call Ferry's reusable workflows at `@v1`. Each stub uses `secrets: inherit` so all secrets flow through automatically.
 
-**Optional — cost governance and reconciler (recommended):**
+**Optional — reconciler (recommended):**
 ```bash
-for w in audit-daily reconciler; do
-  curl -fsSL "https://raw.githubusercontent.com/big-emotion/ferry/main/examples/consumer-setup/workflows/ferry-${w}.yml" \
-    -o ".github/workflows/ferry-${w}.yml"
-done
+curl -fsSL "https://raw.githubusercontent.com/big-emotion/ferry/main/examples/consumer-setup/workflows/ferry-reconciler.yml" \
+  -o ".github/workflows/ferry-reconciler.yml"
 ```
 
-> **Note:** `ferry-audit-daily.yml` runs daily spend monitoring. `ferry-reconciler.yml` sweeps every 15 min for stalled tickets. Both are optional for the initial smoke test.
+> **Note:** `ferry-reconciler.yml` sweeps every 15 min for stalled tickets. Optional for the initial smoke test.
 
 ### 3.2 — Pin the version (recommended)
 
@@ -150,7 +148,7 @@ By default the stubs reference `@v1`. For immutable pinning, replace with the ex
 LATEST_SHA=$(gh api repos/big-emotion/ferry/git/refs/tags/v1 --jq '.object.sha')
 echo "Pinning to $LATEST_SHA"
 
-# Substitute in the 4 core stubs (add ferry-audit-daily ferry-reconciler if you copied them)
+# Substitute in the 4 core stubs (also covers ferry-reconciler.yml if you copied it)
 sed -i.bak "s|@v1|@${LATEST_SHA}|g" .github/workflows/ferry-*.yml
 rm .github/workflows/ferry-*.yml.bak
 ```
@@ -163,7 +161,7 @@ git commit -m "chore(ferry): install consumer workflows pinned to ${LATEST_SHA:-
 git push
 ```
 
-✅ **Verification:** Go to **Actions** on GitHub → you must see 4 (or 6) workflows listed. No run yet.
+✅ **Verification:** Go to **Actions** on GitHub → you must see at least 4 workflows listed (5 if you copied the reconciler). No run yet.
 
 ---
 
@@ -251,9 +249,11 @@ Read the proposed sub-tasks. If OK, move the ticket to **In Development**.
 
 Because the ticket is now in **In Review**, the Jira automation fires → `Ferry — Review` starts.
 
-✅ Reviewer waits for the PR's CI to pass (ci-gate), then posts a structured verdict comment on the PR:
-- Verdict `ready` → adds `ferry:approved` label (FR24a). A Jira Automation rule observing this label can move the ticket to **Ready to Merge**.
-- Verdict `changes-requested` → ticket **automatically transitions to Changes Requested** (FR24b) → triggers `Ferry — Iterate`
+> **CI prerequisite:** The Reviewer blocks on the PR's CI status (`ci-gate`). If your repository has **no CI workflow that runs on `pull_request`**, the Reviewer will time out waiting for a check that never runs. Add at least one CI workflow (lint, typecheck, unit tests) before relying on Ferry end-to-end.
+
+✅ Reviewer waits for the PR's CI to pass, then posts a structured verdict comment on the PR (FR24):
+- Verdict `merge-ready` → adds the `ferry:approved` label to the PR. **The Jira ticket stays in *In Review*** — Ferry does not move it. You manually transition it to *Ready to Merge* when you're ready.
+- Verdict `changes-requested` → ticket **automatically transitions to Changes Requested** → triggers `Ferry — Iterate`.
 
 ### 5.5 — (If needed) Iterator
 
@@ -276,9 +276,9 @@ When Reviewer verdict is `ready` AND you have reviewed the PR yourself:
 After the smoke test, confirm all of the following:
 
 ✅ GitHub **Actions** tab: at least 3 green workflow runs for the test ticket (`Ferry — Refine`, `Ferry — Dev`, `Ferry — Review`)
-✅ Branch `ferry/<TICKET-KEY>` was created and merged into `main`
+✅ Branch `ferry/<TICKET-KEY>` was created by Ferry and merged into `main` by you (Phase 5.6) — Ferry never merges
 ✅ Audit issue `#FERRY_AUDIT_ISSUE` has accumulated lines — one per phase run (refine, dev, review, and iterate if it ran)
-✅ Jira transitions happened automatically: Refinement → In Development → In Review (FR18) → Changes Requested or ferry:approved (FR24)
+✅ Jira transitions happened automatically: Refinement → In Development → In Review (FR18). Then either: ticket auto-transitioned to Changes Requested (FR24, when verdict was `changes-requested`), or the PR received the `ferry:approved` label and the ticket stayed in In Review (when verdict was `merge-ready`)
 ✅ Anthropic console cost: < $0.50 for the smoke test
 
 If **all** of these check, the install is complete.
@@ -287,7 +287,7 @@ If **all** of these check, the install is complete.
 
 ## Phase 7 — Post-install hardening (recommended)
 
-1. **Anthropic cost cap:** https://console.anthropic.com/settings/limits → set a monthly cap (e.g., $50). When `ferry-audit-daily.yml` is fully implemented it will auto-pause Ferry at 50% of the cap.
+1. **Anthropic cost cap:** https://console.anthropic.com/settings/limits → set a monthly cap (e.g., $50). Ferry has no internal spend governance yet, so this is your only hard ceiling.
 2. **CODEOWNERS:** Add `.github/workflows/ferry-* @your-handle` to prevent unauthorized edits to the stubs.
 3. **Branch protection on `main`:** Require PR review + green CI before merge. Ferry opens drafts — you remain the last barrier.
 4. **SHA renewal:** Every 1–2 months, redo step 3.2 to bump the pinned SHA. Or configure Dependabot via `package-ecosystem: github-actions`.
@@ -299,9 +299,9 @@ If **all** of these check, the install is complete.
 | Issue | Status |
 |---|---|
 | `@v1` tag must exist before install guide works | Required for release — tag must be cut before distributing this guide |
-| `ferry-audit-daily.yml` cost governance | Placeholder only — spend check not yet implemented (Story 8.1) |
 | `ferry-reconciler.yml` stale-ticket sweep | Placeholder only — not yet implemented (Story 8.3) |
 | `.ferry/` agent scripts in consumer workspace | Tracked in #71 — workflows currently read agent scripts from Ferry repo checkout |
+| Anthropic Agent SDK support | Planned — current LLM call site uses the Anthropic Messages API; Agent SDK is the next roadmap item |
 
 ---
 
@@ -324,7 +324,7 @@ Phase 5 — Smoke test        [ ] Ticket created
                             [ ] Dev green + draft PR opened
                             [ ] Review green + verdict commented
                             [ ] FR18 auto-transition observed (Dev → In Review)
-                            [ ] FR24 auto-transition observed (→ Changes Requested or ferry:approved label)
+                            [ ] FR24 outcome observed (either auto-transition to Changes Requested, or ferry:approved label on the PR with the ticket left in In Review)
                             [ ] PR manually merged
 Phase 6 — Final verification[ ] Lines in audit issue (one per phase run)
                             [ ] Automatic Jira transitions observed
@@ -351,9 +351,9 @@ Phase 6 — Final verification[ ] Lines in audit issue (one per phase run)
 
 ## Customization
 
-See **[docs/CONFIGURATION.md](CONFIGURATION.md)** for all configurable parameters: models, token limits, Jira label capabilities, and the complete `ferry.config.json` schema.
+See **[docs/CONFIGURATION.md](CONFIGURATION.md)** for all configurable parameters: models, token limits, Jira label capabilities, and the complete config-file schema.
 
-In brief: create `ferry.config.json` at your repo root to set LLM model and provider per agent. Set `FERRY_REVIEW_MODEL` or `FERRY_ITER_MODEL` as GitHub repository variables for per-repo model overrides. For alternative LLM providers (OpenAI, Google AI), add the corresponding API key secret and set the provider in `ferry.config.json`.
+In brief: create `ferry.config.json` (or `ferry.config.yaml` / `ferry.config.yml`) at your repo root to set the Anthropic model per agent, plus run-cost and iteration limits. Set `FERRY_REVIEW_MODEL` or `FERRY_ITER_MODEL` as GitHub repository variables for per-repo model overrides without editing the config file. Use Jira `ferry:*` labels to grant agents extra MCP capabilities on a per-ticket basis.
 
 ---
 

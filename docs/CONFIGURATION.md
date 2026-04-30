@@ -29,8 +29,8 @@ Add these under **Settings → Secrets and variables → Actions → Secrets** i
 
 | Secret | Used by | Description |
 |--------|---------|-------------|
-| `FERRY_REVIEW_TRANSITION_ID` | Developer, Iterator | Jira transition ID that moves a ticket **into** the Review column. Find it via the Jira REST API: `GET /rest/api/3/issue/{key}/transitions`. |
-| `FERRY_ITER_TRANSITION_ID` | Reviewer | Jira transition ID that moves a ticket **into** the Iteration column (when the reviewer requests changes). Same API call as above. |
+| `FERRY_REVIEW_TRANSITION_ID` | Developer, Iterator | Jira transition ID that moves a ticket **into** the **In Review** column (FR18 / FR28). Find it via the Jira REST API: `GET /rest/api/3/issue/{key}/transitions`. |
+| `FERRY_ITER_TRANSITION_ID` | Reviewer | Jira transition ID that moves a ticket **into** the **Changes Requested** column (FR24, when the reviewer requests changes). Same API call as above. |
 
 > **Finding Jira transition IDs:** Call `GET https://<your-domain>.atlassian.net/rest/api/3/issue/<TICKET-KEY>/transitions` with Basic Auth. The response lists available transitions with their `id` and `name`. Use the ID (a number string like `"31"`) for the secret value.
 
@@ -117,7 +117,7 @@ Each agent can be configured independently. All `models.*` fields are optional.
 
 | Field | Default | Description |
 |-------|---------|-------------|
-| `models.refiner.provider` | `"anthropic"` | LLM provider: `"anthropic"`, `"openai"`, or `"google"` |
+| `models.refiner.provider` | `"anthropic"` | LLM provider. Currently only `"anthropic"` is wired through the consumer workflow stubs. |
 | `models.refiner.model` | `"claude-sonnet-4-6"` | Model ID for the Refiner agent |
 | `models.dev.provider` | `"anthropic"` | LLM provider for the Developer agent |
 | `models.dev.model` | `"claude-opus-4-5"` | Model ID for the Developer agent |
@@ -126,7 +126,7 @@ Each agent can be configured independently. All `models.*` fields are optional.
 | `models.iterate.provider` | `"anthropic"` | LLM provider for the Iterator agent |
 | `models.iterate.model` | `"claude-sonnet-4-6"` | Model ID for the Iterator agent (overridden by `FERRY_ITER_MODEL` var) |
 
-When using `"openai"` provider, add `FERRY_OPENAI_KEY` as a secret. For `"google"`, add `FERRY_GOOGLE_AI_KEY`.
+> Ferry currently uses the Anthropic Messages API exclusively. Anthropic Agent SDK support is the next roadmap item.
 
 #### `limits`
 

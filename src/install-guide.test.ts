@@ -37,7 +37,7 @@ async function fileExists(rel: string): Promise<boolean> {
 
 describe('Phase 3 — consumer workflow stubs (install-guide §3.1)', () => {
   const coreStubs = ['ferry-refine', 'ferry-dev', 'ferry-review', 'ferry-iterate'];
-  const optionalStubs = ['ferry-audit-daily', 'ferry-reconciler'];
+  const optionalStubs = ['ferry-reconciler'];
   const allStubs = [...coreStubs, ...optionalStubs];
 
   for (const stub of allStubs) {
@@ -95,7 +95,6 @@ describe('Phase 3 — reusable workflow references in stubs', () => {
     'ferry-dev': 'big-emotion/ferry/.github/workflows/dev.yml',
     'ferry-review': 'big-emotion/ferry/.github/workflows/review.yml',
     'ferry-iterate': 'big-emotion/ferry/.github/workflows/iterate.yml',
-    'ferry-audit-daily': 'big-emotion/ferry/.github/workflows/audit-daily.yml',
     'ferry-reconciler': 'big-emotion/ferry/.github/workflows/reconciler.yml',
   };
 
@@ -187,17 +186,14 @@ describe('Phase 2 — secret names match agent code (install-guide §2.3)', () =
     );
   });
 
-  it('all agents read FERRY_ENVELOPE_PAYLOAD', async () => {
-    const agents = [
-      'src/agents/developer/dev-action.ts',
-      'src/agents/reviewer/review-action.ts',
-      'src/agents/iterator/iterate-action.ts',
-      'src/agents/refiner/refiner-action.ts',
-    ];
-    for (const file of agents) {
-      const code = await readFile(file);
-      expect(code, `${file} must read FERRY_ENVELOPE_PAYLOAD`).toContain('FERRY_ENVELOPE_PAYLOAD');
-    }
+  it('shared agent runtime reads FERRY_ENVELOPE_PAYLOAD', async () => {
+    // Since the runAgent() helper extraction, all agent entrypoints route
+    // through src/lib/agent-runtime/run-agent.ts — that's where the env var
+    // is read. The four agent action files no longer reference it directly.
+    const code = await readFile('src/lib/agent-runtime/run-agent.ts');
+    expect(code, 'run-agent.ts must read FERRY_ENVELOPE_PAYLOAD').toContain(
+      'FERRY_ENVELOPE_PAYLOAD',
+    );
   });
 });
 
