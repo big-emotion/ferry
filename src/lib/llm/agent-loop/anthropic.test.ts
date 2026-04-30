@@ -4,6 +4,26 @@ import { FerryError } from '../../errors/index.js';
 import { createAnthropicAgentLoop } from './anthropic.js';
 import type { McpServerConfig } from './types.js';
 
+// Hoisted so the factory can close over them before module imports resolve.
+const { mockPool, MockMcpClientPool } = vi.hoisted(() => {
+  const pool = {
+    connect: vi.fn().mockResolvedValue(undefined),
+    getTools: vi.fn().mockReturnValue([]),
+    hasTool: vi.fn().mockReturnValue(false),
+    getServerName: vi.fn().mockReturnValue(undefined),
+    callTool: vi.fn().mockResolvedValue('mcp result'),
+    close: vi.fn().mockResolvedValue(undefined),
+  };
+  const ctor = vi.fn().mockImplementation(function () {
+    return pool;
+  });
+  return { mockPool: pool, MockMcpClientPool: ctor };
+});
+
+vi.mock('../../mcp/pool.js', () => ({
+  McpClientPool: MockMcpClientPool,
+}));
+
 type FakeResponse = {
   stop_reason: string;
   content: Array<{
@@ -74,9 +94,23 @@ const baseInput = {
   secretScan: async () => {},
 };
 
+function restorePoolDefaults(): void {
+  MockMcpClientPool.mockImplementation(function () {
+    return mockPool;
+  });
+  mockPool.connect.mockResolvedValue(undefined);
+  mockPool.getTools.mockReturnValue([]);
+  mockPool.hasTool.mockReturnValue(false);
+  mockPool.getServerName.mockReturnValue(undefined);
+  mockPool.callTool.mockResolvedValue('mcp result');
+  mockPool.close.mockResolvedValue(undefined);
+}
+
 describe('createAnthropicAgentLoop — MCP connector', () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    // vi.resetAllMocks() wipes pool implementations — restore sensible defaults.
+    restorePoolDefaults();
   });
 
   it('uses regular messages.create when mcpServers is empty (regression)', async () => {
@@ -302,9 +336,214 @@ describe('createAnthropicAgentLoop — MCP connector', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Stdio MCP client-side tools
+// ---------------------------------------------------------------------------
+
+describe('createAnthropicAgentLoop — stdio MCP tools', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    restorePoolDefaults();
+  });
+
+  it('uses regular messages.create (not beta) for stdio-only servers', async () => {
+    const mock = makeMock([doneResponse]);
+    const loop = createAnthropicAgentLoop({
+      model: 'm',
+      client: mock as unknown as Anthropic,
+      executeTool: noopExecuteTool,
+    });
+
+    const stdioServer: McpServerConfig = {
+      type: 'stdio',
+      name: 'fs',
+      command: 'node',
+      args: ['mcp-server.js'],
+    };
+
+    await loop.run({ ...baseInput, mcpServers: [stdioServer] });
+
+    expect(mock.regularCreate).toHaveBeenCalledOnce();
+    expect(mock.betaCreate).not.toHaveBeenCalled();
+    expect(mockPool.connect).toHaveBeenCalledWith([stdioServer]);
+  });
+
+  it('includes stdio MCP tools in the tools array passed to API', async () => {
+    const mcpTool = {
+      name: 'list_files',
+      description: 'List files in a directory',
+      input_schema: {
+        type: 'object',
+        properties: { path: { type: 'string' } },
+        required: ['path'],
+      },
+    };
+    mockPool.getTools.mockReturnValue([mcpTool]);
+    mockPool.hasTool.mockImplementation((name: string) => name === 'list_files');
+
+    const mock = makeMock([doneResponse]);
+    const loop = createAnthropicAgentLoop({
+      model: 'm',
+      client: mock as unknown as Anthropic,
+      executeTool: noopExecuteTool,
+    });
+
+    const stdioServer: McpServerConfig = { type: 'stdio', name: 'fs', command: 'node', args: [] };
+    await loop.run({ ...baseInput, mcpServers: [stdioServer] });
+
+    const callArgs = mock.regularCreate.mock.calls[0][0] as { tools: unknown[] };
+    expect(callArgs.tools).toContainEqual(expect.objectContaining({ name: 'list_files' }));
+  });
+
+  it('dispatches stdio MCP tool calls to the pool', async () => {
+    mockPool.getTools.mockReturnValue([
+      {
+        name: 'read_resource',
+        description: 'Read',
+        input_schema: { type: 'object', properties: {}, required: [] },
+      },
+    ]);
+    mockPool.hasTool.mockImplementation((name: string) => name === 'read_resource');
+    mockPool.callTool.mockResolvedValue('file contents here');
+
+    const toolCallResponse: FakeResponse = {
+      stop_reason: 'tool_use',
+      content: [
+        {
+          type: 'tool_use',
+          id: 'tu_mcp',
+          name: 'read_resource',
+          input: { uri: 'file:///tmp/test' },
+        },
+      ],
+    };
+
+    const mock = makeMock([toolCallResponse, doneResponse]);
+    const execTool = vi.fn<(r: string, n: string, i: Record<string, unknown>) => Promise<string>>();
+    const loop = createAnthropicAgentLoop({
+      model: 'm',
+      client: mock as unknown as Anthropic,
+      executeTool: execTool,
+    });
+
+    const stdioServer: McpServerConfig = { type: 'stdio', name: 'fs', command: 'node', args: [] };
+    const result = await loop.run({ ...baseInput, mcpServers: [stdioServer] });
+
+    expect(mockPool.callTool).toHaveBeenCalledWith('read_resource', { uri: 'file:///tmp/test' });
+    expect(execTool).not.toHaveBeenCalled();
+    expect(result.done.actionable).toBe(true);
+  });
+
+  it('closes the pool after a successful run', async () => {
+    const mock = makeMock([doneResponse]);
+    const loop = createAnthropicAgentLoop({
+      model: 'm',
+      client: mock as unknown as Anthropic,
+      executeTool: noopExecuteTool,
+    });
+
+    const stdioServer: McpServerConfig = { type: 'stdio', name: 'fs', command: 'node', args: [] };
+    await loop.run({ ...baseInput, mcpServers: [stdioServer] });
+
+    expect(mockPool.close).toHaveBeenCalledOnce();
+  });
+
+  it('closes the pool even when the loop throws', async () => {
+    const mock = makeMock([{ stop_reason: 'end_turn', content: [{ type: 'text', text: 'oops' }] }]);
+    const loop = createAnthropicAgentLoop({
+      model: 'm',
+      client: mock as unknown as Anthropic,
+      executeTool: noopExecuteTool,
+    });
+
+    const stdioServer: McpServerConfig = { type: 'stdio', name: 'fs', command: 'node', args: [] };
+    await expect(loop.run({ ...baseInput, mcpServers: [stdioServer] })).rejects.toThrow(FerryError);
+
+    expect(mockPool.close).toHaveBeenCalledOnce();
+  });
+
+  it('does not call pool.connect when no stdio servers are given', async () => {
+    const mock = makeMock([doneResponse]);
+    const loop = createAnthropicAgentLoop({
+      model: 'm',
+      client: mock as unknown as Anthropic,
+      executeTool: noopExecuteTool,
+    });
+
+    await loop.run(baseInput);
+
+    expect(mockPool.connect).not.toHaveBeenCalled();
+  });
+
+  it('returns is_error tool result when stdio MCP tool throws', async () => {
+    mockPool.getTools.mockReturnValue([
+      { name: 'fail_tool', description: 'Fails', input_schema: { type: 'object', properties: {} } },
+    ]);
+    mockPool.hasTool.mockImplementation((name: string) => name === 'fail_tool');
+    mockPool.callTool.mockRejectedValue(new Error('permission denied'));
+
+    let capturedToolResults: unknown[] | null = null;
+    const capturingMock = {
+      messages: {
+        create: vi
+          .fn()
+          .mockImplementation(
+            async (params: { messages: Array<{ role: string; content: unknown }> }) => {
+              if (params.messages.length >= 3) {
+                const last = params.messages[params.messages.length - 1];
+                capturedToolResults = Array.isArray(last.content)
+                  ? (last.content as unknown[])
+                  : null;
+              }
+              if (params.messages.length <= 2) {
+                return {
+                  stop_reason: 'tool_use',
+                  content: [{ type: 'tool_use', id: 'tu_fail', name: 'fail_tool', input: {} }],
+                  usage: { input_tokens: 5, output_tokens: 5 },
+                };
+              }
+              return {
+                stop_reason: 'tool_use',
+                content: [
+                  {
+                    type: 'tool_use',
+                    id: 'tu_done',
+                    name: 'done',
+                    input: { actionable: false, summary: 'gave up' },
+                  },
+                ],
+                usage: { input_tokens: 5, output_tokens: 5 },
+              };
+            },
+          ),
+      },
+      beta: { messages: { create: vi.fn() } },
+    };
+
+    const loop = createAnthropicAgentLoop({
+      model: 'm',
+      client: capturingMock as unknown as Anthropic,
+      executeTool: noopExecuteTool,
+    });
+
+    const stdioServer: McpServerConfig = { type: 'stdio', name: 'fs', command: 'node', args: [] };
+    await loop.run({ ...baseInput, mcpServers: [stdioServer] });
+
+    expect(capturedToolResults).not.toBeNull();
+    expect(capturedToolResults).toContainEqual(
+      expect.objectContaining({
+        type: 'tool_result',
+        is_error: true,
+        content: 'permission denied',
+      }),
+    );
+  });
+});
+
 describe('createAnthropicAgentLoop — LOG_VERBOSITY=debug structured events', () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    restorePoolDefaults();
   });
 
   afterEach(() => {

@@ -83,10 +83,10 @@ export function filterMcpServers(
   if (!hasLabelsConfig) return pool;
   return pool
     .filter((s) => capabilities.mcpServerNames.includes(s.name))
-    .map((s) => {
+    .map((s): McpServerConfig => {
       const allowedTools = capabilities.serverAllowedTools[s.name];
       if (allowedTools && allowedTools.length > 0) {
-        return { ...s, allowed_tools: allowedTools };
+        return { ...s, allowed_tools: allowedTools } as McpServerConfig;
       }
       return s;
     });
