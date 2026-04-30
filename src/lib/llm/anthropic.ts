@@ -4,15 +4,13 @@ import { computeCostEur } from './pricing.js';
 import type { LlmResult } from './call.js';
 
 export async function invokeAnthropic(opts: {
-  apiKey: string;
+  client: Anthropic;
   model: string;
   prompt: string;
   maxTokens: number;
 }): Promise<LlmResult> {
-  const client = new Anthropic({ apiKey: opts.apiKey });
-
   try {
-    const msg = await client.messages.create({
+    const msg = await opts.client.messages.create({
       model: opts.model,
       max_tokens: opts.maxTokens,
       messages: [{ role: 'user', content: opts.prompt }],
