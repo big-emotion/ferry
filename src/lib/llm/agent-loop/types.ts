@@ -17,11 +17,18 @@ export interface McpServerConfig {
   denied_tools?: string[];
 }
 
+export interface ValidationEntry {
+  command: string;
+  outcome: string;
+}
+
 export interface DonePayload {
   actionable: boolean;
   summary: string;
   commit_message?: string;
   reason_if_not_actionable?: string;
+  validation?: ValidationEntry[];
+  notes?: string[];
 }
 
 export interface AgentLoopUsage {
