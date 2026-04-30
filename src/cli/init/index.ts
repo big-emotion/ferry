@@ -60,10 +60,7 @@ async function main(): Promise<void> {
 
   // Detect or prompt for owner/repo
   const detected = detectRepo();
-  const repoInput = await ask(
-    'GitHub repo (owner/repo)',
-    detected,
-  );
+  const repoInput = await ask('GitHub repo (owner/repo)', detected);
   if (!repoInput || !repoInput.includes('/')) {
     printError('Repo must be in the form owner/repo');
     closePrompt();

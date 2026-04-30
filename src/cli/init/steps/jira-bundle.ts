@@ -57,7 +57,7 @@ export function buildJiraBundle(owner: string, repo: string): JiraAutomationBund
         issue_type: '{{issue.issuetype.name}}',
         actor: '{{initiator.displayName}}',
         source: 'jira-column',
-        ts: "{{now.format(\"yyyy-MM-dd'T'HH:mm:ssXXX\")}}",
+        ts: '{{now.format("yyyy-MM-dd\'T\'HH:mm:ssXXX")}}',
       },
     });
 
@@ -109,9 +109,7 @@ export function stepJiraBundle(repoRoot: string, owner: string, repo: string): S
   print('  1. Jira → Project settings → Automation');
   print('  2. Top-right menu → Import rules');
   print('  3. Upload ferry-jira-automation-rules.json');
-  print(
-    '  4. Replace YOUR_GITHUB_PAT_WITH_REPO_SCOPE in each rule with a fine-grained PAT',
-  );
+  print('  4. Replace YOUR_GITHUB_PAT_WITH_REPO_SCOPE in each rule with a fine-grained PAT');
   print('     that has Contents: write on your repo (or use a GitHub App installation token).');
   print('  5. Set the "To status" in each rule to match your Jira column names exactly.');
   print('  6. Enable each rule.');
