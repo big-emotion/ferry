@@ -1,5 +1,5 @@
-import { JiraRestClient } from '../jira-rest.js';
-import { adfToText, textToAdf } from '../jira-adf.js';
+import { JiraRestClient } from '../../jira-rest.js';
+import { adfToText, textToAdf } from '../../jira-adf.js';
 import type { IssueTracker, TrackerIssue } from '../types.js';
 
 export class JiraTracker implements IssueTracker {

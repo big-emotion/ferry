@@ -39,7 +39,7 @@ export default [
           patterns: [
             {
               group: ['@octokit/rest'],
-              message: 'Import Octokit only through src/lib/io/github.ts',
+              message: 'Import Octokit only through src/lib/dispatch/runner/github-actions/',
             },
             {
               group: ['**/io/jira*'],

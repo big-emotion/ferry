@@ -1,18 +1,18 @@
 import { appendFileSync, readFileSync } from 'node:fs';
 import { execFileSync, execSync } from 'node:child_process';
 import * as path from 'node:path';
-import Anthropic from '@anthropic-ai/sdk';
-import { Octokit } from '@octokit/rest';
 import { validateEnvelope } from '../../lib/envelope/validate.js';
 import { delimitUntrusted } from '../../lib/sanitization/delimit-untrusted.js';
 import { createTrackerFromEnv } from '../../lib/io/tracker/factory.js';
 import { checkIdempotencyMarker } from '../../lib/io/idempotency.js';
 import { scanWithGitleaks } from '../../lib/secret-scan/scan.js';
 import { FerryError } from '../../lib/error.js';
+import { GitHubActionsRunner } from '../../lib/dispatch/runner/github-actions/index.js';
+import { TOOL_SCHEMAS, COMMIT_PROGRESS_SCHEMA, executeTool } from '../developer/tools.js';
+import { createAnthropicAgentLoop } from '../../lib/llm/agent-loop/anthropic.js';
 import { checkIterationCap } from './cap.js';
 import { decideIteratorTransition } from './transition.js';
 import { formatCommitMessage } from './prompt.js';
-import { runAgentLoop } from '../developer/loop.js';
 
 const REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
 const SYSTEM_PROMPT_PATH = process.env.FERRY_PROMPT_PATH ?? path.join(REPO_ROOT, 'prompts', 'iterate.md');
@@ -39,7 +39,7 @@ async function main(): Promise<void> {
     throw new FerryError('state-invariant', { reason: 'invalid-github-repo', githubRepo });
   }
 
-  const octokit = new Octokit({ auth: githubToken });
+  const runner = new GitHubActionsRunner(githubToken, owner, repo);
   const tracker = createTrackerFromEnv();
 
   const issue = await tracker.getIssue(ticketKey);
@@ -51,15 +51,9 @@ async function main(): Promise<void> {
   checkIterationCap({ iteration: priorIterations, hasFindings: true });
 
   const branchName = `ferry/${ticketKey}`;
-  const { data: pulls } = await octokit.pulls.list({
-    owner,
-    repo,
-    state: 'open',
-    head: `${owner}:${branchName}`,
-    per_page: 1,
-  });
+  const prs = await runner.listPRsForBranch(owner, repo, branchName);
 
-  if (pulls.length === 0) {
+  if (prs.length === 0) {
     // Review ID not yet known — use event_id to prevent duplicate error comments
     const eventMarker = `[ferry:iterator:${eventId}]`;
     const { skipped } = checkIdempotencyMarker(eventMarker, existingComments);
@@ -70,17 +64,10 @@ async function main(): Promise<void> {
     return;
   }
 
-  const prNumber = pulls[0].number;
+  const prNumber = prs[0].number;
 
-  const { data: recentComments } = await octokit.issues.listComments({
-    owner,
-    repo,
-    issue_number: prNumber,
-    sort: 'created',
-    direction: 'desc',
-    per_page: 30,
-  });
-  const reviewComments = recentComments.filter((c) => c.body?.includes('[ferry:reviewer:'));
+  const recentComments = await runner.listPRComments({ owner, repo, prNumber }, 30);
+  const reviewComments = recentComments.filter((c) => c.body.includes('[ferry:reviewer:'));
   if (reviewComments.length === 0) {
     const eventMarker = `[ferry:iterator:${eventId}]`;
     const { skipped } = checkIdempotencyMarker(eventMarker, existingComments);
@@ -103,7 +90,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  const reviewComment = latestReview.body ?? '';
+  const reviewComment = latestReview.body;
   if (/\*\*Verdict\*\*:\s*Approved\b/.test(reviewComment)) {
     await tracker.postComment(ticketKey, `${idempotencyMarker} PR#${prNumber} review shows Approved — no iteration needed.`);
     appendOutput({ input_tokens: 0, output_tokens: 0, model });
@@ -161,8 +148,6 @@ async function main(): Promise<void> {
     'When you have fixed all findings, call the `done` tool.',
   ].filter(Boolean).join('\n');
 
-  const anthropic = new Anthropic({ apiKey: anthropicApiKey });
-
   const secretScan = async () => {
     const scanResult = await scanWithGitleaks({
       path: REPO_ROOT,
@@ -176,11 +161,26 @@ async function main(): Promise<void> {
   process.env.FERRY_DEV_MAX_ITERATIONS ??= '200';
   process.env.FERRY_DEV_MAX_INPUT_TOKENS ??= '500000';
 
-  const { done, usage, iterations } = await runAgentLoop({
-    anthropic,
+  const loop = createAnthropicAgentLoop({
+    apiKey: anthropicApiKey,
     model,
+    executeTool,
+    commitProgress: async (repoRoot, branchName, message, scan) => {
+      execSync('git add -A', { cwd: repoRoot });
+      const status = execSync('git status --porcelain', { cwd: repoRoot, encoding: 'utf8' });
+      if (!status.trim()) return 'nothing to commit';
+      await scan();
+      execSync(`git commit -m ${JSON.stringify(message)}`, { cwd: repoRoot });
+      execSync(`git push origin ${branchName} --force-with-lease`, { cwd: repoRoot });
+      console.error(`[ferry:iterate-action] checkpoint: ${message.slice(0, 80)}`);
+      return 'committed and pushed';
+    },
+  });
+
+  const { done, usage, iterations } = await loop.run({
     system,
     initialPrompt,
+    tools: [...TOOL_SCHEMAS, COMMIT_PROGRESS_SCHEMA],
     repoRoot: REPO_ROOT,
     branchName,
     secretScan,
