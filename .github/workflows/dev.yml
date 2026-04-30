@@ -89,7 +89,6 @@ jobs:
           outcome: ${{ needs.run-agent.result }}
           input_tokens: ${{ needs.run-agent.outputs.input_tokens || '0' }}
           output_tokens: ${{ needs.run-agent.outputs.output_tokens || '0' }}
-          cost_eur: '0'
           start_ms: ${{ github.run_id }}
           audit_issue: ${{ vars.FERRY_AUDIT_ISSUE }}
           github_token: ${{ github.token }}

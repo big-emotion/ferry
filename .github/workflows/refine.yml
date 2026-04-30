@@ -67,9 +67,6 @@ jobs:
           run_id: ${{ inputs.event_id || github.event.client_payload.event_id }}
           model: claude-sonnet-4-6
           outcome: ${{ needs.run-agent.result }}
-          input_tokens: '0'
-          output_tokens: '0'
-          cost_eur: '0'
           start_ms: ${{ github.run_id }}
           audit_issue: ${{ vars.FERRY_AUDIT_ISSUE }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
