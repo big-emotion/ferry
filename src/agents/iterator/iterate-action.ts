@@ -2,7 +2,6 @@ import { appendFileSync, readFileSync } from 'node:fs';
 import { execFileSync, execSync } from 'node:child_process';
 import * as path from 'node:path';
 import Anthropic from '@anthropic-ai/sdk';
-import { Octokit } from '@octokit/rest';
 import { validateEnvelope } from '../../lib/envelope/validate.js';
 import { delimitUntrusted } from '../../lib/sanitization/delimit-untrusted.js';
 import { createJiraRestClientFromEnv } from '../../lib/io/jira-rest.js';
@@ -10,6 +9,7 @@ import { adfToText, textToAdf } from '../../lib/io/jira-adf.js';
 import { checkIdempotencyMarker } from '../../lib/io/idempotency.js';
 import { scanWithGitleaks } from '../../lib/secret-scan/scan.js';
 import { FerryError } from '../../lib/error.js';
+import { GitHubActionsRunner } from '../../lib/dispatch/runner/github-actions/index.js';
 import { checkIterationCap } from './cap.js';
 import { decideIteratorTransition } from './transition.js';
 import { formatCommitMessage } from './prompt.js';
@@ -40,7 +40,7 @@ async function main(): Promise<void> {
     throw new FerryError('state-invariant', { reason: 'invalid-github-repo', githubRepo });
   }
 
-  const octokit = new Octokit({ auth: githubToken });
+  const runner = new GitHubActionsRunner(githubToken, owner, repo);
   const jira = createJiraRestClientFromEnv();
 
   const issue = await jira.getIssue(ticketKey);
@@ -52,15 +52,9 @@ async function main(): Promise<void> {
   checkIterationCap({ iteration: priorIterations, hasFindings: true });
 
   const branchName = `ferry/${ticketKey}`;
-  const { data: pulls } = await octokit.pulls.list({
-    owner,
-    repo,
-    state: 'open',
-    head: `${owner}:${branchName}`,
-    per_page: 1,
-  });
+  const prs = await runner.listPRsForBranch(owner, repo, branchName);
 
-  if (pulls.length === 0) {
+  if (prs.length === 0) {
     // Review ID not yet known — use event_id to prevent duplicate error comments
     const eventMarker = `[ferry:iterator:${eventId}]`;
     const { skipped } = checkIdempotencyMarker(eventMarker, existingComments);
@@ -74,17 +68,10 @@ async function main(): Promise<void> {
     return;
   }
 
-  const prNumber = pulls[0].number;
+  const prNumber = prs[0].number;
 
-  const { data: recentComments } = await octokit.issues.listComments({
-    owner,
-    repo,
-    issue_number: prNumber,
-    sort: 'created',
-    direction: 'desc',
-    per_page: 30,
-  });
-  const reviewComments = recentComments.filter((c) => c.body?.includes('[ferry:reviewer:'));
+  const recentComments = await runner.listPRComments({ owner, repo, prNumber }, 30);
+  const reviewComments = recentComments.filter((c) => c.body.includes('[ferry:reviewer:'));
   if (reviewComments.length === 0) {
     const eventMarker = `[ferry:iterator:${eventId}]`;
     const { skipped } = checkIdempotencyMarker(eventMarker, existingComments);
@@ -110,7 +97,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  const reviewComment = latestReview.body ?? '';
+  const reviewComment = latestReview.body;
   if (/\*\*Verdict\*\*:\s*Approved\b/.test(reviewComment)) {
     await jira.postComment(
       ticketKey,

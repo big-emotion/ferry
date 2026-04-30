@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import { spawn } from 'node:child_process';
-import type { Tool } from '@anthropic-ai/sdk/resources/messages.js';
+import type { AgentTool } from '../../lib/llm/agent-loop/types.js';
 import { assertPathUnderRoot, assertWriteAllowed, assertBashAllowed } from './sandbox.js';
 
 export type ToolName =
@@ -21,7 +21,7 @@ const DEFAULT_BASH_TIMEOUT_MS = 60_000;
 const MAX_BASH_TIMEOUT_MS = 300_000;
 const MAX_SEARCH_MATCHES = 200;
 
-export const TOOL_SCHEMAS: Tool[] = [
+export const TOOL_SCHEMAS: AgentTool[] = [
   {
     name: 'read_file',
     description: 'Read the contents of a file under the repository root.',
@@ -134,7 +134,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   },
 ];
 
-export const COMMIT_PROGRESS_SCHEMA: Tool = {
+export const COMMIT_PROGRESS_SCHEMA: AgentTool = {
   name: 'commit_progress',
   description: 'Stage all changes, run a secret scan, commit, and push to the working branch as a checkpoint. Call after completing each logical subtask — if the job fails later, the next run resumes from this commit.',
   input_schema: {
@@ -146,7 +146,7 @@ export const COMMIT_PROGRESS_SCHEMA: Tool = {
   },
 };
 
-export const SPAWN_SUBAGENT_SCHEMA: Tool = {
+export const SPAWN_SUBAGENT_SCHEMA: AgentTool = {
   name: 'spawn_subagent',
   description: 'Delegate a self-contained subtask to a sub-agent with a fresh context window. The sub-agent has the same tools (except spawn_subagent) and works on the same branch. Use to keep each chunk of work focused and within token limits.',
   input_schema: {
@@ -183,10 +183,10 @@ function buildTree(dirPath: string, maxDepth: number, currentDepth: number, pref
 
 export async function executeTool(
   repoRoot: string,
-  name: ToolName,
+  name: string,
   input: Record<string, unknown>,
 ): Promise<string> {
-  switch (name) {
+  switch (name as ToolName) {
     case 'read_file': {
       const resolved = assertPathUnderRoot(repoRoot, input.path as string);
       try {
@@ -282,7 +282,7 @@ export async function executeTool(
     }
 
     default:
-      throw new Error(`Unknown tool: ${name as string}`);
+      throw new Error(`Unknown tool: ${name}`);
   }
 }
 

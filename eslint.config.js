@@ -25,7 +25,7 @@ export default [
       '@typescript-eslint/no-explicit-any': 'error',
     },
   },
-  // Agent code must never import Octokit directly — must go through src/lib/io/github.ts
+  // Agent code must never import Octokit directly — must go through the CIRunner interface
   {
     files: ['src/agents/**/*.ts'],
     languageOptions: {
@@ -39,7 +39,7 @@ export default [
           patterns: [
             {
               group: ['@octokit/rest'],
-              message: 'Import Octokit only through src/lib/io/github.ts',
+              message: 'Import Octokit only through src/lib/dispatch/runner/github-actions/',
             },
             {
               group: ['src/lib/io/github.js', 'src/lib/io/jira.js', 'src/lib/io/github.ts', 'src/lib/io/jira.ts'],
