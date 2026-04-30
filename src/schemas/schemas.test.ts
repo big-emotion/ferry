@@ -119,10 +119,10 @@ describe('event.v1.schema.json', () => {
   it('event_id pattern accepts ULID, Jira millis-key format, and issue-key-id format', () => {
     const pattern = new RegExp(eventSchema.properties.event_id.pattern as string);
     expect(pattern.test('01JFBK9Q4BVCJAGTYQ6S3XTDMN')).toBe(true); // ULID
-    expect(pattern.test('CHAN-117-10042')).toBe(true);                // Jira issue.key-issue.id
-    expect(pattern.test('1746047810000-CHAN-27-1')).toBe(true);       // legacy millis format
-    expect(pattern.test('')).toBe(false);                             // empty rejected
-    expect(pattern.test('-bad')).toBe(false);                         // leading hyphen rejected
+    expect(pattern.test('CHAN-117-10042')).toBe(true); // Jira issue.key-issue.id
+    expect(pattern.test('1746047810000-CHAN-27-1')).toBe(true); // legacy millis format
+    expect(pattern.test('')).toBe(false); // empty rejected
+    expect(pattern.test('-bad')).toBe(false); // leading hyphen rejected
   });
 
   it('a minimal valid event envelope passes validation', () => {
