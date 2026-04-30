@@ -153,6 +153,18 @@ describe('secret-scan/scan', () => {
     }
   });
 
+  it('returns leaksFound=false when exit code 1 but findings array is empty', async () => {
+    const spawnFn = vi.fn(() => makeFakeChild({ stdout: '[]', exitCode: 1 }));
+
+    const result = await scanWithGitleaks({
+      path: '/tmp/repo',
+      binaryPath: '/fake/gitleaks',
+      spawnFn: spawnFn as never,
+    });
+
+    expect(result).toEqual({ leaksFound: false, findings: [] });
+  });
+
   it('handles empty stdout on clean exit gracefully', async () => {
     const spawnFn = vi.fn(() => makeFakeChild({ stdout: '', exitCode: 0 }));
 

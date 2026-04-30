@@ -273,31 +273,43 @@ async function main(): Promise<void> {
     summary: done.summary,
   });
 
-  execSync('git add -A', { cwd: REPO_ROOT });
-  const finalStatus = execSync('git status --porcelain', { cwd: REPO_ROOT, encoding: 'utf8' });
-  if (finalStatus.trim()) {
-    await secretScan();
-    execSync(`git commit -m ${JSON.stringify(done.commit_message ?? commitMessage)}`, {
-      cwd: REPO_ROOT,
+  try {
+    execSync('git add -A', { cwd: REPO_ROOT });
+    const finalStatus = execSync('git status --porcelain', { cwd: REPO_ROOT, encoding: 'utf8' });
+    if (finalStatus.trim()) {
+      await secretScan();
+      execSync(`git commit -m ${JSON.stringify(done.commit_message ?? commitMessage)}`, {
+        cwd: REPO_ROOT,
+      });
+    }
+    execSync(`git push origin ${branchName} --force-with-lease`, { cwd: REPO_ROOT });
+
+    const prTitle = formatPullRequestTitle({ ticketKey, summary: done.summary });
+    const prBody = formatPullRequestBody({
+      ticketKey,
+      jiraBaseUrl,
+      runId: eventId,
+      tldr: done.summary,
     });
+
+    const prUrl = await runner.createPR(owner, repo, branchName, 'main', prTitle, prBody);
+
+    await tracker.postTransition(ticketKey, reviewTransitionId);
+    await tracker.postComment(
+      ticketKey,
+      `${idempotencyMarker} Implementation complete — PR: ${prUrl}. Moved to Review.`,
+    );
+  } catch (err) {
+    try {
+      await tracker.postComment(
+        ticketKey,
+        `${idempotencyMarker} Dev run failed in post-implementation step — manual intervention required.`,
+      );
+    } catch {
+      // best-effort comment; don't mask the original error
+    }
+    throw err;
   }
-  execSync(`git push origin ${branchName} --force-with-lease`, { cwd: REPO_ROOT });
-
-  const prTitle = formatPullRequestTitle({ ticketKey, summary: done.summary });
-  const prBody = formatPullRequestBody({
-    ticketKey,
-    jiraBaseUrl,
-    runId: eventId,
-    tldr: done.summary,
-  });
-
-  const prUrl = await runner.createPR(owner, repo, branchName, 'main', prTitle, prBody);
-
-  await tracker.postTransition(ticketKey, reviewTransitionId);
-  await tracker.postComment(
-    ticketKey,
-    `${idempotencyMarker} Implementation complete — PR: ${prUrl}. Moved to Review.`,
-  );
 
   appendOutput(usage);
   process.exit(0);

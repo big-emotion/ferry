@@ -46,7 +46,8 @@ function normalizeFinding(raw: RawFinding): GitleaksFinding {
  * Run gitleaks against `path` and return parsed findings.
  *
  * - exit 0: clean → `leaksFound: false`
- * - exit 1: leaks found → `leaksFound: true`, findings parsed from stdout
+ * - exit 1 + non-empty findings: `leaksFound: true`
+ * - exit 1 + empty/unparseable JSON: treated as clean (`leaksFound: false`) — exit code alone is not fatal
  * - exit 2+ (or any other non-{0,1} code): throws `FerryError('unknown')`
  *
  * The function never includes the raw stdout/stderr (which may contain leaked
@@ -111,7 +112,7 @@ export async function scanWithGitleaks(opts: ScanOptions): Promise<ScanResult> {
   }
 
   return {
-    leaksFound: exitCode === 1,
+    leaksFound: findings.length > 0,
     findings,
   };
 }
