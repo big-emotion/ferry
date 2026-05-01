@@ -22,7 +22,10 @@ export async function runAgentLoop(opts: {
     executeTool,
     commitProgress: async (root, branch, message, scan) => {
       execFileSync('git', ['add', '-A'], { cwd: root });
-      const status = execFileSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' });
+      const status = execFileSync('git', ['status', '--porcelain'], {
+        cwd: root,
+        encoding: 'utf8',
+      });
       if (!status.trim()) return 'nothing to commit';
       await scan();
       execFileSync('git', ['commit', '-m', message], { cwd: root });
