@@ -25,6 +25,13 @@ export default [
       '@typescript-eslint/no-explicit-any': 'error',
     },
   },
+  // Structured logger required — console is forbidden in lib and agents; CLI entrypoints are exempt
+  {
+    files: ['src/agents/**/*.ts', 'src/lib/**/*.ts'],
+    rules: {
+      'no-console': 'error',
+    },
+  },
   // Agent code must never import Octokit or Jira modules directly
   {
     files: ['src/agents/**/*.ts'],

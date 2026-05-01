@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { emitDebug } from './debug-log.js';
 import type { DebugEvent } from './debug-log.js';
+import { createTestLogger } from '../logger/index.js';
 
 const turnEvent: DebugEvent = {
   type: 'turn',
@@ -25,73 +26,68 @@ const resultEvent: DebugEvent = {
   elapsed_ms: 12345,
 };
 
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 describe('emitDebug', () => {
   it('writes nothing when LOG_VERBOSITY is unset', () => {
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    emitDebug(turnEvent, {});
-    expect(spy).not.toHaveBeenCalled();
-    spy.mockRestore();
+    const { logger, records } = createTestLogger('c', 'ferry:test');
+    emitDebug(turnEvent, logger, {});
+    expect(records).toHaveLength(0);
   });
 
   it('writes nothing when LOG_VERBOSITY is "DEBUG" (case-sensitive)', () => {
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    emitDebug(turnEvent, { LOG_VERBOSITY: 'DEBUG' });
-    expect(spy).not.toHaveBeenCalled();
-    spy.mockRestore();
+    const { logger, records } = createTestLogger('c', 'ferry:test');
+    emitDebug(turnEvent, logger, { LOG_VERBOSITY: 'DEBUG' });
+    expect(records).toHaveLength(0);
   });
 
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it('writes one JSON line to stderr when debug is enabled', () => {
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    emitDebug(turnEvent, { LOG_VERBOSITY: 'debug' });
-    expect(spy).toHaveBeenCalledOnce();
-    const arg = spy.mock.calls[0][0] as string;
-    expect(() => JSON.parse(arg)).not.toThrow();
-    expect(JSON.parse(arg)).toMatchObject(turnEvent);
+  it('emits a debug record when LOG_VERBOSITY=debug', () => {
+    vi.stubEnv('LOG_VERBOSITY', 'debug');
+    const { logger, records } = createTestLogger('c', 'ferry:test');
+    emitDebug(turnEvent, logger, { LOG_VERBOSITY: 'debug' });
+    expect(records).toHaveLength(1);
+    expect(records[0].level).toBe('debug');
+    expect(records[0].message).toBe('turn');
   });
 
   it('writes nothing when debug is disabled', () => {
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    emitDebug(turnEvent, {});
-    expect(spy).not.toHaveBeenCalled();
+    const { logger, records } = createTestLogger('c', 'ferry:test');
+    emitDebug(turnEvent, logger, {});
+    expect(records).toHaveLength(0);
   });
 
-  it('turn event has all expected keys', () => {
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    emitDebug(turnEvent, { LOG_VERBOSITY: 'debug' });
-    const parsed = JSON.parse(spy.mock.calls[0][0] as string) as Record<string, unknown>;
-    expect(parsed).toHaveProperty('type', 'turn');
-    expect(parsed).toHaveProperty('iter', 1);
-    expect(parsed).toHaveProperty('depth', 0);
-    expect(parsed).toHaveProperty('stop_reason', 'tool_use');
-    expect(parsed).toHaveProperty('tools', 2);
-    expect(parsed).toHaveProperty('mcp_tools', 0);
-    expect(parsed).toHaveProperty('in', 100);
-    expect(parsed).toHaveProperty('cache_w', 0);
-    expect(parsed).toHaveProperty('cache_r', 0);
-    expect(parsed).toHaveProperty('out', 50);
-    expect(parsed).toHaveProperty('elapsed_ms', 123);
+  it('turn event fields are present in debug record', () => {
+    vi.stubEnv('LOG_VERBOSITY', 'debug');
+    const { logger, records } = createTestLogger('c', 'ferry:test');
+    emitDebug(turnEvent, logger, { LOG_VERBOSITY: 'debug' });
+    expect(records[0]).toMatchObject({
+      type: 'turn',
+      iter: 1,
+      depth: 0,
+      stop_reason: 'tool_use',
+      tools: 2,
+      mcp_tools: 0,
+      in: 100,
+      cache_w: 0,
+      cache_r: 0,
+      out: 50,
+      elapsed_ms: 123,
+    });
   });
 
-  it('result event has all expected keys', () => {
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    emitDebug(resultEvent, { LOG_VERBOSITY: 'debug' });
-    const parsed = JSON.parse(spy.mock.calls[0][0] as string) as Record<string, unknown>;
-    expect(parsed).toHaveProperty('type', 'result');
-    expect(parsed).toHaveProperty('subtype', 'success');
-    expect(parsed).toHaveProperty('iterations', 6);
-    expect(parsed).toHaveProperty('total_in', 500);
-    expect(parsed).toHaveProperty('total_out', 300);
-    expect(parsed).toHaveProperty('elapsed_ms', 12345);
-  });
-
-  it('emitted JSON round-trips faithfully', () => {
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    emitDebug(resultEvent, { LOG_VERBOSITY: 'debug' });
-    const parsed = JSON.parse(spy.mock.calls[0][0] as string) as DebugEvent;
-    expect(parsed).toEqual(resultEvent);
+  it('result event fields are present in debug record', () => {
+    vi.stubEnv('LOG_VERBOSITY', 'debug');
+    const { logger, records } = createTestLogger('c', 'ferry:test');
+    emitDebug(resultEvent, logger, { LOG_VERBOSITY: 'debug' });
+    expect(records[0]).toMatchObject({
+      type: 'result',
+      subtype: 'success',
+      iterations: 6,
+      total_in: 500,
+      total_out: 300,
+      elapsed_ms: 12345,
+    });
   });
 });

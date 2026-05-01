@@ -12,6 +12,8 @@
     "build:ferry": "node scripts/build-ferry-actions.mjs",
     "ferry-init": "tsx src/cli/init/index.ts",
     "ferry-doctor": "tsx src/cli/doctor/index.ts",
+    "ferry-reconcile": "tsx src/reconciler/run.ts",
+    "ferry-cost-check": "tsx src/cost-governance/run.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -19,6 +21,8 @@
     "lint": "eslint src",
     "lint:fix": "eslint src --fix",
     "format:check": "prettier --check 'src/**/*.ts'",
+    "audit:ci": "node scripts/npm-audit-check.mjs",
+    "check:bundle": "npm run build:ferry && git diff --exit-code .ferry/",
     "prepare": "husky"
   },
   "lint-staged": {

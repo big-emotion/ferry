@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { resolveCapabilities, filterMcpServers } from './capabilities.js';
+import { createTestLogger } from '../logger/index.js';
 import type { LabelCapability } from '../config.js';
 import type { McpServerConfig } from '../llm/agent-loop/types.js';
 
@@ -58,24 +59,26 @@ describe('resolveCapabilities', () => {
   });
 
   it('logs and ignores unknown ferry: labels', () => {
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const result = resolveCapabilities(['ferry:mcp/evil-server'], CONFIG);
+    const { logger, records } = createTestLogger('c', 'ferry:capabilities');
+    const result = resolveCapabilities(['ferry:mcp/evil-server'], CONFIG, logger);
     expect(result.unknownFerryLabels).toEqual(['ferry:mcp/evil-server']);
     expect(result.mcpServerNames).toEqual([]);
     expect(result.triggeredLabels).toEqual([]);
-    expect(spy).toHaveBeenCalledWith(expect.stringContaining('ferry:mcp/evil-server'));
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({ level: 'warn', label: 'ferry:mcp/evil-server' });
   });
 
   it('handles mix of known labels, unknown ferry labels, and non-ferry labels', () => {
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { logger, records } = createTestLogger('c', 'ferry:capabilities');
     const result = resolveCapabilities(
       ['bug', 'ferry:mcp/context7', 'ferry:mcp/unknown', 'critical'],
       CONFIG,
+      logger,
     );
     expect(result.triggeredLabels).toEqual(['ferry:mcp/context7']);
     expect(result.unknownFerryLabels).toEqual(['ferry:mcp/unknown']);
     expect(result.mcpServerNames).toEqual(['context7']);
-    expect(spy).toHaveBeenCalledOnce();
+    expect(records).toHaveLength(1);
   });
 
   it('unions tools when two labels enable the same server with different tool lists', () => {
