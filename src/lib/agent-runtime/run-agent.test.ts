@@ -68,7 +68,11 @@ describe('runAgent', () => {
     expect(exit).toHaveBeenCalledWith(1);
     expect(lines.length).toBeGreaterThan(0);
     const record = JSON.parse(lines[0]) as Record<string, unknown>;
-    expect(record).toMatchObject({ level: 'error', component: 'ferry:review-action', message: 'fatal' });
+    expect(record).toMatchObject({
+      level: 'error',
+      component: 'ferry:review-action',
+      message: 'fatal',
+    });
   });
 
   it('exits 1 with a structured fatal log when handler throws', async () => {
@@ -101,6 +105,10 @@ describe('runAgent', () => {
     expect(handler).not.toHaveBeenCalled();
     expect(exit).toHaveBeenCalledWith(1);
     const record = JSON.parse(lines[0]) as Record<string, unknown>;
-    expect(record).toMatchObject({ level: 'error', component: 'ferry:dev-action', message: 'fatal' });
+    expect(record).toMatchObject({
+      level: 'error',
+      component: 'ferry:dev-action',
+      message: 'fatal',
+    });
   });
 });

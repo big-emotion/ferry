@@ -141,6 +141,9 @@ describe('loadAgentExtension', () => {
     expect(result).toHaveLength(4096);
     expect(result).toBe('y'.repeat(4096));
     expect(records).toHaveLength(1);
-    expect(records[0]).toMatchObject({ level: 'warn', message: expect.stringContaining('truncating') });
+    expect(records[0]).toMatchObject({
+      level: 'warn',
+      message: expect.stringContaining('truncating'),
+    });
   });
 });

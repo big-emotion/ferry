@@ -19,4 +19,13 @@ export const LABELS_ALLOWLIST = [
   'status:stale',
   // Routing (user-applied, not agent-applied)
   'critical',
+  // Logger component identifiers (not GitHub labels — used in createLogger calls)
+  'ferry:refiner-action',
+  'ferry:dev-action',
+  'ferry:review-action',
+  'ferry:iterate-action',
+  'ferry:dispatch',
+  'ferry:envelope',
+  'ferry:dev-loop',
+  'ferry:review-loop',
 ] as const;

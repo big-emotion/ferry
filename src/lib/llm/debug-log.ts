@@ -31,11 +31,7 @@ function isDebugEnabled(env?: NodeJS.ProcessEnv): boolean {
 }
 
 /** Emit a debug log record when debug verbosity is enabled; no-op otherwise. */
-export function emitDebug(
-  event: DebugEvent,
-  logger: Logger,
-  env?: NodeJS.ProcessEnv,
-): void {
+export function emitDebug(event: DebugEvent, logger: Logger, env?: NodeJS.ProcessEnv): void {
   if (!isDebugEnabled(env)) return;
   logger.debug(event.type, event as unknown as Record<string, unknown>);
 }

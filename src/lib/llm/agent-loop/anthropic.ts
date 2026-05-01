@@ -465,7 +465,9 @@ export function createAnthropicAgentLoop(opts: {
             subtype: 'success',
             iterations: iter,
             total_in:
-              usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens,
+              usage.input_tokens +
+              usage.cache_read_input_tokens +
+              usage.cache_creation_input_tokens,
             total_out: usage.output_tokens,
             elapsed_ms: Date.now() - loopStart,
           },
