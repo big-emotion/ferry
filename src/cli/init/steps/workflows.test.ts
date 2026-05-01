@@ -1,12 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import {
-  mkdtempSync,
-  writeFileSync,
-  readFileSync,
-  rmSync,
-  existsSync,
-  mkdirSync,
-} from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, rmSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 

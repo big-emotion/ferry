@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-const mockAsk = vi.hoisted(() => vi.fn<[], Promise<string>>());
+const mockAsk = vi.hoisted(() => vi.fn<() => Promise<string>>());
 const mockPrintWarn = vi.hoisted(() => vi.fn());
 
 vi.mock('../prompt.js', () => ({
@@ -73,7 +73,7 @@ describe('stepGitHubApp', () => {
     const pemPath = join(tmpDir, 'key.pem');
     writeFileSync(
       pemPath,
-      '-----BEGIN RSA PRIVATE KEY-----\nfakekey\n-----END RSA PRIVATE KEY-----\n',
+      '-----BEGIN CERTIFICATE-----\nfakekey\n-----END CERTIFICATE-----\n',
       'utf8',
     );
 
@@ -84,7 +84,7 @@ describe('stepGitHubApp', () => {
 
     expect(result.result.ok).toBe(true);
     expect(result.appId).toBe('12345');
-    expect(result.privateKey).toContain('-----BEGIN RSA PRIVATE KEY-----');
+    expect(result.privateKey).toContain('-----BEGIN CERTIFICATE-----');
   });
 
   it('shows warning when existingAppId is provided', async () => {
@@ -92,7 +92,7 @@ describe('stepGitHubApp', () => {
     const pemPath = join(tmpDir, 'key.pem');
     writeFileSync(
       pemPath,
-      '-----BEGIN RSA PRIVATE KEY-----\nfakekey\n-----END RSA PRIVATE KEY-----\n',
+      '-----BEGIN CERTIFICATE-----\nfakekey\n-----END CERTIFICATE-----\n',
       'utf8',
     );
 
