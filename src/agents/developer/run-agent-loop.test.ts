@@ -112,9 +112,7 @@ describe('runAgentLoop', () => {
     const mock = makeMock([
       {
         stop_reason: 'tool_use',
-        content: [
-          { type: 'tool_use', id: 'tu_r', name: 'read_file', input: { path: 'foo.ts' } },
-        ],
+        content: [{ type: 'tool_use', id: 'tu_r', name: 'read_file', input: { path: 'foo.ts' } }],
         usage: { input_tokens: 100, output_tokens: 30 },
       },
       doneResponse,
