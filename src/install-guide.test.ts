@@ -366,10 +366,9 @@ describe('Phase 5 — Ferry never merges (install-guide §5.6)', () => {
 describe('Supply-chain security — npm audit step present in ferry-ci.yml', () => {
   it('ferry-ci.yml contains an audit job that runs npm run audit:ci', async () => {
     const content = await readFile('.github/workflows/ferry-ci.yml');
-    expect(
-      content,
-      'ferry-ci.yml must call `npm run audit:ci` — see issue #105',
-    ).toContain('npm run audit:ci');
+    expect(content, 'ferry-ci.yml must call `npm run audit:ci` — see issue #105').toContain(
+      'npm run audit:ci',
+    );
   });
 
   it('ferry-ci.yml audit job has an explicit permissions block', async () => {
