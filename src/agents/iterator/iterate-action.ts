@@ -26,10 +26,11 @@ import {
   runAgent,
 } from '../../lib/agent-runtime/index.js';
 import type { EventEnvelopeV1 } from '../../lib/envelope/types.js';
+import type { Logger } from '../../lib/agent-runtime/index.js';
 
 const REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
 
-async function main(envelope: EventEnvelopeV1): Promise<void> {
+async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
   const { ticket_key: ticketKey, event_id: eventId } = envelope;
 
   const anthropicAuth = resolveAnthropicAuth({ apiKeyEnv: 'ANTHROPIC_API_KEY' });
@@ -47,7 +48,7 @@ async function main(envelope: EventEnvelopeV1): Promise<void> {
   const hasLabelsConfig = ferryCfg.labels !== undefined;
   const mcpServers = filterMcpServers(mcpPool, capabilities, hasLabelsConfig);
 
-  logCapabilities('[ferry:iterate-action]', capabilities);
+  logCapabilities(logger, capabilities);
 
   const priorIterations = existingComments.filter(
     (c) => c.includes('[ferry:iterator:') && c.includes('complete. Pushed fixes to PR#'),
@@ -98,9 +99,7 @@ async function main(envelope: EventEnvelopeV1): Promise<void> {
   const idempotencyMarker = byReviewCommentId('iterator', latestReview.id);
   const { skipped } = checkIdempotencyMarker(idempotencyMarker, existingComments);
   if (skipped) {
-    console.error(
-      `[ferry:iterate-action] review comment ${latestReview.id} already handled, skipping`,
-    );
+    logger.info('review comment already handled, skipping', { review_comment_id: latestReview.id });
     appendOutput({ input_tokens: 0, output_tokens: 0, model });
     return;
   }
@@ -163,7 +162,8 @@ async function main(envelope: EventEnvelopeV1): Promise<void> {
     maxInputTokens: ferryCfg.limits.max_tokens_per_run,
     maxTokens: ferryCfg.limits.max_tokens_per_message,
     executeTool,
-    commitProgress: makeCommitProgress('[ferry:iterate-action]'),
+    commitProgress: makeCommitProgress(logger),
+    logger,
   });
 
   const { done, usage, iterations } = await loop.run({
@@ -176,9 +176,14 @@ async function main(envelope: EventEnvelopeV1): Promise<void> {
     mcpServers,
   });
 
-  console.error(
-    `[ferry:iterate-action] done in ${iterations} iterations — actionable=${done.actionable} in=${usage.input_tokens} cache_w=${usage.cache_creation_input_tokens} cache_r=${usage.cache_read_input_tokens} out=${usage.output_tokens}`,
-  );
+  logger.info('done', {
+    iterations,
+    actionable: done.actionable,
+    in: usage.input_tokens,
+    cache_w: usage.cache_creation_input_tokens,
+    cache_r: usage.cache_read_input_tokens,
+    out: usage.output_tokens,
+  });
 
   if (!done.actionable) {
     await tracker.postComment(

@@ -1,6 +1,8 @@
 // Debug events contain only numeric counters and stop_reason enum — no string payloads
 // from tool inputs/outputs — so no secret-redaction is needed for these events.
 
+import type { Logger } from '../logger/index.js';
+
 export type DebugEvent =
   | {
       type: 'turn';
@@ -28,8 +30,12 @@ function isDebugEnabled(env?: NodeJS.ProcessEnv): boolean {
   return (env ?? process.env)['LOG_VERBOSITY'] === 'debug';
 }
 
-/** Emit one JSON line on stderr when debug is enabled; no-op otherwise. */
-export function emitDebug(event: DebugEvent, env?: NodeJS.ProcessEnv): void {
+/** Emit a debug log record when debug verbosity is enabled; no-op otherwise. */
+export function emitDebug(
+  event: DebugEvent,
+  logger: Logger,
+  env?: NodeJS.ProcessEnv,
+): void {
   if (!isDebugEnabled(env)) return;
-  console.error(JSON.stringify(event));
+  logger.debug(event.type, event as unknown as Record<string, unknown>);
 }
