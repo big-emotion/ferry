@@ -31,7 +31,7 @@ export function checkWorkflowDrift(opts: { repoRoot: string; ferryVersion: strin
       label: 'Workflow files',
       status: 'red',
       detail: `Missing: ${missing.join(', ')}`,
-      remedy: `Run \`npx ferry-init\` to install the missing workflow files`,
+      remedy: `Run \`npx -p @big-emotion/ferry ferry-init\` to install the missing workflow files`,
     };
   }
 
@@ -40,7 +40,7 @@ export function checkWorkflowDrift(opts: { repoRoot: string; ferryVersion: strin
       label: 'Workflow files',
       status: 'yellow',
       detail: `${drifted.length} file(s) differ from Ferry ${ferryVersion}: ${drifted.join(', ')}`,
-      remedy: `Run \`npx ferry-init --overwrite\` to update the workflows to the current Ferry release`,
+      remedy: `Run \`npx -p @big-emotion/ferry ferry-init --overwrite\` to update the workflows to the current Ferry release`,
     };
   }
 

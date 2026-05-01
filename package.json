@@ -1,6 +1,6 @@
 {
-  "name": "ferry-init",
-  "version": "0.2.0",
+  "name": "@big-emotion/ferry",
+  "version": "0.3.0",
   "description": "Ferry — GitHub Actions–native agent pipeline for Jira-driven automated development",
   "type": "module",
   "bin": {

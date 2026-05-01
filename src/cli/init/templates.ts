@@ -4,7 +4,7 @@ export function workflowTemplates(version: string): WorkflowEntry[] {
   return [
     {
       filename: 'ferry-refine.yml',
-      content: `# Managed by ferry-init. Re-run \`npx ferry-init\` to update.
+      content: `# Managed by ferry-init. Re-run \`npx -p @big-emotion/ferry ferry-init\` to update.
 # Required secrets: FERRY_APP_ID, FERRY_PRIVATE_KEY, FERRY_JIRA_BASE_URL,
 #                   FERRY_JIRA_EMAIL, FERRY_JIRA_API_TOKEN, FERRY_ANTHROPIC_API_KEY
 # Required variables: FERRY_AUDIT_ISSUE (GitHub Issue number for the audit log)
@@ -33,7 +33,7 @@ jobs:
     },
     {
       filename: 'ferry-dev.yml',
-      content: `# Managed by ferry-init. Re-run \`npx ferry-init\` to update.
+      content: `# Managed by ferry-init. Re-run \`npx -p @big-emotion/ferry ferry-init\` to update.
 # Required secrets: FERRY_APP_ID, FERRY_PRIVATE_KEY, FERRY_JIRA_BASE_URL,
 #                   FERRY_JIRA_EMAIL, FERRY_JIRA_API_TOKEN, FERRY_ANTHROPIC_API_KEY
 # Required variables: FERRY_AUDIT_ISSUE (GitHub Issue number for the audit log)
@@ -68,7 +68,7 @@ jobs:
     },
     {
       filename: 'ferry-review.yml',
-      content: `# Managed by ferry-init. Re-run \`npx ferry-init\` to update.
+      content: `# Managed by ferry-init. Re-run \`npx -p @big-emotion/ferry ferry-init\` to update.
 # Required secrets: FERRY_APP_ID, FERRY_PRIVATE_KEY, FERRY_JIRA_BASE_URL,
 #                   FERRY_JIRA_EMAIL, FERRY_JIRA_API_TOKEN, FERRY_ANTHROPIC_API_KEY
 # Required variables: FERRY_AUDIT_ISSUE (GitHub Issue number for the audit log)
@@ -100,7 +100,7 @@ jobs:
     },
     {
       filename: 'ferry-iterate.yml',
-      content: `# Managed by ferry-init. Re-run \`npx ferry-init\` to update.
+      content: `# Managed by ferry-init. Re-run \`npx -p @big-emotion/ferry ferry-init\` to update.
 # Required secrets: FERRY_APP_ID, FERRY_PRIVATE_KEY, FERRY_JIRA_BASE_URL,
 #                   FERRY_JIRA_EMAIL, FERRY_JIRA_API_TOKEN, FERRY_ANTHROPIC_API_KEY
 # Required variables: FERRY_AUDIT_ISSUE (GitHub Issue number for the audit log)
@@ -132,7 +132,7 @@ jobs:
     },
     {
       filename: 'ferry-reconciler.yml',
-      content: `# Managed by ferry-init. Re-run \`npx ferry-init\` to update.
+      content: `# Managed by ferry-init. Re-run \`npx -p @big-emotion/ferry ferry-init\` to update.
 # Required variables: FERRY_AUDIT_ISSUE (GitHub Issue number for the audit log)
 
 name: Ferry — Reconciler
@@ -154,7 +154,7 @@ jobs:
     },
     {
       filename: 'ferry-audit-daily.yml',
-      content: `# Managed by ferry-init. Re-run \`npx ferry-init\` to update.
+      content: `# Managed by ferry-init. Re-run \`npx -p @big-emotion/ferry ferry-init\` to update.
 # This workflow runs daily governance checks (spend monitoring, event pruning).
 
 name: Ferry — Audit Daily

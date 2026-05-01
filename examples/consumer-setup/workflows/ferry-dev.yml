@@ -22,7 +22,7 @@ permissions:
 
 jobs:
   dev:
-    uses: big-emotion/ferry/.github/workflows/dev.yml@v0.2.0
+    uses: big-emotion/ferry/.github/workflows/dev.yml@v0.3.0
     with:
       ticket_key: ${{ github.event.client_payload.ticket_key }}
       event_id: ${{ github.event.client_payload.event_id }}

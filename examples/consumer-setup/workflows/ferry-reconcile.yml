@@ -21,7 +21,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  FERRY_REF: v0.2.0 # pin to the same release you use for the agent stubs
+  FERRY_REF: v0.3.0 # pin to the same release you use for the agent stubs
 
 jobs:
   reconcile:

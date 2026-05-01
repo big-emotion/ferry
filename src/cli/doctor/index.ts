@@ -82,7 +82,7 @@ async function main(): Promise<void> {
 ferry doctor — end-to-end health check for a Ferry installation
 
 Usage:
-  npx ferry-doctor [options]
+  npx -p @big-emotion/ferry ferry-doctor [options]
 
 Options:
   --repo <owner/repo>          GitHub repository (default: auto-detect from git remote)

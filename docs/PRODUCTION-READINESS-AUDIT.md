@@ -271,7 +271,7 @@ Mean = **7.21 / 10**.
 
 **Strengths**
 
-- `bin` exposed for `ferry-init` / `ferry-doctor` — `npx`-ready once published.
+- `bin` exposed for `ferry-init` / `ferry-doctor` (shipped under the `@big-emotion/ferry` npm package) — `npx`-ready once published.
 - `check:bundle` CI job ensures `.ferry/` matches `src/` so a tag carries a consistent payload.
 - The `ferry-release` skill is documented to drive the release locally.
 

@@ -50,6 +50,6 @@ export function checkSecrets(repo: string): CheckResult {
     label: 'Secrets present',
     status: 'red',
     detail: `Missing: ${missing.join(', ')}`,
-    remedy: `Run \`npx ferry-init\` to set the missing secrets, or set them manually via \`gh secret set <NAME> --repo ${repo}\``,
+    remedy: `Run \`npx -p @big-emotion/ferry ferry-init\` to set the missing secrets, or set them manually via \`gh secret set <NAME> --repo ${repo}\``,
   };
 }

@@ -63,6 +63,6 @@ export async function checkLlmKeys(opts: { anthropicApiKey: string }): Promise<C
     status: 'red',
     detail,
     remedy:
-      'Generate a new key at console.anthropic.com/account/keys, then re-run `npx ferry-init --overwrite`',
+      'Generate a new key at console.anthropic.com/account/keys, then re-run `npx -p @big-emotion/ferry ferry-init --overwrite`',
   };
 }

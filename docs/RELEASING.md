@@ -23,9 +23,9 @@ Ferry maintains **two tag types per major release**:
 | Tag      | Type      | Moves?                                 | Purpose                                                                                                                           |
 | -------- | --------- | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | `v0`     | Floating  | Yes — updated on every `0.x.y` release | Optional reference for consumers who want patch/minor updates automatically                                                       |
-| `v0.2.0` | Immutable | Never                                  | Default reference in consumer workflow stubs (`uses: big-emotion/ferry/.github/workflows/...@v0.2.0`); recommended for production |
+| `v0.3.0` | Immutable | Never                                  | Default reference in consumer workflow stubs (`uses: big-emotion/ferry/.github/workflows/...@v0.3.0`); recommended for production |
 
-**Consumer recommendation:** Stay on the pinned `@v0.2.0` tag (or a SHA pin) for production. The floating `@v0` tag is available for consumers who prefer automatic minor/patch upgrades — see `docs/CONSUMER-SETUP.md` §3.2.
+**Consumer recommendation:** Stay on the pinned `@v0.3.0` tag (or a SHA pin) for production. The floating `@v0` tag is available for consumers who prefer automatic minor/patch upgrades — see `docs/CONSUMER-SETUP.md` §3.2.
 
 ### Why a floating major tag?
 
@@ -41,11 +41,11 @@ The floating tag is always safe to follow because:
 
 ## SHA pinning (recommended for production)
 
-Replace `@v0.2.0` with the exact commit SHA the tag points to:
+Replace `@v0.3.0` with the exact commit SHA the tag points to:
 
 ```bash
-LATEST_SHA=$(gh api repos/big-emotion/ferry/git/refs/tags/v0.2.0 --jq '.object.sha')
-sed -i.bak "s|@v0.2.0|@${LATEST_SHA}|g" .github/workflows/ferry-*.yml
+LATEST_SHA=$(gh api repos/big-emotion/ferry/git/refs/tags/v0.3.0 --jq '.object.sha')
+sed -i.bak "s|@v0.3.0|@${LATEST_SHA}|g" .github/workflows/ferry-*.yml
 rm .github/workflows/ferry-*.yml.bak
 ```
 
@@ -71,7 +71,7 @@ The `.github/workflows/release.yml` workflow is triggered by any `v*.*.*` tag pu
 
 1. Runs the full CI gate (typecheck, lint, format, tests, npm audit, `.ferry/` bundle drift check)
 2. Builds CLI bundles (`npm run build:cli`)
-3. Publishes the `ferry-init` package to npm with provenance (requires the `NPM_TOKEN` repo secret)
+3. Publishes the `@big-emotion/ferry` package to npm with provenance (requires the `NPM_TOKEN` repo secret)
 4. Extracts the matching `## [X.Y.Z]` section from `CHANGELOG.md` and creates a GitHub Release with those notes (falls back to GitHub's auto-generated notes if the section is missing)
 
 The maintainer's only manual responsibilities are bumping the version, updating the CHANGELOG, and pushing the tag.
@@ -150,11 +150,11 @@ Before tagging any release:
 
 ## npm publishing
 
-The `ferry-init` package is published to npm automatically by `release.yml` on every `v*.*.*` tag push, using `npm publish --provenance --access public`. The primary distribution mechanism for the GitHub Actions side remains the reusable workflows referenced via `@v0.2.0` (or a pinned SHA).
+The `@big-emotion/ferry` package is published to npm automatically by `release.yml` on every `v*.*.*` tag push, using `npm publish --provenance --access public`. The CLIs are exposed under their original bin names — `ferry-init` and `ferry-doctor` — and consumers invoke them via `npx -p @big-emotion/ferry ferry-init`. The primary distribution mechanism for the GitHub Actions side remains the reusable workflows referenced via `@v0.3.0` (or a pinned SHA).
 
 Required repository secret:
 
-- `NPM_TOKEN` — an npm Automation token (or Granular Access Token with `publish` scope on the `ferry-init` package).
+- `NPM_TOKEN` — an npm Automation token (or Granular Access Token with `publish` scope on the `@big-emotion/ferry` package).
 
 Manual publish (only as a fallback if the workflow is unavailable):
 

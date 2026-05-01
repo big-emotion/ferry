@@ -7,12 +7,28 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.3.0] — 2026-05-01
+
+### Changed
+
+- **Package renamed to `@big-emotion/ferry`** — The npm package is now scoped under the `big-emotion` org. Bin names (`ferry-init`, `ferry-doctor`) are unchanged; consumers invoke the CLIs via `npx -p @big-emotion/ferry ferry-init` and `npx -p @big-emotion/ferry ferry-doctor`. The unscoped `ferry-init` name was never published — `0.3.0` is the first npm release.
+- **Internal composite-action pinning bumped to `@v0.3.0`** — Agent workflows and consumer stubs now reference `big-emotion/ferry/.github/{actions,workflows}/...@v0.3.0`.
+- **Consumer install guide updated** — `docs/CONSUMER-SETUP.md` and `docs/RELEASING.md` reflect the new package name and version pin.
+
+### Notes
+
+- `0.2.0` was tagged but never reached npm — the release workflow failed at the publish step (token authorization). All 0.2.0 changes below are included in 0.3.0.
+
+---
+
 ## [0.2.0] — 2026-05-01
+
+> Tagged but unpublished — the npm publish step failed due to a token authorization issue. The changes below ship as part of `0.3.0`.
 
 ### Added
 
-- **npm publish workflow** — `release.yml` now publishes `ferry-init` to npm with provenance and creates a GitHub Release on every `v*.*.*` tag push, with full CI gate and `.ferry/` bundle drift check.
-- **`ferry-init` / `ferry-doctor` on npm** — CLIs are published as the `ferry-init` package and runnable via `npx ferry-init` / `npx ferry-doctor` (#63).
+- **npm publish workflow** — `release.yml` now publishes the CLI package to npm with provenance and creates a GitHub Release on every `v*.*.*` tag push, with full CI gate and `.ferry/` bundle drift check.
+- **`ferry-init` / `ferry-doctor` on npm** — CLIs are shipped via the `@big-emotion/ferry` package and runnable as `npx -p @big-emotion/ferry ferry-init` / `npx -p @big-emotion/ferry ferry-doctor` (#63).
 - **CodeQL SAST workflow** — `.github/workflows/codeql.yml` adds static analysis on every push and PR.
 - **Structured logger** — JSON logger with `correlation_id` propagation across agents and IO helpers.
 - **FR registry & drift detector** — `check:fr-drift` script + commit-msg hook ensure FR numbers in code, prompts, and docs stay in sync.
@@ -58,5 +74,6 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+[0.3.0]: https://github.com/big-emotion/ferry/releases/tag/v0.3.0
 [0.2.0]: https://github.com/big-emotion/ferry/releases/tag/v0.2.0
 [0.1.0]: https://github.com/big-emotion/ferry/releases/tag/v0.1.0
