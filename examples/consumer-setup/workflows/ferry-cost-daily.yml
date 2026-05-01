@@ -1,11 +1,13 @@
 # Copy this file to .github/workflows/ferry-cost-daily.yml in your repository.
-# Replace @v1 with the Ferry release tag you want to pin (e.g. @v1.2.3).
+# Update the FERRY_REF value below to the Ferry release you have pinned.
 #
-# Required variables: FERRY_AUDIT_ISSUE, FERRY_SPEND_CAP_EUR
+# Required variables: FERRY_AUDIT_ISSUE
+# Optional variables: FERRY_SPEND_CAP_EUR (monthly EUR cap — default 200 EUR)
 # Optional secrets (to apply ferry:paused to Jira tickets on threshold breach):
 #   FERRY_JIRA_BASE_URL, FERRY_JIRA_EMAIL, FERRY_JIRA_API_TOKEN
 #
-# Opt-out: delete this file or rename the workflow to disable scheduling.
+# Production deployments must include this workflow to enforce cost governance.
+# To disable: delete this file or rename the workflow.
 
 name: Ferry — Cost Daily Check
 
@@ -18,7 +20,45 @@ concurrency:
   group: ferry-cost-daily
   cancel-in-progress: false
 
+env:
+  FERRY_REF: v1 # pin to the same release you use for the agent stubs
+
 jobs:
   cost-check:
-    uses: big-emotion/ferry/.github/workflows/cost-daily.yml@v1
-    secrets: inherit
+    name: Check provider spend against cap
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+
+    steps:
+      - name: Checkout consumer repo
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Checkout Ferry source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: big-emotion/ferry
+          ref: ${{ env.FERRY_REF }}
+          path: _ferry_src
+
+      - name: Set up Node.js
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: '20'
+
+      - name: Install Ferry dependencies
+        run: npm ci --prefer-offline
+        working-directory: _ferry_src
+
+      - name: Run daily cost check
+        run: npx tsx src/cost-governance/run.ts
+        working-directory: _ferry_src
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          FERRY_AUDIT_ISSUE: ${{ vars.FERRY_AUDIT_ISSUE }}
+          FERRY_SPEND_CAP_EUR: ${{ vars.FERRY_SPEND_CAP_EUR }}
+          FERRY_JIRA_BASE_URL: ${{ secrets.FERRY_JIRA_BASE_URL }}
+          FERRY_JIRA_EMAIL: ${{ secrets.FERRY_JIRA_EMAIL }}
+          FERRY_JIRA_API_TOKEN: ${{ secrets.FERRY_JIRA_API_TOKEN }}

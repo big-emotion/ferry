@@ -286,14 +286,9 @@ If **all** of these check, the install is complete.
 
 ---
 
-## Phase 7 — Post-install hardening (recommended)
+## Phase 7 — Operations setup
 
-1. **Anthropic cost cap:** https://console.anthropic.com/settings/limits → set a monthly cap (e.g., $50) as a hard ceiling independent of Ferry's internal governance.
-2. **CODEOWNERS:** Add `.github/workflows/ferry-* @your-handle` to prevent unauthorized edits to the stubs.
-3. **Branch protection on `main`:** Require PR review + green CI before merge. Ferry opens drafts — you remain the last barrier.
-4. **SHA renewal:** Every 1–2 months, redo step 3.2 to bump the pinned SHA. Or configure Dependabot via `package-ecosystem: github-actions`.
-
-### 7.5 — Stale-ticket reconciler (every 30 min)
+### 7.5 — Stale-ticket reconciler (required, every 30 min)
 
 The reconciler sweeps all Ferry-managed tickets and re-triggers any that have stalled — for example, a `repository_dispatch` that was dropped or a ticket whose Jira column drifted out of sync with its state file.
 
@@ -322,11 +317,11 @@ gh variable set FERRY_JIRA_PROJECT --body "CHAN"
 
 **Schedule:** every 30 minutes (configurable — edit the `cron` expression in `ferry-reconcile.yml`).
 
-**Opt-out:** delete `ferry-reconcile.yml` from `.github/workflows/`. Consumers who prefer to re-trigger stalled tickets manually do not need this workflow.
+**Opt-out:** delete `ferry-reconcile.yml` from `.github/workflows/`. Not recommended for production — stalled tickets will require manual re-triggering.
 
 **Permissions required (added automatically by the stub):** `contents: read`, `issues: write`, `actions: write`.
 
-### 7.6 — Daily cost check (06:00 UTC)
+### 7.6 — Daily cost check (required, 06:00 UTC)
 
 The daily cost check reads accumulated `cost_eur` values from the Ferry audit issue, groups them by LLM provider, and fires a `ferry:paused` alert when any provider crosses 50% of the configured monthly cap.
 
@@ -356,9 +351,16 @@ gh variable set FERRY_SPEND_CAP_EUR --body "200"
 
 **Schedule:** daily at 06:00 UTC (configurable — edit the `cron` expression in `ferry-cost-daily.yml`).
 
-**Opt-out:** delete `ferry-cost-daily.yml`. Without this workflow, the only hard cost ceiling is the manual cap set in the Anthropic console (Phase 7, item 1).
+**Opt-out:** delete `ferry-cost-daily.yml`. Not recommended for production — without this workflow, the only hard cost ceiling is the manual cap set in the Anthropic console (§7.7, item 1).
 
 **Permissions required:** `contents: read`, `issues: write`.
+
+### 7.7 — Security hardening (recommended)
+
+1. **Anthropic cost cap:** https://console.anthropic.com/settings/limits → set a monthly cap (e.g., $50) as a hard ceiling independent of Ferry's internal governance.
+2. **CODEOWNERS:** Add `.github/workflows/ferry-* @your-handle` to prevent unauthorized edits to the stubs.
+3. **Branch protection on `main`:** Require PR review + green CI before merge. Ferry opens drafts — you remain the last barrier.
+4. **SHA renewal:** Every 1–2 months, redo step 3.2 to bump the pinned SHA. Or configure Dependabot via `package-ecosystem: github-actions`.
 
 ---
 
@@ -367,7 +369,8 @@ gh variable set FERRY_SPEND_CAP_EUR --body "200"
 | Issue                                           | Status                                                                                              |
 | ----------------------------------------------- | --------------------------------------------------------------------------------------------------- |
 | `@v1` tag must exist before install guide works | Required for release — tag must be cut before distributing this guide                               |
-| Stale-ticket reconciler sweep                   | Implemented — see Phase 7.5. Wired via `ferry-reconcile.yml` (issue #79).                           |
+| Stale-ticket reconciler sweep                   | Implemented — see §7.5 (required). Wired via `ferry-reconcile.yml` (issue #79).                     |
+| Daily cost governance                           | Implemented — see §7.6 (required). Wired via `ferry-cost-daily.yml` (issue #108).                  |
 | `.ferry/` agent scripts in consumer workspace   | Tracked in #71 — workflows currently read agent scripts from Ferry repo checkout                    |
 | Anthropic Agent SDK support                     | Planned — current LLM call site uses the Anthropic Messages API; Agent SDK is the next roadmap item |
 
@@ -397,6 +400,8 @@ Phase 5 — Smoke test        [ ] Ticket created
 Phase 6 — Final verification[ ] Lines in audit issue (one per phase run)
                             [ ] Automatic Jira transitions observed
                             [ ] Anthropic cost < $0.50
+Phase 7 — Operations setup  [ ] ferry-reconcile.yml copied and pushed (§7.5 — required)
+                            [ ] ferry-cost-daily.yml copied and pushed (§7.6 — required)
 ```
 
 ---
