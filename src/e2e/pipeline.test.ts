@@ -75,14 +75,14 @@ interface MockIO {
 function buildMockIO(): MockIO {
   const auditComments: Array<{ id: number; body: string }> = [];
 
-  const createCommentSpy = vi.fn().mockImplementation(
-    async (opts: { issue_number: number; body: string }) => {
+  const createCommentSpy = vi
+    .fn()
+    .mockImplementation(async (opts: { issue_number: number; body: string }) => {
       if (opts.issue_number === AUDIT_ISSUE) {
         auditComments.push({ id: auditComments.length + 1, body: opts.body });
       }
       return { data: { id: auditComments.length + 2000 } };
-    },
-  );
+    });
 
   const listCommentsSpy = vi.fn().mockImplementation(async (opts: { issue_number: number }) => {
     if (opts.issue_number === AUDIT_ISSUE) {
@@ -346,9 +346,7 @@ describe('E2E pipeline: refine → dev → review → iterate', () => {
       });
       // Only one REVIEW_TRANSITION_ID before the iterate phase
       const beforeIterate = io.tracker.postedTransitions.slice(0, 1);
-      expect(
-        beforeIterate.filter((t) => t.transitionId === REVIEW_TRANSITION_ID),
-      ).toHaveLength(1);
+      expect(beforeIterate.filter((t) => t.transitionId === REVIEW_TRANSITION_ID)).toHaveLength(1);
     });
 
     it('emits exactly one FR24 outcome: iter transition, no ferry:approved label', () => {
