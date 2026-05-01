@@ -6762,21 +6762,70 @@ function validateEnvelope(raw) {
   return envelope;
 }
 
+// src/lib/logger/index.ts
+function isDebugEnabled() {
+  return process.env.LOG_VERBOSITY === "debug";
+}
+function isPretty() {
+  return process.env.LOG_FORMAT === "pretty";
+}
+function buildRecord(level, correlationId, component, message, bindings, meta) {
+  return {
+    level,
+    ts: (/* @__PURE__ */ new Date()).toISOString(),
+    correlation_id: correlationId,
+    component,
+    message,
+    ...bindings,
+    ...meta
+  };
+}
+function writeRecord(record) {
+  if (isPretty()) {
+    const { level, ts, correlation_id, component, message, ...rest } = record;
+    const extras = Object.keys(rest).length > 0 ? `  ${JSON.stringify(rest)}` : "";
+    process.stderr.write(
+      `${ts}  ${level.toUpperCase().padEnd(5)}  [${component}]  ${correlation_id ? `(${correlation_id})  ` : ""}${message}${extras}
+`
+    );
+  } else {
+    process.stderr.write(JSON.stringify(record) + "\n");
+  }
+}
+function makeLogger(correlationId, component, bindings = {}, _writeRecord = writeRecord) {
+  function log(level, message, meta) {
+    if (level === "debug" && !isDebugEnabled()) return;
+    _writeRecord(buildRecord(level, correlationId, component, message, bindings, meta));
+  }
+  return {
+    debug: (msg, meta) => log("debug", msg, meta),
+    info: (msg, meta) => log("info", msg, meta),
+    warn: (msg, meta) => log("warn", msg, meta),
+    error: (msg, meta) => log("error", msg, meta),
+    child: (newBindings) => makeLogger(correlationId, component, { ...bindings, ...newBindings }, _writeRecord)
+  };
+}
+function createLogger(correlationId, component = "ferry") {
+  return makeLogger(correlationId, component);
+}
+
 // src/lib/agent-runtime/run-agent.ts
-var LOG_PREFIX = {
-  refiner: "[ferry:refiner-action]",
-  developer: "[ferry:dev-action]",
-  reviewer: "[ferry:review-action]",
-  iterator: "[ferry:iterate-action]"
+var COMPONENT = {
+  refiner: "ferry:refiner-action",
+  developer: "ferry:dev-action",
+  reviewer: "ferry:review-action",
+  iterator: "ferry:iterate-action"
 };
 async function runAgent(role, handler) {
-  const prefix = LOG_PREFIX[role];
+  const component = COMPONENT[role];
+  const bootstrapLogger = createLogger("", component);
   try {
     const rawPayload = requireEnv("FERRY_ENVELOPE_PAYLOAD");
     const envelope = validateEnvelope(JSON.parse(rawPayload));
-    await handler(envelope);
+    const logger = createLogger(envelope.event_id, component);
+    await handler(envelope, logger);
   } catch (err) {
-    console.error(`${prefix} fatal:`, err.message);
+    bootstrapLogger.error("fatal", { error: err.message });
     process.exit(1);
   }
 }
@@ -6965,6 +7014,7 @@ function filterExistingSubtasks(prepared, existingDescriptions) {
 var REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
 async function run(envelope, deps) {
   const { ticket_key: ticketKey, event_id: eventId } = envelope;
+  const logger = deps.logger ?? createLogger(eventId, "ferry:refiner-action");
   const dryRun = isDryRun();
   const issue = await deps.tracker.getIssue(ticketKey);
   const runLink = `https://github.com/${process.env.GITHUB_REPO ?? "unknown"}/actions/runs/${process.env.GITHUB_RUN_ID ?? "0"}`;
@@ -6980,10 +7030,11 @@ async function run(envelope, deps) {
     runLink
   });
   if (dryRun) {
-    console.log(
-      `[ferry:refiner-action] DRY_RUN \u2014 ${ticketKey} plan (${auditSummary.subtaskCount} subtasks, no Jira writes):`
-    );
-    console.log(JSON.stringify(plan, null, 2));
+    logger.info("DRY_RUN \u2014 plan (no Jira writes)", {
+      ticket: ticketKey,
+      subtasks: auditSummary.subtaskCount,
+      plan
+    });
     return;
   }
   const idempotencyMarker = `[ferry:refiner:${eventId}]`;
@@ -6995,15 +7046,13 @@ async function run(envelope, deps) {
       items.map((item) => deps.tracker.createSubtask(ticketKey, item.title, item.description))
     )
   );
-  console.error(
-    `[ferry:refiner-action] created ${applied.createdCount} sub-task(s) for ${ticketKey}`
-  );
+  logger.info("subtasks created", { ticket: ticketKey, count: applied.createdCount });
   await deps.tracker.postComment(
     ticketKey,
     `${idempotencyMarker} Refined. Created ${applied.createdCount} sub-task(s). See run: ${runLink}`
   );
 }
-async function main(envelope) {
+async function main(envelope, logger) {
   const anthropicAuth = resolveAnthropicAuth({ apiKeyEnv: "ANTHROPIC_API_KEY" });
   const anthropic = new Anthropic(anthropicAuth);
   const ferryCfg = loadFerryConfig(REPO_ROOT);
@@ -7025,7 +7074,7 @@ async function main(envelope) {
     };
   };
   const tracker = createTrackerFromEnv();
-  await run(envelope, { tracker, callLlm });
+  await run(envelope, { tracker, callLlm, logger });
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   void runAgent("refiner", main);

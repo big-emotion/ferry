@@ -1,6 +1,6 @@
 {
   "name": "ferry-init",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Ferry — GitHub Actions–native agent pipeline for Jira-driven automated development",
   "type": "module",
   "bin": {

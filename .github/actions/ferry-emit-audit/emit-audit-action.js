@@ -46,12 +46,12 @@ var require_fast_content_type_parse = __commonJS({
       if (mediaTypeRE.test(type) === false) {
         throw new TypeError("invalid media type");
       }
-      const result = {
+      const result2 = {
         type: type.toLowerCase(),
         parameters: new NullObject()
       };
       if (index === -1) {
-        return result;
+        return result2;
       }
       let key;
       let match;
@@ -68,12 +68,12 @@ var require_fast_content_type_parse = __commonJS({
           value = value.slice(1, value.length - 1);
           quotedPairRE.test(value) && (value = value.replace(quotedPairRE, "$1"));
         }
-        result.parameters[key] = value;
+        result2.parameters[key] = value;
       }
       if (index !== header.length) {
         throw new TypeError("invalid parameter format");
       }
-      return result;
+      return result2;
     }
     function safeParse2(header) {
       if (typeof header !== "string") {
@@ -84,12 +84,12 @@ var require_fast_content_type_parse = __commonJS({
       if (mediaTypeRE.test(type) === false) {
         return defaultContentType;
       }
-      const result = {
+      const result2 = {
         type: type.toLowerCase(),
         parameters: new NullObject()
       };
       if (index === -1) {
-        return result;
+        return result2;
       }
       let key;
       let match;
@@ -106,12 +106,12 @@ var require_fast_content_type_parse = __commonJS({
           value = value.slice(1, value.length - 1);
           quotedPairRE.test(value) && (value = value.replace(quotedPairRE, "$1"));
         }
-        result.parameters[key] = value;
+        result2.parameters[key] = value;
       }
       if (index !== header.length) {
         return defaultContentType;
       }
-      return result;
+      return result2;
     }
     module.exports.default = { parse: parse2, safeParse: safeParse2 };
     module.exports.parse = parse2;
@@ -119,6 +119,9 @@ var require_fast_content_type_parse = __commonJS({
     module.exports.defaultContentType = defaultContentType;
   }
 });
+
+// src/lib/audit/emit-audit-action.ts
+import { spawnSync } from "child_process";
 
 // node_modules/universal-user-agent/index.js
 function getUserAgent() {
@@ -167,12 +170,12 @@ function addHook(state, kind, name, hook2) {
   }
   if (kind === "after") {
     hook2 = (method, options) => {
-      let result;
+      let result2;
       return Promise.resolve().then(method.bind(null, options)).then((result_) => {
-        result = result_;
-        return orig(result, options);
+        result2 = result_;
+        return orig(result2, options);
       }).then(() => {
-        return result;
+        return result2;
       });
     };
   }
@@ -269,16 +272,16 @@ function isPlainObject(value) {
   return typeof Ctor === "function" && Ctor instanceof Ctor && Function.prototype.call(Ctor) === Function.prototype.call(value);
 }
 function mergeDeep(defaults, options) {
-  const result = Object.assign({}, defaults);
+  const result2 = Object.assign({}, defaults);
   Object.keys(options).forEach((key) => {
     if (isPlainObject(options[key])) {
-      if (!(key in defaults)) Object.assign(result, { [key]: options[key] });
-      else result[key] = mergeDeep(defaults[key], options[key]);
+      if (!(key in defaults)) Object.assign(result2, { [key]: options[key] });
+      else result2[key] = mergeDeep(defaults[key], options[key]);
     } else {
-      Object.assign(result, { [key]: options[key] });
+      Object.assign(result2, { [key]: options[key] });
     }
   });
-  return result;
+  return result2;
 }
 function removeUndefinedProperties(obj) {
   for (const key in obj) {
@@ -334,13 +337,13 @@ function extractUrlVariableNames(url) {
   return matches.map(removeNonChars).reduce((a, b) => a.concat(b), []);
 }
 function omit(object, keysToOmit) {
-  const result = { __proto__: null };
+  const result2 = { __proto__: null };
   for (const key of Object.keys(object)) {
     if (keysToOmit.indexOf(key) === -1) {
-      result[key] = object[key];
+      result2[key] = object[key];
     }
   }
-  return result;
+  return result2;
 }
 function encodeReserved(str) {
   return str.split(/(%[0-9A-Fa-f]{2})/g).map(function(part) {
@@ -370,28 +373,28 @@ function isKeyOperator(operator) {
   return operator === ";" || operator === "&" || operator === "?";
 }
 function getValues(context, operator, key, modifier) {
-  var value = context[key], result = [];
+  var value = context[key], result2 = [];
   if (isDefined(value) && value !== "") {
     if (typeof value === "string" || typeof value === "number" || typeof value === "bigint" || typeof value === "boolean") {
       value = value.toString();
       if (modifier && modifier !== "*") {
         value = value.substring(0, parseInt(modifier, 10));
       }
-      result.push(
+      result2.push(
         encodeValue(operator, value, isKeyOperator(operator) ? key : "")
       );
     } else {
       if (modifier === "*") {
         if (Array.isArray(value)) {
           value.filter(isDefined).forEach(function(value2) {
-            result.push(
+            result2.push(
               encodeValue(operator, value2, isKeyOperator(operator) ? key : "")
             );
           });
         } else {
           Object.keys(value).forEach(function(k) {
             if (isDefined(value[k])) {
-              result.push(encodeValue(operator, value[k], k));
+              result2.push(encodeValue(operator, value[k], k));
             }
           });
         }
@@ -410,24 +413,24 @@ function getValues(context, operator, key, modifier) {
           });
         }
         if (isKeyOperator(operator)) {
-          result.push(encodeUnreserved(key) + "=" + tmp.join(","));
+          result2.push(encodeUnreserved(key) + "=" + tmp.join(","));
         } else if (tmp.length !== 0) {
-          result.push(tmp.join(","));
+          result2.push(tmp.join(","));
         }
       }
     }
   } else {
     if (operator === ";") {
       if (isDefined(value)) {
-        result.push(encodeUnreserved(key));
+        result2.push(encodeUnreserved(key));
       }
     } else if (value === "" && (operator === "&" || operator === "?")) {
-      result.push(encodeUnreserved(key) + "=");
+      result2.push(encodeUnreserved(key) + "=");
     } else if (value === "") {
-      result.push("");
+      result2.push("");
     }
   }
-  return result;
+  return result2;
 }
 function parseUrl(template) {
   return {
@@ -601,12 +604,12 @@ var isContextSourceSupported = () => {
     return featureCache.get(parseFingerprint);
   }
   try {
-    const result = JSON.parse(
+    const result2 = JSON.parse(
       "1",
       (_, __, context) => !!context?.source && context.source === "1"
     );
-    featureCache.set(parseFingerprint, result);
-    return result;
+    featureCache.set(parseFingerprint, result2);
+    return result2;
   } catch {
     featureCache.set(parseFingerprint, false);
     return false;
@@ -926,16 +929,16 @@ function graphql(request2, query, options) {
   const parsedOptions = typeof query === "string" ? Object.assign({ query }, options) : query;
   const requestOptions = Object.keys(
     parsedOptions
-  ).reduce((result, key) => {
+  ).reduce((result2, key) => {
     if (NON_VARIABLE_OPTIONS.includes(key)) {
-      result[key] = parsedOptions[key];
-      return result;
+      result2[key] = parsedOptions[key];
+      return result2;
     }
-    if (!result.variables) {
-      result.variables = {};
+    if (!result2.variables) {
+      result2.variables = {};
     }
-    result.variables[key] = parsedOptions[key];
-    return result;
+    result2.variables[key] = parsedOptions[key];
+    return result2;
   }, {});
   const baseUrl = parsedOptions.baseUrl || request2.endpoint.DEFAULTS.baseUrl;
   if (GHES_V3_SUFFIX_REGEX.test(baseUrl)) {
@@ -1276,8 +1279,8 @@ function paginate(octokit2, route, parameters, mapFn) {
   );
 }
 function gather(octokit2, results, iterator2, mapFn) {
-  return iterator2.next().then((result) => {
-    if (result.done) {
+  return iterator2.next().then((result2) => {
+    if (result2.done) {
       return results;
     }
     let earlyExit = false;
@@ -1285,7 +1288,7 @@ function gather(octokit2, results, iterator2, mapFn) {
       earlyExit = true;
     }
     results = results.concat(
-      mapFn ? mapFn(result.value, done) : result.value.data
+      mapFn ? mapFn(result2.value, done) : result2.value.data
     );
     if (earlyExit) {
       return results;
@@ -3751,8 +3754,64 @@ var Octokit2 = Octokit.plugin(requestLog, legacyRestEndpointMethods, paginateRes
 );
 
 // src/lib/audit/index.ts
+var ROTATION_THRESHOLD = 900;
+var AUDIT_ACTIVE_LABEL = "ferry:audit-log:active";
+var ROTATION_MARKER = "[ferry:audit:rotation]";
+var MAX_PAGES = 10;
+function parseAuditSeq(title) {
+  const m = title.match(/\(#(\d+)\)\s*$/);
+  return m ? parseInt(m[1], 10) : 1;
+}
+async function findActiveAuditIssue(octokit2, owner2, repo2) {
+  const result2 = await octokit2.rest.issues.listForRepo({
+    owner: owner2,
+    repo: repo2,
+    labels: AUDIT_ACTIVE_LABEL,
+    state: "open",
+    per_page: 1
+  });
+  if (result2.data.length === 0) return null;
+  return result2.data[0].number;
+}
+async function rotateAuditIssue(octokit2, owner2, repo2, currentIssueNumber) {
+  const current = await octokit2.rest.issues.get({
+    owner: owner2,
+    repo: repo2,
+    issue_number: currentIssueNumber
+  });
+  const nextSeq = parseAuditSeq(current.data.title) + 1;
+  const newTitle = `Ferry Audit Log (#${nextSeq})`;
+  const created = await octokit2.rest.issues.create({
+    owner: owner2,
+    repo: repo2,
+    title: newTitle,
+    body: `Ferry audit log \u2014 continued from #${currentIssueNumber}.
+
+Do not close. Ferry writes audit comments here.`,
+    labels: [AUDIT_ACTIVE_LABEL]
+  });
+  const newIssueNumber = created.data.number;
+  try {
+    await octokit2.rest.issues.removeLabel({
+      owner: owner2,
+      repo: repo2,
+      issue_number: currentIssueNumber,
+      name: AUDIT_ACTIVE_LABEL
+    });
+  } catch {
+  }
+  await octokit2.rest.issues.createComment({
+    owner: owner2,
+    repo: repo2,
+    issue_number: currentIssueNumber,
+    body: `${ROTATION_MARKER}
+Audit log continued in #${newIssueNumber} \u2014 ${newTitle}.`
+  });
+  return newIssueNumber;
+}
 async function emitAudit(payload, opts) {
-  const { octokit: octokit2, owner: owner2, repo: repo2, auditIssue: auditIssue2 } = opts;
+  const { octokit: octokit2, owner: owner2, repo: repo2 } = opts;
+  let auditIssue2 = opts.auditIssue;
   const {
     ticket: ticket2,
     phase: phase2,
@@ -3764,8 +3823,24 @@ async function emitAudit(payload, opts) {
     triggeredLabels,
     resolvedMcpServers
   } = payload;
+  let rotatedTo;
+  const issueData = await octokit2.rest.issues.get({
+    owner: owner2,
+    repo: repo2,
+    issue_number: auditIssue2
+  });
+  if (issueData.data.comments >= ROTATION_THRESHOLD) {
+    const activeIssue = await findActiveAuditIssue(octokit2, owner2, repo2);
+    if (activeIssue !== null && activeIssue !== auditIssue2) {
+      rotatedTo = activeIssue;
+      auditIssue2 = activeIssue;
+    } else {
+      const newIssue = await rotateAuditIssue(octokit2, owner2, repo2, auditIssue2);
+      rotatedTo = newIssue;
+      auditIssue2 = newIssue;
+    }
+  }
   const marker = `[ferry:audit:${runId2}]`;
-  const MAX_PAGES = 10;
   for (let page = 1; page <= MAX_PAGES; page++) {
     const existing = await octokit2.rest.issues.listComments({
       owner: owner2,
@@ -3774,7 +3849,8 @@ async function emitAudit(payload, opts) {
       per_page: 100,
       page
     });
-    if (existing.data.some((c) => typeof c.body === "string" && c.body.startsWith(marker))) return;
+    if (existing.data.some((c) => typeof c.body === "string" && c.body.startsWith(marker)))
+      return { rotatedTo };
     if (existing.data.length < 100) break;
   }
   const auditLine = {
@@ -3799,6 +3875,7 @@ ${JSON.stringify(auditLine)}`;
     issue_number: auditIssue2,
     body
   });
+  return { rotatedTo };
 }
 
 // src/lib/audit/emit-audit-action.ts
@@ -3825,7 +3902,7 @@ var inputTokens = parseInt(process.env["FERRY_INPUT_TOKENS"] ?? "0", 10) || 0;
 var outputTokens = parseInt(process.env["FERRY_OUTPUT_TOKENS"] ?? "0", 10) || 0;
 var costEur = parseFloat(process.env["FERRY_COST_EUR"] ?? "0") || 0;
 var octokit = new Octokit2({ auth: token });
-await emitAudit(
+var result = await emitAudit(
   {
     ticket,
     phase,
@@ -3837,6 +3914,36 @@ await emitAudit(
   },
   { octokit, owner, repo, auditIssue }
 );
+if (result.rotatedTo !== void 0) {
+  process.stdout.write(
+    `[ferry:audit] Audit issue rotated: #${auditIssue} \u2192 #${result.rotatedTo}
+`
+  );
+  process.stdout.write(`[ferry:audit] New active issue has label: ${AUDIT_ACTIVE_LABEL}
+`);
+  const setResult = spawnSync(
+    "gh",
+    [
+      "variable",
+      "set",
+      "FERRY_AUDIT_ISSUE",
+      "--body",
+      String(result.rotatedTo),
+      "--repo",
+      `${owner}/${repo}`
+    ],
+    { stdio: "inherit", env: { ...process.env, GH_TOKEN: token } }
+  );
+  if (setResult.status === 0) {
+    process.stdout.write(`[ferry:audit] FERRY_AUDIT_ISSUE updated to ${result.rotatedTo}
+`);
+  } else {
+    process.stderr.write(
+      `[ferry:audit] Warning: could not update FERRY_AUDIT_ISSUE via gh variable set (token may lack variables:write). Future runs will discover the active issue via the '${AUDIT_ACTIVE_LABEL}' label. To silence this warning, add 'variables: write' to the emit-audit job permissions and update FERRY_AUDIT_ISSUE manually to ${result.rotatedTo}.
+`
+    );
+  }
+}
 /*! Bundled license information:
 
 @octokit/request-error/dist-src/index.js:

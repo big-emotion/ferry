@@ -6757,9 +6757,9 @@ var FerryError = class extends Error {
 function isDebugEnabled(env) {
   return (env ?? process.env)["LOG_VERBOSITY"] === "debug";
 }
-function emitDebug(event, env) {
+function emitDebug(event, logger, env) {
   if (!isDebugEnabled(env)) return;
-  console.error(JSON.stringify(event));
+  logger.debug(event.type, event);
 }
 
 // src/lib/mcp/client.ts
@@ -6948,6 +6948,53 @@ var McpClientPool = class {
   }
 };
 
+// src/lib/logger/index.ts
+function isDebugEnabled2() {
+  return process.env.LOG_VERBOSITY === "debug";
+}
+function isPretty() {
+  return process.env.LOG_FORMAT === "pretty";
+}
+function buildRecord(level, correlationId, component, message, bindings, meta) {
+  return {
+    level,
+    ts: (/* @__PURE__ */ new Date()).toISOString(),
+    correlation_id: correlationId,
+    component,
+    message,
+    ...bindings,
+    ...meta
+  };
+}
+function writeRecord(record) {
+  if (isPretty()) {
+    const { level, ts, correlation_id, component, message, ...rest } = record;
+    const extras = Object.keys(rest).length > 0 ? `  ${JSON.stringify(rest)}` : "";
+    process.stderr.write(
+      `${ts}  ${level.toUpperCase().padEnd(5)}  [${component}]  ${correlation_id ? `(${correlation_id})  ` : ""}${message}${extras}
+`
+    );
+  } else {
+    process.stderr.write(JSON.stringify(record) + "\n");
+  }
+}
+function makeLogger(correlationId, component, bindings = {}, _writeRecord = writeRecord) {
+  function log(level, message, meta) {
+    if (level === "debug" && !isDebugEnabled2()) return;
+    _writeRecord(buildRecord(level, correlationId, component, message, bindings, meta));
+  }
+  return {
+    debug: (msg, meta) => log("debug", msg, meta),
+    info: (msg, meta) => log("info", msg, meta),
+    warn: (msg, meta) => log("warn", msg, meta),
+    error: (msg, meta) => log("error", msg, meta),
+    child: (newBindings) => makeLogger(correlationId, component, { ...bindings, ...newBindings }, _writeRecord)
+  };
+}
+function createLogger(correlationId, component = "ferry") {
+  return makeLogger(correlationId, component);
+}
+
 // src/lib/llm/agent-loop/types.ts
 function isStdioMcpServer(s) {
   return s.type === "stdio";
@@ -6974,6 +7021,7 @@ function buildMcpParams(mcpServers) {
 }
 function createAnthropicAgentLoop(opts) {
   const anthropic = opts.client ?? new Anthropic({ apiKey: opts.apiKey, authToken: opts.authToken });
+  const logger = opts.logger ?? createLogger("", "ferry:dev-loop");
   async function runLoop(input) {
     const { system, initialPrompt, tools, repoRoot, branchName, secretScan, depth = 0 } = input;
     const maxIterations = opts.maxIterations ?? parseInt(process.env.FERRY_DEV_MAX_ITERATIONS ?? "200", 10);
@@ -6991,9 +7039,11 @@ function createAnthropicAgentLoop(opts) {
       if (stdioServers.length > 0) {
         await pool.connect(stdioServers);
         if (pool.getTools().length > 0) {
-          console.error(
-            `[ferry:dev-loop] depth=${depth} stdio_mcp_tools=${pool.getTools().length} servers=${stdioServers.map((s) => s.name).join(",")}`
-          );
+          logger.info("stdio_mcp_tools", {
+            depth,
+            count: pool.getTools().length,
+            servers: stdioServers.map((s) => s.name).join(",")
+          });
         }
       }
       return await runLoopCore({
@@ -7088,30 +7138,44 @@ function createAnthropicAgentLoop(opts) {
       const toolUseCount = contentBlocks.filter((b) => b.type === "tool_use").length;
       const cacheW = response.usage.cache_creation_input_tokens ?? 0;
       const cacheR = response.usage.cache_read_input_tokens ?? 0;
-      console.error(
-        `[ferry:dev-loop] depth=${depth} iter=${iter} stop_reason=${response.stop_reason} tools=${toolUseCount} mcp_tools=${mcpToolUseCount} in=${response.usage.input_tokens} cache_w=${cacheW} cache_r=${cacheR} out=${response.usage.output_tokens}`
-      );
-      emitDebug({
-        type: "turn",
-        iter,
+      logger.info("turn", {
         depth,
+        iter,
         stop_reason: response.stop_reason,
         tools: toolUseCount,
         mcp_tools: mcpToolUseCount,
         in: response.usage.input_tokens,
         cache_w: cacheW,
         cache_r: cacheR,
-        out: response.usage.output_tokens,
-        elapsed_ms: Date.now() - iterStart
+        out: response.usage.output_tokens
       });
+      emitDebug(
+        {
+          type: "turn",
+          iter,
+          depth,
+          stop_reason: response.stop_reason,
+          tools: toolUseCount,
+          mcp_tools: mcpToolUseCount,
+          in: response.usage.input_tokens,
+          cache_w: cacheW,
+          cache_r: cacheR,
+          out: response.usage.output_tokens,
+          elapsed_ms: Date.now() - iterStart
+        },
+        logger
+      );
       for (const block of contentBlocks) {
         if (block.type === "text" && typeof block.text === "string" && block.text.trim()) {
-          console.error(`[ferry:dev-think] ${block.text.trim()}`);
+          logger.debug("think", { depth, iter, text: block.text.trim() });
         }
         if (block.type === "mcp_tool_use") {
-          console.error(
-            `[ferry:dev-tool] depth=${depth} iter=${iter} mcp_tool=${String(block.name ?? "unknown")} server=${String(block.server_name ?? "unknown")}`
-          );
+          logger.info("mcp_tool", {
+            depth,
+            iter,
+            tool: String(block.name ?? "unknown"),
+            server: String(block.server_name ?? "unknown")
+          });
         }
       }
       if (response.stop_reason !== "tool_use") {
@@ -7133,9 +7197,7 @@ function createAnthropicAgentLoop(opts) {
         }
         if (name === "commit_progress" && opts.commitProgress) {
           const { message } = blockInput;
-          console.error(
-            `[ferry:dev-tool] depth=${depth} iter=${iter} tool=commit_progress arg=${message.slice(0, 120)}`
-          );
+          logger.info("tool", { depth, iter, tool: "commit_progress", arg: message.slice(0, 120) });
           try {
             const result = await opts.commitProgress(repoRoot, branchName, message, secretScan);
             toolResults.push({ type: "tool_result", tool_use_id: id, content: result });
@@ -7151,9 +7213,7 @@ function createAnthropicAgentLoop(opts) {
         }
         if (name === "spawn_subagent" && opts.spawnSubagent) {
           const { task } = blockInput;
-          console.error(
-            `[ferry:dev-tool] depth=${depth} iter=${iter} tool=spawn_subagent arg=${task.slice(0, 120)}`
-          );
+          logger.info("tool", { depth, iter, tool: "spawn_subagent", arg: task.slice(0, 120) });
           try {
             const subResult = await opts.spawnSubagent(task);
             usage.input_tokens += subResult.usage.input_tokens;
@@ -7186,9 +7246,7 @@ function createAnthropicAgentLoop(opts) {
         }
         if (pool.hasTool(name)) {
           const serverName = pool.getServerName(name) ?? "unknown";
-          console.error(
-            `[ferry:dev-tool] depth=${depth} iter=${iter} mcp_stdio=${name} server=${serverName}`
-          );
+          logger.info("mcp_stdio_tool", { depth, iter, tool: name, server: serverName });
           try {
             const result = await pool.callTool(name, blockInput);
             toolResults.push({ type: "tool_result", tool_use_id: id, content: result });
@@ -7203,9 +7261,12 @@ function createAnthropicAgentLoop(opts) {
           continue;
         }
         const argHint = blockInput.path ?? blockInput.source ?? blockInput.command ?? blockInput.pattern ?? "";
-        console.error(
-          `[ferry:dev-tool] depth=${depth} iter=${iter} tool=${name}${argHint ? ` arg=${String(argHint).slice(0, 120)}` : ""}`
-        );
+        logger.info("tool", {
+          depth,
+          iter,
+          tool: name,
+          ...argHint ? { arg: String(argHint).slice(0, 120) } : {}
+        });
         try {
           const result = await opts.executeTool(repoRoot, name, blockInput);
           toolResults.push({ type: "tool_result", tool_use_id: id, content: result });
@@ -7239,14 +7300,17 @@ function createAnthropicAgentLoop(opts) {
       }
       messages.push({ role: "user", content: toolResults });
       if (done) {
-        emitDebug({
-          type: "result",
-          subtype: "success",
-          iterations: iter,
-          total_in: usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens,
-          total_out: usage.output_tokens,
-          elapsed_ms: Date.now() - loopStart
-        });
+        emitDebug(
+          {
+            type: "result",
+            subtype: "success",
+            iterations: iter,
+            total_in: usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens,
+            total_out: usage.output_tokens,
+            elapsed_ms: Date.now() - loopStart
+          },
+          logger
+        );
         return { done, usage, iterations: iter };
       }
     }
@@ -7312,7 +7376,7 @@ function formatCommitMessage(input) {
 }
 
 // src/lib/labels/capabilities.ts
-function resolveCapabilities(ticketLabels, configLabels) {
+function resolveCapabilities(ticketLabels, configLabels, logger) {
   if (!configLabels) {
     return {
       mcpServerNames: [],
@@ -7341,7 +7405,7 @@ function resolveCapabilities(ticketLabels, configLabels) {
       }
     } else if (label.startsWith("ferry:")) {
       unknownFerryLabels.push(label);
-      console.error(`[ferry:capabilities] unknown ferry label ignored: ${label}`);
+      logger?.warn("unknown ferry label ignored", { label });
     }
   }
   const serverAllowedTools = {};
@@ -7414,20 +7478,22 @@ function validateEnvelope(raw) {
 }
 
 // src/lib/agent-runtime/run-agent.ts
-var LOG_PREFIX = {
-  refiner: "[ferry:refiner-action]",
-  developer: "[ferry:dev-action]",
-  reviewer: "[ferry:review-action]",
-  iterator: "[ferry:iterate-action]"
+var COMPONENT = {
+  refiner: "ferry:refiner-action",
+  developer: "ferry:dev-action",
+  reviewer: "ferry:review-action",
+  iterator: "ferry:iterate-action"
 };
 async function runAgent(role, handler2) {
-  const prefix = LOG_PREFIX[role];
+  const component = COMPONENT[role];
+  const bootstrapLogger = createLogger("", component);
   try {
     const rawPayload = requireEnv("FERRY_ENVELOPE_PAYLOAD");
     const envelope = validateEnvelope(JSON.parse(rawPayload));
-    await handler2(envelope);
+    const logger = createLogger(envelope.event_id, component);
+    await handler2(envelope, logger);
   } catch (err) {
-    console.error(`${prefix} fatal:`, err.message);
+    bootstrapLogger.error("fatal", { error: err.message });
     process.exit(1);
   }
 }
@@ -7446,18 +7512,18 @@ import { existsSync as existsSync2, readFileSync as readFileSync2 } from "node:f
 // src/lib/prompts/resolve.ts
 import { existsSync, readFileSync } from "node:fs";
 import * as path4 from "node:path";
-function resolvePromptPath(name, repoRoot, _checkExists = existsSync) {
+function resolvePromptPath(name, repoRoot, _checkExists = existsSync, _logger) {
   const overridesDir = process.env.FERRY_PROMPTS_DIR || path4.join(repoRoot, "prompts");
   const overridePath = path4.join(overridesDir, `${name}.md`);
   if (_checkExists(overridePath)) {
     return overridePath;
   }
   const bundledDir = process.env.FERRY_BUNDLED_PROMPTS_DIR ?? path4.join(repoRoot, ".ferry", "prompts");
-  console.error(`[ferry:prompts] ${name}: consumer override not found, using shipped default`);
+  _logger?.info(`${name}: consumer override not found, using shipped default`);
   return path4.join(bundledDir, `${name}.md`);
 }
 var PROJECT_SNIPPET_MAX_BYTES = 2048;
-function loadProjectSnippet(repoRoot, _checkExists = existsSync, _readFile = (p, enc) => readFileSync(p, enc)) {
+function loadProjectSnippet(repoRoot, _checkExists = existsSync, _readFile = (p, enc) => readFileSync(p, enc), _logger) {
   const overridesDir = process.env.FERRY_PROMPTS_DIR || path4.join(repoRoot, "prompts");
   const candidates = [
     path4.join(overridesDir, "_project.md"),
@@ -7467,16 +7533,33 @@ function loadProjectSnippet(repoRoot, _checkExists = existsSync, _readFile = (p,
     if (_checkExists(candidate)) {
       const raw = _readFile(candidate, "utf8");
       if (raw.length > PROJECT_SNIPPET_MAX_BYTES) {
-        console.error(
-          `[ferry:prompts] _project.md exceeds ${PROJECT_SNIPPET_MAX_BYTES}B \u2014 truncating`
-        );
+        _logger?.warn("_project.md exceeds limit \u2014 truncating", {
+          limit: PROJECT_SNIPPET_MAX_BYTES
+        });
         return raw.slice(0, PROJECT_SNIPPET_MAX_BYTES);
       }
-      console.error(`[ferry:prompts] loaded _project.md from ${candidate}`);
+      _logger?.info("loaded _project.md", { path: candidate });
       return raw;
     }
   }
   return null;
+}
+var AGENT_EXTENSION_MAX_BYTES = 4096;
+function loadAgentExtension(name, repoRoot, _checkExists = existsSync, _readFile = (p, enc) => readFileSync(p, enc), _logger) {
+  const overridesDir = process.env.FERRY_PROMPTS_DIR || path4.join(repoRoot, "prompts");
+  const candidate = path4.join(overridesDir, `${name}.extra.md`);
+  if (!_checkExists(candidate)) {
+    return null;
+  }
+  const raw = _readFile(candidate, "utf8");
+  if (raw.length > AGENT_EXTENSION_MAX_BYTES) {
+    _logger?.warn(`${name}.extra.md exceeds limit \u2014 truncating`, {
+      limit: AGENT_EXTENSION_MAX_BYTES
+    });
+    return raw.slice(0, AGENT_EXTENSION_MAX_BYTES);
+  }
+  _logger?.info(`loaded ${name}.extra.md`, { path: candidate });
+  return raw;
 }
 
 // src/lib/agent-runtime/prompt.ts
@@ -7485,10 +7568,14 @@ function buildSystem(promptName, repoRoot, opts) {
   const _readFile = opts?._readFile ?? ((p, enc) => readFileSync2(p, enc));
   const resolvedPath = resolvePromptPath(promptName, repoRoot, _checkExists);
   const systemBase = _readFile(resolvedPath, "utf8");
+  const agentExtension = loadAgentExtension(promptName, repoRoot, _checkExists, _readFile);
   const projectSnippet = loadProjectSnippet(repoRoot, _checkExists, _readFile);
   const separator = opts?.separator ?? "\n\n";
   const parts = [
     systemBase,
+    agentExtension ? `## Project-specific guidance for ${promptName}
+
+${agentExtension}` : null,
     ...opts?.extraParts ?? [],
     projectSnippet ? `## Project conventions
 
@@ -7529,7 +7616,7 @@ function configureFerryGitUser(repoRoot) {
   execSync('git config user.name "ferry-bot"', { cwd: repoRoot });
   execSync('git config user.email "ferry-bot@users.noreply.github.com"', { cwd: repoRoot });
 }
-function makeCommitProgress(logPrefix, options = {}) {
+function makeCommitProgress(logger, options = {}) {
   return async (repoRoot, branchName, message, scan) => {
     execSync("git add -A", { cwd: repoRoot });
     const status = execSync("git status --porcelain", { cwd: repoRoot, encoding: "utf8" });
@@ -7537,13 +7624,13 @@ function makeCommitProgress(logPrefix, options = {}) {
     await scan();
     execSync(`git commit -m ${JSON.stringify(message)}`, { cwd: repoRoot });
     if (options.dryRun) {
-      console.error(
-        `${logPrefix} DRY_RUN \u2014 checkpoint committed locally (push skipped): ${message.slice(0, 80)}`
-      );
+      logger.info("DRY_RUN \u2014 checkpoint committed locally (push skipped)", {
+        message: message.slice(0, 80)
+      });
       return "committed (dry-run: push skipped)";
     }
     execSync(`git push origin ${branchName} --force-with-lease`, { cwd: repoRoot });
-    console.error(`${logPrefix} checkpoint: ${message.slice(0, 80)}`);
+    logger.info("checkpoint", { message: message.slice(0, 80) });
     return "committed and pushed";
   };
 }
@@ -7655,16 +7742,15 @@ function makeSecretScan(repoRoot) {
 }
 
 // src/lib/agent-runtime/labels.ts
-function logCapabilities(logPrefix, capabilities) {
+function logCapabilities(logger, capabilities) {
   if (capabilities.triggeredLabels.length > 0) {
-    console.error(
-      `${logPrefix} label capabilities: labels=[${capabilities.triggeredLabels.join(",")}] mcp=[${capabilities.mcpServerNames.join(",")}]`
-    );
+    logger.info("label capabilities", {
+      labels: capabilities.triggeredLabels,
+      mcp: capabilities.mcpServerNames
+    });
   }
   if (capabilities.unknownFerryLabels.length > 0) {
-    console.error(
-      `${logPrefix} unknown ferry labels (ignored): ${capabilities.unknownFerryLabels.join(", ")}`
-    );
+    logger.warn("unknown ferry labels (ignored)", { labels: capabilities.unknownFerryLabels });
   }
 }
 
@@ -8581,7 +8667,7 @@ var noop3 = () => {
 };
 var consoleWarn = console.warn.bind(console);
 var consoleError = console.error.bind(console);
-function createLogger(logger = {}) {
+function createLogger2(logger = {}) {
   if (typeof logger.debug !== "function") {
     logger.debug = noop3;
   }
@@ -8663,7 +8749,7 @@ var Octokit = class {
     }
     this.request = request.defaults(requestDefaults);
     this.graphql = withCustomRequest(this.request).defaults(requestDefaults);
-    this.log = createLogger(options.log);
+    this.log = createLogger2(options.log);
     this.hook = hook2;
     if (!options.authStrategy) {
       if (!options.auth) {
@@ -11941,7 +12027,7 @@ function createGitHubContext(repoRoot) {
 
 // src/agents/iterator/iterate-action.ts
 var REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
-async function main(envelope) {
+async function main(envelope, logger) {
   const { ticket_key: ticketKey, event_id: eventId } = envelope;
   const anthropicAuth = resolveAnthropicAuth({ apiKeyEnv: "ANTHROPIC_API_KEY" });
   const reviewTransitionId = requireEnv("FERRY_REVIEW_TRANSITION_ID");
@@ -11953,7 +12039,7 @@ async function main(envelope) {
   const capabilities = resolveCapabilities(issue.labels, ferryCfg.labels);
   const hasLabelsConfig = ferryCfg.labels !== void 0;
   const mcpServers = filterMcpServers(mcpPool, capabilities, hasLabelsConfig);
-  logCapabilities("[ferry:iterate-action]", capabilities);
+  logCapabilities(logger, capabilities);
   const priorIterations = existingComments.filter(
     (c) => c.includes("[ferry:iterator:") && c.includes("complete. Pushed fixes to PR#")
   ).length;
@@ -11994,9 +12080,7 @@ async function main(envelope) {
   const idempotencyMarker = byReviewCommentId("iterator", latestReview.id);
   const { skipped } = checkIdempotencyMarker(idempotencyMarker, existingComments);
   if (skipped) {
-    console.error(
-      `[ferry:iterate-action] review comment ${latestReview.id} already handled, skipping`
-    );
+    logger.info("review comment already handled, skipping", { review_comment_id: latestReview.id });
     appendOutput({ input_tokens: 0, output_tokens: 0, model });
     return;
   }
@@ -12047,7 +12131,8 @@ ${existingLog}` : "",
     maxInputTokens: ferryCfg.limits.max_tokens_per_run,
     maxTokens: ferryCfg.limits.max_tokens_per_message,
     executeTool,
-    commitProgress: makeCommitProgress("[ferry:iterate-action]")
+    commitProgress: makeCommitProgress(logger),
+    logger
   });
   const { done, usage, iterations } = await loop.run({
     system,
@@ -12058,9 +12143,14 @@ ${existingLog}` : "",
     secretScan,
     mcpServers
   });
-  console.error(
-    `[ferry:iterate-action] done in ${iterations} iterations \u2014 actionable=${done.actionable} in=${usage.input_tokens} cache_w=${usage.cache_creation_input_tokens} cache_r=${usage.cache_read_input_tokens} out=${usage.output_tokens}`
-  );
+  logger.info("done", {
+    iterations,
+    actionable: done.actionable,
+    in: usage.input_tokens,
+    cache_w: usage.cache_creation_input_tokens,
+    cache_r: usage.cache_read_input_tokens,
+    out: usage.output_tokens
+  });
   if (!done.actionable) {
     await tracker.postComment(
       ticketKey,

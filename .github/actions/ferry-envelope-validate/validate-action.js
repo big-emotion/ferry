@@ -35,17 +35,65 @@ function validateEnvelope(raw2) {
   return envelope;
 }
 
+// src/lib/logger/index.ts
+function isDebugEnabled() {
+  return process.env.LOG_VERBOSITY === "debug";
+}
+function isPretty() {
+  return process.env.LOG_FORMAT === "pretty";
+}
+function buildRecord(level, correlationId, component, message, bindings, meta) {
+  return {
+    level,
+    ts: (/* @__PURE__ */ new Date()).toISOString(),
+    correlation_id: correlationId,
+    component,
+    message,
+    ...bindings,
+    ...meta
+  };
+}
+function writeRecord(record) {
+  if (isPretty()) {
+    const { level, ts, correlation_id, component, message, ...rest } = record;
+    const extras = Object.keys(rest).length > 0 ? `  ${JSON.stringify(rest)}` : "";
+    process.stderr.write(
+      `${ts}  ${level.toUpperCase().padEnd(5)}  [${component}]  ${correlation_id ? `(${correlation_id})  ` : ""}${message}${extras}
+`
+    );
+  } else {
+    process.stderr.write(JSON.stringify(record) + "\n");
+  }
+}
+function makeLogger(correlationId, component, bindings = {}, _writeRecord = writeRecord) {
+  function log(level, message, meta) {
+    if (level === "debug" && !isDebugEnabled()) return;
+    _writeRecord(buildRecord(level, correlationId, component, message, bindings, meta));
+  }
+  return {
+    debug: (msg, meta) => log("debug", msg, meta),
+    info: (msg, meta) => log("info", msg, meta),
+    warn: (msg, meta) => log("warn", msg, meta),
+    error: (msg, meta) => log("error", msg, meta),
+    child: (newBindings) => makeLogger(correlationId, component, { ...bindings, ...newBindings }, _writeRecord)
+  };
+}
+function createLogger(correlationId, component = "ferry") {
+  return makeLogger(correlationId, component);
+}
+
 // src/lib/envelope/validate-action.ts
+var logger = createLogger("", "ferry:envelope");
 var raw = process.env.FERRY_ENVELOPE_PAYLOAD;
 if (!raw) {
-  console.error("[ferry:envelope] FERRY_ENVELOPE_PAYLOAD is not set");
+  logger.error("FERRY_ENVELOPE_PAYLOAD is not set");
   process.exit(1);
 }
 var parsed;
 try {
   parsed = JSON.parse(raw);
 } catch {
-  console.error("[ferry:envelope] FERRY_ENVELOPE_PAYLOAD is not valid JSON");
+  logger.error("FERRY_ENVELOPE_PAYLOAD is not valid JSON");
   process.exit(1);
 }
 try {
@@ -62,6 +110,6 @@ event_id=${envelope.event_id}
   }
   process.exit(0);
 } catch (e) {
-  console.error("[ferry:envelope] Envelope validation failed:", e.message);
+  logger.error("Envelope validation failed", { error: e.message });
   process.exit(1);
 }

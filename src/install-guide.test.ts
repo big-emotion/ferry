@@ -46,10 +46,10 @@ describe('Phase 3 — consumer workflow stubs (install-guide §3.1)', () => {
   }
 
   for (const stub of coreStubs) {
-    it(`${stub}.yml references @v0.1.0 (not @main)`, async () => {
+    it(`${stub}.yml references @v0.2.0 (not @main)`, async () => {
       const content = await readFile(`examples/consumer-setup/workflows/${stub}.yml`);
-      expect(content, `${stub}.yml must pin to @v0.1.0 — @main is mutable and insecure`).toMatch(
-        /@v0\.1\.0\b/,
+      expect(content, `${stub}.yml must pin to @v0.2.0 — @main is mutable and insecure`).toMatch(
+        /@v0\.2\.0\b/,
       );
       expect(content, `${stub}.yml must not use @main (use a release tag or a SHA)`).not.toMatch(
         /@main/,
@@ -322,7 +322,7 @@ describe('Phase 2 — audit issue creation (install-guide §2.1)', () => {
 describe('Phase 3 — no @main in consumer stubs (install-guide §3.2)', () => {
   it('CONSUMER-SETUP.md does not tell users to use @main workflow refs', async () => {
     const doc = await readFile('docs/CONSUMER-SETUP.md');
-    // The doc must not say stubs use @main (they use @v0.1.0)
+    // The doc must not say stubs use @main (they use @v0.2.0)
     expect(doc).not.toMatch(/uses.*@main/);
     expect(doc).not.toContain('always use the latest version automatically');
   });
@@ -336,7 +336,7 @@ describe('Phase 3 — SHA pinning instructions (install-guide §3.2)', () => {
   it('CONSUMER-SETUP.md includes SHA pinning instructions using gh api', async () => {
     const doc = await readFile('docs/CONSUMER-SETUP.md');
     expect(doc, 'CONSUMER-SETUP.md must show SHA pinning via gh api').toContain(
-      'gh api repos/big-emotion/ferry/git/refs/tags/v0.1.0',
+      'gh api repos/big-emotion/ferry/git/refs/tags/v0.2.0',
     );
   });
 });
@@ -379,7 +379,7 @@ describe('Supply-chain — no @main refs in internal workflows (issue #77)', () 
       );
       expect(
         mainRefs,
-        `${wf}.yml must not reference ferry-* composite actions at @main — pin to a release tag (e.g. @v0.1.0) instead`,
+        `${wf}.yml must not reference ferry-* composite actions at @main — pin to a release tag (e.g. @v0.2.0) instead`,
       ).toHaveLength(0);
     });
   }

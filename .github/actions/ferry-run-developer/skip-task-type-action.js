@@ -370,7 +370,13 @@ function validateEnvelope(raw2) {
   return envelope2;
 }
 
-// src/lib/dispatch/route.ts
+// src/lib/dispatch/routing.ts
+var PHASE_TO_WORKFLOW = Object.freeze({
+  refine: Object.freeze({ workflow: "refine.yml", dispatchType: "ferry-refine" }),
+  dev: Object.freeze({ workflow: "dev.yml", dispatchType: "ferry-dev" }),
+  review: Object.freeze({ workflow: "review.yml", dispatchType: "ferry-review" }),
+  iterate: Object.freeze({ workflow: "iterate.yml", dispatchType: "ferry-iterate" })
+});
 function shouldSkipForTaskType(issueType2) {
   if (issueType2 === "Task") {
     return { skip: true, reason: "ticket type Task is not processed by Ferry" };
@@ -381,17 +387,65 @@ function buildTaskSkipComment(role2, runId) {
   return `[ferry:${role2}:${runId}] Skipped \u2014 ticket type Task is not processed by Ferry`;
 }
 
+// src/lib/logger/index.ts
+function isDebugEnabled() {
+  return process.env.LOG_VERBOSITY === "debug";
+}
+function isPretty() {
+  return process.env.LOG_FORMAT === "pretty";
+}
+function buildRecord(level, correlationId, component, message, bindings, meta) {
+  return {
+    level,
+    ts: (/* @__PURE__ */ new Date()).toISOString(),
+    correlation_id: correlationId,
+    component,
+    message,
+    ...bindings,
+    ...meta
+  };
+}
+function writeRecord(record) {
+  if (isPretty()) {
+    const { level, ts, correlation_id, component, message, ...rest } = record;
+    const extras = Object.keys(rest).length > 0 ? `  ${JSON.stringify(rest)}` : "";
+    process.stderr.write(
+      `${ts}  ${level.toUpperCase().padEnd(5)}  [${component}]  ${correlation_id ? `(${correlation_id})  ` : ""}${message}${extras}
+`
+    );
+  } else {
+    process.stderr.write(JSON.stringify(record) + "\n");
+  }
+}
+function makeLogger(correlationId, component, bindings = {}, _writeRecord = writeRecord) {
+  function log(level, message, meta) {
+    if (level === "debug" && !isDebugEnabled()) return;
+    _writeRecord(buildRecord(level, correlationId, component, message, bindings, meta));
+  }
+  return {
+    debug: (msg, meta) => log("debug", msg, meta),
+    info: (msg, meta) => log("info", msg, meta),
+    warn: (msg, meta) => log("warn", msg, meta),
+    error: (msg, meta) => log("error", msg, meta),
+    child: (newBindings) => makeLogger(correlationId, component, { ...bindings, ...newBindings }, _writeRecord)
+  };
+}
+function createLogger(correlationId, component = "ferry") {
+  return makeLogger(correlationId, component);
+}
+
 // src/lib/dispatch/skip-task-type-action.ts
+var logger = createLogger("", "ferry:dispatch");
 var raw = process.env.FERRY_ENVELOPE_PAYLOAD;
 if (!raw) {
-  console.error("[ferry:dispatch] FERRY_ENVELOPE_PAYLOAD is not set");
+  logger.error("FERRY_ENVELOPE_PAYLOAD is not set");
   process.exit(1);
 }
 var parsed;
 try {
   parsed = JSON.parse(raw);
 } catch {
-  console.error("[ferry:dispatch] FERRY_ENVELOPE_PAYLOAD is not valid JSON");
+  logger.error("FERRY_ENVELOPE_PAYLOAD is not valid JSON");
   process.exit(1);
 }
 var envelope = validateEnvelope(parsed);
@@ -399,7 +453,16 @@ var issueType = envelope.issue_type;
 if (!issueType) process.exit(0);
 var skip = shouldSkipForTaskType(issueType);
 if (!skip.skip) process.exit(0);
-var role = "refiner";
+var VALID_ROLES = ["refiner", "developer", "reviewer", "iterator"];
+var rawRole = process.env.FERRY_AGENT_ROLE;
+if (!rawRole || !VALID_ROLES.includes(rawRole)) {
+  logger.error("FERRY_AGENT_ROLE is invalid", {
+    valid: VALID_ROLES.join(", "),
+    got: rawRole ?? "(unset)"
+  });
+  process.exit(1);
+}
+var role = rawRole;
 var body = buildTaskSkipComment(role, envelope.event_id);
 await postComment({
   ticketKey: envelope.ticket_key,
