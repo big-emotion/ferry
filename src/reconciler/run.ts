@@ -13,7 +13,12 @@
 import { existsSync, readFileSync, readdirSync, appendFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { Octokit } from '@octokit/rest';
-import { reconcileTickets, type TicketSnapshot, type DispatchDirective, type ReconcileOutcome } from './reconcile.js';
+import {
+  reconcileTickets,
+  type TicketSnapshot,
+  type DispatchDirective,
+  type ReconcileOutcome,
+} from './reconcile.js';
 
 const FERRY_ACTIVE_COLUMNS = new Set([
   'Refinement',
@@ -50,7 +55,8 @@ export function buildDefaultDeps(): ReconcilerDeps {
     async searchJira(config) {
       if (!config.jiraBaseUrl || !config.jiraAuthHeader || !config.jiraProject) return [];
       const columns = [...FERRY_ACTIVE_COLUMNS].map((c) => `"${c}"`).join(',');
-      const jql = `project = "${config.jiraProject}" AND status in (${columns}) ORDER BY updated DESC`;
+      const jql =
+        `project = "${config.jiraProject}" AND status in (${columns}) ORDER BY updated DESC`;
       const res = await fetch(
         `${config.jiraBaseUrl}/rest/api/3/search?jql=${encodeURIComponent(jql)}&fields=status&maxResults=100`,
         { headers: { Authorization: config.jiraAuthHeader, Accept: 'application/json' } },
@@ -87,14 +93,14 @@ export function buildDefaultDeps(): ReconcilerDeps {
       }
     },
 
-    async fetchAuditComments(config) {
+    fetchAuditComments(config) {
       const octokit = new Octokit({ auth: config.githubToken });
       return octokit.paginate(octokit.rest.issues.listComments, {
         owner: config.owner,
         repo: config.repo,
         issue_number: config.auditIssue,
         per_page: 100,
-      });
+      }) as unknown as Promise<Array<{ body: string | null; created_at: string }>>;
     },
 
     async issueDispatch(config, directive) {
@@ -182,7 +188,7 @@ export async function run(
   return outcome;
 }
 
-function configFromEnv(): ReconcilerConfig {
+export function configFromEnv(): ReconcilerConfig {
   const githubToken = process.env.GITHUB_TOKEN;
   if (!githubToken) throw new Error('GITHUB_TOKEN is required');
   const githubRepository = process.env.GITHUB_REPOSITORY;
@@ -190,7 +196,8 @@ function configFromEnv(): ReconcilerConfig {
   const auditIssueStr = process.env.FERRY_AUDIT_ISSUE;
   if (!auditIssueStr) throw new Error('FERRY_AUDIT_ISSUE is required');
   const auditIssue = parseInt(auditIssueStr, 10);
-  if (isNaN(auditIssue)) throw new Error(`FERRY_AUDIT_ISSUE must be a number, got: ${auditIssueStr}`);
+  if (isNaN(auditIssue))
+    throw new Error(`FERRY_AUDIT_ISSUE must be a number, got: ${auditIssueStr}`);
 
   const [owner, repo] = githubRepository.split('/');
 

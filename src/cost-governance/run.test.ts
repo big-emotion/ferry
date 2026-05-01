@@ -1,5 +1,12 @@
-import { describe, it, expect, vi } from 'vitest';
-import { run, parseMonthlySpend, type CostCheckConfig, type CostCheckDeps } from './run.js';
+import { afterEach, describe, it, expect, vi } from 'vitest';
+import {
+  run,
+  parseMonthlySpend,
+  buildDefaultDeps,
+  configFromEnv,
+  type CostCheckConfig,
+  type CostCheckDeps,
+} from './run.js';
 
 const BASE_CONFIG: CostCheckConfig = {
   githubToken: 'gh-token',
@@ -54,7 +61,7 @@ describe('cost-governance/run — workflow → module entrypoint', () => {
     it('computes daily_eur as spend in the last 24 hours', () => {
       const nowMs = new Date('2026-05-15T08:00:00Z').getTime();
       const recentIso = new Date(nowMs - 6 * 60 * 60 * 1_000).toISOString(); // 6h ago
-      const oldIso = new Date(nowMs - 25 * 60 * 60 * 1_000).toISOString();  // 25h ago
+      const oldIso = new Date(nowMs - 25 * 60 * 60 * 1_000).toISOString(); // 25h ago
 
       const comments = [
         makeAuditComment('PROJ-1', 'claude-sonnet-4-6', 5, recentIso),
@@ -166,5 +173,107 @@ describe('cost-governance/run — workflow → module entrypoint', () => {
       expect(outcome.outcome).toBe('ok');
       expect(outcome.alerts).toEqual([]);
     });
+  });
+});
+
+describe('buildDefaultDeps', () => {
+  it('applyJiraPauseLabel returns early when jiraBaseUrl is missing', async () => {
+    const deps = buildDefaultDeps();
+    await expect(deps.applyJiraPauseLabel(BASE_CONFIG, ['PROJ-1'])).resolves.toBeUndefined();
+  });
+
+  it('applyJiraPauseLabel returns early when ticketKeys is empty', async () => {
+    const config = {
+      ...BASE_CONFIG,
+      jiraBaseUrl: 'https://jira.example.com',
+      jiraAuthHeader: 'Basic xxx',
+    };
+    const deps = buildDefaultDeps();
+    await expect(deps.applyJiraPauseLabel(config, [])).resolves.toBeUndefined();
+  });
+
+  it('applyJiraPauseLabel calls fetch for each key and handles errors gracefully', async () => {
+    const mockFetch = vi.fn().mockRejectedValue(new Error('network error'));
+    vi.stubGlobal('fetch', mockFetch);
+    const config = {
+      ...BASE_CONFIG,
+      jiraBaseUrl: 'https://jira.example.com',
+      jiraAuthHeader: 'Basic xxx',
+    };
+    const deps = buildDefaultDeps();
+    await expect(deps.applyJiraPauseLabel(config, ['PROJ-1'])).resolves.toBeUndefined();
+    expect(mockFetch).toHaveBeenCalledOnce();
+    vi.unstubAllGlobals();
+  });
+});
+
+describe('configFromEnv', () => {
+  const origEnv = { ...process.env };
+
+  afterEach(() => {
+    process.env = { ...origEnv };
+  });
+
+  it('builds config from env vars with defaults', () => {
+    process.env.GITHUB_TOKEN = 'gh-test-token';
+    process.env.GITHUB_REPOSITORY = 'owner/repo';
+    process.env.FERRY_AUDIT_ISSUE = '42';
+    delete process.env.FERRY_SPEND_CAP_EUR;
+    delete process.env.FERRY_JIRA_BASE_URL;
+    delete process.env.FERRY_JIRA_EMAIL;
+    delete process.env.FERRY_JIRA_API_TOKEN;
+    const config = configFromEnv();
+    expect(config.githubToken).toBe('gh-test-token');
+    expect(config.owner).toBe('owner');
+    expect(config.repo).toBe('repo');
+    expect(config.auditIssue).toBe(42);
+    expect(config.capEur).toBe(200);
+    expect(config.jiraBaseUrl).toBeUndefined();
+    expect(config.jiraAuthHeader).toBeUndefined();
+  });
+
+  it('throws when GITHUB_TOKEN is missing', () => {
+    delete process.env.GITHUB_TOKEN;
+    expect(() => configFromEnv()).toThrow('GITHUB_TOKEN is required');
+  });
+
+  it('throws when GITHUB_REPOSITORY is missing', () => {
+    process.env.GITHUB_TOKEN = 'tok';
+    delete process.env.GITHUB_REPOSITORY;
+    expect(() => configFromEnv()).toThrow('GITHUB_REPOSITORY is required');
+  });
+
+  it('throws when FERRY_AUDIT_ISSUE is missing', () => {
+    process.env.GITHUB_TOKEN = 'tok';
+    process.env.GITHUB_REPOSITORY = 'owner/repo';
+    delete process.env.FERRY_AUDIT_ISSUE;
+    expect(() => configFromEnv()).toThrow('FERRY_AUDIT_ISSUE is required');
+  });
+
+  it('throws when FERRY_AUDIT_ISSUE is not a number', () => {
+    process.env.GITHUB_TOKEN = 'tok';
+    process.env.GITHUB_REPOSITORY = 'owner/repo';
+    process.env.FERRY_AUDIT_ISSUE = 'nan';
+    expect(() => configFromEnv()).toThrow('FERRY_AUDIT_ISSUE must be a number');
+  });
+
+  it('throws when FERRY_SPEND_CAP_EUR is invalid', () => {
+    process.env.GITHUB_TOKEN = 'tok';
+    process.env.GITHUB_REPOSITORY = 'owner/repo';
+    process.env.FERRY_AUDIT_ISSUE = '1';
+    process.env.FERRY_SPEND_CAP_EUR = '-5';
+    expect(() => configFromEnv()).toThrow('FERRY_SPEND_CAP_EUR must be a positive number');
+  });
+
+  it('builds Jira auth header when credentials are set', () => {
+    process.env.GITHUB_TOKEN = 'tok';
+    process.env.GITHUB_REPOSITORY = 'owner/repo';
+    process.env.FERRY_AUDIT_ISSUE = '1';
+    process.env.FERRY_JIRA_BASE_URL = 'https://jira.example.com';
+    process.env.FERRY_JIRA_EMAIL = 'user@example.com';
+    process.env.FERRY_JIRA_API_TOKEN = 'api-token';
+    const config = configFromEnv();
+    expect(config.jiraAuthHeader).toMatch(/^Basic /);
+    expect(config.jiraBaseUrl).toBe('https://jira.example.com');
   });
 });

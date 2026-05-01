@@ -62,14 +62,14 @@ export interface CostCheckDeps {
 
 export function buildDefaultDeps(): CostCheckDeps {
   return {
-    async fetchAuditComments(config) {
+    fetchAuditComments(config) {
       const octokit = new Octokit({ auth: config.githubToken });
       return octokit.paginate(octokit.rest.issues.listComments, {
         owner: config.owner,
         repo: config.repo,
         issue_number: config.auditIssue,
         per_page: 100,
-      });
+      }) as unknown as Promise<Array<{ body: string | null; created_at: string }>>;
     },
 
     async postAuditAlert(config, body) {
@@ -94,7 +94,10 @@ export function buildDefaultDeps(): CostCheckDeps {
           });
           console.log(`[cost-check] applied ferry:paused to ${key}`);
         } catch (err) {
-          console.warn(`[cost-check] failed to label ${key}:`, err instanceof Error ? err.message : String(err));
+          console.warn(
+            `[cost-check] failed to label ${key}:`,
+            err instanceof Error ? err.message : String(err),
+          );
         }
       }
     },
@@ -196,7 +199,7 @@ export async function run(
   return outcome;
 }
 
-function configFromEnv(): CostCheckConfig {
+export function configFromEnv(): CostCheckConfig {
   const githubToken = process.env.GITHUB_TOKEN;
   if (!githubToken) throw new Error('GITHUB_TOKEN is required');
   const githubRepository = process.env.GITHUB_REPOSITORY;
@@ -204,10 +207,12 @@ function configFromEnv(): CostCheckConfig {
   const auditIssueStr = process.env.FERRY_AUDIT_ISSUE;
   if (!auditIssueStr) throw new Error('FERRY_AUDIT_ISSUE is required');
   const auditIssue = parseInt(auditIssueStr, 10);
-  if (isNaN(auditIssue)) throw new Error(`FERRY_AUDIT_ISSUE must be a number, got: ${auditIssueStr}`);
+  if (isNaN(auditIssue))
+    throw new Error(`FERRY_AUDIT_ISSUE must be a number, got: ${auditIssueStr}`);
   const capEurStr = process.env.FERRY_SPEND_CAP_EUR ?? '200';
   const capEur = parseFloat(capEurStr);
-  if (isNaN(capEur) || capEur <= 0) throw new Error(`FERRY_SPEND_CAP_EUR must be a positive number, got: ${capEurStr}`);
+  if (isNaN(capEur) || capEur <= 0)
+    throw new Error(`FERRY_SPEND_CAP_EUR must be a positive number, got: ${capEurStr}`);
 
   const [owner, repo] = githubRepository.split('/');
 
