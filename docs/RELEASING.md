@@ -65,24 +65,45 @@ updates:
 
 ## Release workflow
 
-Releases are cut manually by a maintainer. The `version` lifecycle hook in `package.json` (`"version": "npm run build:ferry && git add .ferry/"`) ensures `.ferry/` bundles are rebuilt and staged automatically when `npm version` runs.
+Releases are cut by a maintainer using the `ferry-release` skill (recommended) or the manual flow below. The `version` lifecycle hook in `package.json` (`"version": "npm run build:ferry && git add .ferry/"`) ensures `.ferry/` bundles are rebuilt and staged automatically when `npm version` runs.
+
+The `.github/workflows/release.yml` workflow is triggered by any `v*.*.*` tag push and **automatically**:
+
+1. Runs the full CI gate (typecheck, lint, format, tests, npm audit, `.ferry/` bundle drift check)
+2. Builds CLI bundles (`npm run build:cli`)
+3. Publishes the `ferry-init` package to npm with provenance (requires the `NPM_TOKEN` repo secret)
+4. Extracts the matching `## [X.Y.Z]` section from `CHANGELOG.md` and creates a GitHub Release with those notes (falls back to GitHub's auto-generated notes if the section is missing)
+
+The maintainer's only manual responsibilities are bumping the version, updating the CHANGELOG, and pushing the tag.
+
+### Recommended (skill-driven)
 
 ```bash
-# 1. Bump version — this auto-rebuilds .ferry/ via the version hook,
+# Run the skill — it bumps package.json, updates CHANGELOG.md and docs,
+# rebuilds .ferry/, runs CI gates locally, creates the commit + annotated tag,
+# and asks for explicit confirmation before pushing main + tag.
+/ferry-release patch   # or minor / major / <explicit-version>
+```
+
+### Manual
+
+```bash
+# 1. Bump version — auto-rebuilds .ferry/ via the version hook,
 #    creates the version commit, and tags v<version>.
 npm version patch   # or minor / major
 
-# 2. Push the commit and the new tag
+# 2. Update CHANGELOG.md with a new [<version>] section before pushing.
+
+# 3. Push the commit and the new tag (this triggers release.yml).
 git push origin main
 git push origin "v$(node -p "require('./package.json').version")"
 
-# 3. Force-update the floating major tag
+# 4. Force-update the floating major tag.
 git tag -f v0
 git push origin v0 --force
-
-# 4. Create a GitHub Release from the new tag (manually or via gh)
-gh release create "v$(node -p "require('./package.json').version")" --generate-notes
 ```
+
+The GitHub Release and npm publish are created automatically by `release.yml` — no manual `gh release create` or `npm publish` step is needed.
 
 ---
 
@@ -127,12 +148,17 @@ Before tagging any release:
 
 ---
 
-## npm publishing (future)
+## npm publishing
 
-`private: true` has been removed from `package.json`. To publish to npm once the package is ready:
+The `ferry-init` package is published to npm automatically by `release.yml` on every `v*.*.*` tag push, using `npm publish --provenance --access public`. The primary distribution mechanism for the GitHub Actions side remains the reusable workflows referenced via `@v0.1.0` (or a pinned SHA).
+
+Required repository secret:
+
+- `NPM_TOKEN` — an npm Automation token (or Granular Access Token with `publish` scope on the `ferry-init` package).
+
+Manual publish (only as a fallback if the workflow is unavailable):
 
 ```bash
+npm run build:cli
 npm publish --access public
 ```
-
-Ferry is not yet published to npm as of v0.1.0. The primary distribution mechanism is GitHub Actions reusable workflows referenced via `@v0.1.0` (or a pinned SHA).
