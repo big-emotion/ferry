@@ -44,7 +44,8 @@ export function installWorkflows(
 }
 
 export function scaffoldCodeowners(repoRoot: string, owner: string): StepResult {
-  const codeownersPath = join(repoRoot, '.github', 'CODEOWNERS');
+  const githubDir = join(repoRoot, '.github');
+  const codeownersPath = join(githubDir, 'CODEOWNERS');
 
   if (existsSync(codeownersPath)) {
     const existing = readFileSync(codeownersPath, 'utf8');
@@ -58,6 +59,7 @@ export function scaffoldCodeowners(repoRoot: string, owner: string): StepResult 
     return { ok: true };
   }
 
+  mkdirSync(githubDir, { recursive: true });
   const content = `# Ferry workflow files — only repo admins should modify these
 .github/workflows/ferry-*.yml @${owner}
 `;

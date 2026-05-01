@@ -22,13 +22,12 @@ export default defineConfig({
         'src/cli/**/index.ts',
         'src/cli/**/prompt.ts',
       ],
-      // Anti-regression floor set just below current measured coverage.
-      // Raise these values as test coverage grows — target is 75% across.
+      // Ratcheted up after adding CLI module tests (issue #85).
       thresholds: {
-        statements: 65,
-        branches: 65,
+        statements: 75,
+        branches: 75,
         functions: 75,
-        lines: 65,
+        lines: 75,
       },
     },
   },

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { resolvePromptPath, loadProjectSnippet, loadAgentExtension } from './resolve.js';
+import { createTestLogger } from '../logger/index.js';
 
 const REPO_ROOT = '/workspace/repo';
 
@@ -135,13 +136,14 @@ describe('loadAgentExtension', () => {
     const big = 'y'.repeat(5000);
     const check = (p: string) => p === '/workspace/repo/prompts/iterator.extra.md';
     const read = () => big;
-    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const result = loadAgentExtension('iterator', REPO_ROOT, check, read);
+    const { logger, records } = createTestLogger('c', 'ferry:prompts');
+    const result = loadAgentExtension('iterator', REPO_ROOT, check, read, logger);
     expect(result).toHaveLength(4096);
     expect(result).toBe('y'.repeat(4096));
-    expect(errSpy).toHaveBeenCalledWith(
-      '[ferry:prompts] iterator.extra.md exceeds 4096B — truncating',
-    );
-    errSpy.mockRestore();
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({
+      level: 'warn',
+      message: expect.stringContaining('truncating'),
+    });
   });
 });

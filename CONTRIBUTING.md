@@ -10,7 +10,68 @@ npm run lint
 npm run format:check
 ```
 
-All gates (tests, typecheck, lint, format, and gitleaks in CI) must pass before opening a PR against `main`. CI runs them automatically on every push.
+All gates (tests, typecheck, lint, format, gitleaks, and CodeQL in CI) must pass before opening a PR against `main`. CI runs them automatically on every push.
+
+### Before pushing: rebuild `.ferry/` bundles if you touched `src/`
+
+The `.ferry/` directory contains committed JavaScript bundles that GitHub Actions actually executes. They are built from `src/` via:
+
+```bash
+npm run build:ferry
+```
+
+**If you modify anything under `src/`, you must rebuild before pushing.** A stale bundle causes silent drift between source and runtime — CI will catch this, but rebuilding locally is faster:
+
+```bash
+npm run build:ferry
+git add .ferry/
+git commit -m "build: rebuild ferry bundles"
+```
+
+You can verify the bundles are up-to-date with:
+
+```bash
+npm run check:bundle   # builds, then fails if .ferry/ has uncommitted changes
+```
+
+### Local hooks (Husky)
+
+`npm install` automatically wires two strict Git hooks (via the `prepare` script):
+
+- **`pre-commit`** — `lint-staged` runs Prettier and ESLint (`--max-warnings=0`) on staged files only. Fast (~1s).
+- **`pre-push`** — full CI parity: `typecheck && lint && format:check && test && check:bundle`. Refuses the push if any gate is red, including stale bundles.
+- **`commit-msg`** — `feat:` and `fix:` commits must include at least one `(FRn)` reference (e.g. `feat: add cap (FR29)`). Exempt types: `chore`, `docs`, `refactor`, `test`, `perf`, `ci`, `build`, `style`.
+
+`--no-verify` bypasses all three hooks and is **not** considered a normal workflow — only use it intentionally and accept that CI will catch the issue. The authoritative enforcement is server-side branch protection (see below).
+
+### Recommended branch protection (repo admins)
+
+To make `main` truly unbreakable, enable the following at
+**Settings → Branches → Add rule → branch name pattern `main`**
+(direct link: <https://github.com/big-emotion/ferry/settings/branches>):
+
+- ☑ Require a pull request before merging
+- ☑ Require status checks to pass before merging
+  - ☑ Require branches to be up to date before merging
+  - Required checks (search and add each):
+    - `Typecheck`
+    - `Tests (vitest)`
+    - `Lint & Format`
+    - `Secret Scan (gitleaks)`
+    - `Analyze (javascript-typescript)` (CodeQL)
+    - `Bundle Drift`
+- ☑ Do not allow bypassing the above settings
+- ☑ Restrict who can push to matching branches (admins only, or empty list)
+
+With this in place, a red CI cannot reach `main` even via direct push or `--no-verify`.
+
+## CodeQL (SAST)
+
+Ferry runs CodeQL static analysis on every push to `main`, every PR, and weekly (Mondays 06:00 UTC) via `.github/workflows/codeql.yml`.
+
+The workflow fails CI if CodeQL finds any **high or critical** severity issues (`SARIF level: error`). Medium/low findings appear in the repository's Security → Code Scanning tab but do not block the PR.
+
+**Suppressing a false positive:** add an inline `// lgtm[<rule-id>]` comment at the finding location, or use a `.github/codeql/codeql-config.yml` exclusion. Always include a short rationale comment so reviewers understand why the suppression is intentional.
 
 ## Workflow
 
@@ -23,6 +84,7 @@ All gates (tests, typecheck, lint, format, and gitleaks in CI) must pass before 
 Ferry uses [Vitest](https://vitest.dev/). Test files live next to source files (`*.test.ts`).
 
 Run a single file:
+
 ```bash
 npx vitest run src/lib/envelope/validate.test.ts
 ```

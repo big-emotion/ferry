@@ -1,5 +1,6 @@
+import { spawnSync } from 'child_process';
 import { Octokit } from '@octokit/rest';
-import { emitAudit } from './index.js';
+import { emitAudit, AUDIT_ACTIVE_LABEL } from './index.js';
 
 function requireEnv(name: string): string {
   const val = process.env[name];
@@ -30,7 +31,7 @@ const costEur = parseFloat(process.env['FERRY_COST_EUR'] ?? '0') || 0;
 
 const octokit = new Octokit({ auth: token });
 
-await emitAudit(
+const result = await emitAudit(
   {
     ticket,
     phase,
@@ -42,3 +43,37 @@ await emitAudit(
   },
   { octokit, owner, repo, auditIssue },
 );
+
+if (result.rotatedTo !== undefined) {
+  process.stdout.write(
+    `[ferry:audit] Audit issue rotated: #${auditIssue} → #${result.rotatedTo}\n`,
+  );
+  process.stdout.write(`[ferry:audit] New active issue has label: ${AUDIT_ACTIVE_LABEL}\n`);
+
+  // Try to update the repository variable so future runs use the new issue directly.
+  // Requires variables:write permission on GITHUB_TOKEN; falls back to label discovery if absent.
+  const setResult = spawnSync(
+    'gh',
+    [
+      'variable',
+      'set',
+      'FERRY_AUDIT_ISSUE',
+      '--body',
+      String(result.rotatedTo),
+      '--repo',
+      `${owner}/${repo}`,
+    ],
+    { stdio: 'inherit', env: { ...process.env, GH_TOKEN: token } },
+  );
+  if (setResult.status === 0) {
+    process.stdout.write(`[ferry:audit] FERRY_AUDIT_ISSUE updated to ${result.rotatedTo}\n`);
+  } else {
+    process.stderr.write(
+      `[ferry:audit] Warning: could not update FERRY_AUDIT_ISSUE via gh variable set ` +
+        `(token may lack variables:write). ` +
+        `Future runs will discover the active issue via the '${AUDIT_ACTIVE_LABEL}' label. ` +
+        `To silence this warning, add 'variables: write' to the emit-audit job permissions ` +
+        `and update FERRY_AUDIT_ISSUE manually to ${result.rotatedTo}.\n`,
+    );
+  }
+}
