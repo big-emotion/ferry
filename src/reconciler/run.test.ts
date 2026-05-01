@@ -40,9 +40,7 @@ describe('reconciler/run — workflow → module entrypoint', () => {
   it('dispatches a stalled ticket when Jira column does not match state.phase', async () => {
     const dispatched: DispatchDirective[] = [];
     const deps = makeDeps({
-      searchJira: vi.fn().mockResolvedValue([
-        { key: 'PROJ-1', column: 'In Review' },
-      ]),
+      searchJira: vi.fn().mockResolvedValue([{ key: 'PROJ-1', column: 'In Review' }]),
       readStatePhase: vi.fn().mockReturnValue('developing'),
       fetchAuditComments: vi.fn().mockResolvedValue([]),
       issueDispatch: vi.fn().mockImplementation(async (_cfg, d: DispatchDirective) => {
@@ -61,9 +59,7 @@ describe('reconciler/run — workflow → module entrypoint', () => {
 
   it('does NOT dispatch when column matches state.phase', async () => {
     const deps = makeDeps({
-      searchJira: vi.fn().mockResolvedValue([
-        { key: 'PROJ-2', column: 'In Review' },
-      ]),
+      searchJira: vi.fn().mockResolvedValue([{ key: 'PROJ-2', column: 'In Review' }]),
       readStatePhase: vi.fn().mockReturnValue('reviewing'),
       fetchAuditComments: vi.fn().mockResolvedValue([]),
     });
@@ -91,9 +87,7 @@ describe('reconciler/run — workflow → module entrypoint', () => {
 
   it('dispatches state-file ticket whose column does not match phase', async () => {
     const deps = makeDeps({
-      searchJira: vi.fn().mockResolvedValue([
-        { key: 'PROJ-4', column: 'In Review' },
-      ]),
+      searchJira: vi.fn().mockResolvedValue([{ key: 'PROJ-4', column: 'In Review' }]),
       scanStateTickets: vi.fn().mockReturnValue(['PROJ-4']),
       readStatePhase: vi.fn().mockReturnValue('developing'),
       fetchAuditComments: vi.fn().mockResolvedValue([]),
@@ -126,9 +120,7 @@ describe('reconciler/run — workflow → module entrypoint', () => {
   it('dispatches ticket with no state file and stale last audit (> 20 min)', async () => {
     const staleMs = BASE_CONFIG.nowMs - 30 * 60 * 1_000; // 30 min ago
     const deps = makeDeps({
-      searchJira: vi.fn().mockResolvedValue([
-        { key: 'PROJ-6', column: 'In Development' },
-      ]),
+      searchJira: vi.fn().mockResolvedValue([{ key: 'PROJ-6', column: 'In Development' }]),
       readStatePhase: vi.fn().mockReturnValue(undefined),
       fetchAuditComments: vi.fn().mockResolvedValue([
         {
@@ -161,9 +153,7 @@ describe('reconciler/run — workflow → module entrypoint', () => {
   it('issues dispatch with correct event payload structure', async () => {
     const capturedArgs: Array<{ directive: DispatchDirective }> = [];
     const deps = makeDeps({
-      searchJira: vi.fn().mockResolvedValue([
-        { key: 'PROJ-9', column: 'In Review' },
-      ]),
+      searchJira: vi.fn().mockResolvedValue([{ key: 'PROJ-9', column: 'In Review' }]),
       readStatePhase: vi.fn().mockReturnValue('developing'),
       fetchAuditComments: vi.fn().mockResolvedValue([]),
       issueDispatch: vi.fn().mockImplementation(async (_cfg, d: DispatchDirective) => {

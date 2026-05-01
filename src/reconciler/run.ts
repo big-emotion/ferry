@@ -55,8 +55,7 @@ export function buildDefaultDeps(): ReconcilerDeps {
     async searchJira(config) {
       if (!config.jiraBaseUrl || !config.jiraAuthHeader || !config.jiraProject) return [];
       const columns = [...FERRY_ACTIVE_COLUMNS].map((c) => `"${c}"`).join(',');
-      const jql =
-        `project = "${config.jiraProject}" AND status in (${columns}) ORDER BY updated DESC`;
+      const jql = `project = "${config.jiraProject}" AND status in (${columns}) ORDER BY updated DESC`;
       const res = await fetch(
         `${config.jiraBaseUrl}/rest/api/3/search?jql=${encodeURIComponent(jql)}&fields=status&maxResults=100`,
         { headers: { Authorization: config.jiraAuthHeader, Accept: 'application/json' } },
@@ -177,10 +176,15 @@ export async function run(
     });
   }
 
-  const outcome = reconcileTickets({ tickets: snapshots, now_iso: new Date(config.nowMs).toISOString() });
+  const outcome = reconcileTickets({
+    tickets: snapshots,
+    now_iso: new Date(config.nowMs).toISOString(),
+  });
 
   for (const directive of outcome.dispatched) {
-    console.log(`[reconciler] dispatching ${directive.ticket_key} → ${directive.phase} (${directive.event_id})`);
+    console.log(
+      `[reconciler] dispatching ${directive.ticket_key} → ${directive.phase} (${directive.event_id})`,
+    );
     await deps.issueDispatch(config, directive);
   }
 

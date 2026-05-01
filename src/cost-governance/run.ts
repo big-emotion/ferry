@@ -54,10 +54,7 @@ export interface CostCheckDeps {
     config: CostCheckConfig,
   ): Promise<Array<{ body: string | null; created_at: string }>>;
   postAuditAlert(config: CostCheckConfig, body: string): Promise<void>;
-  applyJiraPauseLabel(
-    config: CostCheckConfig,
-    ticketKeys: string[],
-  ): Promise<void>;
+  applyJiraPauseLabel(config: CostCheckConfig, ticketKeys: string[]): Promise<void>;
 }
 
 export function buildDefaultDeps(): CostCheckDeps {
