@@ -1,5 +1,5 @@
 {
-  "name": "ferry",
+  "name": "ferry-init",
   "version": "0.1.0",
   "description": "Ferry — GitHub Actions–native agent pipeline for Jira-driven automated development",
   "type": "module",
@@ -7,8 +7,34 @@
     "ferry-init": "./dist/cli/init/index.js",
     "ferry-doctor": "./dist/cli/doctor/index.js"
   },
+  "files": [
+    "dist/cli/",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/big-emotion/ferry.git"
+  },
+  "homepage": "https://github.com/big-emotion/ferry#readme",
+  "bugs": {
+    "url": "https://github.com/big-emotion/ferry/issues"
+  },
+  "license": "MIT",
+  "keywords": [
+    "ferry",
+    "github-actions",
+    "jira",
+    "cli",
+    "automation"
+  ],
   "scripts": {
+    "build:cli": "node scripts/build-cli.mjs",
     "build:ferry": "node scripts/build-ferry-actions.mjs",
+    "prepublishOnly": "npm run build:cli",
     "ferry-init": "tsx src/cli/init/index.ts",
     "ferry-doctor": "tsx src/cli/doctor/index.ts",
     "ferry-reconcile": "tsx src/reconciler/run.ts",
