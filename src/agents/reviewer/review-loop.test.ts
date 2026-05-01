@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import Anthropic from '@anthropic-ai/sdk';
 import { runReviewLoop } from './review-loop.js';
+import { createTestLogger } from '../../lib/logger/index.js';
 import type { CIRunner } from '../../lib/dispatch/runner/types.js';
 import { FerryError } from '../../lib/errors/index.js';
 
@@ -81,72 +82,63 @@ describe('runReviewLoop', () => {
     ).rejects.toThrow(FerryError);
   });
 
-  it('emits debug "turn" JSON event when LOG_VERBOSITY=debug', async () => {
+  it('emits debug "turn" record when LOG_VERBOSITY=debug', async () => {
     vi.stubEnv('LOG_VERBOSITY', 'debug');
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { logger, records } = createTestLogger('evt-review', 'ferry:review-loop');
     const mock = makeAnthropicMock([finishReviewResponse]);
 
-    await runReviewLoop({ ...baseOpts, anthropic: mock as unknown as Anthropic });
+    await runReviewLoop({ ...baseOpts, anthropic: mock as unknown as Anthropic, logger });
 
-    const jsonCalls = spy.mock.calls
-      .map((c) => c[0] as string)
-      .filter((s) => typeof s === 'string' && s.startsWith('{'));
-    const turnRaw = jsonCalls.find((s) => s.includes('"type":"turn"'));
-    expect(turnRaw).toBeDefined();
-    const turnEvent = JSON.parse(turnRaw!) as Record<string, unknown>;
-    expect(turnEvent).toMatchObject({
+    const turnRecord = records.find((r) => r.level === 'debug' && r.message === 'turn');
+    expect(turnRecord).toBeDefined();
+    expect(turnRecord).toMatchObject({
       type: 'turn',
       iter: 1,
       depth: 0,
       stop_reason: 'tool_use',
     });
-    expect(typeof turnEvent['elapsed_ms']).toBe('number');
+    expect(typeof turnRecord?.['elapsed_ms']).toBe('number');
   });
 
-  it('emits debug "result" JSON event on success when LOG_VERBOSITY=debug', async () => {
+  it('emits debug "result" record on success when LOG_VERBOSITY=debug', async () => {
     vi.stubEnv('LOG_VERBOSITY', 'debug');
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { logger, records } = createTestLogger('evt-review', 'ferry:review-loop');
     const mock = makeAnthropicMock([finishReviewResponse]);
 
-    await runReviewLoop({ ...baseOpts, anthropic: mock as unknown as Anthropic });
+    await runReviewLoop({ ...baseOpts, anthropic: mock as unknown as Anthropic, logger });
 
-    const jsonCalls = spy.mock.calls
-      .map((c) => c[0] as string)
-      .filter((s) => typeof s === 'string' && s.startsWith('{'));
-    const resultRaw = jsonCalls.find((s) => s.includes('"type":"result"'));
-    expect(resultRaw).toBeDefined();
-    const resultEvent = JSON.parse(resultRaw!) as Record<string, unknown>;
-    expect(resultEvent).toMatchObject({
+    const resultRecord = records.find((r) => r.level === 'debug' && r.message === 'result');
+    expect(resultRecord).toBeDefined();
+    expect(resultRecord).toMatchObject({
       type: 'result',
       subtype: 'success',
       iterations: 1,
     });
-    expect(typeof resultEvent['elapsed_ms']).toBe('number');
+    expect(typeof resultRecord?.['elapsed_ms']).toBe('number');
   });
 
-  it('does not emit JSON events when LOG_VERBOSITY is unset', async () => {
+  it('does not emit debug records when LOG_VERBOSITY is unset', async () => {
     vi.stubEnv('LOG_VERBOSITY', '');
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { logger, records } = createTestLogger('evt-review', 'ferry:review-loop');
     const mock = makeAnthropicMock([finishReviewResponse]);
 
-    await runReviewLoop({ ...baseOpts, anthropic: mock as unknown as Anthropic });
+    await runReviewLoop({ ...baseOpts, anthropic: mock as unknown as Anthropic, logger });
 
-    const jsonCalls = spy.mock.calls
-      .map((c) => c[0] as string)
-      .filter((s) => typeof s === 'string' && s.startsWith('{'));
-    expect(jsonCalls).toHaveLength(0);
+    expect(records.filter((r) => r.level === 'debug')).toHaveLength(0);
   });
 
-  it('still emits terse [ferry:review-loop] line when debug is on (additive)', async () => {
-    vi.stubEnv('LOG_VERBOSITY', 'debug');
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+  it('emits structured "turn" info records per iteration', async () => {
+    const { logger, records } = createTestLogger('evt-review', 'ferry:review-loop');
     const mock = makeAnthropicMock([finishReviewResponse]);
 
-    await runReviewLoop({ ...baseOpts, anthropic: mock as unknown as Anthropic });
+    await runReviewLoop({ ...baseOpts, anthropic: mock as unknown as Anthropic, logger });
 
-    const terseCalls = spy.mock.calls
-      .map((c) => c[0] as string)
-      .filter((s) => typeof s === 'string' && s.includes('[ferry:review-loop]'));
-    expect(terseCalls.length).toBeGreaterThanOrEqual(1);
+    const turnInfoRecords = records.filter((r) => r.level === 'info' && r.message === 'turn');
+    expect(turnInfoRecords.length).toBeGreaterThanOrEqual(1);
+    expect(turnInfoRecords[0]).toMatchObject({
+      level: 'info',
+      correlation_id: 'evt-review',
+      iter: 1,
+    });
   });
 });

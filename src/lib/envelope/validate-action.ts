@@ -1,9 +1,12 @@
 import { appendFileSync } from 'fs';
 import { validateEnvelope } from './validate.js';
+import { createLogger } from '../logger/index.js';
+
+const logger = createLogger('', 'ferry:envelope');
 
 const raw = process.env.FERRY_ENVELOPE_PAYLOAD;
 if (!raw) {
-  console.error('[ferry:envelope] FERRY_ENVELOPE_PAYLOAD is not set');
+  logger.error('FERRY_ENVELOPE_PAYLOAD is not set');
   process.exit(1);
 }
 
@@ -11,7 +14,7 @@ let parsed: unknown;
 try {
   parsed = JSON.parse(raw);
 } catch {
-  console.error('[ferry:envelope] FERRY_ENVELOPE_PAYLOAD is not valid JSON');
+  logger.error('FERRY_ENVELOPE_PAYLOAD is not valid JSON');
   process.exit(1);
 }
 
@@ -27,6 +30,6 @@ try {
   process.exit(0);
 } catch (e) {
   // Log only the sanitized error message — no payload values (NFR-S1)
-  console.error('[ferry:envelope] Envelope validation failed:', (e as Error).message);
+  logger.error('Envelope validation failed', { error: (e as Error).message });
   process.exit(1);
 }

@@ -4,7 +4,8 @@ import { createTrackerFromEnv } from '../../lib/io/tracker/factory.js';
 import { isDryRun } from '../../lib/dry-run.js';
 import { loadFerryConfig } from '../../lib/config.js';
 import { resolveAnthropicAuth } from '../../lib/llm/anthropic-auth.js';
-import { runAgent } from '../../lib/agent-runtime/index.js';
+import { runAgent, createLogger } from '../../lib/agent-runtime/index.js';
+import type { Logger } from '../../lib/agent-runtime/index.js';
 import { runRefiner } from './refine.js';
 import { prepareBatch, applyBatch } from './batch.js';
 import { filterExistingSubtasks } from './idempotency.js';
@@ -17,10 +18,12 @@ const REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
 export interface RefinerActionDeps {
   tracker: IssueTracker;
   callLlm: LlmCall;
+  logger?: Logger;
 }
 
 export async function run(envelope: EventEnvelopeV1, deps: RefinerActionDeps): Promise<void> {
   const { ticket_key: ticketKey, event_id: eventId } = envelope;
+  const logger = deps.logger ?? createLogger(eventId, 'ferry:refiner-action');
   const dryRun = isDryRun();
 
   const issue = await deps.tracker.getIssue(ticketKey);
@@ -39,10 +42,11 @@ export async function run(envelope: EventEnvelopeV1, deps: RefinerActionDeps): P
   });
 
   if (dryRun) {
-    console.log(
-      `[ferry:refiner-action] DRY_RUN — ${ticketKey} plan (${auditSummary.subtaskCount} subtasks, no Jira writes):`,
-    );
-    console.log(JSON.stringify(plan, null, 2));
+    logger.info('DRY_RUN — plan (no Jira writes)', {
+      ticket: ticketKey,
+      subtasks: auditSummary.subtaskCount,
+      plan,
+    });
     return;
   }
 
@@ -55,9 +59,7 @@ export async function run(envelope: EventEnvelopeV1, deps: RefinerActionDeps): P
     ),
   );
 
-  console.error(
-    `[ferry:refiner-action] created ${applied.createdCount} sub-task(s) for ${ticketKey}`,
-  );
+  logger.info('subtasks created', { ticket: ticketKey, count: applied.createdCount });
 
   await deps.tracker.postComment(
     ticketKey,
@@ -65,7 +67,7 @@ export async function run(envelope: EventEnvelopeV1, deps: RefinerActionDeps): P
   );
 }
 
-async function main(envelope: EventEnvelopeV1): Promise<void> {
+async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
   const anthropicAuth = resolveAnthropicAuth({ apiKeyEnv: 'ANTHROPIC_API_KEY' });
   const anthropic = new Anthropic(anthropicAuth);
   const ferryCfg = loadFerryConfig(REPO_ROOT);
@@ -92,7 +94,7 @@ async function main(envelope: EventEnvelopeV1): Promise<void> {
   };
 
   const tracker = createTrackerFromEnv();
-  await run(envelope, { tracker, callLlm });
+  await run(envelope, { tracker, callLlm, logger });
 }
 
 // Only invoke main() when executed directly (not when imported by tests).
