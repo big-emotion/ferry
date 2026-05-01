@@ -10,7 +10,7 @@ npm run lint
 npm run format:check
 ```
 
-All gates (tests, typecheck, lint, format, and gitleaks in CI) must pass before opening a PR against `main`. CI runs them automatically on every push.
+All gates (tests, typecheck, lint, format, gitleaks, and CodeQL in CI) must pass before opening a PR against `main`. CI runs them automatically on every push.
 
 ### Local hooks (Husky)
 
@@ -36,10 +36,19 @@ To make `main` truly unbreakable, enable the following at
     - `Tests (vitest)`
     - `Lint & Format`
     - `Secret Scan (gitleaks)`
+    - `Analyze (javascript-typescript)` (CodeQL)
 - ☑ Do not allow bypassing the above settings
 - ☑ Restrict who can push to matching branches (admins only, or empty list)
 
 With this in place, a red CI cannot reach `main` even via direct push or `--no-verify`.
+
+## CodeQL (SAST)
+
+Ferry runs CodeQL static analysis on every push to `main`, every PR, and weekly (Mondays 06:00 UTC) via `.github/workflows/codeql.yml`.
+
+The workflow fails CI if CodeQL finds any **high or critical** severity issues (`SARIF level: error`). Medium/low findings appear in the repository's Security → Code Scanning tab but do not block the PR.
+
+**Suppressing a false positive:** add an inline `// lgtm[<rule-id>]` comment at the finding location, or use a `.github/codeql/codeql-config.yml` exclusion. Always include a short rationale comment so reviewers understand why the suppression is intentional.
 
 ## Workflow
 
