@@ -129,19 +129,19 @@ for w in refine dev review iterate; do
 done
 ```
 
-These stubs call Ferry's reusable workflows at `@v1`. Each stub uses `secrets: inherit` so all secrets flow through automatically.
+These stubs call Ferry's reusable workflows at `@v0.1.0`. Each stub uses `secrets: inherit` so all secrets flow through automatically.
 
 ### 3.2 — Pin the version (recommended)
 
-By default the stubs reference `@v1`. For immutable pinning, replace with the exact commit SHA:
+By default the stubs reference `@v0.1.0`. For immutable pinning, replace with the exact commit SHA:
 
 ```bash
-# Get the SHA the v1 tag points to
-LATEST_SHA=$(gh api repos/big-emotion/ferry/git/refs/tags/v1 --jq '.object.sha')
+# Get the SHA the v0.1.0 tag points to
+LATEST_SHA=$(gh api repos/big-emotion/ferry/git/refs/tags/v0.1.0 --jq '.object.sha')
 echo "Pinning to $LATEST_SHA"
 
 # Substitute in the 4 core stubs
-sed -i.bak "s|@v1|@${LATEST_SHA}|g" .github/workflows/ferry-*.yml
+sed -i.bak "s|@v0.1.0|@${LATEST_SHA}|g" .github/workflows/ferry-*.yml
 rm .github/workflows/ferry-*.yml.bak
 ```
 
@@ -149,7 +149,7 @@ rm .github/workflows/ferry-*.yml.bak
 
 ```bash
 git add .github/workflows/
-git commit -m "chore(ferry): install consumer workflows pinned to ${LATEST_SHA:-v1}"
+git commit -m "chore(ferry): install consumer workflows pinned to ${LATEST_SHA:-v0.1.0}"
 git push
 ```
 
@@ -290,7 +290,7 @@ If **all** of these check, the install is complete.
 
 | Issue | Status |
 |---|---|
-| `@v1` tag must exist before install guide works | Required for release — tag must be cut before distributing this guide |
+| `@v0.1.0` tag must exist before install guide works | Required for release — tag must be cut before distributing this guide |
 | Stale-ticket reconciler sweep | Not yet implemented (Story 8.3) — consumers must manually re-trigger stalled tickets for now |
 | `.ferry/` agent scripts in consumer workspace | Tracked in #71 — workflows currently read agent scripts from Ferry repo checkout |
 | Anthropic Agent SDK support | Planned — current LLM call site uses the Anthropic Messages API; Agent SDK is the next roadmap item |
@@ -306,7 +306,7 @@ Phase 2 — GitHub            [ ] Audit issue created + number noted
                             [ ] Workflow permissions = read+write
                             [ ] 6 secrets + 1 variable set
 Phase 3 — Workflows         [ ] 4 core stubs copied to .github/workflows/
-                            [ ] SHA pinned (not @v1) — recommended
+                            [ ] SHA pinned (not @v0.1.0) — recommended
                             [ ] Pushed to main
 Phase 4 — Jira ↔ GitHub     [ ] GitHub PAT created
                             [ ] 4 Jira Automation rules created + enabled
@@ -330,7 +330,7 @@ Phase 6 — Final verification[ ] Lines in audit issue (one per phase run)
 | Problem | Check |
 |---------|-------|
 | Workflows don't trigger | Verify Jira automation rule is enabled; check rule's Audit log for errors |
-| "workflow not found" error | `@v1` tag must exist on the Ferry repo; contact Ferry maintainers |
+| "workflow not found" error | `@v0.1.0` tag must exist on the Ferry repo; contact Ferry maintainers |
 | "Missing secret" error | All 6 secrets must be added — run `gh secret list` to verify |
 | `event_id` validation error | Use `{{now.toMillis}}-{{issue.key}}-{{issue.id}}` — do not omit the key/id suffix |
 | FR18 / FR24 / FR28 never fires | `FERRY_REVIEW_TRANSITION_ID` and `FERRY_ITER_TRANSITION_ID` must be set with correct numeric Jira IDs |

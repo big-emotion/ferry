@@ -46,10 +46,14 @@ describe('Phase 3 — consumer workflow stubs (install-guide §3.1)', () => {
   }
 
   for (const stub of coreStubs) {
-    it(`${stub}.yml references @v1 (not @main)`, async () => {
+    it(`${stub}.yml references @v0.1.0 (not @main)`, async () => {
       const content = await readFile(`examples/consumer-setup/workflows/${stub}.yml`);
-      expect(content, `${stub}.yml must pin to @v1 — @main is mutable and insecure`).toMatch(/@v1/);
-      expect(content, `${stub}.yml must not use @main (use @v1 or a SHA)`).not.toMatch(/@main/);
+      expect(content, `${stub}.yml must pin to @v0.1.0 — @main is mutable and insecure`).toMatch(
+        /@v0\.1\.0/,
+      );
+      expect(content, `${stub}.yml must not use @main (use a release tag or a SHA)`).not.toMatch(
+        /@main/,
+      );
     });
   }
 
@@ -332,7 +336,7 @@ describe('Phase 3 — SHA pinning instructions (install-guide §3.2)', () => {
   it('CONSUMER-SETUP.md includes SHA pinning instructions using gh api', async () => {
     const doc = await readFile('docs/CONSUMER-SETUP.md');
     expect(doc, 'CONSUMER-SETUP.md must show SHA pinning via gh api').toContain(
-      'gh api repos/big-emotion/ferry/git/refs/tags/v1',
+      'gh api repos/big-emotion/ferry/git/refs/tags/v0.1.0',
     );
   });
 });
@@ -357,4 +361,26 @@ describe('Phase 5 — Ferry never merges (install-guide §5.6)', () => {
     const doc = await readFile('docs/CONSUMER-SETUP.md');
     expect(doc).toMatch(/Ferry never merges/i);
   });
+});
+
+// ---------------------------------------------------------------------------
+// 15. Internal workflows must not pin ferry-* composite actions to @main
+//     CI gate for supply-chain security (issue #77)
+// ---------------------------------------------------------------------------
+
+describe('Supply-chain — no @main refs in internal workflows (issue #77)', () => {
+  const agentWorkflows = ['refine', 'dev', 'review', 'iterate'];
+
+  for (const wf of agentWorkflows) {
+    it(`.github/workflows/${wf}.yml has no ferry-*@main composite action references`, async () => {
+      const content = await readFile(`.github/workflows/${wf}.yml`);
+      const mainRefs = [...content.matchAll(/uses:\s+big-emotion\/ferry\/.+@main/g)].map(
+        (m) => m[0],
+      );
+      expect(
+        mainRefs,
+        `${wf}.yml must not reference ferry-* composite actions at @main — pin to a release tag (e.g. @v0.1.0) instead`,
+      ).toHaveLength(0);
+    });
+  }
 });

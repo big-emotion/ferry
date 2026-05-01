@@ -1,5 +1,5 @@
 # Copy this file to .github/workflows/ferry-iterate.yml in your repository.
-# Replace @v1 with the Ferry release tag you want to pin (e.g. @v1.2.3).
+# Replace @v0.1.0 with the Ferry release tag you want to pin (e.g. @v0.2.0).
 # Required secrets: FERRY_JIRA_BASE_URL, FERRY_JIRA_EMAIL, FERRY_JIRA_API_TOKEN,
 #                   FERRY_REVIEW_TRANSITION_ID, ANTHROPIC_API_KEY
 # Required variables: FERRY_AUDIT_ISSUE (GitHub Issue number for the audit log)
@@ -23,7 +23,7 @@ permissions:
 
 jobs:
   iterate:
-    uses: big-emotion/ferry/.github/workflows/iterate.yml@v1
+    uses: big-emotion/ferry/.github/workflows/iterate.yml@v0.1.0
     with:
       ticket_key: ${{ github.event.client_payload.ticket_key }}
       event_id: ${{ github.event.client_payload.event_id }}
