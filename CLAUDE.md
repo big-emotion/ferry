@@ -52,12 +52,12 @@ Each agent is a separate implementation. Key patterns:
 
 ### 4. **Scheduled Work** (`src/reconciler/`, `src/cost-governance/`)
 
-These modules exist as library code but are currently **not wired to a workflow** — the example `reconciler.yml` and `audit-daily.yml` workflow stubs were removed. Keep the modules building and tested; consumers wire them up themselves.
+CLI entrypoints live in `src/reconciler/run.ts` and `src/cost-governance/run.ts`. Consumer workflow stubs in `examples/consumer-setup/workflows/` show how to wire these up — see `docs/CONSUMER-SETUP.md` §7.5 and §7.6. The ferry repo does not ship `.github/workflows/reconcile.yml` or `cost-daily.yml`; consumers add those to their own repos.
 
-- **Reconciler** (`src/reconciler/reconcile.ts`): Sweeps for missed work, re-triggers stalled tickets
-- **Daily audit** (`src/cost-governance/daily-check.ts`): Checks provider spend against caps, auto-pauses tickets via `ferry:paused` label when spend reaches 50% of monthly limit
+- **Reconciler** (`src/reconciler/reconcile.ts` + `run.ts`): Sweeps for missed work, re-triggers stalled tickets
+- **Daily audit** (`src/cost-governance/daily-check.ts` + `run.ts`): Checks provider spend against caps, auto-pauses tickets via `ferry:paused` label when spend reaches 50% of monthly limit
 
-The only workflow files in this repo are the agent dispatch workflows (`refine.yml`, `dev.yml`, `review.yml`, `iterate.yml`), the CI gate (`ferry-ci.yml`), and Claude Code helpers (`claude.yml`, `claude-code-review.yml`).
+The only workflow files in this repo are the agent dispatch workflows (`refine.yml`, `dev.yml`, `review.yml`, `iterate.yml`), the CI gate (`ferry-ci.yml`), CodeQL SAST (`codeql.yml`), and Claude Code helpers (`claude.yml`, `claude-code-review.yml`).
 
 ### 5. **Composite Actions** (`.github/actions/`)
 
