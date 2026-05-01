@@ -1,4 +1,4 @@
-import { execSync, execFileSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { delimitUntrusted } from '../../lib/llm/delimit-untrusted.js';
 import {
   requireEnv,
@@ -77,13 +77,13 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
 
   let resumeContext = '';
   try {
-    execSync(`git ls-remote --exit-code --heads origin ${branchName}`, {
+    execFileSync('git', ['ls-remote', '--exit-code', '--heads', 'origin', branchName], {
       cwd: REPO_ROOT,
       stdio: 'pipe',
     });
-    execSync(`git fetch origin ${branchName}`, { cwd: REPO_ROOT });
-    execSync(`git checkout ${branchName}`, { cwd: REPO_ROOT });
-    const existingLog = execSync('git log origin/main..HEAD --oneline', {
+    execFileSync('git', ['fetch', 'origin', branchName], { cwd: REPO_ROOT });
+    execFileSync('git', ['checkout', branchName], { cwd: REPO_ROOT });
+    const existingLog = execFileSync('git', ['log', 'origin/main..HEAD', '--oneline'], {
       cwd: REPO_ROOT,
       encoding: 'utf8',
     }).trim();
@@ -95,7 +95,7 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
       });
     }
   } catch {
-    execSync(`git checkout -B ${branchName}`, { cwd: REPO_ROOT });
+    execFileSync('git', ['checkout', '-B', branchName], { cwd: REPO_ROOT });
     logger.info('created branch', { branch: branchName });
   }
 
@@ -178,11 +178,14 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
   });
 
   try {
-    execSync('git add -A', { cwd: REPO_ROOT });
-    const finalStatus = execSync('git status --porcelain', { cwd: REPO_ROOT, encoding: 'utf8' });
+    execFileSync('git', ['add', '-A'], { cwd: REPO_ROOT });
+    const finalStatus = execFileSync('git', ['status', '--porcelain'], {
+      cwd: REPO_ROOT,
+      encoding: 'utf8',
+    });
     if (finalStatus.trim()) {
       await secretScan();
-      execSync(`git commit -m ${JSON.stringify(done.commit_message ?? commitMessage)}`, {
+      execFileSync('git', ['commit', '-m', done.commit_message ?? commitMessage], {
         cwd: REPO_ROOT,
       });
     }
@@ -210,7 +213,7 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
       process.exit(0);
     }
 
-    execSync(`git push origin ${branchName} --force-with-lease`, { cwd: REPO_ROOT });
+    execFileSync('git', ['push', 'origin', branchName, '--force-with-lease'], { cwd: REPO_ROOT });
 
     const prTitle = formatPullRequestTitle({ ticketKey, summary: done.summary });
     const prBody = formatPullRequestBody({
