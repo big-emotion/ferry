@@ -374,3 +374,19 @@ describe('CI gate — bundle drift check (ferry-ci.yml)', () => {
     expect(ci, 'check-bundle job must call npm run check:bundle').toContain('npm run check:bundle');
   });
 });
+
+// ---------------------------------------------------------------------------
+// 16. npm audit (audit:ci) is wired into ferry-ci.yml — issue #105
+// ---------------------------------------------------------------------------
+
+describe('supply-chain — npm audit step in ferry-ci.yml (issue #105)', () => {
+  it('ferry-ci.yml runs npm run audit:ci', async () => {
+    const content = await readFile('.github/workflows/ferry-ci.yml');
+    expect(content, 'ferry-ci.yml must call "npm run audit:ci"').toContain('npm run audit:ci');
+  });
+
+  it('ferry-ci.yml declares an audit job', async () => {
+    const content = await readFile('.github/workflows/ferry-ci.yml');
+    expect(content, 'ferry-ci.yml must have an "audit:" job').toMatch(/^  audit:\s*$/m);
+  });
+});
