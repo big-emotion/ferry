@@ -30,6 +30,7 @@ The same deny-list also blocks `git push`, `git reset --hard`, `git rebase`, `rm
 ### 2. Reviewer agent architecture (no merge code path)
 
 The Reviewer agent's approval path (`src/agents/reviewer/review-action.ts`) deliberately stops at:
+
 - Posting an approval comment with a `[ferry:reviewer:<sha>]` marker
 - Adding the `ferry:approved` label to the PR
 
@@ -37,12 +38,12 @@ There is no call to `gh pr merge`, no API call to GitHub's merge endpoint, and n
 
 ### What enforces the invariant
 
-| Layer | Mechanism | Location |
-|-------|-----------|----------|
-| Runtime | Bash deny-list regex `/\bgh\s+pr\s+merge\b/` | `src/agents/developer/sandbox.ts` |
-| Architecture | No merge call in Reviewer approval path | `src/agents/reviewer/review-action.ts` |
-| Documentation | Explicit statement in CLAUDE.md | `CLAUDE.md` line 23 |
-| Tests | Unit test asserting deny-list blocks merge | `src/agents/developer/sandbox.test.ts` |
+| Layer         | Mechanism                                    | Location                               |
+| ------------- | -------------------------------------------- | -------------------------------------- |
+| Runtime       | Bash deny-list regex `/\bgh\s+pr\s+merge\b/` | `src/agents/developer/sandbox.ts`      |
+| Architecture  | No merge call in Reviewer approval path      | `src/agents/reviewer/review-action.ts` |
+| Documentation | Explicit statement in CLAUDE.md              | `CLAUDE.md` line 23                    |
+| Tests         | Unit test asserting deny-list blocks merge   | `src/agents/developer/sandbox.test.ts` |
 
 ### Jira transition behaviour on approval
 
@@ -51,12 +52,14 @@ On the approval path, the Reviewer does **not** auto-transition the Jira ticket 
 ## Consequences
 
 **Positive:**
+
 - Consumers retain full control over merge timing, regardless of their release process.
 - A bug in Ferry's Reviewer logic cannot cause an unintended main-branch mutation.
 - The `ferry:approved` label is a clean, observable signal that works with any merge strategy: manual click, GitHub auto-merge rules, or a separate merge bot.
 - The sandbox deny-list provides defense-in-depth even if a future agent prompt is manipulated.
 
 **Negative:**
+
 - Teams that want fully automated end-to-end delivery must add their own merge automation (e.g., a GitHub Action triggered by the `ferry:approved` label, or enabling GitHub's "auto-merge" feature on the PR).
 - The invariant is not enforced by GitHub branch protection alone — a consumer who grants the Ferry GitHub App `Contents: write` permission could theoretically call the merge API outside of Ferry. The deny-list only covers bash commands executed by the agent loop.
 

@@ -11,7 +11,7 @@ name: Ferry — Cost Daily Check
 
 on:
   schedule:
-    - cron: '0 6 * * *'  # daily at 06:00 UTC — adjust as needed
+    - cron: '0 6 * * *' # daily at 06:00 UTC — adjust as needed
   workflow_dispatch: {}
 
 concurrency:
