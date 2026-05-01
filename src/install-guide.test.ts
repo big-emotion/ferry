@@ -371,8 +371,6 @@ describe('CI gate — bundle drift check (ferry-ci.yml)', () => {
 
   it('ferry-ci.yml check-bundle job runs npm run check:bundle', async () => {
     const ci = await readFile('.github/workflows/ferry-ci.yml');
-    expect(ci, 'check-bundle job must call npm run check:bundle').toContain(
-      'npm run check:bundle',
-    );
+    expect(ci, 'check-bundle job must call npm run check:bundle').toContain('npm run check:bundle');
   });
 });
