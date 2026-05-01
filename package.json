@@ -2,7 +2,6 @@
   "name": "ferry",
   "version": "0.1.0",
   "description": "Ferry — GitHub Actions–native agent pipeline for Jira-driven automated development",
-  "private": true,
   "type": "module",
   "bin": {
     "ferry-init": "./dist/cli/init/index.js",
@@ -24,7 +23,8 @@
     "audit:ci": "node scripts/npm-audit-check.mjs",
     "check:bundle": "npm run build:ferry && git diff --exit-code .ferry/",
     "check:fr-drift": "bash scripts/check-fr-drift.sh",
-    "prepare": "husky"
+    "prepare": "husky",
+    "version": "npm run build:ferry && git add .ferry/"
   },
   "lint-staged": {
     "src/**/*.ts": [
