@@ -66,12 +66,15 @@ Ferry writes a per-run journal in a dedicated GitHub Issue. Create it once:
 ```bash
 gh issue create \
   --repo YOUR_ORG/YOUR_REPO \
-  --title "Ferry — Audit log" \
+  --title "Ferry Audit Log (#1)" \
   --body "Do not close. Ferry writes audit comments here." \
-  --label ferry
+  --label ferry \
+  --label "ferry:audit-log:active"
 ```
 
 Note the returned issue number (e.g., `#42`). You will use it in step 2.3.
+
+> **Tip:** The `ferry:audit-log:active` label marks the current audit issue. Ferry uses it as a fallback to discover the active issue if the `FERRY_AUDIT_ISSUE` variable is ever stale (see §7.7). GitHub creates the label automatically on first use.
 
 ### 2.2 — Enable "Read and write permissions"
 
@@ -359,6 +362,40 @@ gh variable set FERRY_SPEND_CAP_EUR --body "200"
 **Opt-out:** delete `ferry-cost-daily.yml`. Without this workflow, the only hard cost ceiling is the manual cap set in the Anthropic console (Phase 7, item 1).
 
 **Permissions required:** `contents: read`, `issues: write`.
+
+### 7.7 — Audit-issue rotation (automatic)
+
+Ferry's audit pagination cap is 1 000 comments per issue (10 pages × 100). At 900 comments (90 %), Ferry automatically rotates to a new issue so the audit log is never silently truncated.
+
+**How it works:**
+
+1. Before writing each audit line, Ferry checks the current issue's comment count via the GitHub API.
+2. When the count reaches 900, a successor issue titled `Ferry Audit Log (#N+1)` is created and labelled `ferry:audit-log:active`.
+3. The old issue receives a final `[ferry:audit:rotation]` comment linking to the successor.
+4. Ferry writes the new audit line to the successor issue.
+5. Ferry attempts to update the `FERRY_AUDIT_ISSUE` repository variable via `gh variable set` so future runs target the new issue directly.
+
+**Permissions for auto-update:** Step 5 requires `variables: write` on the `GITHUB_TOKEN` used by the `emit-audit` job. Add this permission to the emit-audit job in each ferry workflow stub:
+
+```yaml
+emit-audit:
+  permissions:
+    contents: read
+    issues: write
+    variables: write   # enables FERRY_AUDIT_ISSUE auto-update on rotation
+```
+
+**Fallback — label discovery:** If `variables: write` is not available (or `gh variable set` fails for any reason), Ferry falls back to discovering the active audit issue via the `ferry:audit-log:active` label. A warning is printed in the Actions log, but the audit line is still written correctly. You can silence the warning by updating `FERRY_AUDIT_ISSUE` manually:
+
+```bash
+# Find the current active audit issue
+gh issue list --repo YOUR_ORG/YOUR_REPO --label "ferry:audit-log:active" --json number,title
+
+# Update the variable
+gh variable set FERRY_AUDIT_ISSUE --body "<new-number>" --repo YOUR_ORG/YOUR_REPO
+```
+
+**No action required** unless you want to eliminate the warning in the Actions log.
 
 ---
 
