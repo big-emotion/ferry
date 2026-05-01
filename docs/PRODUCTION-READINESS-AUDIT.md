@@ -244,7 +244,7 @@ The CI thresholds in `vitest.config.ts` (`65/65/75/65`) are pinned **just below*
 - No FR/ticket back-reference in commits.
 - "Story 8.3" cited in `CONSUMER-SETUP.md` (reconciler) is nowhere in the repo.
 - No `CHANGELOG.md`.
-- No drift detector — nothing prevents a future PR from introducing FR42 with no doc/test/ADR entry.
+- No drift detector — nothing prevents a future PR from introducing a new FR with no doc/test/ADR entry.
 
 ### 4.12 Operations — 3.0
 
