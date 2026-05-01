@@ -157,7 +157,9 @@ describe('runReviewLoop', () => {
   });
 
   it('handles get_file_patch for a file in the fileMap', async () => {
-    const fileMap = new Map<string, string | undefined>([['src/auth.ts', '+export function login() {}']]);
+    const fileMap = new Map<string, string | undefined>([
+      ['src/auth.ts', '+export function login() {}'],
+    ]);
     const mock = makeAnthropicMock([
       {
         stop_reason: 'tool_use',
@@ -188,8 +190,9 @@ describe('runReviewLoop', () => {
     const fileMap = new Map<string, string | undefined>();
     let capturedToolContent: string | undefined;
 
-    const captureCreate = vi.fn().mockImplementation(
-      async (params: { messages: Array<{ role: string; content: unknown }> }) => {
+    const captureCreate = vi
+      .fn()
+      .mockImplementation(async (params: { messages: Array<{ role: string; content: unknown }> }) => {
         if (params.messages.length >= 3) {
           const lastMsg = params.messages[params.messages.length - 1];
           if (Array.isArray(lastMsg.content)) {
@@ -223,8 +226,7 @@ describe('runReviewLoop', () => {
           ],
           usage: { input_tokens: 10, output_tokens: 5 },
         };
-      },
-    );
+      });
 
     await runReviewLoop({
       ...baseOpts,
@@ -239,8 +241,9 @@ describe('runReviewLoop', () => {
     const fileMap = new Map<string, string | undefined>([['binary.png', '']]);
     let capturedToolContent: string | undefined;
 
-    const captureCreate = vi.fn().mockImplementation(
-      async (params: { messages: Array<{ role: string; content: unknown }> }) => {
+    const captureCreate = vi
+      .fn()
+      .mockImplementation(async (params: { messages: Array<{ role: string; content: unknown }> }) => {
         if (params.messages.length >= 3) {
           const lastMsg = params.messages[params.messages.length - 1];
           if (Array.isArray(lastMsg.content)) {
@@ -274,8 +277,7 @@ describe('runReviewLoop', () => {
           ],
           usage: { input_tokens: 10, output_tokens: 5 },
         };
-      },
-    );
+      });
 
     await runReviewLoop({
       ...baseOpts,
@@ -291,8 +293,9 @@ describe('runReviewLoop', () => {
     const fileMap = new Map<string, string | undefined>([['big.ts', longPatch]]);
     let capturedToolContent: string | undefined;
 
-    const captureCreate = vi.fn().mockImplementation(
-      async (params: { messages: Array<{ role: string; content: unknown }> }) => {
+    const captureCreate = vi
+      .fn()
+      .mockImplementation(async (params: { messages: Array<{ role: string; content: unknown }> }) => {
         if (params.messages.length >= 3) {
           const lastMsg = params.messages[params.messages.length - 1];
           if (Array.isArray(lastMsg.content)) {
@@ -326,8 +329,7 @@ describe('runReviewLoop', () => {
           ],
           usage: { input_tokens: 10, output_tokens: 5 },
         };
-      },
-    );
+      });
 
     await runReviewLoop({
       ...baseOpts,
@@ -377,8 +379,9 @@ describe('runReviewLoop', () => {
   it('returns is_error tool result for unknown tool names', async () => {
     let capturedToolResult: Array<{ is_error?: boolean; content?: string }> | undefined;
 
-    const captureCreate = vi.fn().mockImplementation(
-      async (params: { messages: Array<{ role: string; content: unknown }> }) => {
+    const captureCreate = vi
+      .fn()
+      .mockImplementation(async (params: { messages: Array<{ role: string; content: unknown }> }) => {
         if (params.messages.length >= 3) {
           const lastMsg = params.messages[params.messages.length - 1];
           if (Array.isArray(lastMsg.content)) {
@@ -411,8 +414,7 @@ describe('runReviewLoop', () => {
           ],
           usage: { input_tokens: 10, output_tokens: 5 },
         };
-      },
-    );
+      });
 
     await runReviewLoop({
       ...baseOpts,

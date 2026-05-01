@@ -4,3 +4,7 @@ useDefault = true
 [[allowlists]]
 description = "Documentation markdown files contain placeholder credentials in examples"
 paths = ['''docs/.*\.md''']
+
+[[allowlists]]
+description = "GitHub App init test step uses a dummy RSA private key fixture"
+commits = ["be74f0f7986c95ba59bdf664581b4e082870b919"]

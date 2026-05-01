@@ -52,8 +52,9 @@ const baseOpts = {
 
 /** Returns a create mock that first triggers commit_progress then done. */
 function makeCommitProgressCreate(onToolResult?: (result: Record<string, unknown>) => void) {
-  return vi.fn().mockImplementation(
-    async (params: { messages: Array<{ role: string; content: unknown }> }) => {
+  return vi
+    .fn()
+    .mockImplementation(async (params: { messages: Array<{ role: string; content: unknown }> }) => {
       if (params.messages.length >= 3 && onToolResult) {
         const lastMsg = params.messages[params.messages.length - 1];
         if (Array.isArray(lastMsg.content)) {
@@ -87,8 +88,7 @@ function makeCommitProgressCreate(onToolResult?: (result: Record<string, unknown
         ],
         usage: { input_tokens: 5, output_tokens: 3 },
       };
-    },
-  );
+    });
 }
 
 describe('runAgentLoop', () => {
