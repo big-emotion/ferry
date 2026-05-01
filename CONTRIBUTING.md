@@ -12,12 +12,34 @@ npm run format:check
 
 All gates (tests, typecheck, lint, format, gitleaks, and CodeQL in CI) must pass before opening a PR against `main`. CI runs them automatically on every push.
 
+### Before pushing: rebuild `.ferry/` bundles if you touched `src/`
+
+The `.ferry/` directory contains committed JavaScript bundles that GitHub Actions actually executes. They are built from `src/` via:
+
+```bash
+npm run build:ferry
+```
+
+**If you modify anything under `src/`, you must rebuild before pushing.** A stale bundle causes silent drift between source and runtime — CI will catch this, but rebuilding locally is faster:
+
+```bash
+npm run build:ferry
+git add .ferry/
+git commit -m "build: rebuild ferry bundles"
+```
+
+You can verify the bundles are up-to-date with:
+
+```bash
+npm run check:bundle   # builds, then fails if .ferry/ has uncommitted changes
+```
+
 ### Local hooks (Husky)
 
 `npm install` automatically wires two strict Git hooks (via the `prepare` script):
 
 - **`pre-commit`** — `lint-staged` runs Prettier and ESLint (`--max-warnings=0`) on staged files only. Fast (~1s).
-- **`pre-push`** — full CI parity: `typecheck && lint && format:check && test`. Refuses the push if any gate is red. ~5s.
+- **`pre-push`** — full CI parity: `typecheck && lint && format:check && test && check:bundle`. Refuses the push if any gate is red, including stale bundles.
 - **`commit-msg`** — `feat:` and `fix:` commits must include at least one `(FRn)` reference (e.g. `feat: add cap (FR29)`). Exempt types: `chore`, `docs`, `refactor`, `test`, `perf`, `ci`, `build`, `style`.
 
 `--no-verify` bypasses all three hooks and is **not** considered a normal workflow — only use it intentionally and accept that CI will catch the issue. The authoritative enforcement is server-side branch protection (see below).
@@ -37,6 +59,7 @@ To make `main` truly unbreakable, enable the following at
     - `Lint & Format`
     - `Secret Scan (gitleaks)`
     - `Analyze (javascript-typescript)` (CodeQL)
+    - `Bundle Drift`
 - ☑ Do not allow bypassing the above settings
 - ☑ Restrict who can push to matching branches (admins only, or empty list)
 
