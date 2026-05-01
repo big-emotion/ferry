@@ -34,22 +34,22 @@ The project has **above-average open-source foundations** (idempotency by marker
 
 ## 3. Score per domain
 
-| # | Domain | Score | Trend |
-|---|---|---|---|
-| 1 | Application security | **7.5 / 10** | strong |
-| 2 | Supply-chain security | **5.5 / 10** | medium |
-| 3 | GitHub Actions security | **6.0 / 10** | medium |
-| 4 | Tests & coverage | **5.0 / 10** | weak |
-| 5 | E2E / acceptance tests | **2.0 / 10** | absent |
-| 6 | CI/CD gates | **8.0 / 10** | strong |
-| 7 | Reliability (idempotency, retries) | **8.0 / 10** | strong |
-| 8 | Observability / audit | **5.0 / 10** | basic |
-| 9 | Consumer documentation | **8.0 / 10** | strong |
-| 10 | Code quality / typing | **8.0 / 10** | strong |
-| 11 | Traceability / FR governance | **2.0 / 10** | nearly absent |
-| 12 | Operations / runbooks / rollback | **3.0 / 10** | weak |
-| 13 | Release / distribution | **2.0 / 10** | blocker |
-| 14 | Cost governance (runtime) | **3.0 / 10** | written but unwired |
+| #   | Domain                             | Score        | Trend               |
+| --- | ---------------------------------- | ------------ | ------------------- |
+| 1   | Application security               | **7.5 / 10** | strong              |
+| 2   | Supply-chain security              | **5.5 / 10** | medium              |
+| 3   | GitHub Actions security            | **6.0 / 10** | medium              |
+| 4   | Tests & coverage                   | **5.0 / 10** | weak                |
+| 5   | E2E / acceptance tests             | **2.0 / 10** | absent              |
+| 6   | CI/CD gates                        | **8.0 / 10** | strong              |
+| 7   | Reliability (idempotency, retries) | **8.0 / 10** | strong              |
+| 8   | Observability / audit              | **5.0 / 10** | basic               |
+| 9   | Consumer documentation             | **8.0 / 10** | strong              |
+| 10  | Code quality / typing              | **8.0 / 10** | strong              |
+| 11  | Traceability / FR governance       | **2.0 / 10** | nearly absent       |
+| 12  | Operations / runbooks / rollback   | **3.0 / 10** | weak                |
+| 13  | Release / distribution             | **2.0 / 10** | blocker             |
+| 14  | Cost governance (runtime)          | **3.0 / 10** | written but unwired |
 
 ---
 
@@ -85,7 +85,7 @@ The project has **above-average open-source foundations** (idempotency by marker
 **Weaknesses**
 
 - **Internal composite actions referenced by `@main`** in every workflow (`ferry-envelope-validate@main`, `ferry-run-refiner@main`, `ferry-emit-audit@main`). Mutable. Anyone with push access to `main` runs arbitrary code in every consumer install.
-- **Tag `v1` does not exist.** `CONSUMER-SETUP.md` Phase 3.2 depends on `gh api repos/big-emotion/ferry/git/refs/tags/v1`. Listed in *Known limitations*.
+- **Tag `v1` does not exist.** `CONSUMER-SETUP.md` Phase 3.2 depends on `gh api repos/big-emotion/ferry/git/refs/tags/v1`. Listed in _Known limitations_.
 - No commit signing, no SLSA provenance, no attestations.
 - No `npm audit` in CI (only Dependabot offline).
 - No SBOM, no OSSF Scorecard.
@@ -111,13 +111,13 @@ The project has **above-average open-source foundations** (idempotency by marker
 
 ### 4.4 Tests & coverage — 5.0
 
-| Metric | Value | Stated target |
-|---|---|---|
-| Statements | 68.09 % | 75 % |
-| Branches | 65.37 % | 75 % |
-| Functions | 75.75 % | 75 % |
-| Lines | 67.90 % | 75 % |
-| Tests | 599 ✅ | — |
+| Metric     | Value   | Stated target |
+| ---------- | ------- | ------------- |
+| Statements | 68.09 % | 75 %          |
+| Branches   | 65.37 % | 75 %          |
+| Functions  | 75.75 % | 75 %          |
+| Lines      | 67.90 % | 75 %          |
+| Tests      | 599 ✅  | —             |
 
 **Modules at 0–20 % coverage (consumer-critical paths)**
 
@@ -301,43 +301,43 @@ Each row corresponds to a GitHub issue. Priority drives which release the action
 
 Order is the recommended execution order (dependencies and quick wins first).
 
-| Order | Action | Domain | Score before | Priority | Effort |
-|---|---|---|---|---|---|
-| 1 | Cut tag `v1`, add release workflow, lift `private: true` | Release | 2.0 | **P0** | M |
-| 2 | Pin all internal `ferry-*@main` refs to `@v1` or SHA | Supply chain | 5.5 | **P0** | S |
-| 3 | Add explicit `permissions:` to every job (refine, all `emit-audit` jobs) | GH Actions | 6.0 | **P0** | S |
-| 4 | Wire reconciler and `daily-check` to scheduled workflows | Operations / cost | 3.0 | **P0** | M |
-| 5 | Add mocked end-to-end test refine→dev→review→iterate | E2E | 2.0 | **P0** | L |
-| 6 | Replace `execSync` with `execFileSync` in dev-action and dev loop | App security | 7.5 | **P1** | S |
-| 7 | Enable CodeQL (free SAST) | Supply chain | 5.5 | **P1** | S |
-| 8 | Add `npm audit --omit=dev` step to CI | Supply chain | 5.5 | **P1** | S |
-| 9 | Drift check `src/` ↔ `.ferry/` in CI (rebuild + diff) | CI/CD | 8.0 | **P1** | S |
-| 10 | Cover `cli/init/steps/*` and `cli/doctor/checks/*` to ≥ 70 % | Tests | 5.0 | **P1** | L |
-| 11 | Cover `agents/developer/loop.ts` and `workspace.ts` to ≥ 70 % | Tests | 5.0 | **P1** | M |
-| 12 | Create `docs/REQUIREMENTS.md` FR registry + commit-msg lint | Traceability | 2.0 | **P1** | M |
-| 13 | Create `docs/adr/` with 4–5 foundational ADRs | Traceability | 2.0 | **P1** | M |
-| 14 | Audit-issue rotation when comments approach the 1000-comment cap | Reliability | 8.0 | **P2** | M |
-| 15 | Structured logger (`pino` or minimal JSON) with correlation_id | Observability | 5.0 | **P2** | M |
+| Order | Action                                                                   | Domain            | Score before | Priority | Effort |
+| ----- | ------------------------------------------------------------------------ | ----------------- | ------------ | -------- | ------ |
+| 1     | Cut tag `v1`, add release workflow, lift `private: true`                 | Release           | 2.0          | **P0**   | M      |
+| 2     | Pin all internal `ferry-*@main` refs to `@v1` or SHA                     | Supply chain      | 5.5          | **P0**   | S      |
+| 3     | Add explicit `permissions:` to every job (refine, all `emit-audit` jobs) | GH Actions        | 6.0          | **P0**   | S      |
+| 4     | Wire reconciler and `daily-check` to scheduled workflows                 | Operations / cost | 3.0          | **P0**   | M      |
+| 5     | Add mocked end-to-end test refine→dev→review→iterate                     | E2E               | 2.0          | **P0**   | L      |
+| 6     | Replace `execSync` with `execFileSync` in dev-action and dev loop        | App security      | 7.5          | **P1**   | S      |
+| 7     | Enable CodeQL (free SAST)                                                | Supply chain      | 5.5          | **P1**   | S      |
+| 8     | Add `npm audit --omit=dev` step to CI                                    | Supply chain      | 5.5          | **P1**   | S      |
+| 9     | Drift check `src/` ↔ `.ferry/` in CI (rebuild + diff)                    | CI/CD             | 8.0          | **P1**   | S      |
+| 10    | Cover `cli/init/steps/*` and `cli/doctor/checks/*` to ≥ 70 %             | Tests             | 5.0          | **P1**   | L      |
+| 11    | Cover `agents/developer/loop.ts` and `workspace.ts` to ≥ 70 %            | Tests             | 5.0          | **P1**   | M      |
+| 12    | Create `docs/REQUIREMENTS.md` FR registry + commit-msg lint              | Traceability      | 2.0          | **P1**   | M      |
+| 13    | Create `docs/adr/` with 4–5 foundational ADRs                            | Traceability      | 2.0          | **P1**   | M      |
+| 14    | Audit-issue rotation when comments approach the 1000-comment cap         | Reliability       | 8.0          | **P2**   | M      |
+| 15    | Structured logger (`pino` or minimal JSON) with correlation_id           | Observability     | 5.0          | **P2**   | M      |
 
 ### 5.1 Expected score after the plan
 
-| Domain | Before | After P0 | After P0+P1 | After all |
-|---|---|---|---|---|
-| Application security | 7.5 | 7.5 | 8.5 | 8.5 |
-| Supply-chain security | 5.5 | 7.0 | 8.5 | 8.5 |
-| GitHub Actions security | 6.0 | 8.0 | 8.0 | 8.5 |
-| Tests & coverage | 5.0 | 5.0 | 7.5 | 7.5 |
-| E2E / acceptance | 2.0 | 7.0 | 7.5 | 8.0 |
-| CI/CD gates | 8.0 | 8.0 | 9.0 | 9.0 |
-| Reliability | 8.0 | 8.0 | 8.0 | 8.5 |
-| Observability | 5.0 | 5.0 | 5.5 | 7.0 |
-| Consumer documentation | 8.0 | 8.5 | 9.0 | 9.0 |
-| Code quality | 8.0 | 8.0 | 8.5 | 8.5 |
-| Traceability | 2.0 | 2.0 | 7.5 | 7.5 |
-| Operations | 3.0 | 7.0 | 7.5 | 8.0 |
-| Release / distribution | 2.0 | 8.5 | 9.0 | 9.0 |
-| Cost governance | 3.0 | 7.5 | 7.5 | 8.0 |
-| **Overall** | **5.6** | **7.4** | **8.2** | **8.4** |
+| Domain                  | Before  | After P0 | After P0+P1 | After all |
+| ----------------------- | ------- | -------- | ----------- | --------- |
+| Application security    | 7.5     | 7.5      | 8.5         | 8.5       |
+| Supply-chain security   | 5.5     | 7.0      | 8.5         | 8.5       |
+| GitHub Actions security | 6.0     | 8.0      | 8.0         | 8.5       |
+| Tests & coverage        | 5.0     | 5.0      | 7.5         | 7.5       |
+| E2E / acceptance        | 2.0     | 7.0      | 7.5         | 8.0       |
+| CI/CD gates             | 8.0     | 8.0      | 9.0         | 9.0       |
+| Reliability             | 8.0     | 8.0      | 8.0         | 8.5       |
+| Observability           | 5.0     | 5.0      | 5.5         | 7.0       |
+| Consumer documentation  | 8.0     | 8.5      | 9.0         | 9.0       |
+| Code quality            | 8.0     | 8.0      | 8.5         | 8.5       |
+| Traceability            | 2.0     | 2.0      | 7.5         | 7.5       |
+| Operations              | 3.0     | 7.0      | 7.5         | 8.0       |
+| Release / distribution  | 2.0     | 8.5      | 9.0         | 9.0       |
+| Cost governance         | 3.0     | 7.5      | 7.5         | 8.0       |
+| **Overall**             | **5.6** | **7.4**  | **8.2**     | **8.4**   |
 
 P0+P1 is enough to clear the 8/10 bar; P2 lifts the project toward 8.5+.
 
