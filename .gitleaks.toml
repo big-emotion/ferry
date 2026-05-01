@@ -4,3 +4,7 @@ useDefault = true
 [[allowlists]]
 description = "Documentation markdown files contain placeholder credentials in examples"
 paths = ['''docs/.*\.md''']
+
+[[allowlists]]
+description = "Test fixture RSA key in github-app.test.ts — not a real credential"
+commits = ["be74f0f7986c95ba59bdf664581b4e082870b919"]

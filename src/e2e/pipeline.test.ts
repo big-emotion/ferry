@@ -84,22 +84,20 @@ function buildMockIO(): MockIO {
     },
   );
 
-  const listCommentsSpy = vi.fn().mockImplementation(
-    async (opts: { issue_number: number }) => {
-      if (opts.issue_number === AUDIT_ISSUE) {
-        return { data: auditComments };
-      }
-      // PR comments: the reviewer's comment that the iterator needs to find
-      return {
-        data: [
-          {
-            id: REVIEW_COMMENT_ID,
-            body: `[ferry:reviewer:${HEAD_SHA.slice(0, 7)}]\n\n**Verdict**: Changes requested\n\nPlease fix the reported issues.`,
-          },
-        ],
-      };
-    },
-  );
+  const listCommentsSpy = vi.fn().mockImplementation(async (opts: { issue_number: number }) => {
+    if (opts.issue_number === AUDIT_ISSUE) {
+      return { data: auditComments };
+    }
+    // PR comments: the reviewer's comment that the iterator needs to find
+    return {
+      data: [
+        {
+          id: REVIEW_COMMENT_ID,
+          body: `[ferry:reviewer:${HEAD_SHA.slice(0, 7)}]\n\n**Verdict**: Changes requested\n\nPlease fix the reported issues.`,
+        },
+      ],
+    };
+  });
 
   const addLabelsSpy = vi.fn().mockResolvedValue({ data: [] });
   const removeLabelSpy = vi.fn().mockResolvedValue({ data: [] });
