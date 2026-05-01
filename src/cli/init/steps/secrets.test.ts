@@ -2,7 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const mockExecSync = vi.hoisted(() => vi.fn());
 
-vi.mock('node:child_process', () => ({ execSync: mockExecSync }));
+vi.mock('node:child_process', () => ({
+  execSync: mockExecSync,
+}));
 
 vi.mock('../prompt.js', () => ({
   printSuccess: vi.fn(),
