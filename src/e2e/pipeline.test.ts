@@ -107,6 +107,9 @@ function buildMockIO(): MockIO {
     listComments: listCommentsSpy,
     addLabels: addLabelsSpy,
     removeLabel: removeLabelSpy,
+    get: vi.fn().mockResolvedValue({
+      data: { number: AUDIT_ISSUE, title: 'Ferry Audit Log (#1)', comments: 0, labels: [] },
+    }),
   };
 
   const mergeSpy = vi.fn(); // must remain uncalled for the entire pipeline run
