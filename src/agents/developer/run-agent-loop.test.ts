@@ -2,10 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import Anthropic from '@anthropic-ai/sdk';
 
 vi.mock('node:child_process', () => ({
-  execSync: vi.fn(),
+  execFileSync: vi.fn(),
 }));
 
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { runAgentLoop } from './loop.js';
 
 type FakeMessage = {
@@ -27,7 +27,7 @@ function makeMock(responses: FakeMessage[]) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const mockExecSync = execSync as any;
+const mockExecFileSync = execFileSync as any;
 
 const doneResponse: FakeMessage = {
   stop_reason: 'tool_use',
@@ -135,8 +135,8 @@ describe('runAgentLoop', () => {
         capturedContent = res['content'] as string | undefined;
       });
 
-      mockExecSync.mockReturnValueOnce(''); // git add -A
-      mockExecSync.mockReturnValueOnce(''); // git status (empty → nothing to commit)
+      mockExecFileSync.mockReturnValueOnce(''); // git add -A
+      mockExecFileSync.mockReturnValueOnce(''); // git status (empty → nothing to commit)
 
       await runAgentLoop({
         ...baseOpts,
@@ -153,8 +153,8 @@ describe('runAgentLoop', () => {
         capturedContent = res['content'] as string | undefined;
       });
 
-      mockExecSync.mockReturnValueOnce(''); // git add -A
-      mockExecSync.mockReturnValueOnce('   \n  '); // git status (whitespace only)
+      mockExecFileSync.mockReturnValueOnce(''); // git add -A
+      mockExecFileSync.mockReturnValueOnce('   \n  '); // git status (whitespace only)
 
       await runAgentLoop({
         ...baseOpts,
@@ -171,10 +171,10 @@ describe('runAgentLoop', () => {
         capturedContent = res['content'] as string | undefined;
       });
 
-      mockExecSync.mockReturnValueOnce(''); // git add -A
-      mockExecSync.mockReturnValueOnce('M src/foo.ts'); // git status
-      mockExecSync.mockReturnValueOnce(''); // git commit
-      mockExecSync.mockReturnValueOnce(''); // git push
+      mockExecFileSync.mockReturnValueOnce(''); // git add -A
+      mockExecFileSync.mockReturnValueOnce('M src/foo.ts'); // git status
+      mockExecFileSync.mockReturnValueOnce(''); // git commit
+      mockExecFileSync.mockReturnValueOnce(''); // git push
 
       await runAgentLoop({
         ...baseOpts,
@@ -189,10 +189,10 @@ describe('runAgentLoop', () => {
       const scan = vi.fn().mockResolvedValue(undefined);
       const create = makeCommitProgressCreate();
 
-      mockExecSync.mockReturnValueOnce(''); // git add -A
-      mockExecSync.mockReturnValueOnce('M src/foo.ts'); // git status
-      mockExecSync.mockReturnValueOnce(''); // git commit
-      mockExecSync.mockReturnValueOnce(''); // git push
+      mockExecFileSync.mockReturnValueOnce(''); // git add -A
+      mockExecFileSync.mockReturnValueOnce('M src/foo.ts'); // git status
+      mockExecFileSync.mockReturnValueOnce(''); // git commit
+      mockExecFileSync.mockReturnValueOnce(''); // git push
 
       await runAgentLoop({
         ...baseOpts,
@@ -209,8 +209,8 @@ describe('runAgentLoop', () => {
         capturedIsError = res['is_error'] as boolean | undefined;
       });
 
-      mockExecSync.mockReturnValueOnce(''); // git add -A
-      mockExecSync.mockReturnValueOnce('M src/secret.ts'); // git status
+      mockExecFileSync.mockReturnValueOnce(''); // git add -A
+      mockExecFileSync.mockReturnValueOnce('M src/secret.ts'); // git status
 
       await runAgentLoop({
         ...baseOpts,
@@ -221,8 +221,8 @@ describe('runAgentLoop', () => {
       });
 
       expect(capturedIsError).toBe(true);
-      // git commit and git push should NOT have been called — only 2 execSync calls
-      expect(mockExecSync.mock.calls).toHaveLength(2);
+      // git commit and git push should NOT have been called — only 2 execFileSync calls
+      expect(mockExecFileSync.mock.calls).toHaveLength(2);
     });
 
     it('propagates push failure as is_error tool result', async () => {
@@ -231,10 +231,10 @@ describe('runAgentLoop', () => {
         capturedIsError = res['is_error'] as boolean | undefined;
       });
 
-      mockExecSync.mockReturnValueOnce(''); // git add -A
-      mockExecSync.mockReturnValueOnce('M src/foo.ts'); // git status
-      mockExecSync.mockReturnValueOnce(''); // git commit
-      mockExecSync.mockImplementationOnce(() => {
+      mockExecFileSync.mockReturnValueOnce(''); // git add -A
+      mockExecFileSync.mockReturnValueOnce('M src/foo.ts'); // git status
+      mockExecFileSync.mockReturnValueOnce(''); // git commit
+      mockExecFileSync.mockImplementationOnce(() => {
         throw new Error('[rejected] non-fast-forward');
       }); // git push fails
 
@@ -250,10 +250,10 @@ describe('runAgentLoop', () => {
     it('pushes to the branch name passed in opts', async () => {
       const create = makeCommitProgressCreate();
 
-      mockExecSync.mockReturnValueOnce(''); // git add -A
-      mockExecSync.mockReturnValueOnce('A new-file.ts'); // git status
-      mockExecSync.mockReturnValueOnce(''); // git commit
-      mockExecSync.mockReturnValueOnce(''); // git push
+      mockExecFileSync.mockReturnValueOnce(''); // git add -A
+      mockExecFileSync.mockReturnValueOnce('A new-file.ts'); // git status
+      mockExecFileSync.mockReturnValueOnce(''); // git commit
+      mockExecFileSync.mockReturnValueOnce(''); // git push
 
       await runAgentLoop({
         ...baseOpts,
@@ -262,12 +262,12 @@ describe('runAgentLoop', () => {
         secretScan: async () => {},
       });
 
-      const pushCall = (mockExecSync.mock.calls as Array<[string, unknown]>).find(([cmd]) =>
-        cmd.includes('git push'),
+      const pushCall = (mockExecFileSync.mock.calls as Array<[string, string[], unknown]>).find(
+        ([, args]) => Array.isArray(args) && args.includes('push'),
       );
       expect(pushCall).toBeDefined();
-      expect(pushCall![0]).toContain('ferry/PROJ-42');
-      expect(pushCall![0]).toContain('--force-with-lease');
+      expect(pushCall![1]).toContain('ferry/PROJ-42');
+      expect(pushCall![1]).toContain('--force-with-lease');
     });
   });
 });

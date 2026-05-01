@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import Anthropic from '@anthropic-ai/sdk';
 import { createAnthropicAgentLoop } from '../../lib/llm/agent-loop/anthropic.js';
 import type { AgentLoopResult } from '../../lib/llm/agent-loop/types.js';
@@ -21,12 +21,15 @@ export async function runAgentLoop(opts: {
     model,
     executeTool,
     commitProgress: async (root, branch, message, scan) => {
-      execSync('git add -A', { cwd: root });
-      const status = execSync('git status --porcelain', { cwd: root, encoding: 'utf8' });
+      execFileSync('git', ['add', '-A'], { cwd: root });
+      const status = execFileSync('git', ['status', '--porcelain'], {
+        cwd: root,
+        encoding: 'utf8',
+      });
       if (!status.trim()) return 'nothing to commit';
       await scan();
-      execSync(`git commit -m ${JSON.stringify(message)}`, { cwd: root });
-      execSync(`git push origin ${branch} --force-with-lease`, { cwd: root });
+      execFileSync('git', ['commit', '-m', message], { cwd: root });
+      execFileSync('git', ['push', 'origin', branch, '--force-with-lease'], { cwd: root });
       return 'committed and pushed';
     },
   });

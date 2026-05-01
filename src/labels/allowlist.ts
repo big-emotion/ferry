@@ -14,6 +14,8 @@ export const LABELS_ALLOWLIST = [
   'ferry:paused',
   'ferry:cancelled',
   'ferry:spend-cap',
+  // Audit rotation
+  'ferry:audit-log:active',
   // Escalation labels
   'needs-human',
   'status:stale',

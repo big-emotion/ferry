@@ -358,3 +358,119 @@ describe('Phase 5 — Ferry never merges (install-guide §5.6)', () => {
     expect(doc).toMatch(/Ferry never merges/i);
   });
 });
+
+// ---------------------------------------------------------------------------
+// 15. Phase 7 — Ops workflow stubs (reconciler and cost daily-check)
+// ---------------------------------------------------------------------------
+
+describe('Phase 7 — ops workflow stubs (install-guide §7.5 and §7.6)', () => {
+  const opsStubs = ['ferry-reconcile', 'ferry-cost-daily'];
+
+  for (const stub of opsStubs) {
+    it(`examples/consumer-setup/workflows/${stub}.yml exists`, async () => {
+      const exists = await fileExists(`examples/consumer-setup/workflows/${stub}.yml`);
+      expect(exists, `${stub}.yml must exist for consumers to copy`).toBe(true);
+    });
+  }
+
+  it('ferry-reconcile.yml has a scheduled cron trigger', async () => {
+    const content = await readFile('examples/consumer-setup/workflows/ferry-reconcile.yml');
+    expect(content).toContain('schedule:');
+    expect(content).toContain('cron:');
+  });
+
+  it('ferry-cost-daily.yml has a scheduled cron trigger', async () => {
+    const content = await readFile('examples/consumer-setup/workflows/ferry-cost-daily.yml');
+    expect(content).toContain('schedule:');
+    expect(content).toContain('cron:');
+  });
+
+  it('ferry-reconcile.yml has explicit permissions block with issues: write', async () => {
+    const content = await readFile('examples/consumer-setup/workflows/ferry-reconcile.yml');
+    expect(content).toContain('permissions:');
+    expect(content).toContain('issues: write');
+  });
+
+  it('ferry-cost-daily.yml has explicit permissions block with issues: write', async () => {
+    const content = await readFile('examples/consumer-setup/workflows/ferry-cost-daily.yml');
+    expect(content).toContain('permissions:');
+    expect(content).toContain('issues: write');
+  });
+
+  it('ferry-reconcile.yml passes FERRY_AUDIT_ISSUE', async () => {
+    const content = await readFile('examples/consumer-setup/workflows/ferry-reconcile.yml');
+    expect(content).toContain('FERRY_AUDIT_ISSUE');
+  });
+
+  it('ferry-cost-daily.yml passes FERRY_AUDIT_ISSUE and FERRY_SPEND_CAP_EUR', async () => {
+    const content = await readFile('examples/consumer-setup/workflows/ferry-cost-daily.yml');
+    expect(content).toContain('FERRY_AUDIT_ISSUE');
+    expect(content).toContain('FERRY_SPEND_CAP_EUR');
+  });
+
+  it('ferry-reconcile.yml runs src/reconciler/run.ts directly', async () => {
+    const content = await readFile('examples/consumer-setup/workflows/ferry-reconcile.yml');
+    expect(content, 'reconcile stub must invoke the reconciler entrypoint').toContain(
+      'src/reconciler/run.ts',
+    );
+  });
+
+  it('ferry-cost-daily.yml runs src/cost-governance/run.ts directly', async () => {
+    const content = await readFile('examples/consumer-setup/workflows/ferry-cost-daily.yml');
+    expect(content, 'cost-daily stub must invoke the cost-governance entrypoint').toContain(
+      'src/cost-governance/run.ts',
+    );
+  });
+
+  it('CONSUMER-SETUP.md §7.5 heading marks reconciler as required', async () => {
+    const doc = await readFile('docs/CONSUMER-SETUP.md');
+    expect(doc).toMatch(/7\.5[^\n]*required/i);
+  });
+
+  it('CONSUMER-SETUP.md §7.6 heading marks cost daily-check as required', async () => {
+    const doc = await readFile('docs/CONSUMER-SETUP.md');
+    expect(doc).toMatch(/7\.6[^\n]*required/i);
+  });
+
+  it('CONSUMER-SETUP.md quick checklist includes ferry-reconcile.yml as required', async () => {
+    const doc = await readFile('docs/CONSUMER-SETUP.md');
+    expect(doc).toMatch(/ferry-reconcile\.yml.*required/i);
+  });
+
+  it('CONSUMER-SETUP.md quick checklist includes ferry-cost-daily.yml as required', async () => {
+    const doc = await readFile('docs/CONSUMER-SETUP.md');
+    expect(doc).toMatch(/ferry-cost-daily\.yml.*required/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 16. Bundle drift CI gate — ferry-ci.yml must run check:bundle
+// ---------------------------------------------------------------------------
+
+describe('CI gate — bundle drift check (ferry-ci.yml)', () => {
+  it('ferry-ci.yml contains a check-bundle job', async () => {
+    const ci = await readFile('.github/workflows/ferry-ci.yml');
+    expect(ci, 'ferry-ci.yml must define a check-bundle job').toContain('check-bundle:');
+  });
+
+  it('ferry-ci.yml check-bundle job runs npm run check:bundle', async () => {
+    const ci = await readFile('.github/workflows/ferry-ci.yml');
+    expect(ci, 'check-bundle job must call npm run check:bundle').toContain('npm run check:bundle');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 17. npm audit (audit:ci) is wired into ferry-ci.yml — issue #105
+// ---------------------------------------------------------------------------
+
+describe('supply-chain — npm audit step in ferry-ci.yml (issue #105)', () => {
+  it('ferry-ci.yml runs npm run audit:ci', async () => {
+    const content = await readFile('.github/workflows/ferry-ci.yml');
+    expect(content, 'ferry-ci.yml must call "npm run audit:ci"').toContain('npm run audit:ci');
+  });
+
+  it('ferry-ci.yml declares an audit job', async () => {
+    const content = await readFile('.github/workflows/ferry-ci.yml');
+    expect(content, 'ferry-ci.yml must have an "audit:" job').toMatch(/^  audit:\s*$/m);
+  });
+});

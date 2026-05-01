@@ -187,7 +187,7 @@ describe('at-cap behavior', () => {
     const calls = vi.mocked(octokit.rest.issues.createComment).mock.calls;
     const auditWrite = calls.find(
       (c) =>
-        c[0].issue_number === 99 &&
+        c[0]!.issue_number === 99 &&
         typeof (c[0] as { body: string }).body === 'string' &&
         (c[0] as { body: string }).body.includes(`[ferry:audit:${RUN_ID}]`),
     );
@@ -201,7 +201,7 @@ describe('at-cap behavior', () => {
     const calls = vi.mocked(octokit.rest.issues.createComment).mock.calls;
     const oldIssueAudit = calls.find(
       (c) =>
-        c[0].issue_number === 42 &&
+        c[0]!.issue_number === 42 &&
         (c[0] as { body: string }).body.includes(`[ferry:audit:${RUN_ID}]`),
     );
     expect(oldIssueAudit).toBeUndefined();
@@ -291,7 +291,7 @@ describe('successor creation', () => {
     const calls = vi.mocked(octokit.rest.issues.createComment).mock.calls;
     const linkComment = calls.find(
       (c) =>
-        c[0].issue_number === 42 &&
+        c[0]!.issue_number === 42 &&
         (c[0] as { body: string }).body.startsWith('[ferry:audit:rotation]'),
     );
     expect(linkComment).toBeDefined();
@@ -345,7 +345,12 @@ describe('stale variable detection', () => {
       rest: {
         issues: {
           get: vi.fn().mockResolvedValue({
-            data: { number: 42, title: 'Ferry Audit Log (#1)', comments: ROTATION_THRESHOLD, labels: [] },
+            data: {
+              number: 42,
+              title: 'Ferry Audit Log (#1)',
+              comments: ROTATION_THRESHOLD,
+              labels: [],
+            },
           }),
           listForRepo: vi.fn().mockResolvedValue({ data: [{ number: 55 }] }),
           create: vi.fn(),
@@ -364,25 +369,23 @@ describe('stale variable detection', () => {
 
     // Audit comment written to issue 55
     const calls = vi.mocked(octokit.rest.issues.createComment).mock.calls;
-    expect(calls.some((c) => c[0].issue_number === 55)).toBe(true);
+    expect(calls.some((c) => c[0]!.issue_number === 55)).toBe(true);
   });
 
   it('creates new successor when at capacity and no active label issue exists', async () => {
     const octokit = {
       rest: {
         issues: {
-          get: vi
-            .fn()
-            .mockImplementation(({ issue_number }: { issue_number: number }) =>
-              Promise.resolve({
-                data: {
-                  number: issue_number,
-                  title: issue_number === 42 ? 'Ferry Audit Log (#1)' : 'Ferry Audit Log (#2)',
-                  comments: issue_number === 42 ? ROTATION_THRESHOLD : 0,
-                  labels: [],
-                },
-              }),
-            ),
+          get: vi.fn().mockImplementation(({ issue_number }: { issue_number: number }) =>
+            Promise.resolve({
+              data: {
+                number: issue_number,
+                title: issue_number === 42 ? 'Ferry Audit Log (#1)' : 'Ferry Audit Log (#2)',
+                comments: issue_number === 42 ? ROTATION_THRESHOLD : 0,
+                labels: [],
+              },
+            }),
+          ),
           listForRepo: vi.fn().mockResolvedValue({ data: [] }),
           create: vi.fn().mockResolvedValue({ data: { number: 99 } }),
           removeLabel: vi.fn().mockResolvedValue({}),
