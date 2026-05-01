@@ -1,10 +1,13 @@
 import { postComment } from '../io/jira.js';
 import { validateEnvelope } from '../envelope/validate.js';
 import { buildTaskSkipComment, shouldSkipForTaskType } from './routing.js';
+import { createLogger } from '../logger/index.js';
+
+const logger = createLogger('', 'ferry:dispatch');
 
 const raw = process.env.FERRY_ENVELOPE_PAYLOAD;
 if (!raw) {
-  console.error('[ferry:dispatch] FERRY_ENVELOPE_PAYLOAD is not set');
+  logger.error('FERRY_ENVELOPE_PAYLOAD is not set');
   process.exit(1);
 }
 
@@ -12,7 +15,7 @@ let parsed: unknown;
 try {
   parsed = JSON.parse(raw);
 } catch {
-  console.error('[ferry:dispatch] FERRY_ENVELOPE_PAYLOAD is not valid JSON');
+  logger.error('FERRY_ENVELOPE_PAYLOAD is not valid JSON');
   process.exit(1);
 }
 
@@ -28,9 +31,10 @@ type AgentRole = (typeof VALID_ROLES)[number];
 
 const rawRole = process.env.FERRY_AGENT_ROLE;
 if (!rawRole || !(VALID_ROLES as readonly string[]).includes(rawRole)) {
-  console.error(
-    `[ferry:dispatch] FERRY_AGENT_ROLE must be one of ${VALID_ROLES.join(', ')} — got: ${rawRole ?? '(unset)'}`,
-  );
+  logger.error('FERRY_AGENT_ROLE is invalid', {
+    valid: VALID_ROLES.join(', '),
+    got: rawRole ?? '(unset)',
+  });
   process.exit(1);
 }
 const role = rawRole as AgentRole;

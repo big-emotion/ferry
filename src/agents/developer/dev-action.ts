@@ -15,6 +15,7 @@ import {
   runAgent,
 } from '../../lib/agent-runtime/index.js';
 import type { EventEnvelopeV1 } from '../../lib/envelope/types.js';
+import type { Logger } from '../../lib/agent-runtime/index.js';
 import { isDryRun } from '../../lib/dry-run.js';
 import { formatDeveloperCommit } from './commit.js';
 import { formatPullRequestTitle, formatPullRequestBody } from './pr.js';
@@ -32,12 +33,12 @@ import { detectTestRunner, repoTree, packageJsonPath } from './workspace.js';
 
 const REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
 
-async function main(envelope: EventEnvelopeV1): Promise<void> {
+async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
   const { ticket_key: ticketKey, event_id: eventId } = envelope;
 
   const dryRun = isDryRun();
   if (dryRun) {
-    console.error('[ferry:dev-action] DRY_RUN mode — no branch push, no PR, no Jira writes');
+    logger.info('DRY_RUN mode — no branch push, no PR, no Jira writes');
   }
 
   const anthropicAuth = resolveAnthropicAuth({ apiKeyEnv: 'ANTHROPIC_API_KEY' });
@@ -88,13 +89,14 @@ async function main(envelope: EventEnvelopeV1): Promise<void> {
     }).trim();
     if (existingLog) {
       resumeContext = `\nEXISTING WORK ON BRANCH (already committed — skip these, only do what remains):\n${existingLog}`;
-      console.error(
-        `[ferry:dev-action] resuming branch ${branchName} — ${existingLog.split('\n').length} prior commit(s)`,
-      );
+      logger.info('resuming branch', {
+        branch: branchName,
+        prior_commits: existingLog.split('\n').length,
+      });
     }
   } catch {
     execSync(`git checkout -B ${branchName}`, { cwd: REPO_ROOT });
-    console.error(`[ferry:dev-action] created branch ${branchName}`);
+    logger.info('created branch', { branch: branchName });
   }
 
   const secretScan = makeSecretScan(REPO_ROOT);
@@ -103,9 +105,9 @@ async function main(envelope: EventEnvelopeV1): Promise<void> {
   const hasLabelsConfig = ferryCfg.labels !== undefined;
   const mcpServers = filterMcpServers(mcpPool, capabilities, hasLabelsConfig);
 
-  logCapabilities('[ferry:dev-action]', capabilities);
+  logCapabilities(logger, capabilities);
   if (mcpServers.length > 0) {
-    console.error(`[ferry:dev-action] MCP servers: ${mcpServers.map((s) => s.name).join(', ')}`);
+    logger.info('MCP servers', { servers: mcpServers.map((s) => s.name) });
   }
 
   const allToolSchemas = [...TOOL_SCHEMAS, COMMIT_PROGRESS_SCHEMA, SPAWN_SUBAGENT_SCHEMA];
@@ -118,7 +120,7 @@ async function main(envelope: EventEnvelopeV1): Promise<void> {
     maxInputTokens: ferryCfg.limits.max_tokens_per_run,
     maxTokens: ferryCfg.limits.max_tokens_per_message,
     executeTool,
-    commitProgress: makeCommitProgress('[ferry:dev-action]', { dryRun }),
+    commitProgress: makeCommitProgress(logger, { dryRun }),
     spawnSubagent: (task) =>
       loop.run({
         system,
@@ -129,6 +131,7 @@ async function main(envelope: EventEnvelopeV1): Promise<void> {
         secretScan,
         mcpServers,
       }),
+    logger,
   });
 
   const { done, usage, iterations } = await loop.run({
@@ -141,9 +144,14 @@ async function main(envelope: EventEnvelopeV1): Promise<void> {
     mcpServers,
   });
 
-  console.error(
-    `[ferry:dev-action] done in ${iterations} iterations — actionable=${done.actionable} in=${usage.input_tokens} cache_w=${usage.cache_creation_input_tokens} cache_r=${usage.cache_read_input_tokens} out=${usage.output_tokens}`,
-  );
+  logger.info('done', {
+    iterations,
+    actionable: done.actionable,
+    in: usage.input_tokens,
+    cache_w: usage.cache_creation_input_tokens,
+    cache_r: usage.cache_read_input_tokens,
+    out: usage.output_tokens,
+  });
 
   const idempotencyMarker = byEventId('dev', eventId);
 
@@ -154,9 +162,9 @@ async function main(envelope: EventEnvelopeV1): Promise<void> {
         `${idempotencyMarker} Cannot implement — ${done.reason_if_not_actionable ?? 'no reason given'}`,
       );
     } else {
-      console.log(
-        `[ferry:dev-action] DRY_RUN — not actionable: ${done.reason_if_not_actionable ?? 'no reason given'}`,
-      );
+      logger.info('DRY_RUN — not actionable', {
+        reason: done.reason_if_not_actionable ?? 'no reason given',
+      });
     }
     appendOutput({ ...usage, model });
     process.exit(0);
@@ -193,13 +201,11 @@ async function main(envelope: EventEnvelopeV1): Promise<void> {
       } catch {
         // best-effort
       }
-      console.log('[ferry:dev-action] DRY_RUN — implementation summary:');
-      console.log(`  summary: ${done.summary}`);
-      console.log('  local commits (not pushed):');
-      console.log(diffOutput);
-      console.log(
-        '[ferry:dev-action] DRY_RUN — skipped: git push, PR creation, Jira transition, Jira comment',
-      );
+      logger.info('DRY_RUN — implementation summary', {
+        summary: done.summary,
+        diff: diffOutput,
+      });
+      logger.info('DRY_RUN — skipped: git push, PR creation, Jira transition, Jira comment');
       appendOutput({ ...usage, model });
       process.exit(0);
     }

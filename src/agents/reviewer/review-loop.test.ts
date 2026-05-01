@@ -7,6 +7,7 @@ import {
   MAX_PATCH_CHARS,
 } from './review-loop.js';
 import type { PrFile } from './review-loop.js';
+import { createTestLogger } from '../../lib/logger/index.js';
 import type { CIRunner } from '../../lib/dispatch/runner/types.js';
 import { FerryError } from '../../lib/errors/index.js';
 
@@ -87,73 +88,64 @@ describe('runReviewLoop', () => {
     ).rejects.toThrow(FerryError);
   });
 
-  it('emits debug "turn" JSON event when LOG_VERBOSITY=debug', async () => {
+  it('emits debug "turn" record when LOG_VERBOSITY=debug', async () => {
     vi.stubEnv('LOG_VERBOSITY', 'debug');
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { logger, records } = createTestLogger('evt-review', 'ferry:review-loop');
     const mock = makeAnthropicMock([finishReviewResponse]);
 
-    await runReviewLoop({ ...baseOpts, anthropic: mock as unknown as Anthropic });
+    await runReviewLoop({ ...baseOpts, anthropic: mock as unknown as Anthropic, logger });
 
-    const jsonCalls = spy.mock.calls
-      .map((c) => c[0] as string)
-      .filter((s) => typeof s === 'string' && s.startsWith('{'));
-    const turnRaw = jsonCalls.find((s) => s.includes('"type":"turn"'));
-    expect(turnRaw).toBeDefined();
-    const turnEvent = JSON.parse(turnRaw!) as Record<string, unknown>;
-    expect(turnEvent).toMatchObject({
+    const turnRecord = records.find((r) => r.level === 'debug' && r.message === 'turn');
+    expect(turnRecord).toBeDefined();
+    expect(turnRecord).toMatchObject({
       type: 'turn',
       iter: 1,
       depth: 0,
       stop_reason: 'tool_use',
     });
-    expect(typeof turnEvent['elapsed_ms']).toBe('number');
+    expect(typeof turnRecord?.['elapsed_ms']).toBe('number');
   });
 
-  it('emits debug "result" JSON event on success when LOG_VERBOSITY=debug', async () => {
+  it('emits debug "result" record on success when LOG_VERBOSITY=debug', async () => {
     vi.stubEnv('LOG_VERBOSITY', 'debug');
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { logger, records } = createTestLogger('evt-review', 'ferry:review-loop');
     const mock = makeAnthropicMock([finishReviewResponse]);
 
-    await runReviewLoop({ ...baseOpts, anthropic: mock as unknown as Anthropic });
+    await runReviewLoop({ ...baseOpts, anthropic: mock as unknown as Anthropic, logger });
 
-    const jsonCalls = spy.mock.calls
-      .map((c) => c[0] as string)
-      .filter((s) => typeof s === 'string' && s.startsWith('{'));
-    const resultRaw = jsonCalls.find((s) => s.includes('"type":"result"'));
-    expect(resultRaw).toBeDefined();
-    const resultEvent = JSON.parse(resultRaw!) as Record<string, unknown>;
-    expect(resultEvent).toMatchObject({
+    const resultRecord = records.find((r) => r.level === 'debug' && r.message === 'result');
+    expect(resultRecord).toBeDefined();
+    expect(resultRecord).toMatchObject({
       type: 'result',
       subtype: 'success',
       iterations: 1,
     });
-    expect(typeof resultEvent['elapsed_ms']).toBe('number');
+    expect(typeof resultRecord?.['elapsed_ms']).toBe('number');
   });
 
-  it('does not emit JSON events when LOG_VERBOSITY is unset', async () => {
+  it('does not emit debug records when LOG_VERBOSITY is unset', async () => {
     vi.stubEnv('LOG_VERBOSITY', '');
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { logger, records } = createTestLogger('evt-review', 'ferry:review-loop');
     const mock = makeAnthropicMock([finishReviewResponse]);
 
-    await runReviewLoop({ ...baseOpts, anthropic: mock as unknown as Anthropic });
+    await runReviewLoop({ ...baseOpts, anthropic: mock as unknown as Anthropic, logger });
 
-    const jsonCalls = spy.mock.calls
-      .map((c) => c[0] as string)
-      .filter((s) => typeof s === 'string' && s.startsWith('{'));
-    expect(jsonCalls).toHaveLength(0);
+    expect(records.filter((r) => r.level === 'debug')).toHaveLength(0);
   });
 
-  it('still emits terse [ferry:review-loop] line when debug is on (additive)', async () => {
-    vi.stubEnv('LOG_VERBOSITY', 'debug');
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+  it('emits structured "turn" info records per iteration', async () => {
+    const { logger, records } = createTestLogger('evt-review', 'ferry:review-loop');
     const mock = makeAnthropicMock([finishReviewResponse]);
 
-    await runReviewLoop({ ...baseOpts, anthropic: mock as unknown as Anthropic });
+    await runReviewLoop({ ...baseOpts, anthropic: mock as unknown as Anthropic, logger });
 
-    const terseCalls = spy.mock.calls
-      .map((c) => c[0] as string)
-      .filter((s) => typeof s === 'string' && s.includes('[ferry:review-loop]'));
-    expect(terseCalls.length).toBeGreaterThanOrEqual(1);
+    const turnInfoRecords = records.filter((r) => r.level === 'info' && r.message === 'turn');
+    expect(turnInfoRecords.length).toBeGreaterThanOrEqual(1);
+    expect(turnInfoRecords[0]).toMatchObject({
+      level: 'info',
+      correlation_id: 'evt-review',
+      iter: 1,
+    });
   });
 
   it('handles get_file_patch for a file in the fileMap', async () => {
@@ -192,41 +184,43 @@ describe('runReviewLoop', () => {
 
     const captureCreate = vi
       .fn()
-      .mockImplementation(async (params: { messages: Array<{ role: string; content: unknown }> }) => {
-        if (params.messages.length >= 3) {
-          const lastMsg = params.messages[params.messages.length - 1];
-          if (Array.isArray(lastMsg.content)) {
-            const toolResult = (lastMsg.content as Array<{ content?: string }>)[0];
-            capturedToolContent = toolResult?.content;
+      .mockImplementation(
+        async (params: { messages: Array<{ role: string; content: unknown }> }) => {
+          if (params.messages.length >= 3) {
+            const lastMsg = params.messages[params.messages.length - 1];
+            if (Array.isArray(lastMsg.content)) {
+              const toolResult = (lastMsg.content as Array<{ content?: string }>)[0];
+              capturedToolContent = toolResult?.content;
+            }
           }
-        }
-        if (params.messages.length <= 2) {
+          if (params.messages.length <= 2) {
+            return {
+              stop_reason: 'tool_use',
+              content: [
+                {
+                  type: 'tool_use',
+                  id: 'tu_gfp',
+                  name: 'get_file_patch',
+                  input: { filename: 'missing.ts' },
+                },
+              ],
+              usage: { input_tokens: 10, output_tokens: 5 },
+            };
+          }
           return {
             stop_reason: 'tool_use',
             content: [
               {
                 type: 'tool_use',
-                id: 'tu_gfp',
-                name: 'get_file_patch',
-                input: { filename: 'missing.ts' },
+                id: 'tu_finish',
+                name: 'finish_review',
+                input: { approved: false, comment: 'cannot find file' },
               },
             ],
             usage: { input_tokens: 10, output_tokens: 5 },
           };
-        }
-        return {
-          stop_reason: 'tool_use',
-          content: [
-            {
-              type: 'tool_use',
-              id: 'tu_finish',
-              name: 'finish_review',
-              input: { approved: false, comment: 'cannot find file' },
-            },
-          ],
-          usage: { input_tokens: 10, output_tokens: 5 },
-        };
-      });
+        },
+      );
 
     await runReviewLoop({
       ...baseOpts,
@@ -243,41 +237,43 @@ describe('runReviewLoop', () => {
 
     const captureCreate = vi
       .fn()
-      .mockImplementation(async (params: { messages: Array<{ role: string; content: unknown }> }) => {
-        if (params.messages.length >= 3) {
-          const lastMsg = params.messages[params.messages.length - 1];
-          if (Array.isArray(lastMsg.content)) {
-            const toolResult = (lastMsg.content as Array<{ content?: string }>)[0];
-            capturedToolContent = toolResult?.content;
+      .mockImplementation(
+        async (params: { messages: Array<{ role: string; content: unknown }> }) => {
+          if (params.messages.length >= 3) {
+            const lastMsg = params.messages[params.messages.length - 1];
+            if (Array.isArray(lastMsg.content)) {
+              const toolResult = (lastMsg.content as Array<{ content?: string }>)[0];
+              capturedToolContent = toolResult?.content;
+            }
           }
-        }
-        if (params.messages.length <= 2) {
+          if (params.messages.length <= 2) {
+            return {
+              stop_reason: 'tool_use',
+              content: [
+                {
+                  type: 'tool_use',
+                  id: 'tu_gfp',
+                  name: 'get_file_patch',
+                  input: { filename: 'binary.png' },
+                },
+              ],
+              usage: { input_tokens: 10, output_tokens: 5 },
+            };
+          }
           return {
             stop_reason: 'tool_use',
             content: [
               {
                 type: 'tool_use',
-                id: 'tu_gfp',
-                name: 'get_file_patch',
-                input: { filename: 'binary.png' },
+                id: 'tu_finish',
+                name: 'finish_review',
+                input: { approved: true, comment: 'ok' },
               },
             ],
             usage: { input_tokens: 10, output_tokens: 5 },
           };
-        }
-        return {
-          stop_reason: 'tool_use',
-          content: [
-            {
-              type: 'tool_use',
-              id: 'tu_finish',
-              name: 'finish_review',
-              input: { approved: true, comment: 'ok' },
-            },
-          ],
-          usage: { input_tokens: 10, output_tokens: 5 },
-        };
-      });
+        },
+      );
 
     await runReviewLoop({
       ...baseOpts,
@@ -295,41 +291,43 @@ describe('runReviewLoop', () => {
 
     const captureCreate = vi
       .fn()
-      .mockImplementation(async (params: { messages: Array<{ role: string; content: unknown }> }) => {
-        if (params.messages.length >= 3) {
-          const lastMsg = params.messages[params.messages.length - 1];
-          if (Array.isArray(lastMsg.content)) {
-            const toolResult = (lastMsg.content as Array<{ content?: string }>)[0];
-            capturedToolContent = toolResult?.content;
+      .mockImplementation(
+        async (params: { messages: Array<{ role: string; content: unknown }> }) => {
+          if (params.messages.length >= 3) {
+            const lastMsg = params.messages[params.messages.length - 1];
+            if (Array.isArray(lastMsg.content)) {
+              const toolResult = (lastMsg.content as Array<{ content?: string }>)[0];
+              capturedToolContent = toolResult?.content;
+            }
           }
-        }
-        if (params.messages.length <= 2) {
+          if (params.messages.length <= 2) {
+            return {
+              stop_reason: 'tool_use',
+              content: [
+                {
+                  type: 'tool_use',
+                  id: 'tu_gfp',
+                  name: 'get_file_patch',
+                  input: { filename: 'big.ts' },
+                },
+              ],
+              usage: { input_tokens: 10, output_tokens: 5 },
+            };
+          }
           return {
             stop_reason: 'tool_use',
             content: [
               {
                 type: 'tool_use',
-                id: 'tu_gfp',
-                name: 'get_file_patch',
-                input: { filename: 'big.ts' },
+                id: 'tu_finish',
+                name: 'finish_review',
+                input: { approved: true, comment: 'truncated' },
               },
             ],
             usage: { input_tokens: 10, output_tokens: 5 },
           };
-        }
-        return {
-          stop_reason: 'tool_use',
-          content: [
-            {
-              type: 'tool_use',
-              id: 'tu_finish',
-              name: 'finish_review',
-              input: { approved: true, comment: 'truncated' },
-            },
-          ],
-          usage: { input_tokens: 10, output_tokens: 5 },
-        };
-      });
+        },
+      );
 
     await runReviewLoop({
       ...baseOpts,
@@ -381,40 +379,45 @@ describe('runReviewLoop', () => {
 
     const captureCreate = vi
       .fn()
-      .mockImplementation(async (params: { messages: Array<{ role: string; content: unknown }> }) => {
-        if (params.messages.length >= 3) {
-          const lastMsg = params.messages[params.messages.length - 1];
-          if (Array.isArray(lastMsg.content)) {
-            capturedToolResult = lastMsg.content as Array<{ is_error?: boolean; content?: string }>;
+      .mockImplementation(
+        async (params: { messages: Array<{ role: string; content: unknown }> }) => {
+          if (params.messages.length >= 3) {
+            const lastMsg = params.messages[params.messages.length - 1];
+            if (Array.isArray(lastMsg.content)) {
+              capturedToolResult = lastMsg.content as Array<{
+                is_error?: boolean;
+                content?: string;
+              }>;
+            }
           }
-        }
-        if (params.messages.length <= 2) {
+          if (params.messages.length <= 2) {
+            return {
+              stop_reason: 'tool_use',
+              content: [
+                {
+                  type: 'tool_use',
+                  id: 'tu_bad',
+                  name: 'totally_unknown_tool',
+                  input: {},
+                },
+              ],
+              usage: { input_tokens: 10, output_tokens: 5 },
+            };
+          }
           return {
             stop_reason: 'tool_use',
             content: [
               {
                 type: 'tool_use',
-                id: 'tu_bad',
-                name: 'totally_unknown_tool',
-                input: {},
+                id: 'tu_finish',
+                name: 'finish_review',
+                input: { approved: true, comment: 'done' },
               },
             ],
             usage: { input_tokens: 10, output_tokens: 5 },
           };
-        }
-        return {
-          stop_reason: 'tool_use',
-          content: [
-            {
-              type: 'tool_use',
-              id: 'tu_finish',
-              name: 'finish_review',
-              input: { approved: true, comment: 'done' },
-            },
-          ],
-          usage: { input_tokens: 10, output_tokens: 5 },
-        };
-      });
+        },
+      );
 
     await runReviewLoop({
       ...baseOpts,
