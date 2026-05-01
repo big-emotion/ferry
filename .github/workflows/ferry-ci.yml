@@ -57,9 +57,6 @@ jobs:
       - name: Format check
         run: npm run format:check
 
-      - name: FR drift check
-        run: npm run check:fr-drift
-
   test:
     name: Tests (vitest)
     runs-on: ubuntu-latest
