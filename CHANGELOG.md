@@ -23,7 +23,7 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Multi-provider LLM support** — Anthropic, OpenAI, and Google providers wired through a single `createLlmCall` entry point.
 - **Prompt composition** — Layered system-prompt resolution: bundled prompt + `prompts/<agent>.extra.md` + `prompts/_project.md`.
 - **Consumer install guide** — `docs/CONSUMER-SETUP.md` with end-to-end setup in ≤ 25 minutes.
-- **Release workflow** — `.github/workflows/release.yml` automates build, version tagging, and GitHub release notes.
+- **Release tooling** — `npm version` lifecycle hook rebuilds `.ferry/` bundles automatically; `docs/RELEASING.md` documents tag strategy and manual cutting steps.
 
 ### Changed
 

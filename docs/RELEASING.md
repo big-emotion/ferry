@@ -8,11 +8,11 @@ This document covers how Ferry is versioned, tagged, and released.
 
 Ferry follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`MAJOR.MINOR.PATCH`):
 
-| Increment | When |
-|-----------|------|
+| Increment | When                                                                                                                                   |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | **MAJOR** | Breaking changes to the `EventEnvelopeV1` schema, agent output contracts, or composite-action interfaces that require consumer changes |
-| **MINOR** | New agents, new LLM providers, new composite actions, or backward-compatible feature additions |
-| **PATCH** | Bug fixes, documentation updates, prompt tuning, internal refactors |
+| **MINOR** | New agents, new LLM providers, new composite actions, or backward-compatible feature additions                                         |
+| **PATCH** | Bug fixes, documentation updates, prompt tuning, internal refactors                                                                    |
 
 ---
 
@@ -20,18 +20,19 @@ Ferry follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`MAJOR
 
 Ferry maintains **two tag types per major release**:
 
-| Tag | Type | Moves? | Purpose |
-|-----|------|--------|---------|
-| `v0` | Floating | Yes — updated on every `0.x.y` release | Default reference in consumer workflow stubs (`uses: big-emotion/ferry/.github/workflows/...@v0`) |
-| `v0.1.0` | Immutable | Never | SHA-pinned reference for consumers who want reproducibility |
+| Tag      | Type      | Moves?                                 | Purpose                                                                                                                           |
+| -------- | --------- | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `v0`     | Floating  | Yes — updated on every `0.x.y` release | Optional reference for consumers who want patch/minor updates automatically                                                       |
+| `v0.1.0` | Immutable | Never                                  | Default reference in consumer workflow stubs (`uses: big-emotion/ferry/.github/workflows/...@v0.1.0`); recommended for production |
 
-**Consumer recommendation:** Start with `@v0` for easy upgrades. Move to a pinned SHA for production workloads (see `docs/CONSUMER-SETUP.md` §3.2).
+**Consumer recommendation:** Stay on the pinned `@v0.1.0` tag (or a SHA pin) for production. The floating `@v0` tag is available for consumers who prefer automatic minor/patch upgrades — see `docs/CONSUMER-SETUP.md` §3.2.
 
 ### Why a floating major tag?
 
 GitHub Actions convention (e.g., `actions/checkout@v4`) uses a floating major tag so consumers receive patch and minor updates automatically without changing their workflow files. Ferry follows the same convention.
 
 The floating tag is always safe to follow because:
+
 - Patch releases fix bugs and never break the API
 - Minor releases are backward-compatible
 - MAJOR bumps increment the tag (`v1`, `v2`, …) and leave `v0` frozen at the last `0.x.y`
@@ -40,11 +41,11 @@ The floating tag is always safe to follow because:
 
 ## SHA pinning (recommended for production)
 
-Replace `@v1` with the exact commit SHA the tag points to:
+Replace `@v0.1.0` with the exact commit SHA the tag points to:
 
 ```bash
-LATEST_SHA=$(gh api repos/big-emotion/ferry/git/refs/tags/v0 --jq '.object.sha')
-sed -i.bak "s|@v0|@${LATEST_SHA}|g" .github/workflows/ferry-*.yml
+LATEST_SHA=$(gh api repos/big-emotion/ferry/git/refs/tags/v0.1.0 --jq '.object.sha')
+sed -i.bak "s|@v0.1.0|@${LATEST_SHA}|g" .github/workflows/ferry-*.yml
 rm .github/workflows/ferry-*.yml.bak
 ```
 
@@ -64,30 +65,23 @@ updates:
 
 ## Release workflow
 
-Releases are automated by `.github/workflows/release.yml`. The workflow:
-
-1. Runs on a push to `main` that bumps `version` in `package.json`
-2. Builds `.ferry/` action bundles (`npm run build:ferry`)
-3. Commits the updated bundles if they changed
-4. Creates an immutable tag (`v<version>`, e.g., `v0.1.0`)
-5. Force-updates the floating major tag (`v0`)
-6. Publishes a GitHub Release with auto-generated release notes
-
-To cut a release manually (e.g., for hotfixes):
+Releases are cut manually by a maintainer. The `version` lifecycle hook in `package.json` (`"version": "npm run build:ferry && git add .ferry/"`) ensures `.ferry/` bundles are rebuilt and staged automatically when `npm version` runs.
 
 ```bash
-# 1. Bump version in package.json
+# 1. Bump version — this auto-rebuilds .ferry/ via the version hook,
+#    creates the version commit, and tags v<version>.
 npm version patch   # or minor / major
 
-# 2. Build bundles
-npm run build:ferry
-
-# 3. Commit
-git add package.json package-lock.json .ferry/
-git commit -m "chore: release v$(node -p "require('./package.json').version")"
-
-# 4. Push — the release workflow fires automatically
+# 2. Push the commit and the new tag
 git push origin main
+git push origin "v$(node -p "require('./package.json').version")"
+
+# 3. Force-update the floating major tag
+git tag -f v0
+git push origin v0 --force
+
+# 4. Create a GitHub Release from the new tag (manually or via gh)
+gh release create "v$(node -p "require('./package.json').version")" --generate-notes
 ```
 
 ---
@@ -141,4 +135,4 @@ Before tagging any release:
 npm publish --access public
 ```
 
-Ferry is not yet published to npm as of v0.1.0. The primary distribution mechanism is GitHub Actions reusable workflows referenced via `@v1` or a pinned SHA.
+Ferry is not yet published to npm as of v0.1.0. The primary distribution mechanism is GitHub Actions reusable workflows referenced via `@v0.1.0` (or a pinned SHA).
