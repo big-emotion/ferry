@@ -18,7 +18,8 @@
     "lint": "eslint src",
     "lint:fix": "eslint src --fix",
     "format:check": "prettier --check 'src/**/*.ts'",
-    "prepare": "husky"
+    "prepare": "husky",
+    "version": "npm run build:ferry && git add .ferry/"
   },
   "lint-staged": {
     "src/**/*.ts": [
