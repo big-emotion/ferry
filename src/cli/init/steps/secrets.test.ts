@@ -119,11 +119,9 @@ describe('stepSecrets', () => {
   });
 
   it('returns ok:false listing all failed secrets', async () => {
-    mockExecSync
-      .mockReturnValueOnce('[]')
-      .mockImplementation(() => {
-        throw new Error('auth error');
-      });
+    mockExecSync.mockReturnValueOnce('[]').mockImplementation(() => {
+      throw new Error('auth error');
+    });
 
     const result = await stepSecrets('org/repo', SECRET_ENTRIES, false);
     expect(result.ok).toBe(false);
