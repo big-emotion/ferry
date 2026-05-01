@@ -360,20 +360,33 @@ describe('Phase 5 — Ferry never merges (install-guide §5.6)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 15. Supply-chain security — npm audit wired into ferry-ci.yml (issue #105)
+// 15. Bundle drift CI gate — ferry-ci.yml must run check:bundle
 // ---------------------------------------------------------------------------
 
-describe('Supply-chain security — npm audit step present in ferry-ci.yml', () => {
-  it('ferry-ci.yml contains an audit job that runs npm run audit:ci', async () => {
-    const content = await readFile('.github/workflows/ferry-ci.yml');
-    expect(content, 'ferry-ci.yml must call `npm run audit:ci` — see issue #105').toContain(
-      'npm run audit:ci',
-    );
+describe('CI gate — bundle drift check (ferry-ci.yml)', () => {
+  it('ferry-ci.yml contains a check-bundle job', async () => {
+    const ci = await readFile('.github/workflows/ferry-ci.yml');
+    expect(ci, 'ferry-ci.yml must define a check-bundle job').toContain('check-bundle:');
   });
 
-  it('ferry-ci.yml audit job has an explicit permissions block', async () => {
+  it('ferry-ci.yml check-bundle job runs npm run check:bundle', async () => {
+    const ci = await readFile('.github/workflows/ferry-ci.yml');
+    expect(ci, 'check-bundle job must call npm run check:bundle').toContain('npm run check:bundle');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 16. npm audit (audit:ci) is wired into ferry-ci.yml — issue #105
+// ---------------------------------------------------------------------------
+
+describe('supply-chain — npm audit step in ferry-ci.yml (issue #105)', () => {
+  it('ferry-ci.yml runs npm run audit:ci', async () => {
     const content = await readFile('.github/workflows/ferry-ci.yml');
-    // Verify the audit job exists with a permissions block (caught by workflow-permissions.test.ts too)
-    expect(content, 'ferry-ci.yml must have an audit job').toMatch(/^\s+audit:/m);
+    expect(content, 'ferry-ci.yml must call "npm run audit:ci"').toContain('npm run audit:ci');
+  });
+
+  it('ferry-ci.yml declares an audit job', async () => {
+    const content = await readFile('.github/workflows/ferry-ci.yml');
+    expect(content, 'ferry-ci.yml must have an "audit:" job').toMatch(/^  audit:\s*$/m);
   });
 });
