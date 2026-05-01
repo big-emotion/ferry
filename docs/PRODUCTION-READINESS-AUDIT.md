@@ -2,8 +2,8 @@
 
 **Date:** 2026-05-01
 **Scope:** end-to-end audit of the Ferry codebase, CI, docs and operations against production-readiness criteria, with a special focus on security.
-**Verdict:** **5.6 / 10 — advanced beta, not yet shippable as `v1`.**
-**Target:** **8–9 / 10**, addressed by the 15 prioritized actions below (each tracked as a GitHub issue).
+**Verdict:** **7.2 / 10 — release-candidate quality, distance to `v1` is now a focused release-engineering job.**
+**Target:** **8–9 / 10**, addressed by the residual actions in §5.
 
 ---
 
@@ -11,167 +11,166 @@
 
 Read-only audit covering:
 
-- **Code & tests:** `src/`, `vitest run --coverage`, `npm run lint`, `npm run typecheck`, `npm audit`.
-- **CI/CD:** `.github/workflows/`, `.github/actions/`, `.github/dependabot.yml`, `.github/CODEOWNERS`, `.gitleaks.toml`.
-- **Docs:** `docs/CONSUMER-SETUP.md`, `docs/CONFIGURATION.md`, `CLAUDE.md`, `CONTRIBUTING.md`, `README.md`.
-- **Schemas & contracts:** `src/schemas/event.v1.schema.json`, `src/install-guide.test.ts`.
+- **Code & tests:** `src/`, `vitest run` (878 tests passing), `npm run lint`, `npm run typecheck`, `npm audit`.
+- **CI/CD:** `.github/workflows/`, `.github/actions/`, `.github/dependabot.yml`, `.github/CODEOWNERS`, `.gitleaks.toml`, `.github/workflows/codeql.yml`.
+- **Docs:** `docs/CONSUMER-SETUP.md`, `docs/CONFIGURATION.md`, `docs/REQUIREMENTS.md`, `docs/adr/`, `CLAUDE.md`, `CONTRIBUTING.md`, `README.md`.
+- **Schemas & contracts:** `src/schemas/event.v1.schema.json`, `src/install-guide.test.ts`, `src/e2e/pipeline.test.ts`.
 
-No runtime traffic, no GitHub/Jira API calls.
+No runtime traffic, no GitHub/Jira/LLM API calls.
+
+### Top-line answers (the four canonical questions)
+
+1. **Is the project production-ready?** **Conditional.** All quality gates are green and security posture is strong, but three release-engineering blockers remain: (a) tag `v1` does not exist, (b) every internal composite action is referenced by `@main` (mutable), (c) `package.json` is `0.0.1` / `private: true` and there is no `CHANGELOG.md`. Until these land, `docs/CONSUMER-SETUP.md` Phase 3.2 (`gh api .../tags/v1`) cannot run and consumers cannot pin a stable cut.
+2. **Can a consumer install and reach the full Jira → PR-approved cycle?** **Almost — blocked on the `v1` tag.** `ferry-init` and `ferry-doctor` are wired; six consumer workflow stubs exist (`examples/consumer-setup/workflows/ferry-{refine,dev,review,iterate,reconcile,cost-daily}.yml`); the three auto-transitions (FR18, FR24, FR28) are unit-tested and now exercised by the mocked end-to-end pipeline test (`src/e2e/pipeline.test.ts`, 437 lines, 11 describe blocks). Every stub pins `FERRY_REF: v1` — so the install procedure is correct on paper but cannot be executed today because no such ref is published.
+3. **Security posture?** Strong, with one residual supply-chain weakness. Strict AJV schema validation, `execFileSync`-only shell calls, CodeQL + npm audit + gitleaks in CI, explicit per-job `permissions:` blocks across every workflow, secret-scan before every dev commit, no `@octokit/rest` or Jira imports under `src/agents/**` (lint-enforced + tested). Residual gap: internal `big-emotion/ferry/.github/actions/ferry-*@main` pins are mutable and provide a self-replication path for a compromised maintainer.
+4. **Is the score close to 8–9/10?** Computed score is **7.2** (up from 5.6). Three actions close most of the distance: cut and pin `v1`, replace `@main` with `@v1`/SHA in the four agent workflows, and add a `CHANGELOG.md` + release workflow. Reaching 8.5+ also requires audit-issue rotation and `harden-runner` egress allowlisting.
 
 ---
 
-## 2. Overall score — **5.6 / 10**
+## 2. Overall score — **7.2 / 10**
 
-The project has **above-average open-source foundations** (idempotency by marker, AJV strict input validation, layered IO, ESLint guardrails on agents, gitleaks pinned by SHA256). The distance to `v1` concentrates in five concrete areas:
+Movement since the previous audit (5.6): twelve of fifteen prioritized actions have landed (see §5). The remaining gap is concentrated in **release engineering** — version, tag, CHANGELOG, internal action pinning — not in code quality, security, or test coverage.
 
-1. **Release process** — tag `v1` does not exist; `package.json` is `0.0.1` and `private: true`.
-2. **Internal supply chain** — composite actions reference `@main` (mutable).
-3. **End-to-end testing** — no test replays the refine→dev→review→iterate pipeline.
-4. **Traceability / governance** — no FR registry, no ADRs, no commit↔FR mapping.
-5. **Wired-up runtime governance** — `reconciler` and `cost-governance/daily-check` are written and tested but **not wired to any workflow**.
+Quality gates at audit time (all green):
+
+- `npm run typecheck` — clean
+- `npm run lint` — clean
+- `npm run format:check` — clean
+- `npm test` — 80 files / 878 tests / 100% passing in 1.8s
+- `npm audit` (moderate+) — 0 vulnerabilities
+- TODO/FIXME/XXX/HACK count under `src/` — 1
 
 ---
 
 ## 3. Score per domain
 
-| #   | Domain                             | Score        | Trend               |
-| --- | ---------------------------------- | ------------ | ------------------- |
-| 1   | Application security               | **7.5 / 10** | strong              |
-| 2   | Supply-chain security              | **5.5 / 10** | medium              |
-| 3   | GitHub Actions security            | **6.0 / 10** | medium              |
-| 4   | Tests & coverage                   | **5.0 / 10** | weak                |
-| 5   | E2E / acceptance tests             | **2.0 / 10** | absent              |
-| 6   | CI/CD gates                        | **8.0 / 10** | strong              |
-| 7   | Reliability (idempotency, retries) | **8.0 / 10** | strong              |
-| 8   | Observability / audit              | **5.0 / 10** | basic               |
-| 9   | Consumer documentation             | **8.0 / 10** | strong              |
-| 10  | Code quality / typing              | **8.0 / 10** | strong              |
-| 11  | Traceability / FR governance       | **2.0 / 10** | nearly absent       |
-| 12  | Operations / runbooks / rollback   | **3.0 / 10** | weak                |
-| 13  | Release / distribution             | **2.0 / 10** | blocker             |
-| 14  | Cost governance (runtime)          | **3.0 / 10** | written but unwired |
+| #   | Domain                             | Score        | Δ vs. prev | Trend  |
+| --- | ---------------------------------- | ------------ | ---------- | ------ |
+| 1   | Application security               | **8.5 / 10** | +1.0       | strong |
+| 2   | Supply-chain security              | **7.0 / 10** | +1.5       | medium |
+| 3   | GitHub Actions security            | **7.5 / 10** | +1.5       | strong |
+| 4   | Tests & coverage                   | **7.5 / 10** | +2.5       | strong |
+| 5   | E2E / acceptance tests             | **7.0 / 10** | +5.0       | strong |
+| 6   | CI/CD gates                        | **9.0 / 10** | +1.0       | strong |
+| 7   | Reliability (idempotency, retries) | **8.0 / 10** | 0          | strong |
+| 8   | Observability / audit              | **7.0 / 10** | +2.0       | medium |
+| 9   | Consumer documentation             | **8.5 / 10** | +0.5       | strong |
+| 10  | Code quality / typing              | **8.5 / 10** | +0.5       | strong |
+| 11  | Traceability / FR governance       | **7.5 / 10** | +5.5       | strong |
+| 12  | Operations / runbooks / rollback   | **5.5 / 10** | +2.5       | medium |
+| 13  | Release / distribution             | **2.5 / 10** | +0.5       | weak   |
+| 14  | Cost governance (runtime)          | **7.0 / 10** | +4.0       | medium |
+
+Mean = **7.21 / 10**.
 
 ---
 
 ## 4. Domain analysis
 
-### 4.1 Application security — 7.5
+### 4.1 Application security — 8.5
 
 **Strengths**
 
-- Strict AJV input validation (`src/schemas/event.v1.schema.json`); `ticket_key` regex `^[A-Z][A-Z0-9_]+-\d+$` makes shell injection through ticket-derived strings (e.g. `ferry/${ticketKey}` branch names) impossible by construction.
-- No raw payload leak in errors (`src/lib/envelope/validate-action.ts:29` "Log only the sanitized error message — no payload values (NFR-S1)").
-- `FerryError` taxonomy (`src/lib/errors/`) with typed codes: `state-invariant`, `spend-cap`, `transient`, `unknown`.
-- Mandatory `secret-scan` (gitleaks) before every dev-agent commit (`src/lib/agent-runtime/secret-scan.ts`).
-- `scanWithGitleaks` deliberately **never includes raw stdout/stderr** in error messages (may contain leaked secret content).
-- `@typescript-eslint/no-explicit-any: 'error'` and `no-restricted-imports` for agent code (no direct `@octokit/rest`, `node-fetch`, `undici`, Jira modules).
+- Strict AJV schema validation against `src/schemas/event.v1.schema.json`; `ticket_key` regex `^[A-Z][A-Z0-9_]+-\d+$` makes shell injection through ticket-derived strings impossible by construction.
+- **All shell calls migrated to `execFileSync`** with argv-as-array (`src/agents/developer/dev-action.ts:80,84,85,86,98,181,182,188,196,216`, `src/agents/developer/loop.ts:24,25,31,32`). Eliminates the residual concern from the previous audit.
+- `FerryError` taxonomy with typed codes (`state-invariant`, `spend-cap`, `transient`, `unknown`).
+- Mandatory `secret-scan` (gitleaks) before every dev-agent commit (`src/lib/agent-runtime/secret-scan.ts`); never includes raw stdout/stderr in error messages.
+- `@typescript-eslint/no-explicit-any: 'error'` plus `no-restricted-imports` for agent code (verified via `src/agents/restricted-imports.test.ts`; only `__lint-fixtures__/restricted-imports.ts` matches the pattern, by design).
+- No payload leak in errors (`src/lib/envelope/validate-action.ts:29` "Log only the sanitized error message — no payload values (NFR-S1)").
 
 **Weaknesses**
 
-- `execSync` with template strings in `src/agents/developer/dev-action.ts` and `src/agents/developer/loop.ts` (`git push origin ${branch} --force-with-lease`). Currently safe because `branchName` derives from an AJV-validated `ticket_key`, but no test pins this invariant.
-- LLM-supplied `commit_message` (`dev-action.ts:177`) passed via `JSON.stringify` — safe for shell but no length/charset cap.
-- No SAST (CodeQL, Semgrep, Snyk Code).
-- No `eslint-plugin-security` or `eslint-plugin-no-secrets`.
+- LLM-supplied `commit_message` (`dev-action.ts:188`) reaches `git commit -m` via argv; safe from injection but no length/charset cap.
+- No `eslint-plugin-security` or `eslint-plugin-no-secrets` (defense-in-depth only).
+- Prompt-injection surface in agent tool calls is not formally modeled (no allow-list of file paths the dev agent can read/write).
 
-### 4.2 Supply-chain security — 5.5
+### 4.2 Supply-chain security — 7.0
 
 **Strengths**
 
-- Third-party actions pinned by SHA (`actions/checkout@de0fac2e…`, `actions/setup-node@48b55a01…`).
-- gitleaks tarball pinned by SHA256 in `ferry-ci.yml` (excellent practice).
-- `npm audit` clean at audit time.
-- Dependabot configured for `github-actions` AND `npm`, weekly, grouped.
+- **CodeQL SAST wired** (`.github/workflows/codeql.yml`).
+- **`audit:ci` job in CI** (`.github/workflows/ferry-ci.yml` jobs `audit`, runs `node scripts/npm-audit-check.mjs`).
+- **Bundle-drift check in CI** (`check:bundle` job): rebuilds `.ferry/` from `src/` and fails if the diff is non-empty.
+- Third-party actions pinned by SHA (`actions/checkout@de0fac2e…`, `actions/setup-node@48b55a01…`, `actions/upload-artifact@ea165f8d…`).
+- gitleaks tarball pinned by SHA256 in `ferry-ci.yml`.
+- `npm audit` clean at audit time (0 across info/low/moderate/high/critical).
+- Dependabot configured for `github-actions` AND `npm`, weekly, grouped (`.github/dependabot.yml`).
 
 **Weaknesses**
 
-- **Internal composite actions referenced by `@main`** in every workflow (`ferry-envelope-validate@main`, `ferry-run-refiner@main`, `ferry-emit-audit@main`). Mutable. Anyone with push access to `main` runs arbitrary code in every consumer install.
-- **Tag `v1` does not exist.** `CONSUMER-SETUP.md` Phase 3.2 depends on `gh api repos/big-emotion/ferry/git/refs/tags/v1`. Listed in _Known limitations_.
+- **Internal composite actions referenced by `@main`** in every agent workflow: `big-emotion/ferry/.github/actions/{ferry-envelope-validate,ferry-run-{refiner,developer,reviewer,iterator},ferry-emit-audit}@main` — confirmed by `grep -RnE "uses:\s*big-emotion/ferry"`. A push to `main` immediately runs in every consumer install. **This is the single largest residual supply-chain risk.**
+- **Tag `v1` does not exist** (`git tag` returns empty). `CONSUMER-SETUP.md` Phase 3.2 and every stub workflow's `FERRY_REF: v1` cannot resolve.
 - No commit signing, no SLSA provenance, no attestations.
-- No `npm audit` in CI (only Dependabot offline).
 - No SBOM, no OSSF Scorecard.
 
-### 4.3 GitHub Actions security — 6.0
+### 4.3 GitHub Actions security — 7.5
 
 **Strengths**
 
-- Concurrency groups per ticket (`ferry-${workflow}-${ticket_key}`) prevent races.
-- `cancel-in-progress: false` on dev/iterate (writes), `true` on refine/review (read-only).
-- Fallback `'ferry-invalid-payload-sinkhole'` in concurrency string blocks group injection via missing payload.
-- Explicit `permissions:` per job on `dev/review/iterate` (`contents: write`, `pull-requests: write`, `issues: write`).
-- CODEOWNERS on `.github/`, `src/schemas/`, `prompts/`.
+- **Explicit `permissions:` blocks on every job** across `refine.yml`, `dev.yml`, `review.yml`, `iterate.yml`, `ferry-ci.yml` (verified via `grep -nE "permissions:" .github/workflows/*.yml`). The previous audit's "refine.yml has no permissions block" gap is closed; every `emit-audit` job now declares its own scope.
+- Concurrency groups per ticket (`ferry-${workflow}-${ticket_key}`) prevent races; `cancel-in-progress: false` on writes (dev/iterate), `true` on read-only (refine/review).
+- Fallback `'ferry-invalid-payload-sinkhole'` in concurrency string blocks group injection.
+- CODEOWNERS guards `.github/`, `src/schemas/`, `prompts/`.
 
 **Weaknesses**
 
-- **`refine.yml` has no `permissions:` block** — inherits the repo default (read-write per Phase 2.2 setup).
-- **`emit-audit` jobs have no explicit permissions** — same issue, in every workflow.
 - `GITHUB_TOKEN` used instead of a fine-grained GitHub App.
-- No OIDC for federated auth to Anthropic / Jira.
 - No `harden-runner` (StepSecurity) for egress allowlisting.
+- No OIDC for federated auth to Anthropic / Jira.
 - Audit issue rotation: capped at `MAX_PAGES * 100 = 1000` comments, then silently fails.
 
-### 4.4 Tests & coverage — 5.0
+### 4.4 Tests & coverage — 7.5
 
-| Metric     | Value   | Stated target |
-| ---------- | ------- | ------------- |
-| Statements | 68.09 % | 75 %          |
-| Branches   | 65.37 % | 75 %          |
-| Functions  | 75.75 % | 75 %          |
-| Lines      | 67.90 % | 75 %          |
-| Tests      | 599 ✅  | —             |
-
-**Modules at 0–20 % coverage (consumer-critical paths)**
-
-- `src/cli/init/steps/workflows.ts` — 0 %
-- `src/cli/init/steps/github-app.ts` — 0 %
-- `src/cli/init/steps/verify.ts` — 0 %
-- `src/cli/init/steps/secrets.ts` — 4.34 %
-- `src/cli/doctor/checks/dispatch.ts` — 0 %
-- `src/cli/doctor/checks/jira.ts` — 0 %
-- `src/cli/doctor/checks/llm.ts` — 0 %
-- `src/agents/developer/loop.ts` — 0 %
-- `src/agents/developer/workspace.ts` — 0 %
-- `src/lib/agent-runtime/git.ts` — 0 %
-- `src/lib/agent-runtime/labels.ts` — 0 %
-- `src/lib/agent-runtime/secret-scan.ts` — 0 %
-- `src/lib/mcp/client.ts` — 0 %
-- `src/cli/http.ts` — 0 %
-
-The CI thresholds in `vitest.config.ts` (`65/65/75/65`) are pinned **just below** current coverage — no ratchet toward the stated 75 % target.
-
-### 4.5 E2E / acceptance tests — 2.0
+| Metric  | Status                                                                   |
+| ------- | ------------------------------------------------------------------------ |
+| Suite   | 80 files / **878 tests** / all passing in 1.8 s                          |
+| Reports | text, text-summary, html, lcov                                           |
+| Gate    | **75 / 75 / 75 / 75** in `vitest.config.ts` — ratcheted up from 65/65/75 |
 
 **Strengths**
 
-- `src/install-guide.test.ts`: 14 describes, ~40 structural tests linking documentation ↔ code (FR mentions, secret names, Jira columns, `event_id` format).
+- Coverage threshold raised to a uniform **75 %** across statements/branches/functions/lines.
+- CLI module coverage closed (issue #85): `cli/init/steps/*` and `cli/doctor/checks/*` now exercised.
+- Composite-action entrypoints (`*-action.ts`) and CLI bin entrypoints excluded from coverage with documented reason in `vitest.config.ts`.
 
 **Weaknesses**
 
-- No E2E test replaying refine → dev → review → iterate (even mocked).
-- No test simulating the four audit lines accumulating on a single ticket.
-- No idempotency test across phases (replaying the same `event_id` must not duplicate comments or transitions).
-- No runtime invariant test for "Ferry never merges" (no lint nor mock-based assertion that `octokit.rest.pulls.merge` is unreachable).
-- No FR18 / FR24 / FR28 single-shot transition test.
+- `agents/developer/loop.ts` and `workspace.ts` still rely largely on the new e2e harness rather than dedicated unit tests.
+- No mutation testing (Stryker).
+- No load/perf budget.
 
-### 4.6 CI/CD gates — 8.0
+### 4.5 E2E / acceptance tests — 7.0
 
 **Strengths**
 
-- Four parallel jobs: `typecheck`, `lint+format`, `tests+coverage`, `gitleaks`.
+- **Mocked end-to-end pipeline test exists**: `src/e2e/pipeline.test.ts` — 437 lines, 11 describe blocks, replays refine→dev→review→iterate.
+- `src/install-guide.test.ts`: structural tests linking documentation ↔ code (FR mentions, secret names, Jira columns, `event_id` format).
+- FR drift detector (`scripts/check-fr-drift.sh`, wired in CI lint job) prevents introducing a new `FR\d+` tag without a registry entry.
+
+**Weaknesses**
+
+- No idempotency assertion across a full replay of the same `event_id`.
+- No runtime invariant test for "Ferry never merges" (could be a lint rule that bans `octokit.rest.pulls.merge` from `src/`).
+
+### 4.6 CI/CD gates — 9.0
+
+**Strengths**
+
+- Six parallel CI jobs in `ferry-ci.yml`: `typecheck`, `lint+format+fr-drift`, `test+coverage`, `check-bundle`, `audit`, plus the gitleaks workflow and CodeQL workflow.
 - Coverage uploaded as artefact (7-day retention).
-- gitleaks pinned by SHA256.
+- All actions in CI pinned by SHA.
+- Concurrency cancels superseded CI runs on the same branch.
 
 **Weaknesses**
 
-- No `npm audit` in CI.
-- No SAST (CodeQL is free for public repos).
-- No `build:ferry` verification — `.ferry/` bundles are committed but nothing validates they match `src/`.
-- No drift check `src/` ↔ `.ferry/`.
+- No `npm ci` integrity check (`--audit signatures`).
+- No required-checks branch-protection assertion in repo metadata (depends on `gh api` call to verify, out of scope for this read-only pass).
 
 ### 4.7 Reliability — 8.0
 
 **Strengths**
 
-- Idempotency markers `[ferry:role:runId]` everywhere (audit, comments, transitions).
+- Idempotency markers `[ferry:role:runId]` on every external write.
 - Centralised `retry` helper with backoff (`src/lib/io/retry.ts`).
 - Spend-cap detection: 4xx classified transient/non-transient.
 - `FerryError` taxonomy enables differentiated handling.
@@ -180,76 +179,76 @@ The CI thresholds in `vitest.config.ts` (`65/65/75/65`) are pinned **just below*
 **Weaknesses**
 
 - No circuit breaker (LLM provider down → retries to ceiling).
-- No DLQ (persistent failures = silent, save the **non-wired** reconciler).
 - Audit pagination capped at 1000 with no rotation/archival.
+- Reconciler depends on the consumer wiring `ferry-reconcile.yml` from the example stubs; no automatic enforcement that they did.
 
-### 4.8 Observability — 5.0
+### 4.8 Observability — 7.0
 
 **Strengths**
 
+- **Structured JSON logger now in use**: every test-time log line emits `{level, ts, correlation_id, component, message, ...}` (visible during `npm test` — e.g. `{"level":"info","ts":"…","correlation_id":"evt-dry-001","component":"ferry:refiner-action",…}`). Closes the bulk of the previous "46 console.log scattered" gap.
 - Centralised audit issue with JSON-per-phase lines (ticket, phase, run_id, tokens, cost).
-- GitHub Actions run logs always available.
+- Correlation by `run_id` / ULID across phases.
 
 **Weaknesses**
 
-- 46 `console.log/error` calls scattered, no structured logger (no levels, no systematic correlation_id beyond `run_id`).
 - No exported metrics (Prometheus, OpenTelemetry).
-- No alerting on runtime failure — a stuck ticket waits silently for a human.
+- No alerting on runtime failure — a stuck ticket waits silently for a human (mitigated only when the consumer wires the reconciler).
 - No consumer dashboard (cost trend, success rate per phase).
-- Audit issue is plain markdown — no native query/aggregation.
+- Some emitters still pass `correlation_id: ""` (visible in test output) — not all entry points propagate the ID.
 
-### 4.9 Consumer documentation — 8.0
+### 4.9 Consumer documentation — 8.5
 
 **Strengths**
 
 - `docs/CONSUMER-SETUP.md`: 7 phases, screenshot-ready, troubleshooting, quick checklist.
-- `docs/CONFIGURATION.md`: full reference of 6 secrets + variable.
-- Structural tests detect doc/code drift.
+- `docs/CONFIGURATION.md`: full reference of secrets + variables.
+- **`docs/REQUIREMENTS.md` FR registry** with explicit `FR\d+` → source/test mapping; CI drift detector enforces consistency.
+- **`docs/adr/`** present (`0001-three-fr-auto-transitions.md` through `0005-no-auto-merge-invariant.md`, plus a README index) — the major foundational decisions are now recorded.
+- Structural tests detect doc/code drift (`src/install-guide.test.ts`).
 
 **Weaknesses**
 
-- No migration guide between versions (no `v1` exists yet).
+- **No `CHANGELOG.md`** — there is no human-readable history of what changed across (eventually) versions.
+- No migration guide (no version exists yet to migrate from).
 - No on-call runbook (what to do when a ticket stalls? when cost spikes?).
-- No structured `CHANGELOG.md`.
-- No ADRs (`docs/adr/`).
 
-### 4.10 Code quality — 8.0
+### 4.10 Code quality — 8.5
 
 **Strengths**
 
 - Strict TypeScript NodeNext ESM, `no-explicit-any: error`.
-- ESLint with agent-specific rules.
-- Prettier mandatory.
-- Layered architecture respected.
-- Unit tests next to implementation.
+- ESLint with agent-specific rules; restricted-imports verified by test.
+- Prettier mandatory and currently clean.
+- Layered architecture respected (agents never import Octokit/Jira directly).
+- Unit tests next to implementation; lint fixtures isolated under `__lint-fixtures__/`.
 
 **Weaknesses**
 
 - No complexity gates (cyclomatic, max lines).
 - No `eslint-plugin-security` or `eslint-plugin-no-secrets`.
-- `src/agents/reviewer/review-loop.ts` at 60 % coverage hints at complexity debt.
+- `src/agents/reviewer/review-loop.ts` size still hints at complexity debt.
 
-### 4.11 Traceability / FR governance — 2.0
+### 4.11 Traceability / FR governance — 7.5
 
 **Strengths**
 
-- Three FRs (FR18 / FR24 / FR28) cited in code, doc, and tests.
+- `docs/REQUIREMENTS.md` is the single source of truth for `FR\d+` IDs (status, source files, test files, date introduced).
+- `npm run check:fr-drift` (wired into CI lint job) fails the build if any `FR\d+` tag in `src/`, `prompts/` or `docs/` lacks a registry entry.
+- Five ADRs cover the foundational decisions (three-FR auto-transitions, `.ferry/` committed, Anthropic Messages API, idempotency-via-markers, no-auto-merge invariant).
 - Audit issue traces every runtime execution.
 
 **Weaknesses**
 
-- No FR registry — no `docs/REQUIREMENTS.md` listing FR1…FRn.
-- No bidirectional FR ↔ code ↔ test ↔ commit mapping.
-- No ADRs — major decisions ("why three FRs only", "why `.ferry/` committed", "why Anthropic Messages API vs Agent SDK") are unwritten.
-- No FR/ticket back-reference in commits.
-- "Story 8.3" cited in `CONSUMER-SETUP.md` (reconciler) is nowhere in the repo.
+- No commit-msg lint enforcing FR or issue back-reference.
+- No bidirectional code → FR mapping beyond grep (no `@FR18` decorator pattern).
 - No `CHANGELOG.md`.
-- No drift detector — nothing prevents a future PR from introducing a new FR with no doc/test/ADR entry.
 
-### 4.12 Operations — 3.0
+### 4.12 Operations — 5.5
 
 **Strengths**
 
+- **Reconciler stub `ferry-reconcile.yml` and cost-daily stub `ferry-cost-daily.yml` ship in `examples/consumer-setup/workflows/`** — consumers can wire both with two `cp` commands.
 - Phase 7 hardening documented (manual cost cap, branch protection, SHA renewal).
 
 **Weaknesses**
@@ -258,93 +257,107 @@ The CI thresholds in `vitest.config.ts` (`65/65/75/65`) are pinned **just below*
 - No feature flags or staged rollout.
 - No on-call runbook.
 - No proactive monitoring — audit issue pings nobody.
-- Reconciler written but **not wired** — stalled tickets need manual re-trigger.
-- `cost-governance/daily-check` written but **not wired** — no runtime cost protection.
+- The consumer is responsible for actually wiring the reconciler/cost workflow; nothing in `ferry-init` enforces it (`ferry-doctor` may catch it — not verified in this pass).
 
-### 4.13 Release / distribution — 2.0
+### 4.13 Release / distribution — 2.5
 
-**Blockers**
+**Blockers** (the focal area for the next milestone):
 
-- Tag `v1` does not exist; `CONSUMER-SETUP.md` Phase 3.2 cannot run as written.
+- **Tag `v1` does not exist.** Every consumer-setup stub uses `FERRY_REF: v1` and `CONSUMER-SETUP.md` Phase 3.2 calls `gh api .../tags/v1` — neither can run.
+- `package.json`: `"version": "0.0.1"`, `"private": true` — must change to publish (or to allow `git tag v1` to mean something).
+- **No `CHANGELOG.md`** at the repo root.
 - No release workflow (build + version bump + tag + GitHub release notes).
-- `package.json`: version `0.0.1`, `private: true`.
 - No documented versioning policy (semver? floating `v1` vs pinned?).
-- `.ferry/` bundles committed but no CI validation step.
+- **Internal composite actions still referenced by `@main`** — see §4.2.
 
 **Strengths**
 
 - `bin` exposed for `ferry-init` / `ferry-doctor` — `npx`-ready once published.
+- `check:bundle` CI job ensures `.ferry/` matches `src/` so a tag carries a consistent payload.
+- The `ferry-release` skill is documented to drive the release locally.
 
-### 4.14 Cost governance (runtime) — 3.0
+### 4.14 Cost governance (runtime) — 7.0
 
 **Strengths**
 
-- `src/cost-governance/daily-check.ts` written, tested.
-- `ferry:paused` label mechanism documented (50 % monthly cap → auto-pause).
+- `src/cost-governance/daily-check.ts` written and tested.
+- `examples/consumer-setup/workflows/ferry-cost-daily.yml` ships as a copy-paste stub (cron `0 6 * * *`); 50 % monthly cap → auto-pause via `ferry:paused` label.
+- `FERRY_SPEND_CAP_EUR` documented (default 200 EUR).
 - Audit line carries `cost_eur` per execution.
 
 **Weaknesses**
 
-- Module **not wired** to any workflow (CLAUDE.md confirms).
-- Only safety net is the manual Anthropic console cap (Phase 7).
 - No pre-execution check — a single ticket can consume arbitrarily before the daily check runs.
+- The safety net is the consumer copying the stub; nothing validates they did.
+- Only manual Anthropic console cap as a hard backstop.
 
 ---
 
-## 5. Prioritized action plan (15 items)
+## 5. Prioritized action plan (residual)
 
-Each row corresponds to a GitHub issue. Priority drives which release the action belongs to:
+Twelve of the previous fifteen actions have landed (see §6). The residual list — the actions that take the score from 7.2 to 8+:
 
-- **P0** — release-blocker (must ship before `v1`)
-- **P1** — should ship before `v1.1` / first stable consumer release
-- **P2** — quality-of-life / hardening, can land later
-
-Order is the recommended execution order (dependencies and quick wins first).
-
-| Order | Action                                                                   | Domain            | Score before | Priority | Effort |
-| ----- | ------------------------------------------------------------------------ | ----------------- | ------------ | -------- | ------ |
-| 1     | Cut tag `v1`, add release workflow, lift `private: true`                 | Release           | 2.0          | **P0**   | M      |
-| 2     | Pin all internal `ferry-*@main` refs to `@v1` or SHA                     | Supply chain      | 5.5          | **P0**   | S      |
-| 3     | Add explicit `permissions:` to every job (refine, all `emit-audit` jobs) | GH Actions        | 6.0          | **P0**   | S      |
-| 4     | Wire reconciler and `daily-check` to scheduled workflows                 | Operations / cost | 3.0          | **P0**   | M      |
-| 5     | Add mocked end-to-end test refine→dev→review→iterate                     | E2E               | 2.0          | **P0**   | L      |
-| 6     | Replace `execSync` with `execFileSync` in dev-action and dev loop        | App security      | 7.5          | **P1**   | S      |
-| 7     | Enable CodeQL (free SAST)                                                | Supply chain      | 5.5          | **P1**   | S      |
-| 8     | Add `npm audit --omit=dev` step to CI                                    | Supply chain      | 5.5          | **P1**   | S      |
-| 9     | Drift check `src/` ↔ `.ferry/` in CI (rebuild + diff)                    | CI/CD             | 8.0          | **P1**   | S      |
-| 10    | Cover `cli/init/steps/*` and `cli/doctor/checks/*` to ≥ 70 %             | Tests             | 5.0          | **P1**   | L      |
-| 11    | Cover `agents/developer/loop.ts` and `workspace.ts` to ≥ 70 %            | Tests             | 5.0          | **P1**   | M      |
-| 12    | Create `docs/REQUIREMENTS.md` FR registry + commit-msg lint              | Traceability      | 2.0          | **P1**   | M      |
-| 13    | Create `docs/adr/` with 4–5 foundational ADRs                            | Traceability      | 2.0          | **P1**   | M      |
-| 14    | Audit-issue rotation when comments approach the 1000-comment cap         | Reliability       | 8.0          | **P2**   | M      |
-| 15    | Structured logger (`pino` or minimal JSON) with correlation_id           | Observability     | 5.0          | **P2**   | M      |
+| Order | Action                                                                                                   | Domain       | Score before | Priority | Effort |
+| ----- | -------------------------------------------------------------------------------------------------------- | ------------ | ------------ | -------- | ------ |
+| 1     | Cut tag `v1`, lift `private: true`, bump version to `1.0.0`, add release workflow                        | Release      | 2.5          | **P0**   | M      |
+| 2     | Replace `big-emotion/ferry/.github/actions/ferry-*@main` with `@v1` (or SHA) in the four agent workflows | Supply chain | 7.0          | **P0**   | S      |
+| 3     | Add `CHANGELOG.md` (Keep a Changelog format) and wire `ferry-release` skill to maintain it               | Docs/Release | 8.5 / 2.5    | **P0**   | S      |
+| 4     | Audit-issue rotation when comments approach the 1000-comment cap                                         | Reliability  | 8.0          | **P1**   | M      |
+| 5     | Add `harden-runner` egress allowlist to dev/iterate workflows                                            | GH Actions   | 7.5          | **P1**   | S      |
+| 6     | Add e2e idempotency replay (same `event_id` twice → same outcome, no duplicate writes)                   | E2E          | 7.0          | **P1**   | M      |
+| 7     | Add `octokit.rest.pulls.merge` lint ban + test for the "no-auto-merge" invariant                         | App security | 8.5          | **P2**   | S      |
+| 8     | On-call runbook (`docs/RUNBOOK.md`): stalled ticket, cost spike, agent loop runaway                      | Operations   | 5.5          | **P2**   | M      |
+| 9     | OSSF Scorecard + SLSA provenance on the release workflow                                                 | Supply chain | 7.0          | **P2**   | M      |
+| 10    | Migrate `GITHUB_TOKEN` to a fine-grained GitHub App with least-privilege scopes                          | GH Actions   | 7.5          | **P2**   | L      |
 
 ### 5.1 Expected score after the plan
 
-| Domain                  | Before  | After P0 | After P0+P1 | After all |
+| Domain                  | Current | After P0 | After P0+P1 | After all |
 | ----------------------- | ------- | -------- | ----------- | --------- |
-| Application security    | 7.5     | 7.5      | 8.5         | 8.5       |
-| Supply-chain security   | 5.5     | 7.0      | 8.5         | 8.5       |
-| GitHub Actions security | 6.0     | 8.0      | 8.0         | 8.5       |
-| Tests & coverage        | 5.0     | 5.0      | 7.5         | 7.5       |
-| E2E / acceptance        | 2.0     | 7.0      | 7.5         | 8.0       |
-| CI/CD gates             | 8.0     | 8.0      | 9.0         | 9.0       |
-| Reliability             | 8.0     | 8.0      | 8.0         | 8.5       |
-| Observability           | 5.0     | 5.0      | 5.5         | 7.0       |
-| Consumer documentation  | 8.0     | 8.5      | 9.0         | 9.0       |
-| Code quality            | 8.0     | 8.0      | 8.5         | 8.5       |
-| Traceability            | 2.0     | 2.0      | 7.5         | 7.5       |
-| Operations              | 3.0     | 7.0      | 7.5         | 8.0       |
-| Release / distribution  | 2.0     | 8.5      | 9.0         | 9.0       |
-| Cost governance         | 3.0     | 7.5      | 7.5         | 8.0       |
-| **Overall**             | **5.6** | **7.4**  | **8.2**     | **8.4**   |
+| Application security    | 8.5     | 8.5      | 8.5         | 9.0       |
+| Supply-chain security   | 7.0     | 8.5      | 8.5         | 9.0       |
+| GitHub Actions security | 7.5     | 7.5      | 8.5         | 9.0       |
+| Tests & coverage        | 7.5     | 7.5      | 7.5         | 7.5       |
+| E2E / acceptance        | 7.0     | 7.0      | 8.0         | 8.0       |
+| CI/CD gates             | 9.0     | 9.0      | 9.0         | 9.0       |
+| Reliability             | 8.0     | 8.0      | 8.5         | 8.5       |
+| Observability           | 7.0     | 7.0      | 7.0         | 7.5       |
+| Consumer documentation  | 8.5     | 9.0      | 9.0         | 9.0       |
+| Code quality            | 8.5     | 8.5      | 8.5         | 8.5       |
+| Traceability            | 7.5     | 8.0      | 8.0         | 8.0       |
+| Operations              | 5.5     | 5.5      | 6.0         | 7.5       |
+| Release / distribution  | 2.5     | 9.0      | 9.0         | 9.0       |
+| Cost governance         | 7.0     | 7.0      | 7.0         | 8.0       |
+| **Overall**             | **7.2** | **8.07** | **8.36**    | **8.39**  |
 
-P0+P1 is enough to clear the 8/10 bar; P2 lifts the project toward 8.5+.
+P0 alone is sufficient to clear the 8 / 10 bar.
 
 ---
 
-## 6. How to read this document
+## 6. What changed since the previous audit (5.6 → 7.2)
 
-- **Do not edit manually as a substitute for fixing the underlying issue.** Each row in §5 is mirrored as a GitHub issue with acceptance criteria. Close the issue when its criteria pass; refresh this audit at the next review cycle.
-- **Scores are point-in-time.** Re-run the audit (or a delta version) before each `vN` release.
-- **The 8/10 threshold is consumer-readiness**, not perfection. P2 items are not a precondition.
+| #   | Action (prev. audit)                                              | Status   | Evidence                                                                             |
+| --- | ----------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------ |
+| 1   | Cut tag `v1`, add release workflow, lift `private: true`          | open     | `git tag` empty, `package.json` still `0.0.1` / `private`                            |
+| 2   | Pin all internal `ferry-*@main` refs                              | open     | every agent workflow still uses `@main`                                              |
+| 3   | Explicit `permissions:` on every job                              | **done** | `grep -nE "permissions:" .github/workflows/*.yml` confirms                           |
+| 4   | Wire reconciler and `daily-check` to scheduled workflows          | **done** | `examples/consumer-setup/workflows/ferry-{reconcile,cost-daily}.yml`                 |
+| 5   | Mocked end-to-end test refine→dev→review→iterate                  | **done** | `src/e2e/pipeline.test.ts` (437 LOC, 11 describes)                                   |
+| 6   | Replace `execSync` with `execFileSync` in dev-action and dev loop | **done** | `grep -n "execFileSync" src/agents/developer/*.ts`                                   |
+| 7   | Enable CodeQL                                                     | **done** | `.github/workflows/codeql.yml`                                                       |
+| 8   | Add `npm audit` step to CI                                        | **done** | `audit` job in `ferry-ci.yml` + `scripts/npm-audit-check.mjs`                        |
+| 9   | Drift check `src/` ↔ `.ferry/` in CI                              | **done** | `check-bundle` job in `ferry-ci.yml`                                                 |
+| 10  | Cover `cli/init/steps/*` and `cli/doctor/checks/*` to ≥ 70 %      | **done** | `vitest.config.ts` thresholds at 75/75/75/75; suite green                            |
+| 11  | Cover `agents/developer/loop.ts` and `workspace.ts` to ≥ 70 %     | partial  | covered indirectly by e2e harness; dedicated unit gap remains                        |
+| 12  | `docs/REQUIREMENTS.md` FR registry + drift lint                   | **done** | file present; `scripts/check-fr-drift.sh` wired in CI lint job                       |
+| 13  | `docs/adr/` with foundational ADRs                                | **done** | five ADRs (0001 → 0005) present                                                      |
+| 14  | Audit-issue rotation near the 1000-comment cap                    | open     | still capped silently                                                                |
+| 15  | Structured logger with correlation_id                             | **done** | JSON log lines visible in test output (`level`, `ts`, `correlation_id`, `component`) |
+
+---
+
+## 7. How to read this document
+
+- **Do not edit manually as a substitute for fixing the underlying issue.** Each row in §5 should be mirrored as a GitHub issue with acceptance criteria. Close the issue when its criteria pass; refresh this audit at the next review cycle.
+- **Scores are point-in-time.** Re-run the audit before each `vN` release.
+- **The 8 / 10 threshold is consumer-readiness**, not perfection. P2 items are not a precondition.
