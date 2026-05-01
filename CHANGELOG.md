@@ -7,7 +7,7 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
-## [1.0.0] — 2026-04-30
+## [0.1.0] — 2026-04-30
 
 ### Added
 
@@ -27,8 +27,8 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- `package.json` `version` set to `1.0.0`; `private: true` removed to allow npm distribution.
+- `package.json` `version` set to `0.1.0`; `private: true` removed to allow npm distribution.
 
 ---
 
-[1.0.0]: https://github.com/big-emotion/ferry/releases/tag/v1.0.0
+[0.1.0]: https://github.com/big-emotion/ferry/releases/tag/v0.1.0

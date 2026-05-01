@@ -16,16 +16,16 @@ Ferry follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`MAJOR
 
 ---
 
-## Tag strategy — floating `v1` and immutable `v1.x.y`
+## Tag strategy — floating `v0` and immutable `v0.x.y`
 
 Ferry maintains **two tag types per major release**:
 
 | Tag | Type | Moves? | Purpose |
 |-----|------|--------|---------|
-| `v1` | Floating | Yes — updated on every `1.x.y` release | Default reference in consumer workflow stubs (`uses: big-emotion/ferry/.github/workflows/...@v1`) |
-| `v1.0.0` | Immutable | Never | SHA-pinned reference for consumers who want reproducibility |
+| `v0` | Floating | Yes — updated on every `0.x.y` release | Default reference in consumer workflow stubs (`uses: big-emotion/ferry/.github/workflows/...@v0`) |
+| `v0.1.0` | Immutable | Never | SHA-pinned reference for consumers who want reproducibility |
 
-**Consumer recommendation:** Start with `@v1` for easy upgrades. Move to a pinned SHA for production workloads (see `docs/CONSUMER-SETUP.md` §3.2).
+**Consumer recommendation:** Start with `@v0` for easy upgrades. Move to a pinned SHA for production workloads (see `docs/CONSUMER-SETUP.md` §3.2).
 
 ### Why a floating major tag?
 
@@ -34,7 +34,7 @@ GitHub Actions convention (e.g., `actions/checkout@v4`) uses a floating major ta
 The floating tag is always safe to follow because:
 - Patch releases fix bugs and never break the API
 - Minor releases are backward-compatible
-- MAJOR bumps increment the tag (`v2`, `v3`, …) and leave `v1` frozen at the last `1.x.y`
+- MAJOR bumps increment the tag (`v1`, `v2`, …) and leave `v0` frozen at the last `0.x.y`
 
 ---
 
@@ -43,8 +43,8 @@ The floating tag is always safe to follow because:
 Replace `@v1` with the exact commit SHA the tag points to:
 
 ```bash
-LATEST_SHA=$(gh api repos/big-emotion/ferry/git/refs/tags/v1 --jq '.object.sha')
-sed -i.bak "s|@v1|@${LATEST_SHA}|g" .github/workflows/ferry-*.yml
+LATEST_SHA=$(gh api repos/big-emotion/ferry/git/refs/tags/v0 --jq '.object.sha')
+sed -i.bak "s|@v0|@${LATEST_SHA}|g" .github/workflows/ferry-*.yml
 rm .github/workflows/ferry-*.yml.bak
 ```
 
@@ -69,8 +69,8 @@ Releases are automated by `.github/workflows/release.yml`. The workflow:
 1. Runs on a push to `main` that bumps `version` in `package.json`
 2. Builds `.ferry/` action bundles (`npm run build:ferry`)
 3. Commits the updated bundles if they changed
-4. Creates an immutable tag (`v<version>`, e.g., `v1.0.0`)
-5. Force-updates the floating major tag (`v1`)
+4. Creates an immutable tag (`v<version>`, e.g., `v0.1.0`)
+5. Force-updates the floating major tag (`v0`)
 6. Publishes a GitHub Release with auto-generated release notes
 
 To cut a release manually (e.g., for hotfixes):
@@ -92,7 +92,7 @@ git push origin main
 
 ---
 
-## Cutting the initial v1 / v1.0.0 tags
+## Cutting the initial v0 / v0.1.0 tags
 
 After this PR is merged into `main`, a maintainer with `contents: write` permission must run:
 
@@ -102,19 +102,19 @@ git checkout main && git pull
 
 # Build bundles (must be committed first)
 npm ci && npm run build:ferry
-git add .ferry/ && git commit -m "chore: build .ferry bundles for v1.0.0" || true
+git add .ferry/ && git commit -m "chore: build .ferry bundles for v0.1.0" || true
 git push origin main
 
 # Create the immutable tag
-git tag -a v1.0.0 -m "Ferry v1.0.0 — initial release"
-git push origin v1.0.0
+git tag -a v0.1.0 -m "Ferry v0.1.0 — initial release"
+git push origin v0.1.0
 
 # Create (or force-update) the floating major tag
-git tag -f v1
-git push origin v1 --force
+git tag -f v0
+git push origin v0 --force
 ```
 
-> **Why `--force` for the floating tag?** The floating `v1` must always point to the latest `1.x.y` commit. Force-push is intentional and safe here — it only moves a tag pointer, not history.
+> **Why `--force` for the floating tag?** The floating `v0` must always point to the latest `0.x.y` commit. Force-push is intentional and safe here — it only moves a tag pointer, not history.
 
 ---
 
@@ -141,4 +141,4 @@ Before tagging any release:
 npm publish --access public
 ```
 
-Ferry is not yet published to npm as of v1.0.0. The primary distribution mechanism is GitHub Actions reusable workflows referenced via `@v1` or a pinned SHA.
+Ferry is not yet published to npm as of v0.1.0. The primary distribution mechanism is GitHub Actions reusable workflows referenced via `@v1` or a pinned SHA.
