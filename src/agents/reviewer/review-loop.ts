@@ -7,6 +7,8 @@ import type {
 import type { CIRunner, PRFile } from '../../lib/dispatch/runner/types.js';
 import { FerryError } from '../../lib/errors/index.js';
 import { emitDebug } from '../../lib/llm/debug-log.js';
+import { createLogger } from '../../lib/logger/index.js';
+import type { Logger } from '../../lib/logger/index.js';
 import type { CiStatus } from './ci-gate.js';
 
 export const MAX_PATCH_CHARS = 20_000;
@@ -97,8 +99,10 @@ export async function runReviewLoop(opts: {
   headSha: string;
   maxIterations?: number;
   maxTokens?: number;
+  logger?: Logger;
 }): Promise<{ result: ReviewResult; inputTokens: number; outputTokens: number }> {
   const { anthropic, model, system, initialPrompt, fileMap, runner, owner, repo, headSha } = opts;
+  const logger = opts.logger ?? createLogger('', 'ferry:review-loop');
   const maxIterations = opts.maxIterations ?? MAX_ITERATIONS;
   const maxTokens = opts.maxTokens ?? 16384;
 
@@ -133,22 +137,29 @@ export async function runReviewLoop(opts: {
     messages.push({ role: 'assistant', content: response.content as ContentBlock[] });
 
     const toolCount = response.content.filter((b) => b.type === 'tool_use').length;
-    console.error(
-      `[ferry:review-loop] iter=${iter + 1} stop=${response.stop_reason} tools=${toolCount} in=${response.usage.input_tokens} out=${response.usage.output_tokens}`,
-    );
-    emitDebug({
-      type: 'turn',
+    logger.info('turn', {
       iter: iter + 1,
-      depth: 0,
-      stop_reason: response.stop_reason ?? 'unknown',
+      stop: response.stop_reason,
       tools: toolCount,
-      mcp_tools: 0,
       in: response.usage.input_tokens,
-      cache_w: 0,
-      cache_r: 0,
       out: response.usage.output_tokens,
-      elapsed_ms: Date.now() - iterStart,
     });
+    emitDebug(
+      {
+        type: 'turn',
+        iter: iter + 1,
+        depth: 0,
+        stop_reason: response.stop_reason ?? 'unknown',
+        tools: toolCount,
+        mcp_tools: 0,
+        in: response.usage.input_tokens,
+        cache_w: 0,
+        cache_r: 0,
+        out: response.usage.output_tokens,
+        elapsed_ms: Date.now() - iterStart,
+      },
+      logger,
+    );
 
     if (response.stop_reason !== 'tool_use') {
       throw new FerryError('state-invariant', {
@@ -174,7 +185,7 @@ export async function runReviewLoop(opts: {
 
       if (block.name === 'get_file_patch') {
         const filename = input.filename as string;
-        console.error(`[ferry:review-tool] iter=${iter + 1} get_file_patch ${filename}`);
+        logger.info('tool', { iter: iter + 1, tool: 'get_file_patch', file: filename });
         const patch = fileMap.get(filename);
         let content: string;
         if (patch === undefined) {
@@ -193,7 +204,7 @@ export async function runReviewLoop(opts: {
 
       if (block.name === 'get_file_content') {
         const filename = input.filename as string;
-        console.error(`[ferry:review-tool] iter=${iter + 1} get_file_content ${filename}`);
+        logger.info('tool', { iter: iter + 1, tool: 'get_file_content', file: filename });
         const content = await runner.getFileContent(owner, repo, filename, headSha);
         toolResults.push({ type: 'tool_result', tool_use_id: block.id, content });
         continue;
@@ -230,14 +241,17 @@ export async function runReviewLoop(opts: {
     messages.push({ role: 'user', content: toolResults });
 
     if (result) {
-      emitDebug({
-        type: 'result',
-        subtype: 'success',
-        iterations: iter + 1,
-        total_in: inputTokens,
-        total_out: outputTokens,
-        elapsed_ms: Date.now() - loopStart,
-      });
+      emitDebug(
+        {
+          type: 'result',
+          subtype: 'success',
+          iterations: iter + 1,
+          total_in: inputTokens,
+          total_out: outputTokens,
+          elapsed_ms: Date.now() - loopStart,
+        },
+        logger,
+      );
       return { result, inputTokens, outputTokens };
     }
   }

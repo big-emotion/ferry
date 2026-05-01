@@ -18,10 +18,11 @@ import {
   runAgent,
 } from '../../lib/agent-runtime/index.js';
 import type { EventEnvelopeV1 } from '../../lib/envelope/types.js';
+import type { Logger } from '../../lib/agent-runtime/index.js';
 
 const REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
 
-async function main(envelope: EventEnvelopeV1): Promise<void> {
+async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
   const { ticket_key: ticketKey, event_id: eventId } = envelope;
 
   const iterTransitionId = requireEnv('FERRY_ITER_TRANSITION_ID');
@@ -31,8 +32,8 @@ async function main(envelope: EventEnvelopeV1): Promise<void> {
   const issue = await tracker.getIssue(ticketKey);
   const existingComments = issue.comments;
 
-  const capabilities = resolveCapabilities(issue.labels, ferryCfg.labels);
-  logCapabilities('[ferry:review-action]', capabilities);
+  const capabilities = resolveCapabilities(issue.labels, ferryCfg.labels, logger);
+  logCapabilities(logger, capabilities);
 
   // Find PR for this ticket's branch
   const branchName = `ferry/${ticketKey}`;
@@ -62,7 +63,7 @@ async function main(envelope: EventEnvelopeV1): Promise<void> {
   const idempotencyMarker = byPrHeadSha('reviewer', headSha);
   const { skipped } = checkIdempotencyMarker(idempotencyMarker, existingComments);
   if (skipped) {
-    console.error(`[ferry:review-action] already processed ${headSha.slice(0, 7)}, skipping`);
+    logger.info('already processed, skipping', { sha: headSha.slice(0, 7) });
     appendOutput({ input_tokens: 0, output_tokens: 0, model });
     return;
   }
@@ -160,11 +161,16 @@ async function main(envelope: EventEnvelopeV1): Promise<void> {
     headSha,
     maxIterations: ferryCfg.limits.max_agent_iterations,
     maxTokens: ferryCfg.limits.max_tokens_per_message,
+    logger,
   });
 
-  console.error(
-    `[ferry:review-action] reviewed ${ticketKey} PR#${prNumber} — approved=${review.approved} in=${inputTokens} out=${outputTokens}`,
-  );
+  logger.info('reviewed', {
+    ticket: ticketKey,
+    pr: prNumber,
+    approved: review.approved,
+    in: inputTokens,
+    out: outputTokens,
+  });
 
   if (review.approved) {
     await tracker.postComment(

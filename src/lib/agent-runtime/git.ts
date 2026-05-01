@@ -1,9 +1,5 @@
 import { execSync, execFileSync } from 'node:child_process';
-
-export function configureFerryGitUser(repoRoot: string): void {
-  execSync('git config user.name "ferry-bot"', { cwd: repoRoot });
-  execSync('git config user.email "ferry-bot@users.noreply.github.com"', { cwd: repoRoot });
-}
+import type { Logger } from '../logger/index.js';
 
 export type CommitProgressFn = (
   repoRoot: string,
@@ -17,8 +13,13 @@ export interface CommitProgressOptions {
   dryRun?: boolean;
 }
 
+export function configureFerryGitUser(repoRoot: string): void {
+  execSync('git config user.name "ferry-bot"', { cwd: repoRoot });
+  execSync('git config user.email "ferry-bot@users.noreply.github.com"', { cwd: repoRoot });
+}
+
 export function makeCommitProgress(
-  logPrefix: string,
+  logger: Logger,
   options: CommitProgressOptions = {},
 ): CommitProgressFn {
   return async (repoRoot, branchName, message, scan) => {
@@ -28,13 +29,13 @@ export function makeCommitProgress(
     await scan();
     execSync(`git commit -m ${JSON.stringify(message)}`, { cwd: repoRoot });
     if (options.dryRun) {
-      console.error(
-        `${logPrefix} DRY_RUN — checkpoint committed locally (push skipped): ${message.slice(0, 80)}`,
-      );
+      logger.info('DRY_RUN — checkpoint committed locally (push skipped)', {
+        message: message.slice(0, 80),
+      });
       return 'committed (dry-run: push skipped)';
     }
     execSync(`git push origin ${branchName} --force-with-lease`, { cwd: repoRoot });
-    console.error(`${logPrefix} checkpoint: ${message.slice(0, 80)}`);
+    logger.info('checkpoint', { message: message.slice(0, 80) });
     return 'committed and pushed';
   };
 }

@@ -30,11 +30,13 @@ The `.ferry/` path appears in `.gitignore` to prevent developers from accidental
 ## Consequences
 
 **Positive:**
+
 - Consumers can use `uses: big-emotion/ferry/.github/actions/ferry-run-developer@v1` with no build step in their own workflows. The action is ready to execute immediately on checkout.
 - Version pinning works as expected: tagging a release freezes both the TypeScript source and its compiled output, so `@v1` is reproducible.
 - The composite actions are self-contained: each action directory carries its own agent bundle, schema, and prompts, so actions do not cross-reference each other.
 
 **Negative:**
+
 - Committed build artifacts create diff noise in PRs that touch agent logic — reviewers see both the TypeScript change and the bundled JavaScript change.
 - The `.gitignore` entry for `.ferry/` is intentionally overridden by the build-and-commit workflow, which is counterintuitive. Developers who are unaware of this pattern may be confused when `git status` does not show `.ferry/` changes.
 - If a contributor edits `.ferry/` files directly (instead of `src/`), their changes will be silently overwritten by the next `npm run build:ferry` run.
