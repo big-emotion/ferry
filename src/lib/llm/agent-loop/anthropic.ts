@@ -8,6 +8,8 @@ import type {
 import { FerryError } from '../../errors/index.js';
 import { emitDebug } from '../debug-log.js';
 import { McpClientPool } from '../../mcp/pool.js';
+import { createLogger } from '../../logger/index.js';
+import type { Logger } from '../../logger/index.js';
 import type {
   AgentTool,
   AgentLoop,
@@ -94,9 +96,11 @@ export function createAnthropicAgentLoop(opts: {
   maxIterations?: number;
   maxInputTokens?: number;
   maxTokens?: number;
+  logger?: Logger;
 }): AgentLoop {
   const anthropic =
     opts.client ?? new Anthropic({ apiKey: opts.apiKey, authToken: opts.authToken });
+  const logger = opts.logger ?? createLogger('', 'ferry:dev-loop');
 
   async function runLoop(input: {
     system: string;
@@ -133,9 +137,11 @@ export function createAnthropicAgentLoop(opts: {
       if (stdioServers.length > 0) {
         await pool.connect(stdioServers);
         if (pool.getTools().length > 0) {
-          console.error(
-            `[ferry:dev-loop] depth=${depth} stdio_mcp_tools=${pool.getTools().length} servers=${stdioServers.map((s) => s.name).join(',')}`,
-          );
+          logger.info('stdio_mcp_tools', {
+            depth,
+            count: pool.getTools().length,
+            servers: stdioServers.map((s) => s.name).join(','),
+          });
         }
       }
 
@@ -270,13 +276,9 @@ export function createAnthropicAgentLoop(opts: {
       const toolUseCount = contentBlocks.filter((b) => b.type === 'tool_use').length;
       const cacheW = response.usage.cache_creation_input_tokens ?? 0;
       const cacheR = response.usage.cache_read_input_tokens ?? 0;
-      console.error(
-        `[ferry:dev-loop] depth=${depth} iter=${iter} stop_reason=${response.stop_reason} tools=${toolUseCount} mcp_tools=${mcpToolUseCount} in=${response.usage.input_tokens} cache_w=${cacheW} cache_r=${cacheR} out=${response.usage.output_tokens}`,
-      );
-      emitDebug({
-        type: 'turn',
-        iter,
+      logger.info('turn', {
         depth,
+        iter,
         stop_reason: response.stop_reason,
         tools: toolUseCount,
         mcp_tools: mcpToolUseCount,
@@ -284,18 +286,36 @@ export function createAnthropicAgentLoop(opts: {
         cache_w: cacheW,
         cache_r: cacheR,
         out: response.usage.output_tokens,
-        elapsed_ms: Date.now() - iterStart,
       });
+      emitDebug(
+        {
+          type: 'turn',
+          iter,
+          depth,
+          stop_reason: response.stop_reason,
+          tools: toolUseCount,
+          mcp_tools: mcpToolUseCount,
+          in: response.usage.input_tokens,
+          cache_w: cacheW,
+          cache_r: cacheR,
+          out: response.usage.output_tokens,
+          elapsed_ms: Date.now() - iterStart,
+        },
+        logger,
+      );
 
       for (const block of contentBlocks) {
         if (block.type === 'text' && typeof block.text === 'string' && block.text.trim()) {
-          console.error(`[ferry:dev-think] ${block.text.trim()}`);
+          logger.debug('think', { depth, iter, text: block.text.trim() });
         }
         if (block.type === 'mcp_tool_use') {
           // Executed server-side by the Anthropic MCP connector — log only.
-          console.error(
-            `[ferry:dev-tool] depth=${depth} iter=${iter} mcp_tool=${String(block.name ?? 'unknown')} server=${String(block.server_name ?? 'unknown')}`,
-          );
+          logger.info('mcp_tool', {
+            depth,
+            iter,
+            tool: String(block.name ?? 'unknown'),
+            server: String(block.server_name ?? 'unknown'),
+          });
         }
       }
 
@@ -323,9 +343,7 @@ export function createAnthropicAgentLoop(opts: {
 
         if (name === 'commit_progress' && opts.commitProgress) {
           const { message } = blockInput as { message: string };
-          console.error(
-            `[ferry:dev-tool] depth=${depth} iter=${iter} tool=commit_progress arg=${message.slice(0, 120)}`,
-          );
+          logger.info('tool', { depth, iter, tool: 'commit_progress', arg: message.slice(0, 120) });
           try {
             const result = await opts.commitProgress(repoRoot, branchName, message, secretScan);
             toolResults.push({ type: 'tool_result', tool_use_id: id, content: result });
@@ -342,9 +360,7 @@ export function createAnthropicAgentLoop(opts: {
 
         if (name === 'spawn_subagent' && opts.spawnSubagent) {
           const { task } = blockInput as { task: string };
-          console.error(
-            `[ferry:dev-tool] depth=${depth} iter=${iter} tool=spawn_subagent arg=${task.slice(0, 120)}`,
-          );
+          logger.info('tool', { depth, iter, tool: 'spawn_subagent', arg: task.slice(0, 120) });
           try {
             const subResult = await opts.spawnSubagent(task);
             usage.input_tokens += subResult.usage.input_tokens;
@@ -379,9 +395,7 @@ export function createAnthropicAgentLoop(opts: {
         // Dispatch to stdio MCP pool if the tool is provided by a connected server.
         if (pool.hasTool(name)) {
           const serverName = pool.getServerName(name) ?? 'unknown';
-          console.error(
-            `[ferry:dev-tool] depth=${depth} iter=${iter} mcp_stdio=${name} server=${serverName}`,
-          );
+          logger.info('mcp_stdio_tool', { depth, iter, tool: name, server: serverName });
           try {
             const result = await pool.callTool(name, blockInput);
             toolResults.push({ type: 'tool_result', tool_use_id: id, content: result });
@@ -398,9 +412,12 @@ export function createAnthropicAgentLoop(opts: {
 
         const argHint =
           blockInput.path ?? blockInput.source ?? blockInput.command ?? blockInput.pattern ?? '';
-        console.error(
-          `[ferry:dev-tool] depth=${depth} iter=${iter} tool=${name}${argHint ? ` arg=${String(argHint).slice(0, 120)}` : ''}`,
-        );
+        logger.info('tool', {
+          depth,
+          iter,
+          tool: name,
+          ...(argHint ? { arg: String(argHint).slice(0, 120) } : {}),
+        });
 
         try {
           const result = await opts.executeTool(repoRoot, name, blockInput);
@@ -442,15 +459,20 @@ export function createAnthropicAgentLoop(opts: {
       messages.push({ role: 'user', content: toolResults });
 
       if (done) {
-        emitDebug({
-          type: 'result',
-          subtype: 'success',
-          iterations: iter,
-          total_in:
-            usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens,
-          total_out: usage.output_tokens,
-          elapsed_ms: Date.now() - loopStart,
-        });
+        emitDebug(
+          {
+            type: 'result',
+            subtype: 'success',
+            iterations: iter,
+            total_in:
+              usage.input_tokens +
+              usage.cache_read_input_tokens +
+              usage.cache_creation_input_tokens,
+            total_out: usage.output_tokens,
+            elapsed_ms: Date.now() - loopStart,
+          },
+          logger,
+        );
         return { done, usage, iterations: iter };
       }
     }

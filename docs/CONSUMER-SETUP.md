@@ -25,9 +25,9 @@ Jira column move → GitHub repository_dispatch → Agent runs → Jira auto-tra
 Four agents chain automatically:
 
 1. **Refiner** — reads the ticket, proposes a sub-task breakdown (you approve)
-2. **Developer** — writes code, opens a draft PR on `ferry/<TICKET-KEY>` (FR18: auto-transitions ticket to *In Review*)
-3. **Reviewer** — reviews the PR. On `merge-ready`, adds the `ferry:approved` label to the PR (the Jira ticket stays in *In Review* — you move it manually). On `changes-requested`, auto-transitions ticket to *Changes Requested* (FR24).
-4. **Iterator** — applies reviewer feedback, pushes commits, auto-transitions ticket back to *In Review* (FR28); up to 3 rounds
+2. **Developer** — writes code, opens a draft PR on `ferry/<TICKET-KEY>` (FR18: auto-transitions ticket to _In Review_)
+3. **Reviewer** — reviews the PR. On `merge-ready`, adds the `ferry:approved` label to the PR (the Jira ticket stays in _In Review_ — you move it manually). On `changes-requested`, auto-transitions ticket to _Changes Requested_ (FR24).
+4. **Iterator** — applies reviewer feedback, pushes commits, auto-transitions ticket back to _In Review_ (FR28); up to 3 rounds
 
 **Ferry never merges.** You merge the PR when it's ready.
 
@@ -45,13 +45,13 @@ Four agents chain automatically:
 
 Ferry expects the Jira board to use these exact column names for each phase:
 
-| Column name (exact) | Phase triggered |
-|---|---|
-| **Refinement** | Refiner agent |
-| **In Development** | Developer agent |
-| **In Review** | Reviewer agent (auto-set by FR18 / FR28) |
-| **Changes Requested** | Iterator agent (auto-set by FR24) |
-| **Ready to Merge** | Human review + merge |
+| Column name (exact)   | Phase triggered                          |
+| --------------------- | ---------------------------------------- |
+| **Refinement**        | Refiner agent                            |
+| **In Development**    | Developer agent                          |
+| **In Review**         | Reviewer agent (auto-set by FR18 / FR28) |
+| **Changes Requested** | Iterator agent (auto-set by FR24)        |
+| **Ready to Merge**    | Human review + merge                     |
 
 ✅ **Verification:** Open your board → confirm these 5 columns exist. If not, add them via **Project Settings → Board → Columns**. Column names are case-sensitive — use the exact names above.
 
@@ -109,10 +109,12 @@ gh variable set FERRY_AUDIT_ISSUE    --body "42"
 > **Finding Jira transition IDs:** Run `curl -u you@example.com:<token> https://YOUR-ORG.atlassian.net/rest/api/3/issue/PROJ-1/transitions` on any ticket in your project. Find the `id` values for the transitions to "In Review" and "Changes Requested". These are project-specific numeric strings like `"31"` or `"151"`.
 
 ✅ **Verification:**
+
 ```bash
 gh secret list --repo YOUR_ORG/YOUR_REPO | grep FERRY
 gh variable list --repo YOUR_ORG/YOUR_REPO | grep FERRY_AUDIT
 ```
+
 You must see **6 secrets** and **1 variable**.
 
 ---
@@ -175,6 +177,7 @@ Jira needs a token to call the GitHub API. Create a **Fine-grained personal acce
 For each phase, create a separate rule at `https://YOUR-ORG.atlassian.net/jira/settings/automation`:
 
 **Rule 1 — Refiner trigger (when ticket moves to Refinement):**
+
 - **Trigger:** Issue transitioned → Status changed to **Refinement**
 - **Action:** Send web request
   - URL: `https://api.github.com/repos/YOUR_ORG/YOUR_REPO/dispatches`
@@ -214,6 +217,7 @@ For each phase, create a separate rule at `https://YOUR-ORG.atlassian.net/jira/s
 ### 5.1 — Create a simple ticket
 
 In Jira, create a **Story** with:
+
 - **Title:** `Ferry smoke test — add a hello-world README badge`
 - **Description:** `Add a "Powered by Ferry" badge to the project README. Single-line change in README.md.`
 - **Acceptance criteria:** `README displays a Ferry badge near the top.`
@@ -223,6 +227,7 @@ In Jira, create a **Story** with:
 Move the ticket to the **Refinement** column.
 
 ✅ **In GitHub Actions** within 5 seconds:
+
 - Run `Ferry — Refine` appears
 - 3 sequential jobs: `gate-envelope` → `run-agent` → `emit-audit`
 - All green in ~30–60 sec
@@ -234,6 +239,7 @@ Move the ticket to the **Refinement** column.
 Read the proposed sub-tasks. If OK, move the ticket to **In Development**.
 
 ✅ Run `Ferry — Dev` appears (~1–3 min):
+
 - A **draft PR** is created on branch `ferry/<TICKET-KEY>`
 - The ticket **automatically transitions to In Review** (FR18)
 
@@ -244,12 +250,14 @@ Because the ticket is now in **In Review**, the Jira automation fires → `Ferry
 > **CI prerequisite:** The Reviewer blocks on the PR's CI status (`ci-gate`). If your repository has **no CI workflow that runs on `pull_request`**, the Reviewer will time out waiting for a check that never runs. Add at least one CI workflow (lint, typecheck, unit tests) before relying on Ferry end-to-end.
 
 ✅ Reviewer waits for the PR's CI to pass, then posts a structured verdict comment on the PR (FR24):
-- Verdict `merge-ready` → adds the `ferry:approved` label to the PR. **The Jira ticket stays in *In Review*** — Ferry does not move it. You manually transition it to *Ready to Merge* when you're ready.
+
+- Verdict `merge-ready` → adds the `ferry:approved` label to the PR. **The Jira ticket stays in _In Review_** — Ferry does not move it. You manually transition it to _Ready to Merge_ when you're ready.
 - Verdict `changes-requested` → ticket **automatically transitions to Changes Requested** → triggers `Ferry — Iterate`.
 
 ### 5.5 — (If needed) Iterator
 
 If the Reviewer requested changes:
+
 - Iterator pushes commits on the same `ferry/<TICKET-KEY>` branch
 - Ticket **automatically transitions back to In Review** (FR28) → Reviewer runs again
 - Maximum 3 rounds (then Ferry halts and adds `ferry:needs-human` label)
@@ -257,6 +265,7 @@ If the Reviewer requested changes:
 ### 5.6 — You merge
 
 When Reviewer verdict is `ready` AND you have reviewed the PR yourself:
+
 1. Mark the PR as **Ready for review** (exit draft mode)
 2. **Merge**
 3. Manually move the Jira ticket to Done (Ferry never closes tickets by design)
@@ -279,21 +288,88 @@ If **all** of these check, the install is complete.
 
 ## Phase 7 — Post-install hardening (recommended)
 
-1. **Anthropic cost cap:** https://console.anthropic.com/settings/limits → set a monthly cap (e.g., $50). Ferry has no internal spend governance yet, so this is your only hard ceiling.
+1. **Anthropic cost cap:** https://console.anthropic.com/settings/limits → set a monthly cap (e.g., $50) as a hard ceiling independent of Ferry's internal governance.
 2. **CODEOWNERS:** Add `.github/workflows/ferry-* @your-handle` to prevent unauthorized edits to the stubs.
 3. **Branch protection on `main`:** Require PR review + green CI before merge. Ferry opens drafts — you remain the last barrier.
 4. **SHA renewal:** Every 1–2 months, redo step 3.2 to bump the pinned SHA. Or configure Dependabot via `package-ecosystem: github-actions`.
+
+### 7.5 — Stale-ticket reconciler (every 30 min)
+
+The reconciler sweeps all Ferry-managed tickets and re-triggers any that have stalled — for example, a `repository_dispatch` that was dropped or a ticket whose Jira column drifted out of sync with its state file.
+
+**Install:**
+
+```bash
+curl -fsSL "https://raw.githubusercontent.com/big-emotion/ferry/main/examples/consumer-setup/workflows/ferry-reconcile.yml" \
+  -o ".github/workflows/ferry-reconcile.yml"
+git add .github/workflows/ferry-reconcile.yml
+git commit -m "chore(ferry): add reconciler scheduled workflow"
+git push
+```
+
+**Required variables (already set in Phase 2.3):** `FERRY_AUDIT_ISSUE`
+
+**Optional variables:**
+
+```bash
+# Set to your Jira project key (e.g. "CHAN") to sweep ALL tickets in active
+# Ferry columns — not just tickets with local state files. Without this,
+# the reconciler only re-checks tickets it can find via .ferry/ state files.
+gh variable set FERRY_JIRA_PROJECT --body "CHAN"
+```
+
+**Required secrets (only if FERRY_JIRA_PROJECT is set):** `FERRY_JIRA_BASE_URL`, `FERRY_JIRA_EMAIL`, `FERRY_JIRA_API_TOKEN` — already set in Phase 2.3.
+
+**Schedule:** every 30 minutes (configurable — edit the `cron` expression in `ferry-reconcile.yml`).
+
+**Opt-out:** delete `ferry-reconcile.yml` from `.github/workflows/`. Consumers who prefer to re-trigger stalled tickets manually do not need this workflow.
+
+**Permissions required (added automatically by the stub):** `contents: read`, `issues: write`, `actions: write`.
+
+### 7.6 — Daily cost check (06:00 UTC)
+
+The daily cost check reads accumulated `cost_eur` values from the Ferry audit issue, groups them by LLM provider, and fires a `ferry:paused` alert when any provider crosses 50% of the configured monthly cap.
+
+**Install:**
+
+```bash
+curl -fsSL "https://raw.githubusercontent.com/big-emotion/ferry/main/examples/consumer-setup/workflows/ferry-cost-daily.yml" \
+  -o ".github/workflows/ferry-cost-daily.yml"
+git add .github/workflows/ferry-cost-daily.yml
+git commit -m "chore(ferry): add daily cost-check scheduled workflow"
+git push
+```
+
+**Required variables:**
+
+```bash
+# Monthly spend cap in EUR. Alerts fire at 50% of this value.
+# Default if not set: 200 EUR.
+gh variable set FERRY_SPEND_CAP_EUR --body "200"
+```
+
+**What happens when the 50% threshold is crossed:**
+
+1. A `[ferry:cost-check:daily]` comment is posted on the audit issue listing each provider over the threshold.
+2. If Jira credentials are configured, the `ferry:paused` label is added to all active Jira tickets — agents will not advance them further until the label is removed.
+3. Removing the `ferry:paused` label and manually re-triggering a ticket resumes normal operation.
+
+**Schedule:** daily at 06:00 UTC (configurable — edit the `cron` expression in `ferry-cost-daily.yml`).
+
+**Opt-out:** delete `ferry-cost-daily.yml`. Without this workflow, the only hard cost ceiling is the manual cap set in the Anthropic console (Phase 7, item 1).
+
+**Permissions required:** `contents: read`, `issues: write`.
 
 ---
 
 ## Known limitations and open issues
 
-| Issue | Status |
-|---|---|
-| `@v1` tag must exist before install guide works | Required for release — tag must be cut before distributing this guide |
-| Stale-ticket reconciler sweep | Not yet implemented (Story 8.3) — consumers must manually re-trigger stalled tickets for now |
-| `.ferry/` agent scripts in consumer workspace | Tracked in #71 — workflows currently read agent scripts from Ferry repo checkout |
-| Anthropic Agent SDK support | Planned — current LLM call site uses the Anthropic Messages API; Agent SDK is the next roadmap item |
+| Issue                                           | Status                                                                                              |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `@v1` tag must exist before install guide works | Required for release — tag must be cut before distributing this guide                               |
+| Stale-ticket reconciler sweep                   | Implemented — see Phase 7.5. Wired via `ferry-reconcile.yml` (issue #79).                           |
+| `.ferry/` agent scripts in consumer workspace   | Tracked in #71 — workflows currently read agent scripts from Ferry repo checkout                    |
+| Anthropic Agent SDK support                     | Planned — current LLM call site uses the Anthropic Messages API; Agent SDK is the next roadmap item |
 
 ---
 
@@ -327,17 +403,17 @@ Phase 6 — Final verification[ ] Lines in audit issue (one per phase run)
 
 ## Troubleshooting
 
-| Problem | Check |
-|---------|-------|
-| Workflows don't trigger | Verify Jira automation rule is enabled; check rule's Audit log for errors |
-| "workflow not found" error | `@v1` tag must exist on the Ferry repo; contact Ferry maintainers |
-| "Missing secret" error | All 6 secrets must be added — run `gh secret list` to verify |
-| `event_id` validation error | Use `{{now.toMillis}}-{{issue.key}}-{{issue.id}}` — do not omit the key/id suffix |
-| FR18 / FR24 / FR28 never fires | `FERRY_REVIEW_TRANSITION_ID` and `FERRY_ITER_TRANSITION_ID` must be set with correct numeric Jira IDs |
-| "Action not found: `./.github/actions/ferry-*`" | You copied Ferry's internal workflows. Use the consumer stubs from `examples/consumer-setup/workflows/` |
-| "Resource not accessible by integration" | Repo workflow permissions ceiling too low — enable **Read and write permissions** under Settings → Actions → General |
-| Review workflow hangs (never starts jobs) | Remove any `concurrency:` block in your consumer `ferry-review.yml` — it causes a deadlock; concurrency is managed by the reusable workflow |
-| Preflight fails: "Jira column mismatch" | Your board column names don't match exactly — see Phase 1.2 for the required names |
+| Problem                                         | Check                                                                                                                                       |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Workflows don't trigger                         | Verify Jira automation rule is enabled; check rule's Audit log for errors                                                                   |
+| "workflow not found" error                      | `@v1` tag must exist on the Ferry repo; contact Ferry maintainers                                                                           |
+| "Missing secret" error                          | All 6 secrets must be added — run `gh secret list` to verify                                                                                |
+| `event_id` validation error                     | Use `{{now.toMillis}}-{{issue.key}}-{{issue.id}}` — do not omit the key/id suffix                                                           |
+| FR18 / FR24 / FR28 never fires                  | `FERRY_REVIEW_TRANSITION_ID` and `FERRY_ITER_TRANSITION_ID` must be set with correct numeric Jira IDs                                       |
+| "Action not found: `./.github/actions/ferry-*`" | You copied Ferry's internal workflows. Use the consumer stubs from `examples/consumer-setup/workflows/`                                     |
+| "Resource not accessible by integration"        | Repo workflow permissions ceiling too low — enable **Read and write permissions** under Settings → Actions → General                        |
+| Review workflow hangs (never starts jobs)       | Remove any `concurrency:` block in your consumer `ferry-review.yml` — it causes a deadlock; concurrency is managed by the reusable workflow |
+| Preflight fails: "Jira column mismatch"         | Your board column names don't match exactly — see Phase 1.2 for the required names                                                          |
 
 ---
 
@@ -357,12 +433,12 @@ Ferry ships a default system prompt for each of the four agents (Refiner, Develo
 
 Drop a file at `prompts/<agent>.extra.md` in your repo root. Its contents are appended to Ferry's bundled prompt under the heading `## Project-specific guidance for <agent>`. The bundled prompt — including tool contracts, output format, comment fingerprints (`[ferry:<role>:<run-id>]`), and Jira transition rules (FR18, FR24, FR28) — stays intact.
 
-| Filename | Augments |
-|---|---|
-| `prompts/refiner.extra.md` | Refiner |
-| `prompts/dev.extra.md` | Developer |
-| `prompts/review.extra.md` | Reviewer |
-| `prompts/iterate.extra.md` | Iterator |
+| Filename                   | Augments  |
+| -------------------------- | --------- |
+| `prompts/refiner.extra.md` | Refiner   |
+| `prompts/dev.extra.md`     | Developer |
+| `prompts/review.extra.md`  | Reviewer  |
+| `prompts/iterate.extra.md` | Iterator  |
 
 Each file is capped at **4096 bytes** (truncated with a warning if exceeded). Use these to inject project-specific guidance: review checklists, security rules, naming conventions, tone, domain glossary, etc.
 
@@ -376,26 +452,32 @@ five dimensions. Surface findings inside the existing "Issues requiring
 changes" section — do not invent new sections.
 
 ## 1. Correctness
+
 - Edge cases handled (null, empty, boundaries, error paths)?
 - Do tests verify behaviour, not just call the function?
 
 ## 2. Readability
+
 - Names descriptive and consistent with project conventions?
 - Control flow straightforward (no deeply nested logic)?
 
 ## 3. Architecture
+
 - Follows existing patterns, or introduces a new one (and is it justified)?
 - Module boundaries respected? No circular dependencies?
 
 ## 4. Security
+
 - User input validated/sanitised at boundaries?
 - Secrets out of code, logs, VCS?
 - Queries parameterised, output encoded?
 
 ## 5. Performance
+
 - N+1 queries? Unbounded loops? Missing pagination on list endpoints?
 
 ## Severity hint
+
 Prefix each issue's **Why** with `[critical]`, `[important]`, or `[suggestion]`.
 Block the PR (`approved: false`) only on `[critical]` findings.
 ```

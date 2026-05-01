@@ -1,0 +1,59 @@
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 6 * * 1' # weekly, Monday 06:00 UTC
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze (javascript-typescript)
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+          # security-and-quality includes both security queries and quality/correctness queries.
+          # Remove quality if scan times become excessive.
+          queries: security-and-quality
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: '/language:javascript-typescript'
+          # Save SARIF for the gate step below.
+          output: sarif-results
+          upload: always
+
+      - name: Gate — fail on high/critical findings
+        # SARIF level "error" = CodeQL severity high or critical.
+        # Warn-level (medium/low) and note-level findings are visible in the
+        # Security tab but do not block the PR.
+        run: |
+          set -euo pipefail
+          COUNT=$(jq '[.runs[].results[] | select(.level == "error")] | length' sarif-results/*.sarif)
+          if [ "$COUNT" -gt 0 ]; then
+            echo "::error::CodeQL found $COUNT high/critical finding(s). Fix or suppress inline with a rationale comment before merging."
+            jq -r '.runs[].results[] | select(.level == "error") | "  \(.ruleId): \(.message.text)"' sarif-results/*.sarif
+            exit 1
+          fi
+          echo "CodeQL gate passed — 0 high/critical findings."

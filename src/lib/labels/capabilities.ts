@@ -1,5 +1,6 @@
 import type { LabelCapability } from '../config.js';
 import type { McpServerConfig } from '../llm/agent-loop/types.js';
+import type { Logger } from '../logger/index.js';
 
 export interface ResolvedCapabilities {
   mcpServerNames: string[];
@@ -17,6 +18,7 @@ export interface ResolvedCapabilities {
 export function resolveCapabilities(
   ticketLabels: string[],
   configLabels: Record<string, LabelCapability> | undefined,
+  logger?: Logger,
 ): ResolvedCapabilities {
   if (!configLabels) {
     return {
@@ -51,7 +53,7 @@ export function resolveCapabilities(
       }
     } else if (label.startsWith('ferry:')) {
       unknownFerryLabels.push(label);
-      console.error(`[ferry:capabilities] unknown ferry label ignored: ${label}`);
+      logger?.warn('unknown ferry label ignored', { label });
     }
   }
 

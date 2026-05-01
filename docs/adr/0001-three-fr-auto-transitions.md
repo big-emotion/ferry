@@ -26,11 +26,13 @@ All other transitions — including moving a ticket to "Done" after a merge, app
 ## Consequences
 
 **Positive:**
+
 - The automated handoffs (Dev→Review, Changes→Iterator, Iterator→Review) form a closed loop that covers the mechanical parts of a development cycle without human intervention.
 - Stakeholders retain control over the decisions that carry business risk: initiating work, approving merges, and closing tickets.
 - The explicit FR numbering makes it easy to search the codebase and documentation for the exact points where automation fires.
 
 **Negative:**
+
 - Consumers must configure two environment variables (`FERRY_REVIEW_TRANSITION_ID`, `FERRY_ITER_TRANSITION_ID`) for transitions to work. A misconfiguration silently skips the transition rather than failing loudly.
 - The Reviewer's approval path does not auto-transition the ticket to an "Approved" or "Ready to Merge" column, so consumers who want full automation must build that step themselves (e.g., a webhook that fires on the `ferry:approved` label).
 

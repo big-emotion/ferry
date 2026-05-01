@@ -1,0 +1,24 @@
+# Copy this file to .github/workflows/ferry-cost-daily.yml in your repository.
+# Replace @v1 with the Ferry release tag you want to pin (e.g. @v1.2.3).
+#
+# Required variables: FERRY_AUDIT_ISSUE, FERRY_SPEND_CAP_EUR
+# Optional secrets (to apply ferry:paused to Jira tickets on threshold breach):
+#   FERRY_JIRA_BASE_URL, FERRY_JIRA_EMAIL, FERRY_JIRA_API_TOKEN
+#
+# Opt-out: delete this file or rename the workflow to disable scheduling.
+
+name: Ferry — Cost Daily Check
+
+on:
+  schedule:
+    - cron: '0 6 * * *' # daily at 06:00 UTC — adjust as needed
+  workflow_dispatch: {}
+
+concurrency:
+  group: ferry-cost-daily
+  cancel-in-progress: false
+
+jobs:
+  cost-check:
+    uses: big-emotion/ferry/.github/workflows/cost-daily.yml@v1
+    secrets: inherit

@@ -24,11 +24,11 @@ Every agent posts a short opaque marker string — an **idempotency marker** —
 
 Three discriminator strategies exist, implemented in `src/lib/agent-runtime/idempotency.ts`:
 
-| Strategy | Format | Used by |
-|----------|--------|---------|
-| Event ID | `[ferry:dev:abc123-def456]` | Developer, Iterator (first attempt) |
-| PR head SHA (7 chars) | `[ferry:reviewer:abc1234]` | Reviewer |
-| Review comment ID | `[ferry:iterator:5678]` | Iterator (when processing a specific review comment) |
+| Strategy              | Format                      | Used by                                              |
+| --------------------- | --------------------------- | ---------------------------------------------------- |
+| Event ID              | `[ferry:dev:abc123-def456]` | Developer, Iterator (first attempt)                  |
+| PR head SHA (7 chars) | `[ferry:reviewer:abc1234]`  | Reviewer                                             |
+| Review comment ID     | `[ferry:iterator:5678]`     | Iterator (when processing a specific review comment) |
 
 The PR head SHA strategy is intentional: each new push from the Iterator agent advances the SHA, so the Reviewer always runs fresh on the new commit rather than being skipped as a duplicate of the previous review.
 
@@ -48,12 +48,14 @@ The Refiner agent uses an extended variant: `[ferry:refiner-subtask:<planId>:<in
 ## Consequences
 
 **Positive:**
+
 - Zero additional infrastructure — the storage layer is the same Jira and GitHub APIs the agents already use.
 - Markers are visible to humans: a developer reading a Jira ticket or PR comment can see exactly which agent run produced the comment and whether re-runs were skipped.
 - The string-include check (`item.includes(marker)`) is robust to comment reformatting by Jira or GitHub (wrapping, trailing whitespace, etc.) as long as the marker string itself is not truncated.
 
 **Negative:**
-- If a Jira or GitHub API call fails *after* the marker is posted but *before* all side effects complete, the agent will skip on re-run even though work is partially done. This is a known limitation; agents are designed to post the marker only as part of the final comment that records the completed output.
+
+- If a Jira or GitHub API call fails _after_ the marker is posted but _before_ all side effects complete, the agent will skip on re-run even though work is partially done. This is a known limitation; agents are designed to post the marker only as part of the final comment that records the completed output.
 - Idempotency is per-agent-per-event, not per-side-effect. If an agent creates two PRs due to a bug before posting its marker, re-running will not create a third PR but will also not clean up the first duplicate.
 - The marker format (`[ferry:role:discriminator]`) must not change between versions without a migration strategy, because old markers in existing Jira/GitHub comments would not be recognized by updated agents.
 
@@ -63,6 +65,6 @@ The Refiner agent uses an extended variant: `[ferry:refiner-subtask:<planId>:<in
 
 **GitHub Actions `outputs` or step caching** — rejected because these are scoped to a single workflow run; they do not survive across re-runs or duplicate event deliveries.
 
-**Unique run IDs from GitHub (`github.run_id`)** — evaluated but insufficient alone. Run IDs are unique per run, so a re-run of the *same* workflow would have a *different* run ID and would not be recognized as a duplicate. Event IDs are the right discriminator because they identify the triggering event, not the workflow execution.
+**Unique run IDs from GitHub (`github.run_id`)** — evaluated but insufficient alone. Run IDs are unique per run, so a re-run of the _same_ workflow would have a _different_ run ID and would not be recognized as a duplicate. Event IDs are the right discriminator because they identify the triggering event, not the workflow execution.
 
 **Jira transition status as deduplication signal** — rejected because agents cannot rely on ticket column state as a proxy for "work done." A ticket may have been manually moved back, or a transition may have failed after the agent completed its work.
