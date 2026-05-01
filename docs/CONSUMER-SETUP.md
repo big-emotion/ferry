@@ -279,10 +279,77 @@ If **all** of these check, the install is complete.
 
 ## Phase 7 — Post-install hardening (recommended)
 
-1. **Anthropic cost cap:** https://console.anthropic.com/settings/limits → set a monthly cap (e.g., $50). Ferry has no internal spend governance yet, so this is your only hard ceiling.
+1. **Anthropic cost cap:** https://console.anthropic.com/settings/limits → set a monthly cap (e.g., $50) as a hard ceiling independent of Ferry's internal governance.
 2. **CODEOWNERS:** Add `.github/workflows/ferry-* @your-handle` to prevent unauthorized edits to the stubs.
 3. **Branch protection on `main`:** Require PR review + green CI before merge. Ferry opens drafts — you remain the last barrier.
 4. **SHA renewal:** Every 1–2 months, redo step 3.2 to bump the pinned SHA. Or configure Dependabot via `package-ecosystem: github-actions`.
+
+### 7.5 — Stale-ticket reconciler (every 30 min)
+
+The reconciler sweeps all Ferry-managed tickets and re-triggers any that have stalled — for example, a `repository_dispatch` that was dropped or a ticket whose Jira column drifted out of sync with its state file.
+
+**Install:**
+
+```bash
+curl -fsSL "https://raw.githubusercontent.com/big-emotion/ferry/main/examples/consumer-setup/workflows/ferry-reconcile.yml" \
+  -o ".github/workflows/ferry-reconcile.yml"
+git add .github/workflows/ferry-reconcile.yml
+git commit -m "chore(ferry): add reconciler scheduled workflow"
+git push
+```
+
+**Required variables (already set in Phase 2.3):** `FERRY_AUDIT_ISSUE`
+
+**Optional variables:**
+
+```bash
+# Set to your Jira project key (e.g. "CHAN") to sweep ALL tickets in active
+# Ferry columns — not just tickets with local state files. Without this,
+# the reconciler only re-checks tickets it can find via .ferry/ state files.
+gh variable set FERRY_JIRA_PROJECT --body "CHAN"
+```
+
+**Required secrets (only if FERRY_JIRA_PROJECT is set):** `FERRY_JIRA_BASE_URL`, `FERRY_JIRA_EMAIL`, `FERRY_JIRA_API_TOKEN` — already set in Phase 2.3.
+
+**Schedule:** every 30 minutes (configurable — edit the `cron` expression in `ferry-reconcile.yml`).
+
+**Opt-out:** delete `ferry-reconcile.yml` from `.github/workflows/`. Consumers who prefer to re-trigger stalled tickets manually do not need this workflow.
+
+**Permissions required (added automatically by the stub):** `contents: read`, `issues: write`, `actions: write`.
+
+### 7.6 — Daily cost check (06:00 UTC)
+
+The daily cost check reads accumulated `cost_eur` values from the Ferry audit issue, groups them by LLM provider, and fires a `ferry:paused` alert when any provider crosses 50% of the configured monthly cap.
+
+**Install:**
+
+```bash
+curl -fsSL "https://raw.githubusercontent.com/big-emotion/ferry/main/examples/consumer-setup/workflows/ferry-cost-daily.yml" \
+  -o ".github/workflows/ferry-cost-daily.yml"
+git add .github/workflows/ferry-cost-daily.yml
+git commit -m "chore(ferry): add daily cost-check scheduled workflow"
+git push
+```
+
+**Required variables:**
+
+```bash
+# Monthly spend cap in EUR. Alerts fire at 50% of this value.
+# Default if not set: 200 EUR.
+gh variable set FERRY_SPEND_CAP_EUR --body "200"
+```
+
+**What happens when the 50% threshold is crossed:**
+
+1. A `[ferry:cost-check:daily]` comment is posted on the audit issue listing each provider over the threshold.
+2. If Jira credentials are configured, the `ferry:paused` label is added to all active Jira tickets — agents will not advance them further until the label is removed.
+3. Removing the `ferry:paused` label and manually re-triggering a ticket resumes normal operation.
+
+**Schedule:** daily at 06:00 UTC (configurable — edit the `cron` expression in `ferry-cost-daily.yml`).
+
+**Opt-out:** delete `ferry-cost-daily.yml`. Without this workflow, the only hard cost ceiling is the manual cap set in the Anthropic console (Phase 7, item 1).
+
+**Permissions required:** `contents: read`, `issues: write`.
 
 ---
 
@@ -291,7 +358,7 @@ If **all** of these check, the install is complete.
 | Issue | Status |
 |---|---|
 | `@v1` tag must exist before install guide works | Required for release — tag must be cut before distributing this guide |
-| Stale-ticket reconciler sweep | Not yet implemented (Story 8.3) — consumers must manually re-trigger stalled tickets for now |
+| Stale-ticket reconciler sweep | Implemented — see Phase 7.5. Wired via `ferry-reconcile.yml` (issue #79). |
 | `.ferry/` agent scripts in consumer workspace | Tracked in #71 — workflows currently read agent scripts from Ferry repo checkout |
 | Anthropic Agent SDK support | Planned — current LLM call site uses the Anthropic Messages API; Agent SDK is the next roadmap item |
 
