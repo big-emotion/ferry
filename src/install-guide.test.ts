@@ -46,10 +46,14 @@ describe('Phase 3 — consumer workflow stubs (install-guide §3.1)', () => {
   }
 
   for (const stub of coreStubs) {
-    it(`${stub}.yml references @v1 (not @main)`, async () => {
+    it(`${stub}.yml references @v0.1.0 (not @main)`, async () => {
       const content = await readFile(`examples/consumer-setup/workflows/${stub}.yml`);
-      expect(content, `${stub}.yml must pin to @v1 — @main is mutable and insecure`).toMatch(/@v1/);
-      expect(content, `${stub}.yml must not use @main (use @v1 or a SHA)`).not.toMatch(/@main/);
+      expect(content, `${stub}.yml must pin to @v0.1.0 — @main is mutable and insecure`).toMatch(
+        /@v0\.1\.0\b/,
+      );
+      expect(content, `${stub}.yml must not use @main (use a release tag or a SHA)`).not.toMatch(
+        /@main/,
+      );
     });
   }
 
@@ -318,7 +322,7 @@ describe('Phase 2 — audit issue creation (install-guide §2.1)', () => {
 describe('Phase 3 — no @main in consumer stubs (install-guide §3.2)', () => {
   it('CONSUMER-SETUP.md does not tell users to use @main workflow refs', async () => {
     const doc = await readFile('docs/CONSUMER-SETUP.md');
-    // The doc must not say stubs use @main (they use @v1)
+    // The doc must not say stubs use @main (they use @v0.1.0)
     expect(doc).not.toMatch(/uses.*@main/);
     expect(doc).not.toContain('always use the latest version automatically');
   });
@@ -332,7 +336,7 @@ describe('Phase 3 — SHA pinning instructions (install-guide §3.2)', () => {
   it('CONSUMER-SETUP.md includes SHA pinning instructions using gh api', async () => {
     const doc = await readFile('docs/CONSUMER-SETUP.md');
     expect(doc, 'CONSUMER-SETUP.md must show SHA pinning via gh api').toContain(
-      'gh api repos/big-emotion/ferry/git/refs/tags/v1',
+      'gh api repos/big-emotion/ferry/git/refs/tags/v0.1.0',
     );
   });
 });
@@ -360,7 +364,29 @@ describe('Phase 5 — Ferry never merges (install-guide §5.6)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 15. Phase 7 — Ops workflow stubs (reconciler and cost daily-check)
+// 15. Internal workflows must not pin ferry-* composite actions to @main
+//     CI gate for supply-chain security (issue #77)
+// ---------------------------------------------------------------------------
+
+describe('Supply-chain — no @main refs in internal workflows (issue #77)', () => {
+  const agentWorkflows = ['refine', 'dev', 'review', 'iterate'];
+
+  for (const wf of agentWorkflows) {
+    it(`.github/workflows/${wf}.yml has no ferry-*@main composite action references`, async () => {
+      const content = await readFile(`.github/workflows/${wf}.yml`);
+      const mainRefs = [...content.matchAll(/uses:\s+big-emotion\/ferry\/.+@main/g)].map(
+        (m) => m[0],
+      );
+      expect(
+        mainRefs,
+        `${wf}.yml must not reference ferry-* composite actions at @main — pin to a release tag (e.g. @v0.1.0) instead`,
+      ).toHaveLength(0);
+    });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 16. Phase 7 — Ops workflow stubs (reconciler and cost daily-check)
 // ---------------------------------------------------------------------------
 
 describe('Phase 7 — ops workflow stubs (install-guide §7.5 and §7.6)', () => {
@@ -444,7 +470,7 @@ describe('Phase 7 — ops workflow stubs (install-guide §7.5 and §7.6)', () =>
 });
 
 // ---------------------------------------------------------------------------
-// 16. Bundle drift CI gate — ferry-ci.yml must run check:bundle
+// 17. Bundle drift CI gate — ferry-ci.yml must run check:bundle
 // ---------------------------------------------------------------------------
 
 describe('CI gate — bundle drift check (ferry-ci.yml)', () => {
@@ -460,7 +486,7 @@ describe('CI gate — bundle drift check (ferry-ci.yml)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 17. npm audit (audit:ci) is wired into ferry-ci.yml — issue #105
+// 18. npm audit (audit:ci) is wired into ferry-ci.yml — issue #105
 // ---------------------------------------------------------------------------
 
 describe('supply-chain — npm audit step in ferry-ci.yml (issue #105)', () => {

@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-01
 **Scope:** end-to-end audit of the Ferry codebase, CI, docs and operations against production-readiness criteria, with a special focus on security.
-**Verdict:** **7.2 / 10 — release-candidate quality, distance to `v1` is now a focused release-engineering job.**
+**Verdict:** **7.2 / 10 — release-candidate quality, distance to `v0.1.0` is now a focused release-engineering job.**
 **Target:** **8–9 / 10**, addressed by the residual actions in §5.
 
 ---
@@ -20,10 +20,10 @@ No runtime traffic, no GitHub/Jira/LLM API calls.
 
 ### Top-line answers (the four canonical questions)
 
-1. **Is the project production-ready?** **Conditional.** All quality gates are green and security posture is strong, but three release-engineering blockers remain: (a) tag `v1` does not exist, (b) every internal composite action is referenced by `@main` (mutable), (c) `package.json` is `0.0.1` / `private: true` and there is no `CHANGELOG.md`. Until these land, `docs/CONSUMER-SETUP.md` Phase 3.2 (`gh api .../tags/v1`) cannot run and consumers cannot pin a stable cut.
-2. **Can a consumer install and reach the full Jira → PR-approved cycle?** **Almost — blocked on the `v1` tag.** `ferry-init` and `ferry-doctor` are wired; six consumer workflow stubs exist (`examples/consumer-setup/workflows/ferry-{refine,dev,review,iterate,reconcile,cost-daily}.yml`); the three auto-transitions (FR18, FR24, FR28) are unit-tested and now exercised by the mocked end-to-end pipeline test (`src/e2e/pipeline.test.ts`, 437 lines, 11 describe blocks). Every stub pins `FERRY_REF: v1` — so the install procedure is correct on paper but cannot be executed today because no such ref is published.
-3. **Security posture?** Strong, with one residual supply-chain weakness. Strict AJV schema validation, `execFileSync`-only shell calls, CodeQL + npm audit + gitleaks in CI, explicit per-job `permissions:` blocks across every workflow, secret-scan before every dev commit, no `@octokit/rest` or Jira imports under `src/agents/**` (lint-enforced + tested). Residual gap: internal `big-emotion/ferry/.github/actions/ferry-*@main` pins are mutable and provide a self-replication path for a compromised maintainer.
-4. **Is the score close to 8–9/10?** Computed score is **7.2** (up from 5.6). Three actions close most of the distance: cut and pin `v1`, replace `@main` with `@v1`/SHA in the four agent workflows, and add a `CHANGELOG.md` + release workflow. Reaching 8.5+ also requires audit-issue rotation and `harden-runner` egress allowlisting.
+1. **Is the project production-ready?** **Conditional.** All quality gates are green and security posture is strong, but two release-engineering blockers remain: (a) tag `v0.1.0` does not exist, (b) `package.json` is still `private: true` and there is no `CHANGELOG.md`. The internal composite-action `@main` pins have been replaced with `@v0.1.0`, but the tag itself has not yet been cut. Until these land, `docs/CONSUMER-SETUP.md` Phase 3.2 (`gh api .../tags/v0.1.0`) cannot run and consumers cannot pin a stable cut.
+2. **Can a consumer install and reach the full Jira → PR-approved cycle?** **Almost — blocked on the `v0.1.0` tag.** `ferry-init` and `ferry-doctor` are wired; six consumer workflow stubs exist (`examples/consumer-setup/workflows/ferry-{refine,dev,review,iterate,reconcile,cost-daily}.yml`); the three auto-transitions (FR18, FR24, FR28) are unit-tested and now exercised by the mocked end-to-end pipeline test (`src/e2e/pipeline.test.ts`, 437 lines, 11 describe blocks). Every stub pins `FERRY_REF: v0.1.0` — so the install procedure is correct on paper but cannot be executed today because no such ref is published.
+3. **Security posture?** Strong. Strict AJV schema validation, `execFileSync`-only shell calls, CodeQL + npm audit + gitleaks in CI, explicit per-job `permissions:` blocks across every workflow, secret-scan before every dev commit, no `@octokit/rest` or Jira imports under `src/agents/**` (lint-enforced + tested). Internal composite actions are now pinned to `@v0.1.0` (no longer `@main`); the supply-chain self-replication risk is closed once the tag is cut.
+4. **Is the score close to 8–9/10?** Computed score is **7.2** (up from 5.6). Three actions close most of the distance: cut and pin `v0.1.0`, replace `@main` with `@v0.1.0`/SHA in the four agent workflows, and add a `CHANGELOG.md` + release workflow. Reaching 8.5+ also requires audit-issue rotation and `harden-runner` egress allowlisting.
 
 ---
 
@@ -98,8 +98,7 @@ Mean = **7.21 / 10**.
 
 **Weaknesses**
 
-- **Internal composite actions referenced by `@main`** in every agent workflow: `big-emotion/ferry/.github/actions/{ferry-envelope-validate,ferry-run-{refiner,developer,reviewer,iterator},ferry-emit-audit}@main` — confirmed by `grep -RnE "uses:\s*big-emotion/ferry"`. A push to `main` immediately runs in every consumer install. **This is the single largest residual supply-chain risk.**
-- **Tag `v1` does not exist** (`git tag` returns empty). `CONSUMER-SETUP.md` Phase 3.2 and every stub workflow's `FERRY_REF: v1` cannot resolve.
+- **Tag `v0.1.0` does not exist** (`git tag` returns empty). All four agent workflows now reference `big-emotion/ferry/.github/actions/ferry-*@v0.1.0` (no longer `@main`), and every consumer-setup stub uses `FERRY_REF: v0.1.0`, but none can resolve until the tag is cut.
 - No commit signing, no SLSA provenance, no attestations.
 - No SBOM, no OSSF Scorecard.
 
@@ -263,12 +262,12 @@ Mean = **7.21 / 10**.
 
 **Blockers** (the focal area for the next milestone):
 
-- **Tag `v1` does not exist.** Every consumer-setup stub uses `FERRY_REF: v1` and `CONSUMER-SETUP.md` Phase 3.2 calls `gh api .../tags/v1` — neither can run.
-- `package.json`: `"version": "0.0.1"`, `"private": true` — must change to publish (or to allow `git tag v1` to mean something).
+- **Tag `v0.1.0` does not exist.** Every consumer-setup stub uses `FERRY_REF: v0.1.0` and `CONSUMER-SETUP.md` Phase 3.2 calls `gh api .../tags/v0.1.0` — neither can run until the tag is cut.
+- `package.json`: `"version": "0.1.0"`, `"private": true` — `private` must be lifted to publish (or to allow `git tag v0.1.0` to mean something).
 - **No `CHANGELOG.md`** at the repo root.
 - No release workflow (build + version bump + tag + GitHub release notes).
 - No documented versioning policy (semver? floating `v1` vs pinned?).
-- **Internal composite actions still referenced by `@main`** — see §4.2.
+- **Tag `v0.1.0` not yet cut** — internal composite actions and consumer stubs all reference `@v0.1.0`, but `git tag` is empty so none of these refs resolve. See §4.2.
 
 **Strengths**
 
@@ -297,18 +296,18 @@ Mean = **7.21 / 10**.
 
 Twelve of the previous fifteen actions have landed (see §6). The residual list — the actions that take the score from 7.2 to 8+:
 
-| Order | Action                                                                                                   | Domain       | Score before | Priority | Effort |
-| ----- | -------------------------------------------------------------------------------------------------------- | ------------ | ------------ | -------- | ------ |
-| 1     | Cut tag `v1`, lift `private: true`, bump version to `1.0.0`, add release workflow                        | Release      | 2.5          | **P0**   | M      |
-| 2     | Replace `big-emotion/ferry/.github/actions/ferry-*@main` with `@v1` (or SHA) in the four agent workflows | Supply chain | 7.0          | **P0**   | S      |
-| 3     | Add `CHANGELOG.md` (Keep a Changelog format) and wire `ferry-release` skill to maintain it               | Docs/Release | 8.5 / 2.5    | **P0**   | S      |
-| 4     | Audit-issue rotation when comments approach the 1000-comment cap                                         | Reliability  | 8.0          | **P1**   | M      |
-| 5     | Add `harden-runner` egress allowlist to dev/iterate workflows                                            | GH Actions   | 7.5          | **P1**   | S      |
-| 6     | Add e2e idempotency replay (same `event_id` twice → same outcome, no duplicate writes)                   | E2E          | 7.0          | **P1**   | M      |
-| 7     | Add `octokit.rest.pulls.merge` lint ban + test for the "no-auto-merge" invariant                         | App security | 8.5          | **P2**   | S      |
-| 8     | On-call runbook (`docs/RUNBOOK.md`): stalled ticket, cost spike, agent loop runaway                      | Operations   | 5.5          | **P2**   | M      |
-| 9     | OSSF Scorecard + SLSA provenance on the release workflow                                                 | Supply chain | 7.0          | **P2**   | M      |
-| 10    | Migrate `GITHUB_TOKEN` to a fine-grained GitHub App with least-privilege scopes                          | GH Actions   | 7.5          | **P2**   | L      |
+| Order | Action                                                                                                       | Domain       | Score before | Priority | Effort |
+| ----- | ------------------------------------------------------------------------------------------------------------ | ------------ | ------------ | -------- | ------ |
+| 1     | Cut tag `v0.1.0`, lift `private: true`, bump version to `1.0.0`, add release workflow                        | Release      | 2.5          | **P0**   | M      |
+| 2     | Replace `big-emotion/ferry/.github/actions/ferry-*@main` with `@v0.1.0` (or SHA) in the four agent workflows | Supply chain | 7.0          | **P0**   | S      |
+| 3     | Add `CHANGELOG.md` (Keep a Changelog format) and wire `ferry-release` skill to maintain it                   | Docs/Release | 8.5 / 2.5    | **P0**   | S      |
+| 4     | Audit-issue rotation when comments approach the 1000-comment cap                                             | Reliability  | 8.0          | **P1**   | M      |
+| 5     | Add `harden-runner` egress allowlist to dev/iterate workflows                                                | GH Actions   | 7.5          | **P1**   | S      |
+| 6     | Add e2e idempotency replay (same `event_id` twice → same outcome, no duplicate writes)                       | E2E          | 7.0          | **P1**   | M      |
+| 7     | Add `octokit.rest.pulls.merge` lint ban + test for the "no-auto-merge" invariant                             | App security | 8.5          | **P2**   | S      |
+| 8     | On-call runbook (`docs/RUNBOOK.md`): stalled ticket, cost spike, agent loop runaway                          | Operations   | 5.5          | **P2**   | M      |
+| 9     | OSSF Scorecard + SLSA provenance on the release workflow                                                     | Supply chain | 7.0          | **P2**   | M      |
+| 10    | Migrate `GITHUB_TOKEN` to a fine-grained GitHub App with least-privilege scopes                              | GH Actions   | 7.5          | **P2**   | L      |
 
 ### 5.1 Expected score after the plan
 
@@ -338,8 +337,8 @@ P0 alone is sufficient to clear the 8 / 10 bar.
 
 | #   | Action (prev. audit)                                              | Status   | Evidence                                                                             |
 | --- | ----------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------ |
-| 1   | Cut tag `v1`, add release workflow, lift `private: true`          | open     | `git tag` empty, `package.json` still `0.0.1` / `private`                            |
-| 2   | Pin all internal `ferry-*@main` refs                              | open     | every agent workflow still uses `@main`                                              |
+| 1   | Cut tag `v0.1.0`, add release workflow, lift `private: true`      | partial  | `package.json` bumped to `0.1.0` (still `private`); `git tag` empty                  |
+| 2   | Pin all internal `ferry-*@main` refs                              | **done** | all four agent workflows now reference `ferry-*@v0.1.0`                              |
 | 3   | Explicit `permissions:` on every job                              | **done** | `grep -nE "permissions:" .github/workflows/*.yml` confirms                           |
 | 4   | Wire reconciler and `daily-check` to scheduled workflows          | **done** | `examples/consumer-setup/workflows/ferry-{reconcile,cost-daily}.yml`                 |
 | 5   | Mocked end-to-end test refine→dev→review→iterate                  | **done** | `src/e2e/pipeline.test.ts` (437 LOC, 11 describes)                                   |
