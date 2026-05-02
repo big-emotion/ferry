@@ -110,6 +110,11 @@ Ferry reads the config file from `GITHUB_WORKSPACE` (the checked-out repo root) 
     "refine_allowlist": ["Story", "Bug", "Spike"],
     "dev_allowlist": ["Story", "Bug", "Spike"]
   },
+  "git": {
+    "base_branch": null,
+    "target_branch": null,
+    "working_branch_prefix": "ferry/"
+  },
   "labels": {
     "ferry:mcp/context7": {
       "mcp_servers": ["context7"]
@@ -170,6 +175,26 @@ Controls which Jira issue types Ferry will process.
 | ------------------------------- | --------------------------- | ------------------------------------------------------------------------------ |
 | `ticket_types.refine_allowlist` | `["Story", "Bug", "Spike"]` | Jira issue types the Refiner will process. Tickets of other types are skipped. |
 | `ticket_types.dev_allowlist`    | `["Story", "Bug", "Spike"]` | Jira issue types the Developer will process.                                   |
+
+#### `git`
+
+Controls the Git branching strategy used by the Developer and Iterator agents. All three fields default to values that work without any configuration — omit this section entirely to use the defaults.
+
+| Field                       | Default    | Description                                                                                                                                            |
+| --------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `git.base_branch`           | `null`     | Branch the Developer checks out from when creating a working branch. `null` resolves to the repository's default branch at runtime via the GitHub API. |
+| `git.target_branch`         | `null`     | Branch the PR is opened against. `null` defaults to the same branch as `base_branch`.                                                                  |
+| `git.working_branch_prefix` | `"ferry/"` | Prefix for working branches created by the Developer agent (e.g., `ferry/PROJ-123`). Must be a non-empty string.                                       |
+
+Teams using `develop`, `next`, `release/*`, or any other integration branch as their default should set `base_branch` to that branch name. If `target_branch` differs (e.g., PRs target a staging branch while work branches off `main`), set it explicitly.
+
+```yaml
+# ferry.config.yaml — teams using a non-default integration branch
+git:
+  base_branch: develop # branch to check out from
+  target_branch: develop # branch PRs are opened against (omit to default to base_branch)
+  working_branch_prefix: ferry/
+```
 
 #### `labels`
 
@@ -240,7 +265,6 @@ The following are intentionally not configurable by consumers:
 
 | Parameter                                        | Why hardcoded                                                                                                       |
 | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
-| Branch naming (`ferry/<ticket-key>`)             | Required by Ferry's state logic                                                                                     |
 | PR/comment fingerprint formats                   | Required for idempotency                                                                                            |
 | Internal workflow defaults for Refiner/Developer | Set via `ferry.config.json`; use the `models.*` fields or `FERRY_*_MODEL` / `FERRY_*_PROVIDER` env vars to override |
 | Audit issue comment format                       | Required for deduplication                                                                                          |
@@ -260,6 +284,9 @@ ferry.config.json defaults
          FERRY_REVIEW_PROVIDER, FERRY_REVIEW_MODEL,
          FERRY_ITER_PROVIDER, FERRY_ITER_MODEL,
          FERRY_ITER_MAX_INPUT_TOKENS)
+
+git.base_branch / git.target_branch (when null)
+  → resolved from GitHub API (repo default_branch) at runtime
 ```
 
 Secrets (`ANTHROPIC_API_KEY`, `FERRY_OPENAI_KEY`, `FERRY_GOOGLE_AI_KEY`) are credentials only — they do not participate in model or limit configuration.

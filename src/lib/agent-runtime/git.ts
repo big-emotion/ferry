@@ -54,10 +54,10 @@ export function checkoutExistingBranch(branchName: string, repoRoot: string): 'o
   }
 }
 
-export function fetchAndMergeMain(repoRoot: string): string[] {
-  execFileSync('git', ['fetch', 'origin', 'main'], { cwd: repoRoot });
+export function fetchAndMergeBase(baseBranch: string, repoRoot: string): string[] {
+  execFileSync('git', ['fetch', 'origin', baseBranch], { cwd: repoRoot });
   try {
-    execFileSync('git', ['merge', 'origin/main', '--no-edit'], { cwd: repoRoot });
+    execFileSync('git', ['merge', `origin/${baseBranch}`, '--no-edit'], { cwd: repoRoot });
     return [];
   } catch {
     return execSync('git diff --name-only --diff-filter=U', { cwd: repoRoot, encoding: 'utf8' })
