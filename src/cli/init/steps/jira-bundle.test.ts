@@ -16,123 +16,91 @@ import { buildJiraBundle, stepJiraBundle } from './jira-bundle.js';
 const WORKSPACE_ID = '75eb33f5-5dd0-4328-b0e6-8bb3f4e0af91';
 const PROJECT_ID = '10033';
 
-describe('stepJiraBundle', () => {
-  let tmpDir: string;
-
-  afterEach(() => {
-    rmSync(tmpDir, { recursive: true, force: true });
-    vi.clearAllMocks();
+describe('buildJiraBundle', () => {
+  it('returns cloud:true at top level with no version or type fields', () => {
+    const bundle = buildJiraBundle('owner', 'repo', WORKSPACE_ID, PROJECT_ID);
+    expect(bundle.cloud).toBe(true);
+    expect(bundle).not.toHaveProperty('version');
+    expect(bundle).not.toHaveProperty('type');
   });
 
-  it('writes ferry-jira-automation-rules.json to the repo root', () => {
-    tmpDir = mkdtempSync(join(tmpdir(), 'ferry-jb-test-'));
-    const result = stepJiraBundle(tmpDir, 'acme-corp', 'acme-app', WORKSPACE_ID, PROJECT_ID);
-    expect(result.ok).toBe(true);
-    const outPath = join(tmpDir, 'ferry-jira-automation-rules.json');
-    expect(() => readFileSync(outPath, 'utf8')).not.toThrow();
-  });
-
-  it('output file contains valid JSON', () => {
-    tmpDir = mkdtempSync(join(tmpdir(), 'ferry-jb-json-'));
-    stepJiraBundle(tmpDir, 'acme-corp', 'acme-app', WORKSPACE_ID, PROJECT_ID);
-    const content = readFileSync(join(tmpDir, 'ferry-jira-automation-rules.json'), 'utf8');
-    expect(() => JSON.parse(content)).not.toThrow();
-  });
-
-  it('output JSON contains 4 automation rules', () => {
-    tmpDir = mkdtempSync(join(tmpdir(), 'ferry-jb-rules-'));
-    stepJiraBundle(tmpDir, 'acme-corp', 'acme-app', WORKSPACE_ID, PROJECT_ID);
-    const content = readFileSync(join(tmpDir, 'ferry-jira-automation-rules.json'), 'utf8');
-    const bundle = JSON.parse(content) as { rules: unknown[] };
+  it('returns 4 rules', () => {
+    const bundle = buildJiraBundle('owner', 'repo', WORKSPACE_ID, PROJECT_ID);
     expect(bundle.rules).toHaveLength(4);
+  });
+
+  it('each rule uses components array with correct action type', () => {
+    const bundle = buildJiraBundle('owner', 'repo', WORKSPACE_ID, PROJECT_ID);
+    for (const rule of bundle.rules) {
+      expect(rule).not.toHaveProperty('actions');
+      expect(rule.components).toHaveLength(1);
+      expect(rule.components[0]?.component).toBe('ACTION');
+      expect(rule.components[0]?.type).toBe('jira.issue.outgoing.webhook');
+    }
+  });
+
+  it('trigger uses real Jira Cloud component/type format', () => {
+    const bundle = buildJiraBundle('owner', 'repo', WORKSPACE_ID, PROJECT_ID);
+    for (const rule of bundle.rules) {
+      expect(rule.trigger.component).toBe('TRIGGER');
+      expect(rule.trigger.type).toBe('jira.issue.event.trigger:transitioned');
+      expect(rule.trigger.schemaVersion).toBe(1);
+    }
+  });
+
+  it('trigger toStatus is an array of NAME objects', () => {
+    const bundle = buildJiraBundle('owner', 'repo', WORKSPACE_ID, PROJECT_ID);
+    const firstRule = bundle.rules[0]!;
+    expect(Array.isArray(firstRule.trigger.value.toStatus)).toBe(true);
+    expect(firstRule.trigger.value.toStatus[0]).toEqual({ type: 'NAME', value: 'Refinement' });
+  });
+
+  it('trigger value has required event fields', () => {
+    const bundle = buildJiraBundle('owner', 'repo', WORKSPACE_ID, PROJECT_ID);
+    for (const rule of bundle.rules) {
+      expect(rule.trigger.value.eventKey).toBe('jira:issue_updated');
+      expect(rule.trigger.value.issueEvent).toBe('issue_generic');
+      expect(Array.isArray(rule.trigger.value.eventFilters)).toBe(true);
+    }
+  });
+
+  it('action uses contentType:custom with customBody', () => {
+    const bundle = buildJiraBundle('owner', 'repo', WORKSPACE_ID, PROJECT_ID);
+    for (const rule of bundle.rules) {
+      const action = rule.components[0]!;
+      expect(action.value.contentType).toBe('custom');
+      expect(typeof action.value.customBody).toBe('string');
+      expect(() => JSON.parse(action.value.customBody)).not.toThrow();
+    }
+  });
+
+  it('Authorization header has headerSecure:true', () => {
+    const bundle = buildJiraBundle('owner', 'repo', WORKSPACE_ID, PROJECT_ID);
+    for (const rule of bundle.rules) {
+      const headers = rule.components[0]!.value.headers;
+      const authHeader = headers.find((h) => h.name === 'Authorization');
+      expect(authHeader).toBeDefined();
+      expect(authHeader?.headerSecure).toBe(true);
+    }
+  });
+
+  it('non-auth headers have headerSecure:false', () => {
+    const bundle = buildJiraBundle('owner', 'repo', WORKSPACE_ID, PROJECT_ID);
+    const headers = bundle.rules[0]!.components[0]!.value.headers;
+    for (const h of headers) {
+      if (h.name !== 'Authorization') {
+        expect(h.headerSecure).toBe(false);
+      }
+    }
   });
 
   it('dispatch URL uses correct owner and repo', () => {
-    tmpDir = mkdtempSync(join(tmpdir(), 'ferry-jb-url-'));
-    stepJiraBundle(tmpDir, 'my-owner', 'my-repo', WORKSPACE_ID, PROJECT_ID);
-    const content = readFileSync(join(tmpDir, 'ferry-jira-automation-rules.json'), 'utf8');
-    expect(content).toContain('https://api.github.com/repos/my-owner/my-repo/dispatches');
-  });
-
-  it('output file ends with a newline', () => {
-    tmpDir = mkdtempSync(join(tmpdir(), 'ferry-jb-nl-'));
-    stepJiraBundle(tmpDir, 'acme-corp', 'acme-app', WORKSPACE_ID, PROJECT_ID);
-    const content = readFileSync(join(tmpDir, 'ferry-jira-automation-rules.json'), 'utf8');
-    expect(content.endsWith('\n')).toBe(true);
-  });
-
-  it('output contains real ARI in ruleScope', () => {
-    tmpDir = mkdtempSync(join(tmpdir(), 'ferry-jb-ari-'));
-    stepJiraBundle(tmpDir, 'acme-corp', 'acme-app', WORKSPACE_ID, PROJECT_ID);
-    const content = readFileSync(join(tmpDir, 'ferry-jira-automation-rules.json'), 'utf8');
-    expect(content).toContain(`ari:cloud:jira:${WORKSPACE_ID}:project/${PROJECT_ID}`);
-  });
-});
-
-describe('buildJiraBundle', () => {
-  it('produces exactly 4 rules', () => {
-    const bundle = buildJiraBundle('acme-corp', 'acme-app', WORKSPACE_ID, PROJECT_ID);
-    expect(bundle.rules).toHaveLength(4);
-  });
-
-  it('sets cloud, version, type metadata', () => {
-    const bundle = buildJiraBundle('acme-corp', 'acme-app', WORKSPACE_ID, PROJECT_ID);
-    expect(bundle.cloud).toBe(true);
-    expect(bundle.version).toBe(1);
-    expect(bundle.type).toBe('AUTOMATION');
-  });
-
-  it('uses the correct dispatch URL for all rules', () => {
-    const bundle = buildJiraBundle('my-org', 'my-repo', WORKSPACE_ID, PROJECT_ID);
-    const expected = 'https://api.github.com/repos/my-org/my-repo/dispatches';
+    const bundle = buildJiraBundle('my-owner', 'my-repo', WORKSPACE_ID, PROJECT_ID);
     for (const rule of bundle.rules) {
-      expect(rule.actions[0]?.value.url).toBe(expected);
+      expect(rule.components[0]!.value.url).toBe(
+        'https://api.github.com/repos/my-owner/my-repo/dispatches',
+      );
     }
-  });
-
-  it('uses the four Ferry event types', () => {
-    const bundle = buildJiraBundle('acme-corp', 'acme-app', WORKSPACE_ID, PROJECT_ID);
-    const bodies = bundle.rules.map(
-      (r) => JSON.parse(r.actions[0]?.value.body ?? '{}') as { event_type: string },
-    );
-    const eventTypes = bodies.map((b) => b.event_type);
-    expect(eventTypes).toContain('ferry-refine');
-    expect(eventTypes).toContain('ferry-dev');
-    expect(eventTypes).toContain('ferry-review');
-    expect(eventTypes).toContain('ferry-iterate');
-  });
-
-  it('includes {{issue.key}} in each rule body', () => {
-    const bundle = buildJiraBundle('acme-corp', 'acme-app', WORKSPACE_ID, PROJECT_ID);
-    for (const rule of bundle.rules) {
-      const body = JSON.parse(rule.actions[0]?.value.body ?? '{}') as {
-        client_payload: { ticket_key: string };
-      };
-      expect(body.client_payload.ticket_key).toBe('{{issue.key}}');
-    }
-  });
-
-  it('creates all rules in DISABLED state', () => {
-    const bundle = buildJiraBundle('acme-corp', 'acme-app', WORKSPACE_ID, PROJECT_ID);
-    for (const rule of bundle.rules) {
-      expect(rule.state).toBe('DISABLED');
-    }
-  });
-
-  it('triggers on ISSUE_TRANSITIONED', () => {
-    const bundle = buildJiraBundle('acme-corp', 'acme-app', WORKSPACE_ID, PROJECT_ID);
-    for (const rule of bundle.rules) {
-      expect(rule.trigger.type).toBe('ISSUE_TRANSITIONED');
-    }
-  });
-
-  it('maps phases to correct Jira column names', () => {
-    const bundle = buildJiraBundle('acme-corp', 'acme-app', WORKSPACE_ID, PROJECT_ID);
-    const statuses = bundle.rules.map((r) => r.trigger.value.toStatus.name);
-    expect(statuses).toContain('Refinement');
-    expect(statuses).toContain('In Development');
-    expect(statuses).toContain('In Review');
-    expect(statuses).toContain('Iteration');
   });
 
   it('stamps real ARI into ruleScope.resources for every rule', () => {
@@ -158,5 +126,83 @@ describe('buildJiraBundle', () => {
         'ari:cloud:jira:YOUR_WORKSPACE_ID:project/YOUR_PROJECT_ID',
       );
     }
+  });
+});
+
+describe('stepJiraBundle', () => {
+  let tmpDir: string;
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+    vi.clearAllMocks();
+  });
+
+  it('writes ferry-jira-automation-rules.beta.json (not .json)', () => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'ferry-jb-test-'));
+    const result = stepJiraBundle(tmpDir, 'acme-corp', 'acme-app', WORKSPACE_ID, PROJECT_ID);
+    expect(result.ok).toBe(true);
+    const betaPath = join(tmpDir, 'ferry-jira-automation-rules.beta.json');
+    expect(() => readFileSync(betaPath, 'utf8')).not.toThrow();
+    // old filename must NOT be created
+    expect(() => readFileSync(join(tmpDir, 'ferry-jira-automation-rules.json'), 'utf8')).toThrow();
+  });
+
+  it('writes ferry-jira-automation-setup.md manual fallback', () => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'ferry-jb-md-'));
+    stepJiraBundle(tmpDir, 'acme-corp', 'acme-app', WORKSPACE_ID, PROJECT_ID);
+    const mdPath = join(tmpDir, 'ferry-jira-automation-setup.md');
+    const content = readFileSync(mdPath, 'utf8');
+    expect(content).toContain('Manual Setup');
+    expect(content).toContain('acme-corp/acme-app');
+  });
+
+  it('JSON output is valid and contains 4 rules', () => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'ferry-jb-json-'));
+    stepJiraBundle(tmpDir, 'acme-corp', 'acme-app', WORKSPACE_ID, PROJECT_ID);
+    const content = readFileSync(join(tmpDir, 'ferry-jira-automation-rules.beta.json'), 'utf8');
+    expect(() => JSON.parse(content)).not.toThrow();
+    const bundle = JSON.parse(content) as { rules: unknown[] };
+    expect(bundle.rules).toHaveLength(4);
+  });
+
+  it('JSON output ends with a newline', () => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'ferry-jb-nl-'));
+    stepJiraBundle(tmpDir, 'acme-corp', 'acme-app', WORKSPACE_ID, PROJECT_ID);
+    const content = readFileSync(join(tmpDir, 'ferry-jira-automation-rules.beta.json'), 'utf8');
+    expect(content.endsWith('\n')).toBe(true);
+  });
+
+  it('markdown includes all 4 phase names', () => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'ferry-jb-phases-'));
+    stepJiraBundle(tmpDir, 'acme-corp', 'acme-app', WORKSPACE_ID, PROJECT_ID);
+    const content = readFileSync(join(tmpDir, 'ferry-jira-automation-setup.md'), 'utf8');
+    expect(content).toContain('Refinement');
+    expect(content).toContain('In Development');
+    expect(content).toContain('In Review');
+    expect(content).toContain('Iteration');
+  });
+
+  it('markdown does not contain a real Authorization token', () => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'ferry-jb-auth-'));
+    stepJiraBundle(tmpDir, 'acme-corp', 'acme-app', WORKSPACE_ID, PROJECT_ID);
+    const content = readFileSync(join(tmpDir, 'ferry-jira-automation-setup.md'), 'utf8');
+    // Must not contain a real GitHub PAT pattern (ghp_ prefix)
+    expect(content).not.toMatch(/ghp_[A-Za-z0-9]{36}/);
+    // Should only contain the placeholder
+    expect(content).toContain('YOUR_GITHUB_PAT_WITH_REPO_SCOPE');
+  });
+
+  it('dispatch URL uses correct owner and repo', () => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'ferry-jb-url-'));
+    stepJiraBundle(tmpDir, 'my-owner', 'my-repo', WORKSPACE_ID, PROJECT_ID);
+    const content = readFileSync(join(tmpDir, 'ferry-jira-automation-rules.beta.json'), 'utf8');
+    expect(content).toContain('https://api.github.com/repos/my-owner/my-repo/dispatches');
+  });
+
+  it('output contains real ARI in ruleScope', () => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'ferry-jb-ari-'));
+    stepJiraBundle(tmpDir, 'acme-corp', 'acme-app', WORKSPACE_ID, PROJECT_ID);
+    const content = readFileSync(join(tmpDir, 'ferry-jira-automation-rules.beta.json'), 'utf8');
+    expect(content).toContain(`ari:cloud:jira:${WORKSPACE_ID}:project/${PROJECT_ID}`);
   });
 });

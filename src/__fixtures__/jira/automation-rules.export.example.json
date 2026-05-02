@@ -1,0 +1,49 @@
+{
+  "cloud": true,
+  "rules": [
+    {
+      "name": "Ferry — Refine (column trigger)",
+      "state": "DISABLED",
+      "trigger": {
+        "component": "TRIGGER",
+        "type": "jira.issue.event.trigger:transitioned",
+        "value": {
+          "eventFilters": ["ari:cloud:jira:YOUR_WORKSPACE_ID:project/YOUR_PROJECT_ID"],
+          "fromStatus": [],
+          "toStatus": [{ "type": "NAME", "value": "Refinement" }],
+          "eventKey": "jira:issue_updated",
+          "issueEvent": "issue_generic"
+        },
+        "schemaVersion": 1
+      },
+      "components": [
+        {
+          "component": "ACTION",
+          "type": "jira.issue.outgoing.webhook",
+          "value": {
+            "url": "https://api.github.com/repos/YOUR_OWNER/YOUR_REPO/dispatches",
+            "method": "POST",
+            "contentType": "custom",
+            "customBody": "{\"event_type\":\"ferry-refine\",\"client_payload\":{\"phase\":\"refine\",\"ticket_key\":\"{{issue.key}}\",\"issue_type\":\"{{issue.issuetype.name}}\",\"actor\":\"{{initiator.displayName}}\",\"source\":\"jira-column\",\"ts\":\"{{now.format(\\\"yyyy-MM-dd'T'HH:mm:ssXXX\\\")}}\"}}",
+            "headers": [
+              { "name": "Accept", "value": "application/vnd.github+json", "headerSecure": false },
+              {
+                "name": "Authorization",
+                "value": "Bearer YOUR_GITHUB_PAT_WITH_REPO_SCOPE",
+                "headerSecure": true
+              },
+              { "name": "X-GitHub-Api-Version", "value": "2022-11-28", "headerSecure": false },
+              { "name": "Content-Type", "value": "application/json", "headerSecure": false }
+            ]
+          },
+          "schemaVersion": 1
+        }
+      ],
+      "ruleScope": { "resources": ["ari:cloud:jira:YOUR_WORKSPACE_ID:project/YOUR_PROJECT_ID"] },
+      "labels": [],
+      "tags": [],
+      "canOtherRuleTrigger": false,
+      "notifyOnError": "FIRSTERROR"
+    }
+  ]
+}
