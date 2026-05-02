@@ -14,7 +14,7 @@ import type { FerryConfig } from './types.js';
 
 const _require = createRequire(import.meta.url);
 const { version: pkgVersion } = _require('../../../package.json') as { version: string };
-const FERRY_VERSION_DEFAULT = `v${pkgVersion}`;
+const FERRY_VERSION_DEFAULT = 'v1';
 
 const TOTAL_STEPS = 5;
 
