@@ -148,6 +148,27 @@ describe('loadFerryConfig', () => {
   });
 
   describe('env var overrides', () => {
+    it('FERRY_REFINER_PROVIDER overrides config file provider', () => {
+      mockNoConfigFile();
+      vi.stubEnv('FERRY_REFINER_PROVIDER', 'openai');
+      const cfg = loadFerryConfig('/repo');
+      expect(cfg.models.refiner.provider).toBe('openai');
+    });
+
+    it('FERRY_REFINER_MODEL overrides config file model', () => {
+      mockNoConfigFile();
+      vi.stubEnv('FERRY_REFINER_MODEL', 'gpt-4.1');
+      const cfg = loadFerryConfig('/repo');
+      expect(cfg.models.refiner.model).toBe('gpt-4.1');
+    });
+
+    it('FERRY_DEV_PROVIDER overrides config file provider', () => {
+      mockNoConfigFile();
+      vi.stubEnv('FERRY_DEV_PROVIDER', 'google');
+      const cfg = loadFerryConfig('/repo');
+      expect(cfg.models.dev.provider).toBe('google');
+    });
+
     it('FERRY_DEV_MODEL overrides config file model', () => {
       mockConfigFile('ferry.config.json', JSON.stringify({}));
       vi.stubEnv('FERRY_DEV_MODEL', 'claude-haiku-4-5-20251001');
@@ -155,11 +176,25 @@ describe('loadFerryConfig', () => {
       expect(cfg.models.dev.model).toBe('claude-haiku-4-5-20251001');
     });
 
+    it('FERRY_REVIEW_PROVIDER overrides config file provider', () => {
+      mockNoConfigFile();
+      vi.stubEnv('FERRY_REVIEW_PROVIDER', 'openai');
+      const cfg = loadFerryConfig('/repo');
+      expect(cfg.models.review.provider).toBe('openai');
+    });
+
     it('FERRY_REVIEW_MODEL overrides config file model', () => {
       mockNoConfigFile();
       vi.stubEnv('FERRY_REVIEW_MODEL', 'claude-haiku-4-5-20251001');
       const cfg = loadFerryConfig('/repo');
       expect(cfg.models.review.model).toBe('claude-haiku-4-5-20251001');
+    });
+
+    it('FERRY_ITER_PROVIDER overrides config file provider', () => {
+      mockNoConfigFile();
+      vi.stubEnv('FERRY_ITER_PROVIDER', 'google');
+      const cfg = loadFerryConfig('/repo');
+      expect(cfg.models.iterate.provider).toBe('google');
     });
 
     it('FERRY_ITER_MODEL overrides config file model', () => {
@@ -214,6 +249,13 @@ describe('loadFerryConfig', () => {
       expect(cfg.limits.max_agent_iterations).toBe(
         DEFAULT_FERRY_CONFIG.limits.max_agent_iterations,
       );
+    });
+
+    it('ignores unknown FERRY_REFINER_PROVIDER values', () => {
+      mockNoConfigFile();
+      vi.stubEnv('FERRY_REFINER_PROVIDER', 'unknown-provider');
+      const cfg = loadFerryConfig('/repo');
+      expect(cfg.models.refiner.provider).toBe(DEFAULT_FERRY_CONFIG.models.refiner.provider);
     });
   });
 
@@ -409,7 +451,9 @@ describe('loadFerryConfig', () => {
       }
       expect(thrown).toBeInstanceOf(FerryError);
       const errors = thrown?.context?.errors as string[];
-      expect(errors.some((e) => e.includes('workflow.agents.developer.auto_transition'))).toBe(true);
+      expect(errors.some((e) => e.includes('workflow.agents.developer.auto_transition'))).toBe(
+        true,
+      );
     });
 
     it('throws on invalid trigger_column type', () => {

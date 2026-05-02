@@ -17,6 +17,7 @@ import {
 import type { EventEnvelopeV1 } from '../../lib/envelope/types.js';
 import type { Logger } from '../../lib/agent-runtime/index.js';
 import { isDryRun } from '../../lib/dry-run.js';
+import { FerryError } from '../../lib/errors/index.js';
 import { formatDeveloperCommit } from './commit.js';
 import { formatPullRequestTitle, formatPullRequestBody } from './pr.js';
 import {
@@ -43,9 +44,20 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
 
   const anthropicAuth = resolveAnthropicAuth({ apiKeyEnv: 'ANTHROPIC_API_KEY' });
   const { owner, repo, runner, tracker, ferryCfg } = createGitHubContext(REPO_ROOT);
+  const { provider: devProvider } = ferryCfg.models.dev;
+  if (devProvider !== 'anthropic') {
+    throw new FerryError('state-invariant', {
+      reason: 'unsupported-provider',
+      provider: devProvider,
+      phase: 'developer',
+      detail:
+        "The developer phase requires provider 'anthropic'. OpenAI and Google support for agentic phases is planned for a future release.",
+    });
+  }
   const devWorkflow = ferryCfg.workflow.agents.developer;
   const shouldAutoTransition = devWorkflow.auto_transition !== null;
-  const reviewTransitionId = (dryRun || !shouldAutoTransition) ? '' : requireEnv('FERRY_REVIEW_TRANSITION_ID');
+  const reviewTransitionId =
+    dryRun || !shouldAutoTransition ? '' : requireEnv('FERRY_REVIEW_TRANSITION_ID');
   const jiraBaseUrl = requireEnv('FERRY_JIRA_BASE_URL');
 
   const issue = await tracker.getIssue(ticketKey);
@@ -168,7 +180,7 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
         reason: done.reason_if_not_actionable ?? 'no reason given',
       });
     }
-    appendOutput({ ...usage, model });
+    appendOutput({ ...usage, model, provider: devProvider });
     process.exit(0);
   }
 
@@ -211,7 +223,7 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
         diff: diffOutput,
       });
       logger.info('DRY_RUN — skipped: git push, PR creation, Jira transition, Jira comment');
-      appendOutput({ ...usage, model });
+      appendOutput({ ...usage, model, provider: devProvider });
       process.exit(0);
     }
 
@@ -252,7 +264,7 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
     throw err;
   }
 
-  appendOutput({ ...usage, model });
+  appendOutput({ ...usage, model, provider: devProvider });
   process.exit(0);
 }
 

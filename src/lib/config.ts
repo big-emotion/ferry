@@ -431,19 +431,36 @@ function mergeWorkflow(rawWorkflow: unknown): WorkflowConfig {
   if (!w.agents || typeof w.agents !== 'object') return def;
   const agents = w.agents as Record<string, unknown>;
 
-  const str = (val: unknown, def: string): string =>
-    typeof val === 'string' ? val : def;
-  const strOrNull = (obj: Record<string, unknown>, key: string, def: string | null): string | null =>
-    key in obj ? (obj[key] === null ? null : typeof obj[key] === 'string' ? (obj[key] as string) : def) : def;
+  const str = (val: unknown, def: string): string => (typeof val === 'string' ? val : def);
+  const strOrNull = (
+    obj: Record<string, unknown>,
+    key: string,
+    def: string | null,
+  ): string | null =>
+    key in obj
+      ? obj[key] === null
+        ? null
+        : typeof obj[key] === 'string'
+          ? (obj[key] as string)
+          : def
+      : def;
 
-  const refinerRaw = agents.refiner && typeof agents.refiner === 'object'
-    ? (agents.refiner as Record<string, unknown>) : {};
-  const devRaw = agents.developer && typeof agents.developer === 'object'
-    ? (agents.developer as Record<string, unknown>) : {};
-  const revRaw = agents.reviewer && typeof agents.reviewer === 'object'
-    ? (agents.reviewer as Record<string, unknown>) : {};
-  const iterRaw = agents.iterator && typeof agents.iterator === 'object'
-    ? (agents.iterator as Record<string, unknown>) : {};
+  const refinerRaw =
+    agents.refiner && typeof agents.refiner === 'object'
+      ? (agents.refiner as Record<string, unknown>)
+      : {};
+  const devRaw =
+    agents.developer && typeof agents.developer === 'object'
+      ? (agents.developer as Record<string, unknown>)
+      : {};
+  const revRaw =
+    agents.reviewer && typeof agents.reviewer === 'object'
+      ? (agents.reviewer as Record<string, unknown>)
+      : {};
+  const iterRaw =
+    agents.iterator && typeof agents.iterator === 'object'
+      ? (agents.iterator as Record<string, unknown>)
+      : {};
 
   return {
     agents: {
@@ -458,10 +475,14 @@ function mergeWorkflow(rawWorkflow: unknown): WorkflowConfig {
       reviewer: {
         trigger_column: str(revRaw.trigger_column, def.agents.reviewer.trigger_column),
         auto_transition_approve: strOrNull(
-          revRaw, 'auto_transition_approve', def.agents.reviewer.auto_transition_approve,
+          revRaw,
+          'auto_transition_approve',
+          def.agents.reviewer.auto_transition_approve,
         ),
         auto_transition_changes: strOrNull(
-          revRaw, 'auto_transition_changes', def.agents.reviewer.auto_transition_changes,
+          revRaw,
+          'auto_transition_changes',
+          def.agents.reviewer.auto_transition_changes,
         ),
       },
       iterator: {
@@ -478,12 +499,31 @@ function applyEnvOverrides(cfg: FerryConfig): FerryConfig {
   const models = { ...cfg.models };
   const limits = { ...cfg.limits };
 
+  const providerFromEnv = (val: string | undefined): LlmRoute['provider'] | undefined => {
+    if (val === 'anthropic' || val === 'openai' || val === 'google') return val;
+    return undefined;
+  };
+
+  const refinerProvider = providerFromEnv(process.env.FERRY_REFINER_PROVIDER);
+  if (refinerProvider) models.refiner = { ...models.refiner, provider: refinerProvider };
+  if (process.env.FERRY_REFINER_MODEL) {
+    models.refiner = { ...models.refiner, model: process.env.FERRY_REFINER_MODEL };
+  }
+
+  const devProvider = providerFromEnv(process.env.FERRY_DEV_PROVIDER);
+  if (devProvider) models.dev = { ...models.dev, provider: devProvider };
   if (process.env.FERRY_DEV_MODEL) {
     models.dev = { ...models.dev, model: process.env.FERRY_DEV_MODEL };
   }
+
+  const reviewProvider = providerFromEnv(process.env.FERRY_REVIEW_PROVIDER);
+  if (reviewProvider) models.review = { ...models.review, provider: reviewProvider };
   if (process.env.FERRY_REVIEW_MODEL) {
     models.review = { ...models.review, model: process.env.FERRY_REVIEW_MODEL };
   }
+
+  const iterProvider = providerFromEnv(process.env.FERRY_ITER_PROVIDER);
+  if (iterProvider) models.iterate = { ...models.iterate, provider: iterProvider };
   if (process.env.FERRY_ITER_MODEL) {
     models.iterate = { ...models.iterate, model: process.env.FERRY_ITER_MODEL };
   }

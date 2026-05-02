@@ -31,17 +31,17 @@ Ferry connects your Jira board to a fully autonomous dev loop — Refiner, Devel
 
 - A replacement for human review — it opens draft PRs, it never merges
 - A general-purpose AI coding assistant — it only acts on explicit Jira column transitions
-- Currently Anthropic-only — Google AI and OpenAI providers exist in code but per-phase provider selection is not yet exposed to consumers; multi-provider support is a planned roadmap item
+- Limited to tool-use phases on Anthropic — the Refiner supports all three providers (`anthropic`, `openai`, `google`); the Developer, Reviewer, and Iterator require `anthropic` today (OpenAI/Google agentic-loop support is planned)
 
 ---
 
 ## Agent phases at a glance
 
-| Phase         | Jira column    | What the agent does                                            |
-| ------------- | -------------- | -------------------------------------------------------------- |
-| **Refiner**   | Refinement     | Reads the ticket, creates sub-tasks, awaits human approval     |
-| **Developer** | In Development | Reads approved sub-tasks, opens a draft PR on `ferry/<TICKET-KEY>` (e.g. `ferry/PROJ-42`) |
-| **Reviewer**  | In Review      | Reads PR diff (green CI only), posts fingerprinted findings    |
+| Phase         | Jira column    | What the agent does                                                                                        |
+| ------------- | -------------- | ---------------------------------------------------------------------------------------------------------- |
+| **Refiner**   | Refinement     | Reads the ticket, creates sub-tasks, awaits human approval                                                 |
+| **Developer** | In Development | Reads approved sub-tasks, opens a draft PR on `ferry/<TICKET-KEY>` (e.g. `ferry/PROJ-42`)                  |
+| **Reviewer**  | In Review      | Reads PR diff (green CI only), posts fingerprinted findings                                                |
 | **Iterator**  | Iteration      | Applies findings, re-triggers Reviewer (max 3 rounds by default; configurable via `limits.max_iterations`) |
 
 ---
@@ -75,7 +75,7 @@ All auto-transitions are configurable via `workflow.agents` in `ferry.config.yam
 
 ---
 
-> ⚠️ **Privacy notice — read before first use.** Ferry transmits the following data to Anthropic (the current LLM provider):
+> ⚠️ **Privacy notice — read before first use.** Ferry transmits the following data to your configured LLM provider(s) (Anthropic by default):
 >
 > - Jira ticket titles, descriptions, comments, and sub-tasks
 > - File contents and diffs from the target GitHub repository
@@ -89,7 +89,7 @@ All auto-transitions are configurable via `workflow.agents` in `ferry.config.yam
 
 - GitHub repository (target repo where Ferry runs)
 - Jira Cloud Standard or Premium (outbound web requests required)
-- Anthropic account (the current LLM provider; multi-provider support is on the roadmap)
+- Anthropic account (required for all phases); OpenAI or Google AI accounts if you configure those providers for the Refiner
 - **Story** issue type (and Task, Bug, Spike if your project uses them) must be enabled in the Jira project
 
 ---
@@ -165,12 +165,12 @@ Create 4 Jira automation rules manually — one per Ferry column. For each rule:
    - **Web request body:** Custom data
    - **Headers** — add all four; toggle the lock icon on `Authorization` to mark it secret:
 
-   | Name | Value | Secret? |
-   |------|-------|---------|
-   | `Accept` | `application/vnd.github+json` | No |
-   | `Authorization` | `Bearer YOUR_GITHUB_PAT` | **Yes** |
-   | `X-GitHub-Api-Version` | `2022-11-28` | No |
-   | `Content-Type` | `application/json` | No |
+   | Name                   | Value                         | Secret? |
+   | ---------------------- | ----------------------------- | ------- |
+   | `Accept`               | `application/vnd.github+json` | No      |
+   | `Authorization`        | `Bearer YOUR_GITHUB_PAT`      | **Yes** |
+   | `X-GitHub-Api-Version` | `2022-11-28`                  | No      |
+   | `Content-Type`         | `application/json`            | No      |
 
 4. **Custom body** (example for the Refiner column):
 

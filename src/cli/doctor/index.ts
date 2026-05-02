@@ -70,6 +70,8 @@ function parseConfig(argv: string[]): DoctorConfig {
     jiraApiToken: getArg(argv, '--jira-token') ?? process.env['FERRY_JIRA_API_TOKEN'] ?? '',
     jiraProjectKey: getArg(argv, '--jira-project') ?? process.env['FERRY_JIRA_PROJECT_KEY'] ?? '',
     anthropicApiKey: getArg(argv, '--anthropic-key') ?? process.env['ANTHROPIC_API_KEY'] ?? '',
+    openaiApiKey: getArg(argv, '--openai-key') ?? process.env['FERRY_OPENAI_KEY'] ?? '',
+    googleApiKey: getArg(argv, '--google-key') ?? process.env['FERRY_GOOGLE_AI_KEY'] ?? '',
     ferryVersion: getArg(argv, '--version') ?? 'v1',
     repoRoot: getArg(argv, '--repo-root') ?? process.cwd(),
     noDispatch: hasFlag(argv, '--no-dispatch'),
@@ -96,6 +98,8 @@ Options:
   --jira-token <token>         Jira API token (default: FERRY_JIRA_API_TOKEN)
   --jira-project <key>         Jira project key to verify (default: FERRY_JIRA_PROJECT_KEY)
   --anthropic-key <key>        Anthropic API key (default: ANTHROPIC_API_KEY)
+  --openai-key <key>           OpenAI API key (default: FERRY_OPENAI_KEY)
+  --google-key <key>           Google AI API key (default: FERRY_GOOGLE_AI_KEY)
   --version <tag>              Ferry version tag for workflow drift check (default: v1)
   --repo-root <path>           Path to the repo root (default: cwd)
   --no-dispatch                Skip the synthetic dispatch probe
@@ -142,7 +146,12 @@ Exit code: 0 if all checks green/yellow, 1 if any check red.
       jiraApiToken: config.jiraApiToken,
       jiraProjectKey: config.jiraProjectKey,
     }),
-    checkLlmKeys({ anthropicApiKey: config.anthropicApiKey }),
+    checkLlmKeys({
+      anthropicApiKey: config.anthropicApiKey,
+      openaiApiKey: config.openaiApiKey,
+      googleApiKey: config.googleApiKey,
+      repoRoot: config.repoRoot,
+    }),
     checkSyntheticDispatch({ repo: config.repo, noDispatch: config.noDispatch }),
     checkWorkflowDrift({ repoRoot: config.repoRoot, ferryVersion: config.ferryVersion }),
     checkPromptOverrides({ repoRoot: config.repoRoot }),

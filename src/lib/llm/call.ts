@@ -33,7 +33,7 @@ function requireEnv(key: string): string {
 
 export function createLlmCall(route: LlmRoute): LlmCall {
   if (route.provider === 'anthropic') {
-    const auth = resolveAnthropicAuth({ apiKeyEnv: 'FERRY_ANTHROPIC_KEY' });
+    const auth = resolveAnthropicAuth({ apiKeyEnv: 'ANTHROPIC_API_KEY' });
     const client = new Anthropic(auth);
     return retry(
       (prompt: string) =>

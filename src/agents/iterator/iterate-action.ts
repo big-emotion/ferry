@@ -4,6 +4,7 @@ import { checkIdempotencyMarker } from '../../lib/io/idempotency.js';
 import { TOOL_SCHEMAS, COMMIT_PROGRESS_SCHEMA, executeTool } from '../developer/tools.js';
 import { createAnthropicAgentLoop } from '../../lib/llm/agent-loop/anthropic.js';
 import { resolveAnthropicAuth } from '../../lib/llm/anthropic-auth.js';
+import { FerryError } from '../../lib/errors/index.js';
 import { checkIterationCap } from './cap.js';
 import { decideIteratorTransition } from './transition.js';
 import { formatCommitMessage } from './prompt.js';
@@ -35,10 +36,19 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
 
   const anthropicAuth = resolveAnthropicAuth({ apiKeyEnv: 'ANTHROPIC_API_KEY' });
   const { owner, repo, runner, tracker, ferryCfg } = createGitHubContext(REPO_ROOT);
+  const { provider: iterProvider, model } = ferryCfg.models.iterate;
+  if (iterProvider !== 'anthropic') {
+    throw new FerryError('state-invariant', {
+      reason: 'unsupported-provider',
+      provider: iterProvider,
+      phase: 'iterator',
+      detail:
+        "The iterator phase requires provider 'anthropic'. OpenAI and Google support for agentic phases is planned for a future release.",
+    });
+  }
   const iteratorWorkflow = ferryCfg.workflow.agents.iterator;
   const shouldAutoTransition = iteratorWorkflow.auto_transition !== null;
   const reviewTransitionId = shouldAutoTransition ? requireEnv('FERRY_REVIEW_TRANSITION_ID') : '';
-  const model = ferryCfg.models.iterate.model;
 
   const issue = await tracker.getIssue(ticketKey);
   const existingComments = issue.comments;
@@ -73,7 +83,7 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
         `${eventMarker} No open PR found for branch ${branchName}. Cannot iterate.`,
       );
     }
-    appendOutput({ input_tokens: 0, output_tokens: 0, model });
+    appendOutput({ input_tokens: 0, output_tokens: 0, model, provider: iterProvider });
     return;
   }
 
@@ -90,7 +100,7 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
         `${eventMarker} No review comment found on PR#${prNumber}. Cannot iterate.`,
       );
     }
-    appendOutput({ input_tokens: 0, output_tokens: 0, model });
+    appendOutput({ input_tokens: 0, output_tokens: 0, model, provider: iterProvider });
     return;
   }
 
@@ -102,7 +112,7 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
   const { skipped } = checkIdempotencyMarker(idempotencyMarker, existingComments);
   if (skipped) {
     logger.info('review comment already handled, skipping', { review_comment_id: latestReview.id });
-    appendOutput({ input_tokens: 0, output_tokens: 0, model });
+    appendOutput({ input_tokens: 0, output_tokens: 0, model, provider: iterProvider });
     return;
   }
 
@@ -112,7 +122,7 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
       ticketKey,
       `${idempotencyMarker} PR#${prNumber} review shows Approved — no iteration needed.`,
     );
-    appendOutput({ input_tokens: 0, output_tokens: 0, model });
+    appendOutput({ input_tokens: 0, output_tokens: 0, model, provider: iterProvider });
     return;
   }
 
@@ -125,7 +135,7 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
       ticketKey,
       `${idempotencyMarker} Branch ${branchName} not found on origin. Cannot iterate.`,
     );
-    appendOutput({ input_tokens: 0, output_tokens: 0, model });
+    appendOutput({ input_tokens: 0, output_tokens: 0, model, provider: iterProvider });
     return;
   }
 
@@ -192,7 +202,7 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
       ticketKey,
       `${idempotencyMarker} Cannot fix — ${done.reason_if_not_actionable ?? 'no reason given'}`,
     );
-    appendOutput({ ...usage, model });
+    appendOutput({ ...usage, model, provider: iterProvider });
     process.exit(0);
   }
 
@@ -225,7 +235,7 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
     `${idempotencyMarker} Iteration ${next_iteration} complete. Pushed fixes to PR#${prNumber}.${transitionNote}`,
   );
 
-  appendOutput({ ...usage, model });
+  appendOutput({ ...usage, model, provider: iterProvider });
   process.exit(0);
 }
 

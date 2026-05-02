@@ -74,18 +74,18 @@ describe('createLlmCall', () => {
   describe('Anthropic provider', () => {
     const route: LlmRoute = { provider: 'anthropic', model: 'claude-sonnet-4-6' };
 
-    it('throws FerryError("state-invariant") when FERRY_ANTHROPIC_KEY is missing', () => {
-      vi.stubEnv('FERRY_ANTHROPIC_KEY', '');
+    it('throws FerryError("state-invariant") when ANTHROPIC_API_KEY is missing', () => {
+      vi.stubEnv('ANTHROPIC_API_KEY', '');
       expect(() => createLlmCall(route)).toThrow(
         expect.objectContaining({
           code: 'state-invariant',
-          context: { reason: 'missing-env', key: 'FERRY_ANTHROPIC_KEY' },
+          context: { reason: 'missing-env', key: 'ANTHROPIC_API_KEY' },
         }),
       );
     });
 
     it('calls messages.create with correct args and returns LlmResult', async () => {
-      vi.stubEnv('FERRY_ANTHROPIC_KEY', 'test-key');
+      vi.stubEnv('ANTHROPIC_API_KEY', 'test-key');
       const llmCall = createLlmCall(route);
       const result = await llmCall('hello');
 
@@ -104,7 +104,7 @@ describe('createLlmCall', () => {
 
     it('uses CLAUDE_CODE_OAUTH_TOKEN when set, initialises SDK with authToken', async () => {
       vi.stubEnv('CLAUDE_CODE_OAUTH_TOKEN', 'oauth-tok-xyz');
-      vi.stubEnv('FERRY_ANTHROPIC_KEY', '');
+      vi.stubEnv('ANTHROPIC_API_KEY', '');
       createLlmCall(route);
       expect(Anthropic).toHaveBeenCalledWith(
         expect.objectContaining({ authToken: 'oauth-tok-xyz' }),
@@ -114,8 +114,8 @@ describe('createLlmCall', () => {
       );
     });
 
-    it('falls back to FERRY_ANTHROPIC_KEY when CLAUDE_CODE_OAUTH_TOKEN is unset', () => {
-      vi.stubEnv('FERRY_ANTHROPIC_KEY', 'sk-ant-abc');
+    it('falls back to ANTHROPIC_API_KEY when CLAUDE_CODE_OAUTH_TOKEN is unset', () => {
+      vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-abc');
       vi.stubEnv('CLAUDE_CODE_OAUTH_TOKEN', '');
       createLlmCall(route);
       expect(Anthropic).toHaveBeenCalledWith(expect.objectContaining({ apiKey: 'sk-ant-abc' }));
@@ -125,7 +125,7 @@ describe('createLlmCall', () => {
     });
 
     it('maps RateLimitError to FerryError("spend-cap") immediately (no retry)', async () => {
-      vi.stubEnv('FERRY_ANTHROPIC_KEY', 'test-key');
+      vi.stubEnv('ANTHROPIC_API_KEY', 'test-key');
       const RLE = Anthropic.RateLimitError as unknown as ZeroArgClass;
       anthropicMockCreate.mockRejectedValueOnce(new RLE());
       const llmCall = createLlmCall(route);
@@ -134,7 +134,7 @@ describe('createLlmCall', () => {
 
     it('maps 5xx APIError through retry → FerryError("unknown") after exhaustion', async () => {
       vi.useFakeTimers();
-      vi.stubEnv('FERRY_ANTHROPIC_KEY', 'test-key');
+      vi.stubEnv('ANTHROPIC_API_KEY', 'test-key');
       const AE = Anthropic.APIError as unknown as ZeroArgClass;
       const serverErr = Object.assign(new AE(), { status: 500 });
       anthropicMockCreate
@@ -245,7 +245,7 @@ describe('createLlmCall', () => {
 
   describe('LlmResult shape', () => {
     it('LlmResult has text, usage with inputTokens/outputTokens/costEur', async () => {
-      vi.stubEnv('FERRY_ANTHROPIC_KEY', 'test-key');
+      vi.stubEnv('ANTHROPIC_API_KEY', 'test-key');
       const route: LlmRoute = { provider: 'anthropic', model: 'claude-sonnet-4-6' };
       const llmCall = createLlmCall(route);
       const result = await llmCall('prompt');
