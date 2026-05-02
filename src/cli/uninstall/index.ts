@@ -166,9 +166,7 @@ Exit code: 0 on success, 1 on any error.
       print(`  ✓ .github/workflows/${wf.filename}`);
     }
     if (codeownersHasFerry) {
-      print(
-        '  ✓ Ferry block in .github/CODEOWNERS  (file kept; only Ferry lines removed)',
-      );
+      print('  ✓ Ferry block in .github/CODEOWNERS  (file kept; only Ferry lines removed)');
     }
   }
 
@@ -183,9 +181,7 @@ Exit code: 0 on success, 1 on any error.
 
   if (auditIssue !== null) {
     if (opts.closeAuditIssue) {
-      print(
-        `  ✓ Audit-log issue (#${auditIssue.number}): remove '${AUDIT_LABEL}' label and CLOSE`,
-      );
+      print(`  ✓ Audit-log issue (#${auditIssue.number}): remove '${AUDIT_LABEL}' label and CLOSE`);
     } else {
       print(
         `  ✓ Audit-log issue (#${auditIssue.number}): remove '${AUDIT_LABEL}' label, do NOT close`,
@@ -196,9 +192,7 @@ Exit code: 0 on success, 1 on any error.
   print('');
   print('Will NOT touch (manual cleanup required):');
   if (!opts.includeAnthropic) {
-    print(
-      `  • ${ANTHROPIC_SECRET} secret (use --include-anthropic to also remove)`,
-    );
+    print(`  • ${ANTHROPIC_SECRET} secret (use --include-anthropic to also remove)`);
   }
   print('  • Jira Automation rules — disable/delete in Jira UI');
   print('  • GitHub App installation — uninstall at https://github.com/settings/installations');

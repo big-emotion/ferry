@@ -48,7 +48,11 @@ export function removeCodeownersBlock(repoRoot: string, opts: ExecOptions): void
   }
   const lines = content.split('\n');
   const filtered = lines.filter((line) => !line.includes('ferry-'));
-  const updated = filtered.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd() + '\n';
+  const updated =
+    filtered
+      .join('\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trimEnd() + '\n';
   if (updated === content) {
     opts.onSkip('.github/CODEOWNERS has no Ferry entries — skipping');
     return;
@@ -120,9 +124,7 @@ export function handleAuditIssue(
 ): void {
   if (issue.hasLabel) {
     if (opts.dryRun) {
-      opts.onAction(
-        `[dry-run] Would remove label '${AUDIT_LABEL}' from issue #${issue.number}`,
-      );
+      opts.onAction(`[dry-run] Would remove label '${AUDIT_LABEL}' from issue #${issue.number}`);
     } else {
       try {
         const result = spawnSync(
