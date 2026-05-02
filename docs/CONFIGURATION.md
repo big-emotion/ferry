@@ -110,6 +110,11 @@ Ferry reads the config file from `GITHUB_WORKSPACE` (the checked-out repo root) 
     "refine_allowlist": ["Story", "Bug", "Spike"],
     "dev_allowlist": ["Story", "Bug", "Spike"]
   },
+  "git": {
+    "base_branch": null,
+    "target_branch": null,
+    "working_branch_prefix": "ferry/"
+  },
   "labels": {
     "ferry:mcp/context7": {
       "mcp_servers": ["context7"]
@@ -154,30 +159,30 @@ Ferry supports three LLM providers: **`anthropic`**, **`openai`**, and **`google
 
 All `limits.*` fields are optional and accept positive numbers (integers unless noted otherwise).
 
-| Field                                    | Default   | Env var override                              | Description                                                                                                                                                                                                                                                                      |
-| ---------------------------------------- | --------- | --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `limits.max_iterations`                  | `3`       | —                                             | **Integer, ≥ 1; recommended range 1–10.** Number of review→iterate cycles the Iterator runs before Ferry halts. When the cap is exceeded while findings remain, Ferry throws an oscillation error and stops — the ticket stays in its current Jira column for manual resolution. |
-| `limits.max_agent_iterations`            | `200`     | `FERRY_DEV_MAX_ITERATIONS`                    | Internal LLM agent loop cap per single agent run (guards against runaway tool-call loops)                                                                                                                                                                                        |
-| `limits.max_tokens_per_run`              | `500000`  | `FERRY_DEV_MAX_INPUT_TOKENS`                  | Input token budget per agent run (overridden by `FERRY_ITER_MAX_INPUT_TOKENS` for Iterator)                                                                                                                                                                                      |
-| `limits.max_tokens_per_message`          | `16384`   | `FERRY_DEV_MAX_TOKENS`                        | Maximum output tokens per individual LLM API call                                                                                                                                                                                                                                |
-| `limits.max_cost_eur_per_run`            | `10`      | `FERRY_MAX_COST_EUR_PER_RUN`                  | Cost budget in EUR per agent run — Ferry aborts if this is exceeded                                                                                                                                                                                                              |
-| `limits.bash_timeout_ms`                 | `60000`   | `FERRY_BASH_TIMEOUT_MS`                       | Default bash command timeout in ms for the Developer agent tool loop                                                                                                                                                                                                             |
-| `limits.bash_timeout_max_ms`             | `300000`  | `FERRY_BASH_TIMEOUT_MAX_MS`                   | Maximum bash command timeout the agent may request; hard ceiling on `timeout_ms` in the `bash` tool                                                                                                                                                                              |
-| `limits.grep_timeout_ms`                 | `30000`   | `FERRY_GREP_TIMEOUT_MS`                       | Timeout for the Developer agent's `search_files` (grep) tool                                                                                                                                                                                                                     |
-| `limits.anthropic_verify_timeout_ms`     | `10000`   | `FERRY_ANTHROPIC_VERIFY_TIMEOUT_MS`           | Timeout for Anthropic API key verification during `ferry-init`                                                                                                                                                                                                                   |
-| `limits.jira_retry_base_delay_ms`        | `2000`    | `FERRY_JIRA_RETRY_BASE_DELAY_MS`              | Base delay for exponential backoff on Jira API retries                                                                                                                                                                                                                           |
-| `limits.jira_retry_max_attempts`         | `3`       | `FERRY_JIRA_RETRY_MAX_ATTEMPTS`               | Maximum number of Jira API retry attempts per operation                                                                                                                                                                                                                           |
-| `limits.envelope_instructions_chars`     | `2000`    | `FERRY_ENVELOPE_INSTRUCTIONS_CHARS`           | Maximum characters for the `instructions` field in the event envelope — longer values are silently truncated                                                                                                                                                                     |
-| `limits.project_snippet_bytes`           | `2048`    | `FERRY_PROJECT_SNIPPET_BYTES`                 | Maximum bytes for `prompts/_project.md` — content beyond this is truncated before injection into the agent system prompt                                                                                                                                                         |
-| `limits.agent_extension_bytes`           | `4096`    | `FERRY_AGENT_EXTENSION_BYTES`                 | Maximum bytes for `prompts/<agent>.extra.md` extension files                                                                                                                                                                                                                     |
-| `limits.tldr_total_chars`                | `500`     | `FERRY_TLDR_TOTAL_CHARS`                      | Maximum characters for the full TL;DR block written by the Developer (FR55). Exceeding this throws an error.                                                                                                                                                                     |
-| `limits.tldr_verdict_chars`              | `40`      | `FERRY_TLDR_VERDICT_CHARS`                    | Maximum characters for the Reviewer verdict field in the TL;DR block                                                                                                                                                                                                            |
-| `limits.file_display_chars`              | `40000`   | `FERRY_FILE_DISPLAY_CHARS`                    | Maximum characters returned when the Reviewer or other agents fetch file content from GitHub                                                                                                                                                                                     |
-| `limits.refiner_subtask_cap`             | `12`      | `FERRY_REFINER_SUBTASK_CAP`                   | Maximum subtasks per Refiner batch — additional subtasks are silently dropped                                                                                                                                                                                                    |
-| `limits.refiner_touch_paths_cap`         | `20`      | `FERRY_REFINER_TOUCH_PATHS_CAP`               | Maximum `touch_paths` entries the Refiner may return — exceeding this throws a spec-too-broad error                                                                                                                                                                              |
-| `limits.reviewer_max_iterations`         | `40`      | `FERRY_REVIEWER_MAX_ITERATIONS`               | Maximum tool-use iterations inside a single Reviewer loop run                                                                                                                                                                                                                    |
-| `limits.reviewer_max_tokens`             | `16384`   | `FERRY_REVIEWER_MAX_TOKENS`                   | Maximum output tokens per Reviewer LLM call                                                                                                                                                                                                                                     |
-| `limits.reconciler_stale_window_minutes` | `20`      | `FERRY_RECONCILER_STALE_WINDOW_MINUTES`       | Minutes since the last audit comment after which the Reconciler considers a ticket stale and re-dispatches it                                                                                                                                                                    |
+| Field                                    | Default  | Env var override                        | Description                                                                                                                                                                                                                                                                      |
+| ---------------------------------------- | -------- | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `limits.max_iterations`                  | `3`      | —                                       | **Integer, ≥ 1; recommended range 1–10.** Number of review→iterate cycles the Iterator runs before Ferry halts. When the cap is exceeded while findings remain, Ferry throws an oscillation error and stops — the ticket stays in its current Jira column for manual resolution. |
+| `limits.max_agent_iterations`            | `200`    | `FERRY_DEV_MAX_ITERATIONS`              | Internal LLM agent loop cap per single agent run (guards against runaway tool-call loops)                                                                                                                                                                                        |
+| `limits.max_tokens_per_run`              | `500000` | `FERRY_DEV_MAX_INPUT_TOKENS`            | Input token budget per agent run (overridden by `FERRY_ITER_MAX_INPUT_TOKENS` for Iterator)                                                                                                                                                                                      |
+| `limits.max_tokens_per_message`          | `16384`  | `FERRY_DEV_MAX_TOKENS`                  | Maximum output tokens per individual LLM API call                                                                                                                                                                                                                                |
+| `limits.max_cost_eur_per_run`            | `10`     | `FERRY_MAX_COST_EUR_PER_RUN`            | Cost budget in EUR per agent run — Ferry aborts if this is exceeded                                                                                                                                                                                                              |
+| `limits.bash_timeout_ms`                 | `60000`  | `FERRY_BASH_TIMEOUT_MS`                 | Default bash command timeout in ms for the Developer agent tool loop                                                                                                                                                                                                             |
+| `limits.bash_timeout_max_ms`             | `300000` | `FERRY_BASH_TIMEOUT_MAX_MS`             | Maximum bash command timeout the agent may request; hard ceiling on `timeout_ms` in the `bash` tool                                                                                                                                                                              |
+| `limits.grep_timeout_ms`                 | `30000`  | `FERRY_GREP_TIMEOUT_MS`                 | Timeout for the Developer agent's `search_files` (grep) tool                                                                                                                                                                                                                     |
+| `limits.anthropic_verify_timeout_ms`     | `10000`  | `FERRY_ANTHROPIC_VERIFY_TIMEOUT_MS`     | Timeout for Anthropic API key verification during `ferry-init`                                                                                                                                                                                                                   |
+| `limits.jira_retry_base_delay_ms`        | `2000`   | `FERRY_JIRA_RETRY_BASE_DELAY_MS`        | Base delay for exponential backoff on Jira API retries                                                                                                                                                                                                                           |
+| `limits.jira_retry_max_attempts`         | `3`      | `FERRY_JIRA_RETRY_MAX_ATTEMPTS`         | Maximum number of Jira API retry attempts per operation                                                                                                                                                                                                                          |
+| `limits.envelope_instructions_chars`     | `2000`   | `FERRY_ENVELOPE_INSTRUCTIONS_CHARS`     | Maximum characters for the `instructions` field in the event envelope — longer values are silently truncated                                                                                                                                                                     |
+| `limits.project_snippet_bytes`           | `2048`   | `FERRY_PROJECT_SNIPPET_BYTES`           | Maximum bytes for `prompts/_project.md` — content beyond this is truncated before injection into the agent system prompt                                                                                                                                                         |
+| `limits.agent_extension_bytes`           | `4096`   | `FERRY_AGENT_EXTENSION_BYTES`           | Maximum bytes for `prompts/<agent>.extra.md` extension files                                                                                                                                                                                                                     |
+| `limits.tldr_total_chars`                | `500`    | `FERRY_TLDR_TOTAL_CHARS`                | Maximum characters for the full TL;DR block written by the Developer (FR55). Exceeding this throws an error.                                                                                                                                                                     |
+| `limits.tldr_verdict_chars`              | `40`     | `FERRY_TLDR_VERDICT_CHARS`              | Maximum characters for the Reviewer verdict field in the TL;DR block                                                                                                                                                                                                             |
+| `limits.file_display_chars`              | `40000`  | `FERRY_FILE_DISPLAY_CHARS`              | Maximum characters returned when the Reviewer or other agents fetch file content from GitHub                                                                                                                                                                                     |
+| `limits.refiner_subtask_cap`             | `12`     | `FERRY_REFINER_SUBTASK_CAP`             | Maximum subtasks per Refiner batch — additional subtasks are silently dropped                                                                                                                                                                                                    |
+| `limits.refiner_touch_paths_cap`         | `20`     | `FERRY_REFINER_TOUCH_PATHS_CAP`         | Maximum `touch_paths` entries the Refiner may return — exceeding this throws a spec-too-broad error                                                                                                                                                                              |
+| `limits.reviewer_max_iterations`         | `40`     | `FERRY_REVIEWER_MAX_ITERATIONS`         | Maximum tool-use iterations inside a single Reviewer loop run                                                                                                                                                                                                                    |
+| `limits.reviewer_max_tokens`             | `16384`  | `FERRY_REVIEWER_MAX_TOKENS`             | Maximum output tokens per Reviewer LLM call                                                                                                                                                                                                                                      |
+| `limits.reconciler_stale_window_minutes` | `20`     | `FERRY_RECONCILER_STALE_WINDOW_MINUTES` | Minutes since the last audit comment after which the Reconciler considers a ticket stale and re-dispatches it                                                                                                                                                                    |
 
 #### `ticket_types`
 
@@ -187,6 +192,26 @@ Controls which Jira issue types Ferry will process.
 | ------------------------------- | --------------------------- | ------------------------------------------------------------------------------ |
 | `ticket_types.refine_allowlist` | `["Story", "Bug", "Spike"]` | Jira issue types the Refiner will process. Tickets of other types are skipped. |
 | `ticket_types.dev_allowlist`    | `["Story", "Bug", "Spike"]` | Jira issue types the Developer will process.                                   |
+
+#### `git`
+
+Controls the Git branching strategy used by the Developer and Iterator agents. All three fields default to values that work without any configuration — omit this section entirely to use the defaults.
+
+| Field                       | Default    | Description                                                                                                                                            |
+| --------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `git.base_branch`           | `null`     | Branch the Developer checks out from when creating a working branch. `null` resolves to the repository's default branch at runtime via the GitHub API. |
+| `git.target_branch`         | `null`     | Branch the PR is opened against. `null` defaults to the same branch as `base_branch`.                                                                  |
+| `git.working_branch_prefix` | `"ferry/"` | Prefix for working branches created by the Developer agent (e.g., `ferry/PROJ-123`). Must be a non-empty string.                                       |
+
+Teams using `develop`, `next`, `release/*`, or any other integration branch as their default should set `base_branch` to that branch name. If `target_branch` differs (e.g., PRs target a staging branch while work branches off `main`), set it explicitly.
+
+```yaml
+# ferry.config.yaml — teams using a non-default integration branch
+git:
+  base_branch: develop # branch to check out from
+  target_branch: develop # branch PRs are opened against (omit to default to base_branch)
+  working_branch_prefix: ferry/
+```
 
 #### `labels`
 
@@ -255,19 +280,19 @@ workflow:
 
 The following env vars must be set as **GitHub Actions Variables** (or injected into the runner environment). They take precedence over `ferry.config.json` values.
 
-| Env var                              | Default  | Description                                                                                       |
-| ------------------------------------ | -------- | ------------------------------------------------------------------------------------------------- |
-| `FERRY_HTTP_TIMEOUT_MS`              | `15000`  | Timeout in ms for outbound HTTPS calls made by Ferry CLI commands (`ferry-init`, `ferry-doctor`)  |
-| `FERRY_DISPATCH_POLL_INTERVAL_MS`    | `3000`   | How often `ferry-doctor` polls for the synthetic dispatch probe workflow run                      |
-| `FERRY_DISPATCH_PROBE_TIMEOUT_MS`    | `45000`  | How long `ferry-doctor` waits for the synthetic dispatch probe to appear before timing out        |
-| `FERRY_LLM_RETRY_BASE_DELAY_MS`      | `2000`   | Base delay for LLM provider retry backoff (applies to Anthropic, OpenAI, Google utility calls)    |
-| `FERRY_LLM_RETRY_MAX_ATTEMPTS`       | `3`      | Maximum retry attempts for LLM utility calls before giving up                                     |
-| `FERRY_LLM_UTILITY_MAX_TOKENS`       | `4096`   | Maximum output tokens for single-turn LLM utility calls (e.g. Refiner)                           |
-| `FERRY_REVIEW_PATCH_TRUNCATE_CHARS`  | `20000`  | Maximum characters of a diff patch the Reviewer receives per `get_file_patch` tool call          |
-| `FERRY_REVIEW_FILE_TRUNCATE_CHARS`   | `40000`  | Maximum characters of file content the Reviewer receives per `get_file_content` tool call        |
-| `FERRY_BASH_OUTPUT_MAX_BYTES`        | `65536`  | Maximum bytes of combined stdout+stderr returned by the Developer agent's `bash` tool             |
-| `FERRY_BUDGET_ALERT_RATIO`           | `0.5`    | Fraction of monthly budget that triggers a spend alert (0–1 inclusive); default is 50%           |
-| `FERRY_AUDIT_ROTATION_THRESHOLD`     | `900`    | Comment count at which the audit issue is rotated to a new issue (GitHub cap is 1000)            |
+| Env var                             | Default | Description                                                                                      |
+| ----------------------------------- | ------- | ------------------------------------------------------------------------------------------------ |
+| `FERRY_HTTP_TIMEOUT_MS`             | `15000` | Timeout in ms for outbound HTTPS calls made by Ferry CLI commands (`ferry-init`, `ferry-doctor`) |
+| `FERRY_DISPATCH_POLL_INTERVAL_MS`   | `3000`  | How often `ferry-doctor` polls for the synthetic dispatch probe workflow run                     |
+| `FERRY_DISPATCH_PROBE_TIMEOUT_MS`   | `45000` | How long `ferry-doctor` waits for the synthetic dispatch probe to appear before timing out       |
+| `FERRY_LLM_RETRY_BASE_DELAY_MS`     | `2000`  | Base delay for LLM provider retry backoff (applies to Anthropic, OpenAI, Google utility calls)   |
+| `FERRY_LLM_RETRY_MAX_ATTEMPTS`      | `3`     | Maximum retry attempts for LLM utility calls before giving up                                    |
+| `FERRY_LLM_UTILITY_MAX_TOKENS`      | `4096`  | Maximum output tokens for single-turn LLM utility calls (e.g. Refiner)                           |
+| `FERRY_REVIEW_PATCH_TRUNCATE_CHARS` | `20000` | Maximum characters of a diff patch the Reviewer receives per `get_file_patch` tool call          |
+| `FERRY_REVIEW_FILE_TRUNCATE_CHARS`  | `40000` | Maximum characters of file content the Reviewer receives per `get_file_content` tool call        |
+| `FERRY_BASH_OUTPUT_MAX_BYTES`       | `65536` | Maximum bytes of combined stdout+stderr returned by the Developer agent's `bash` tool            |
+| `FERRY_BUDGET_ALERT_RATIO`          | `0.5`   | Fraction of monthly budget that triggers a spend alert (0–1 inclusive); default is 50%           |
+| `FERRY_AUDIT_ROTATION_THRESHOLD`    | `900`   | Comment count at which the audit issue is rotated to a new issue (GitHub cap is 1000)            |
 
 `ferry-doctor` warns when any of these env vars is set to a value outside a safe operating range.
 
@@ -279,7 +304,6 @@ The following are intentionally not configurable by consumers:
 
 | Parameter                                        | Why hardcoded                                                                                                       |
 | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
-| Branch naming (`ferry/<ticket-key>`)             | Required by Ferry's state logic                                                                                     |
 | PR/comment fingerprint formats                   | Required for idempotency                                                                                            |
 | Internal workflow defaults for Refiner/Developer | Set via `ferry.config.json`; use the `models.*` fields or `FERRY_*_MODEL` / `FERRY_*_PROVIDER` env vars to override |
 | Audit issue comment format                       | Required for deduplication                                                                                          |
@@ -299,6 +323,9 @@ ferry.config.json defaults
          FERRY_REVIEW_PROVIDER, FERRY_REVIEW_MODEL,
          FERRY_ITER_PROVIDER, FERRY_ITER_MODEL,
          FERRY_ITER_MAX_INPUT_TOKENS)
+
+git.base_branch / git.target_branch (when null)
+  → resolved from GitHub API (repo default_branch) at runtime
 ```
 
 Secrets (`ANTHROPIC_API_KEY`, `FERRY_OPENAI_KEY`, `FERRY_GOOGLE_AI_KEY`) are credentials only — they do not participate in model or limit configuration.

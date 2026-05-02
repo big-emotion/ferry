@@ -20,7 +20,8 @@ const ENV_VAR_RULES: EnvVarRule[] = [
   {
     key: 'FERRY_DISPATCH_PROBE_TIMEOUT_MS',
     label: 'FERRY_DISPATCH_PROBE_TIMEOUT_MS',
-    validate: (v) => (v < 1000 ? 'timeout below 1000 ms is too short to observe a workflow start' : null),
+    validate: (v) =>
+      v < 1000 ? 'timeout below 1000 ms is too short to observe a workflow start' : null,
   },
   {
     key: 'FERRY_LLM_RETRY_MAX_ATTEMPTS',
@@ -52,7 +53,8 @@ const ENV_VAR_RULES: EnvVarRule[] = [
   {
     key: 'FERRY_BASH_TIMEOUT_MS',
     label: 'FERRY_BASH_TIMEOUT_MS',
-    validate: (v) => (v < 1000 ? 'bash timeout below 1000 ms will kill most commands immediately' : null),
+    validate: (v) =>
+      v < 1000 ? 'bash timeout below 1000 ms will kill most commands immediately' : null,
   },
   {
     key: 'FERRY_BASH_TIMEOUT_MAX_MS',

@@ -15,7 +15,8 @@ export interface BatchPrepared {
 }
 
 export function prepareBatch(plan: RefinerOutput, planId: string, cap?: number): BatchPrepared {
-  const subtaskCap = cap ?? (parseInt(process.env.FERRY_REFINER_SUBTASK_CAP ?? '', 10) || SUBTASK_CAP);
+  const subtaskCap =
+    cap ?? (parseInt(process.env.FERRY_REFINER_SUBTASK_CAP ?? '', 10) || SUBTASK_CAP);
   const original = plan.subtasks;
   const truncated = original.length > subtaskCap;
   const slice = truncated ? original.slice(0, subtaskCap) : original;

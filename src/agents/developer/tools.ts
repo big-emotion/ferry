@@ -314,8 +314,7 @@ export async function executeTool(
       const resolved = assertPathUnderRoot(repoRoot, searchPath);
 
       const args = ['-rn', '--include', glob || '*', pattern, resolved];
-      const grepTimeoutMs =
-        parseInt(process.env.FERRY_GREP_TIMEOUT_MS ?? '', 10) || 30_000;
+      const grepTimeoutMs = parseInt(process.env.FERRY_GREP_TIMEOUT_MS ?? '', 10) || 30_000;
       const result = await runProcess('grep', args, repoRoot, grepTimeoutMs);
       const lines = result.stdout.split('\n').filter(Boolean);
       const truncated = lines.slice(0, MAX_SEARCH_MATCHES);

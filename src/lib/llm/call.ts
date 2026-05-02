@@ -22,7 +22,8 @@ export interface LlmResult {
 export type LlmCall = (prompt: string) => Promise<LlmResult>;
 
 const MAX_TOKENS = parseInt(process.env.FERRY_LLM_UTILITY_MAX_TOKENS ?? '', 10) || 4096;
-const LLM_RETRY_BASE_DELAY_MS = parseInt(process.env.FERRY_LLM_RETRY_BASE_DELAY_MS ?? '', 10) || 2000;
+const LLM_RETRY_BASE_DELAY_MS =
+  parseInt(process.env.FERRY_LLM_RETRY_BASE_DELAY_MS ?? '', 10) || 2000;
 const LLM_RETRY_MAX_ATTEMPTS = parseInt(process.env.FERRY_LLM_RETRY_MAX_ATTEMPTS ?? '', 10) || 3;
 
 function requireEnv(key: string): string {

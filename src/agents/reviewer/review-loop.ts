@@ -107,8 +107,7 @@ export async function runReviewLoop(opts: {
     opts.maxIterations ??
     (parseInt(process.env.FERRY_REVIEWER_MAX_ITERATIONS ?? '', 10) || MAX_ITERATIONS);
   const maxTokens =
-    opts.maxTokens ??
-    (parseInt(process.env.FERRY_REVIEWER_MAX_TOKENS ?? '', 10) || 16384);
+    opts.maxTokens ?? (parseInt(process.env.FERRY_REVIEWER_MAX_TOKENS ?? '', 10) || 16384);
 
   const tools = REVIEW_TOOLS.map((t, i) =>
     i === REVIEW_TOOLS.length - 1 ? { ...t, cache_control: { type: 'ephemeral' as const } } : t,
@@ -200,9 +199,7 @@ export async function runReviewLoop(opts: {
           const patchLimit =
             parseInt(process.env.FERRY_REVIEW_PATCH_TRUNCATE_CHARS ?? '', 10) || MAX_PATCH_CHARS;
           content =
-            patch.length > patchLimit
-              ? patch.slice(0, patchLimit) + '\n... (truncated)'
-              : patch;
+            patch.length > patchLimit ? patch.slice(0, patchLimit) + '\n... (truncated)' : patch;
         }
         toolResults.push({ type: 'tool_result', tool_use_id: block.id, content });
         continue;

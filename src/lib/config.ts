@@ -330,13 +330,17 @@ function validateConfigShape(raw: unknown): ValidationError[] {
       if (l.grep_timeout_ms !== undefined)
         errs.push(...validatePosInt(l.grep_timeout_ms, 'limits.grep_timeout_ms'));
       if (l.anthropic_verify_timeout_ms !== undefined)
-        errs.push(...validatePosInt(l.anthropic_verify_timeout_ms, 'limits.anthropic_verify_timeout_ms'));
+        errs.push(
+          ...validatePosInt(l.anthropic_verify_timeout_ms, 'limits.anthropic_verify_timeout_ms'),
+        );
       if (l.jira_retry_base_delay_ms !== undefined)
         errs.push(...validatePosInt(l.jira_retry_base_delay_ms, 'limits.jira_retry_base_delay_ms'));
       if (l.jira_retry_max_attempts !== undefined)
         errs.push(...validatePosInt(l.jira_retry_max_attempts, 'limits.jira_retry_max_attempts'));
       if (l.envelope_instructions_chars !== undefined)
-        errs.push(...validatePosInt(l.envelope_instructions_chars, 'limits.envelope_instructions_chars'));
+        errs.push(
+          ...validatePosInt(l.envelope_instructions_chars, 'limits.envelope_instructions_chars'),
+        );
       if (l.project_snippet_bytes !== undefined)
         errs.push(...validatePosInt(l.project_snippet_bytes, 'limits.project_snippet_bytes'));
       if (l.agent_extension_bytes !== undefined)
@@ -356,7 +360,12 @@ function validateConfigShape(raw: unknown): ValidationError[] {
       if (l.reviewer_max_tokens !== undefined)
         errs.push(...validatePosInt(l.reviewer_max_tokens, 'limits.reviewer_max_tokens'));
       if (l.reconciler_stale_window_minutes !== undefined)
-        errs.push(...validatePosInt(l.reconciler_stale_window_minutes, 'limits.reconciler_stale_window_minutes'));
+        errs.push(
+          ...validatePosInt(
+            l.reconciler_stale_window_minutes,
+            'limits.reconciler_stale_window_minutes',
+          ),
+        );
     }
   }
 
@@ -377,16 +386,32 @@ function validateConfigShape(raw: unknown): ValidationError[] {
       errs.push('git: must be an object');
     } else {
       const g = c.git as Record<string, unknown>;
-      if (g.base_branch !== undefined && g.base_branch !== null && typeof g.base_branch !== 'string') {
+      if (
+        g.base_branch !== undefined &&
+        g.base_branch !== null &&
+        typeof g.base_branch !== 'string'
+      ) {
         errs.push('git.base_branch: must be a string or null');
       }
-      if (g.base_branch !== undefined && typeof g.base_branch === 'string' && g.base_branch.trim() === '') {
+      if (
+        g.base_branch !== undefined &&
+        typeof g.base_branch === 'string' &&
+        g.base_branch.trim() === ''
+      ) {
         errs.push('git.base_branch: must be a non-empty string or null');
       }
-      if (g.target_branch !== undefined && g.target_branch !== null && typeof g.target_branch !== 'string') {
+      if (
+        g.target_branch !== undefined &&
+        g.target_branch !== null &&
+        typeof g.target_branch !== 'string'
+      ) {
         errs.push('git.target_branch: must be a string or null');
       }
-      if (g.target_branch !== undefined && typeof g.target_branch === 'string' && g.target_branch.trim() === '') {
+      if (
+        g.target_branch !== undefined &&
+        typeof g.target_branch === 'string' &&
+        g.target_branch.trim() === ''
+      ) {
         errs.push('git.target_branch: must be a non-empty string or null');
       }
       if (g.working_branch_prefix !== undefined) {
@@ -543,22 +568,58 @@ function mergeWithDefaults(raw: RawConfig): FerryConfig {
         DEFAULT_FERRY_CONFIG.limits.max_cost_eur_per_run,
       ),
       bash_timeout_ms: num(l.bash_timeout_ms, DEFAULT_FERRY_CONFIG.limits.bash_timeout_ms),
-      bash_timeout_max_ms: num(l.bash_timeout_max_ms, DEFAULT_FERRY_CONFIG.limits.bash_timeout_max_ms),
+      bash_timeout_max_ms: num(
+        l.bash_timeout_max_ms,
+        DEFAULT_FERRY_CONFIG.limits.bash_timeout_max_ms,
+      ),
       grep_timeout_ms: num(l.grep_timeout_ms, DEFAULT_FERRY_CONFIG.limits.grep_timeout_ms),
-      anthropic_verify_timeout_ms: num(l.anthropic_verify_timeout_ms, DEFAULT_FERRY_CONFIG.limits.anthropic_verify_timeout_ms),
-      jira_retry_base_delay_ms: num(l.jira_retry_base_delay_ms, DEFAULT_FERRY_CONFIG.limits.jira_retry_base_delay_ms),
-      jira_retry_max_attempts: num(l.jira_retry_max_attempts, DEFAULT_FERRY_CONFIG.limits.jira_retry_max_attempts),
-      envelope_instructions_chars: num(l.envelope_instructions_chars, DEFAULT_FERRY_CONFIG.limits.envelope_instructions_chars),
-      project_snippet_bytes: num(l.project_snippet_bytes, DEFAULT_FERRY_CONFIG.limits.project_snippet_bytes),
-      agent_extension_bytes: num(l.agent_extension_bytes, DEFAULT_FERRY_CONFIG.limits.agent_extension_bytes),
+      anthropic_verify_timeout_ms: num(
+        l.anthropic_verify_timeout_ms,
+        DEFAULT_FERRY_CONFIG.limits.anthropic_verify_timeout_ms,
+      ),
+      jira_retry_base_delay_ms: num(
+        l.jira_retry_base_delay_ms,
+        DEFAULT_FERRY_CONFIG.limits.jira_retry_base_delay_ms,
+      ),
+      jira_retry_max_attempts: num(
+        l.jira_retry_max_attempts,
+        DEFAULT_FERRY_CONFIG.limits.jira_retry_max_attempts,
+      ),
+      envelope_instructions_chars: num(
+        l.envelope_instructions_chars,
+        DEFAULT_FERRY_CONFIG.limits.envelope_instructions_chars,
+      ),
+      project_snippet_bytes: num(
+        l.project_snippet_bytes,
+        DEFAULT_FERRY_CONFIG.limits.project_snippet_bytes,
+      ),
+      agent_extension_bytes: num(
+        l.agent_extension_bytes,
+        DEFAULT_FERRY_CONFIG.limits.agent_extension_bytes,
+      ),
       tldr_total_chars: num(l.tldr_total_chars, DEFAULT_FERRY_CONFIG.limits.tldr_total_chars),
       tldr_verdict_chars: num(l.tldr_verdict_chars, DEFAULT_FERRY_CONFIG.limits.tldr_verdict_chars),
       file_display_chars: num(l.file_display_chars, DEFAULT_FERRY_CONFIG.limits.file_display_chars),
-      refiner_subtask_cap: num(l.refiner_subtask_cap, DEFAULT_FERRY_CONFIG.limits.refiner_subtask_cap),
-      refiner_touch_paths_cap: num(l.refiner_touch_paths_cap, DEFAULT_FERRY_CONFIG.limits.refiner_touch_paths_cap),
-      reviewer_max_iterations: num(l.reviewer_max_iterations, DEFAULT_FERRY_CONFIG.limits.reviewer_max_iterations),
-      reviewer_max_tokens: num(l.reviewer_max_tokens, DEFAULT_FERRY_CONFIG.limits.reviewer_max_tokens),
-      reconciler_stale_window_minutes: num(l.reconciler_stale_window_minutes, DEFAULT_FERRY_CONFIG.limits.reconciler_stale_window_minutes),
+      refiner_subtask_cap: num(
+        l.refiner_subtask_cap,
+        DEFAULT_FERRY_CONFIG.limits.refiner_subtask_cap,
+      ),
+      refiner_touch_paths_cap: num(
+        l.refiner_touch_paths_cap,
+        DEFAULT_FERRY_CONFIG.limits.refiner_touch_paths_cap,
+      ),
+      reviewer_max_iterations: num(
+        l.reviewer_max_iterations,
+        DEFAULT_FERRY_CONFIG.limits.reviewer_max_iterations,
+      ),
+      reviewer_max_tokens: num(
+        l.reviewer_max_tokens,
+        DEFAULT_FERRY_CONFIG.limits.reviewer_max_tokens,
+      ),
+      reconciler_stale_window_minutes: num(
+        l.reconciler_stale_window_minutes,
+        DEFAULT_FERRY_CONFIG.limits.reconciler_stale_window_minutes,
+      ),
     },
     ticket_types: {
       refine_allowlist: strArr(
@@ -715,13 +776,15 @@ function applyEnvOverrides(cfg: FerryConfig): FerryConfig {
   const grepTimeoutMs = envInt('FERRY_GREP_TIMEOUT_MS');
   if (grepTimeoutMs !== undefined) limits.grep_timeout_ms = grepTimeoutMs;
   const anthropicVerifyTimeoutMs = envInt('FERRY_ANTHROPIC_VERIFY_TIMEOUT_MS');
-  if (anthropicVerifyTimeoutMs !== undefined) limits.anthropic_verify_timeout_ms = anthropicVerifyTimeoutMs;
+  if (anthropicVerifyTimeoutMs !== undefined)
+    limits.anthropic_verify_timeout_ms = anthropicVerifyTimeoutMs;
   const jiraRetryBaseDelayMs = envInt('FERRY_JIRA_RETRY_BASE_DELAY_MS');
   if (jiraRetryBaseDelayMs !== undefined) limits.jira_retry_base_delay_ms = jiraRetryBaseDelayMs;
   const jiraRetryMaxAttempts = envInt('FERRY_JIRA_RETRY_MAX_ATTEMPTS');
   if (jiraRetryMaxAttempts !== undefined) limits.jira_retry_max_attempts = jiraRetryMaxAttempts;
   const envelopeInstructionsChars = envInt('FERRY_ENVELOPE_INSTRUCTIONS_CHARS');
-  if (envelopeInstructionsChars !== undefined) limits.envelope_instructions_chars = envelopeInstructionsChars;
+  if (envelopeInstructionsChars !== undefined)
+    limits.envelope_instructions_chars = envelopeInstructionsChars;
   const projectSnippetBytes = envInt('FERRY_PROJECT_SNIPPET_BYTES');
   if (projectSnippetBytes !== undefined) limits.project_snippet_bytes = projectSnippetBytes;
   const agentExtensionBytes = envInt('FERRY_AGENT_EXTENSION_BYTES');
@@ -741,7 +804,8 @@ function applyEnvOverrides(cfg: FerryConfig): FerryConfig {
   const reviewerMaxTokens = envInt('FERRY_REVIEWER_MAX_TOKENS');
   if (reviewerMaxTokens !== undefined) limits.reviewer_max_tokens = reviewerMaxTokens;
   const reconcilerStaleWindowMinutes = envInt('FERRY_RECONCILER_STALE_WINDOW_MINUTES');
-  if (reconcilerStaleWindowMinutes !== undefined) limits.reconciler_stale_window_minutes = reconcilerStaleWindowMinutes;
+  if (reconcilerStaleWindowMinutes !== undefined)
+    limits.reconciler_stale_window_minutes = reconcilerStaleWindowMinutes;
 
   // Propagate resolved P1 limits as env vars so standalone modules can read them at call time.
   // This allows ferry.config.json values to reach modules that don't receive config directly.
@@ -762,7 +826,9 @@ function applyEnvOverrides(cfg: FerryConfig): FerryConfig {
   process.env.FERRY_REFINER_TOUCH_PATHS_CAP = String(limits.refiner_touch_paths_cap);
   process.env.FERRY_REVIEWER_MAX_ITERATIONS = String(limits.reviewer_max_iterations);
   process.env.FERRY_REVIEWER_MAX_TOKENS = String(limits.reviewer_max_tokens);
-  process.env.FERRY_RECONCILER_STALE_WINDOW_MINUTES = String(limits.reconciler_stale_window_minutes);
+  process.env.FERRY_RECONCILER_STALE_WINDOW_MINUTES = String(
+    limits.reconciler_stale_window_minutes,
+  );
 
   return { ...cfg, models, limits };
 }
