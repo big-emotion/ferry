@@ -1,5 +1,5 @@
 /**
- * Acceptance-criteria tests for the Ferry install guide (docs/CONSUMER-SETUP.md).
+ * Acceptance-criteria tests for the Ferry install guide (README.md quick-install block).
  *
  * These are structural / static tests — they read files on disk and assert that the
  * codebase remains consistent with the published install guide.  Every test here
@@ -127,10 +127,10 @@ describe('Phase 3 — workflow stub inputs alignment', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 4. Required secrets and variable documented in CONSUMER-SETUP.md — Phase 2
+// 4. Required secrets and variable documented in README quick-install block
 // ---------------------------------------------------------------------------
 
-describe('Phase 2 — secret and variable names (install-guide §2.3)', () => {
+describe('Quick install — secret and variable names (README §Step 2)', () => {
   // These are the exact env var names read by requireEnv() in the agent code.
   // If any name changes in the code, the doc test will fail, prompting a doc update.
   const requiredSecrets = [
@@ -142,21 +142,21 @@ describe('Phase 2 — secret and variable names (install-guide §2.3)', () => {
     'FERRY_ITER_TRANSITION_ID',
   ];
 
-  it('CONSUMER-SETUP.md documents all 6 required secrets', async () => {
-    const doc = await readFile('docs/CONSUMER-SETUP.md');
+  it('README documents all 6 required secrets', async () => {
+    const doc = await readFile('README.md');
     for (const secret of requiredSecrets) {
-      expect(doc, `CONSUMER-SETUP.md must document secret ${secret}`).toContain(secret);
+      expect(doc, `README must document secret ${secret}`).toContain(secret);
     }
   });
 
-  it('CONSUMER-SETUP.md documents the FERRY_AUDIT_ISSUE variable', async () => {
-    const doc = await readFile('docs/CONSUMER-SETUP.md');
+  it('README documents the FERRY_AUDIT_ISSUE variable', async () => {
+    const doc = await readFile('README.md');
     expect(doc).toContain('FERRY_AUDIT_ISSUE');
   });
 
-  it('CONSUMER-SETUP.md mentions 6 secrets (not 4)', async () => {
-    const doc = await readFile('docs/CONSUMER-SETUP.md');
-    expect(doc, 'Guide must say "6 secrets" — there are 6 required secrets').toMatch(/6 secrets/);
+  it('README mentions 6 secrets', async () => {
+    const doc = await readFile('README.md');
+    expect(doc, 'README must say "6 secrets" — there are 6 required secrets').toMatch(/6 secrets/);
   });
 });
 
@@ -164,7 +164,7 @@ describe('Phase 2 — secret and variable names (install-guide §2.3)', () => {
 // 5. Secret names in the doc match what agent code actually requires
 // ---------------------------------------------------------------------------
 
-describe('Phase 2 — secret names match agent code (install-guide §2.3)', () => {
+describe('Quick install — secret names match agent code (README §Step 2)', () => {
   it('developer agent requires FERRY_REVIEW_TRANSITION_ID (FR18)', async () => {
     const code = await readFile('src/agents/developer/dev-action.ts');
     expect(code, 'dev-action.ts must call requireEnv("FERRY_REVIEW_TRANSITION_ID")').toContain(
@@ -216,11 +216,11 @@ describe('Phase 6 — FERRY_AUDIT_ISSUE wired through reusable workflows (instal
 });
 
 // ---------------------------------------------------------------------------
-// 7. Jira column names in CONSUMER-SETUP.md match PHASE_TO_JIRA_COLUMN — Phase 1
+// 7. Jira column defaults documented in README quick-install block
 // ---------------------------------------------------------------------------
 
-describe('Phase 1 — Jira column names (install-guide §1.2)', () => {
-  const requiredColumnNames = [
+describe('Quick install — Jira column defaults (README quick-install)', () => {
+  const defaultColumnNames = [
     'Refinement',
     'In Development',
     'In Review',
@@ -228,32 +228,32 @@ describe('Phase 1 — Jira column names (install-guide §1.2)', () => {
     'Ready to Merge',
   ];
 
-  it('CONSUMER-SETUP.md documents all required Jira column names', async () => {
-    const doc = await readFile('docs/CONSUMER-SETUP.md');
-    for (const col of requiredColumnNames) {
-      expect(doc, `CONSUMER-SETUP.md must list Jira column "${col}"`).toContain(col);
+  it('README documents all default Jira column names', async () => {
+    const doc = await readFile('README.md');
+    for (const col of defaultColumnNames) {
+      expect(doc, `README must list default Jira column "${col}"`).toContain(col);
     }
   });
 });
 
 // ---------------------------------------------------------------------------
-// 8. FR18 / FR24 / FR28 transitions documented in CONSUMER-SETUP.md — Phase 5
+// 8. FR18 / FR24 / FR28 transitions documented in README — Phase 5
 // ---------------------------------------------------------------------------
 
-describe('Phase 5 — FR transitions documented (install-guide §5.3–5.5)', () => {
-  it('CONSUMER-SETUP.md documents FR18 (Developer → In Review auto-transition)', async () => {
-    const doc = await readFile('docs/CONSUMER-SETUP.md');
-    expect(doc, 'CONSUMER-SETUP.md must reference FR18').toMatch(/FR18/);
+describe('Phase 5 — FR transitions documented (README smoke test section)', () => {
+  it('README documents FR18 (Developer → In Review auto-transition)', async () => {
+    const doc = await readFile('README.md');
+    expect(doc, 'README must reference FR18').toMatch(/FR18/);
   });
 
-  it('CONSUMER-SETUP.md documents FR24 (Reviewer → Changes Requested auto-transition)', async () => {
-    const doc = await readFile('docs/CONSUMER-SETUP.md');
-    expect(doc, 'CONSUMER-SETUP.md must reference FR24').toMatch(/FR24/);
+  it('README documents FR24 (Reviewer → Changes Requested auto-transition)', async () => {
+    const doc = await readFile('README.md');
+    expect(doc, 'README must reference FR24').toMatch(/FR24/);
   });
 
-  it('CONSUMER-SETUP.md documents FR28 (Iterator → In Review auto-transition)', async () => {
-    const doc = await readFile('docs/CONSUMER-SETUP.md');
-    expect(doc, 'CONSUMER-SETUP.md must reference FR28').toMatch(/FR28/);
+  it('README documents FR28 (Iterator → In Review auto-transition)', async () => {
+    const doc = await readFile('README.md');
+    expect(doc, 'README must reference FR28').toMatch(/FR28/);
   });
 });
 
@@ -261,7 +261,7 @@ describe('Phase 5 — FR transitions documented (install-guide §5.3–5.5)', ()
 // 9. event_id format — Phase 4
 // ---------------------------------------------------------------------------
 
-describe('Phase 4 — event_id format (install-guide §4.2)', () => {
+describe('Phase 4 — event_id format (README §Step 4)', () => {
   it('documented event_id format passes schema validation', async () => {
     const { createRequire } = await import('node:module');
     const req = createRequire(import.meta.url);
@@ -291,8 +291,8 @@ describe('Phase 4 — event_id format (install-guide §4.2)', () => {
     }
   });
 
-  it('CONSUMER-SETUP.md documents the correct event_id format', async () => {
-    const doc = await readFile('docs/CONSUMER-SETUP.md');
+  it('README documents the correct event_id format', async () => {
+    const doc = await readFile('README.md');
     expect(doc).toContain('{{now.toMillis}}-{{issue.key}}-{{issue.id}}');
   });
 });
@@ -301,27 +301,27 @@ describe('Phase 4 — event_id format (install-guide §4.2)', () => {
 // 10. Audit issue creation documented — Phase 2
 // ---------------------------------------------------------------------------
 
-describe('Phase 2 — audit issue creation (install-guide §2.1)', () => {
-  it('CONSUMER-SETUP.md includes audit issue creation command', async () => {
-    const doc = await readFile('docs/CONSUMER-SETUP.md');
-    expect(doc, 'CONSUMER-SETUP.md must show gh issue create command for audit log').toContain(
+describe('Quick install — audit issue creation (README §Step 1)', () => {
+  it('README includes audit issue creation command', async () => {
+    const doc = await readFile('README.md');
+    expect(doc, 'README must show gh issue create command for audit log').toContain(
       'gh issue create',
     );
   });
 
-  it('CONSUMER-SETUP.md includes gh variable set for FERRY_AUDIT_ISSUE', async () => {
-    const doc = await readFile('docs/CONSUMER-SETUP.md');
+  it('README includes gh variable set for FERRY_AUDIT_ISSUE', async () => {
+    const doc = await readFile('README.md');
     expect(doc).toContain('gh variable set FERRY_AUDIT_ISSUE');
   });
 });
 
 // ---------------------------------------------------------------------------
-// 11. Consumer-facing docs must not reference @main in workflow stubs — Phase 3
+// 11. Consumer-facing docs must not reference @main in workflow stubs
 // ---------------------------------------------------------------------------
 
-describe('Phase 3 — no @main in consumer stubs (install-guide §3.2)', () => {
-  it('CONSUMER-SETUP.md does not tell users to use @main workflow refs', async () => {
-    const doc = await readFile('docs/CONSUMER-SETUP.md');
+describe('Quick install — no @main in workflow refs (README)', () => {
+  it('README does not tell users to use @main workflow refs', async () => {
+    const doc = await readFile('README.md');
     // The doc must not say stubs use @main (they use @v0.3.0)
     expect(doc).not.toMatch(/uses.*@main/);
     expect(doc).not.toContain('always use the latest version automatically');
@@ -329,36 +329,36 @@ describe('Phase 3 — no @main in consumer stubs (install-guide §3.2)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 12. Phase 3 SHA-pinning instructions are present — Phase 3
+// 12. SHA-pinning instructions are present — Phase 3
 // ---------------------------------------------------------------------------
 
-describe('Phase 3 — SHA pinning instructions (install-guide §3.2)', () => {
-  it('CONSUMER-SETUP.md includes SHA pinning instructions using gh api', async () => {
-    const doc = await readFile('docs/CONSUMER-SETUP.md');
-    expect(doc, 'CONSUMER-SETUP.md must show SHA pinning via gh api').toContain(
-      'gh api repos/big-emotion/ferry/git/refs/tags/v0.3.0',
+describe('Quick install — SHA pinning instructions (README §SHA pinning)', () => {
+  it('README includes SHA pinning instructions using gh api', async () => {
+    const doc = await readFile('README.md');
+    expect(doc, 'README must show SHA pinning via gh api').toContain(
+      'gh api repos/big-emotion/ferry/git/refs/tags/',
     );
   });
 });
 
 // ---------------------------------------------------------------------------
-// 13. Smoke test scenario documented — Phase 5
+// 13. Smoke test scenario documented
 // ---------------------------------------------------------------------------
 
-describe('Phase 5 — smoke test documented (install-guide §5.1)', () => {
-  it('CONSUMER-SETUP.md includes smoke test ticket creation step', async () => {
-    const doc = await readFile('docs/CONSUMER-SETUP.md');
+describe('Quick install — smoke test documented (README §Smoke test)', () => {
+  it('README includes smoke test guidance', async () => {
+    const doc = await readFile('README.md');
     expect(doc).toMatch(/smoke test/i);
   });
 });
 
 // ---------------------------------------------------------------------------
-// 14. No-auto-merge invariant cross-check — Phase 5
+// 14. No-auto-merge invariant cross-check
 // ---------------------------------------------------------------------------
 
-describe('Phase 5 — Ferry never merges (install-guide §5.6)', () => {
-  it('CONSUMER-SETUP.md states Ferry never merges', async () => {
-    const doc = await readFile('docs/CONSUMER-SETUP.md');
+describe('Quick install — Ferry never merges (README)', () => {
+  it('README states Ferry never merges', async () => {
+    const doc = await readFile('README.md');
     expect(doc).toMatch(/Ferry never merges/i);
   });
 });
@@ -389,7 +389,7 @@ describe('Supply-chain — no @main refs in internal workflows (issue #77)', () 
 // 16. Phase 7 — Ops workflow stubs (reconciler and cost daily-check)
 // ---------------------------------------------------------------------------
 
-describe('Phase 7 — ops workflow stubs (install-guide §7.5 and §7.6)', () => {
+describe('Operations — ops workflow stubs (README §Operations setup)', () => {
   const opsStubs = ['ferry-reconcile', 'ferry-cost-daily'];
 
   for (const stub of opsStubs) {
@@ -448,23 +448,23 @@ describe('Phase 7 — ops workflow stubs (install-guide §7.5 and §7.6)', () =>
     );
   });
 
-  it('CONSUMER-SETUP.md §7.5 heading marks reconciler as required', async () => {
-    const doc = await readFile('docs/CONSUMER-SETUP.md');
-    expect(doc).toMatch(/7\.5[^\n]*required/i);
+  it('README marks reconciler as required', async () => {
+    const doc = await readFile('README.md');
+    expect(doc).toMatch(/reconcile.*required|required.*reconcile/i);
   });
 
-  it('CONSUMER-SETUP.md §7.6 heading marks cost daily-check as required', async () => {
-    const doc = await readFile('docs/CONSUMER-SETUP.md');
-    expect(doc).toMatch(/7\.6[^\n]*required/i);
+  it('README marks cost daily-check as required', async () => {
+    const doc = await readFile('README.md');
+    expect(doc).toMatch(/cost.*required|required.*cost/i);
   });
 
-  it('CONSUMER-SETUP.md quick checklist includes ferry-reconcile.yml as required', async () => {
-    const doc = await readFile('docs/CONSUMER-SETUP.md');
+  it('README checklist includes ferry-reconcile.yml as required', async () => {
+    const doc = await readFile('README.md');
     expect(doc).toMatch(/ferry-reconcile\.yml.*required/i);
   });
 
-  it('CONSUMER-SETUP.md quick checklist includes ferry-cost-daily.yml as required', async () => {
-    const doc = await readFile('docs/CONSUMER-SETUP.md');
+  it('README checklist includes ferry-cost-daily.yml as required', async () => {
+    const doc = await readFile('README.md');
     expect(doc).toMatch(/ferry-cost-daily\.yml.*required/i);
   });
 });

@@ -35,7 +35,7 @@ export function checkPromptOverrides(opts: { repoRoot: string }): CheckResult {
   const warnings = overrides
     .map(
       (file) =>
-        `Full prompt override \`prompts/${file}\` detected. This replaces Ferry's bundled prompt entirely and may break the agent contract (tools, output format, transitions). Consider using \`prompts/${file.replace(/\.md$/, '.extra.md')}\` instead — it appends your customisations without replacing the contract. See docs/CONSUMER-SETUP.md.`,
+        `Full prompt override \`prompts/${file}\` detected. This replaces Ferry's bundled prompt entirely and may break the agent contract (tools, output format, transitions). Consider using \`prompts/${file.replace(/\.md$/, '.extra.md')}\` instead — it appends your customisations without replacing the contract. See docs/CONFIGURATION.md.`,
     )
     .join('\n');
 

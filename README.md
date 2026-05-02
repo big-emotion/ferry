@@ -17,8 +17,6 @@ Jira board  ──▶  repository_dispatch  ──▶  GitHub Actions  ──▶
 
 Ferry connects your Jira board to a fully autonomous dev loop — Refiner, Developer, Reviewer, and Iterator agents run as GitHub Actions workflows, triggered by column transitions and labels on your Jira tickets.
 
-**New to Ferry?** Follow [**docs/CONSUMER-SETUP.md**](docs/CONSUMER-SETUP.md) — the canonical install guide (~20 min).
-
 ---
 
 ## What Ferry is — and isn't
@@ -88,7 +86,157 @@ Ferry **never merges** and **never moves Jira columns** autonomously except for 
 - GitHub repository (target repo where Ferry runs)
 - Jira Cloud Standard or Premium (outbound web requests required)
 - LLM provider accounts: Anthropic, Google AI, OpenAI
-- A few hours one-time, ~30 minutes hands-on configuration
+- **Story** issue type (and Task, Bug, Spike if your project uses them) must be enabled in the Jira project
+
+---
+
+## Quick install
+
+```bash
+npx -p @big-emotion/ferry ferry-init
+```
+
+The wizard collects your Jira URL, credentials, and column status names (prompts with defaults: **Refinement** / **In Development** / **In Review** / **Changes Requested** / **Ready to Merge**), generates the Jira Automation rules, and copies the 4 consumer workflow stubs into `.github/workflows/`. Custom status names work — enter them when prompted.
+
+After the wizard finishes, complete four manual steps:
+
+### Step 1 — Create the audit issue
+
+Ferry appends a one-line journal entry to a dedicated GitHub Issue after every agent run:
+
+```bash
+gh issue create \
+  --repo YOUR_ORG/YOUR_REPO \
+  --title "Ferry Audit Log (#1)" \
+  --body "Do not close. Ferry writes audit comments here." \
+  --label ferry \
+  --label "ferry:audit-log:active"
+```
+
+Note the returned issue number, then set the variable:
+
+```bash
+gh variable set FERRY_AUDIT_ISSUE --body "<issue-number>"
+```
+
+### Step 2 — Set the 6 required secrets
+
+```bash
+gh secret set FERRY_JIRA_BASE_URL         --body "https://YOUR-ORG.atlassian.net"
+gh secret set FERRY_JIRA_EMAIL            --body "you@example.com"
+gh secret set FERRY_JIRA_API_TOKEN        --body "<atlassian-api-token>"
+gh secret set ANTHROPIC_API_KEY           --body "<sk-ant-...>"
+gh secret set FERRY_REVIEW_TRANSITION_ID  --body "<jira-transition-id-for-In-Review>"
+gh secret set FERRY_ITER_TRANSITION_ID    --body "<jira-transition-id-for-Changes-Requested>"
+```
+
+Verify: `gh secret list --repo YOUR_ORG/YOUR_REPO | grep FERRY` must show 6 secrets and 1 variable.
+
+> **Finding Jira transition IDs:** Run `curl -u you@example.com:<token> https://YOUR-ORG.atlassian.net/rest/api/3/issue/PROJ-1/transitions`. Note the numeric `id` for the "In Review" and "Changes Requested" transitions.
+
+### Step 3 — Enable workflow permissions
+
+```bash
+gh api -X PUT /repos/YOUR_ORG/YOUR_REPO/actions/permissions/workflow \
+  -f default_workflow_permissions=write \
+  -F can_approve_pull_request_reviews=true
+```
+
+Or via the UI: **Settings → Actions → General → Workflow permissions → Read and write**.
+
+### Step 4 — Connect Jira → GitHub
+
+Import the automation rules JSON the wizard generated at **Jira → Project Settings → Automation → Import rules**. If your Jira tier doesn't support import, create 4 rules manually — one per Ferry column:
+
+- **Trigger:** Issue transitioned to `<column>`
+- **Action:** Send web request (POST `https://api.github.com/repos/YOUR_ORG/YOUR_REPO/dispatches`)
+- **Body** (example for the Refiner column):
+
+```json
+{
+  "event_type": "ferry-refine",
+  "client_payload": {
+    "version": "v1",
+    "event_id": "{{now.toMillis}}-{{issue.key}}-{{issue.id}}",
+    "ticket_key": "{{issue.key}}",
+    "phase": "refine",
+    "source": "jira-column",
+    "ts": "{{now.jiraDate}}",
+    "issue_type": "{{issue.issuetype.name}}"
+  }
+}
+```
+
+Set `event_type` and `phase` to `ferry-dev` / `ferry-review` / `ferry-iterate` for the other three columns.
+
+### SHA pinning (recommended)
+
+Pin the installed stubs to an exact commit SHA rather than the floating tag:
+
+```bash
+LATEST_SHA=$(gh api repos/big-emotion/ferry/git/refs/tags/v0.3.0 --jq '.object.sha')
+sed -i.bak "s|@v0.3.0|@${LATEST_SHA}|g" .github/workflows/ferry-*.yml && rm .github/workflows/ferry-*.yml.bak
+git add .github/workflows/ && git commit -m "chore(ferry): pin to SHA ${LATEST_SHA}"
+```
+
+Refresh pinned SHAs every 1–2 months, or configure [Dependabot for GitHub Actions](https://docs.github.com/en/code-security/dependabot/working-with-dependabot/keeping-your-actions-up-to-date-with-dependabot).
+
+### Smoke test
+
+Create a **Story** ticket in Jira and move it to **Refinement**. Within ~5 seconds the `Ferry — Refine` workflow should appear in GitHub Actions. Approve the sub-tasks, move the ticket to **In Development**, and watch the loop: Developer opens a draft PR and auto-transitions the ticket to _In Review_ (FR18); Reviewer runs when CI is green and either marks the PR ready (FR24 — `ferry:approved` label) or transitions to _Changes Requested_ (FR24); Iterator applies findings and transitions back to _In Review_ (FR28).
+
+**Ferry never merges** — you merge the PR yourself when satisfied.
+
+### Operations setup (required)
+
+Add two scheduled maintenance workflows after your smoke test passes:
+
+```bash
+# Stale-ticket reconciler — required, runs every 30 min
+curl -fsSL "https://raw.githubusercontent.com/big-emotion/ferry/main/examples/consumer-setup/workflows/ferry-reconcile.yml" \
+  -o ".github/workflows/ferry-reconcile.yml"
+
+# Daily cost check — required, runs at 06:00 UTC
+curl -fsSL "https://raw.githubusercontent.com/big-emotion/ferry/main/examples/consumer-setup/workflows/ferry-cost-daily.yml" \
+  -o ".github/workflows/ferry-cost-daily.yml"
+
+git add .github/workflows/ferry-reconcile.yml .github/workflows/ferry-cost-daily.yml
+git commit -m "chore(ferry): add reconciler and cost-daily workflows (required)"
+git push
+```
+
+Quick install checklist:
+
+```
+[ ] Audit issue created + FERRY_AUDIT_ISSUE variable set
+[ ] 6 secrets set (FERRY_JIRA_BASE_URL, FERRY_JIRA_EMAIL, FERRY_JIRA_API_TOKEN,
+    ANTHROPIC_API_KEY, FERRY_REVIEW_TRANSITION_ID, FERRY_ITER_TRANSITION_ID)
+[ ] Workflow permissions = read+write
+[ ] 4 Jira automation rules created and enabled
+[ ] Smoke test passed (ferry-refine green, draft PR opened)
+[ ] ferry-reconcile.yml added (required)
+[ ] ferry-cost-daily.yml added (required)
+```
+
+---
+
+## Lifecycle commands
+
+| Command | What it does |
+|---|---|
+| `npx -p @big-emotion/ferry ferry-init` | Scaffold Ferry into a new repo |
+| `npx -p @big-emotion/ferry ferry-doctor` | Diagnose configuration issues |
+| `npx -p @big-emotion/ferry ferry-update` | Upgrade Ferry to a newer version |
+| `npx -p @big-emotion/ferry ferry-uninstall` | Remove Ferry from a repo |
+
+`ferry-doctor` will warn when a newer version is available:
+
+```
+! Ferry update available: v0.3.0 → v0.3.1
+  Run `npx -p @big-emotion/ferry@0.3.1 ferry-update` to upgrade
+```
+
+See [`MIGRATIONS.md`](MIGRATIONS.md) for consumer-visible changes per release.
 
 ---
 
@@ -109,130 +257,11 @@ Options:
 | `--from <version>` | Override autodetected current version |
 | `--to <version>` | Target a specific version (default: package version) |
 
-`ferry-doctor` will warn you when a newer version is available:
-
-```
-! Ferry update available: v0.3.0 → v0.3.1
-  Run `npx -p @big-emotion/ferry@0.3.1 ferry-update` to upgrade
-```
-
-See [`MIGRATIONS.md`](MIGRATIONS.md) for a list of consumer-visible changes per release.
-
----
-
-## Setup — Using Ferry in your project
-
-> **Using Ferry in another repo?** See [**CONSUMER-SETUP.md**](docs/CONSUMER-SETUP.md) for step-by-step instructions — it's 3 simple steps and takes ~15 minutes.
->
-> Everything below is for **developing Ferry itself** (i.e., maintaining this repository).
-
-### Steps 1–7: For Ferry maintainers only
-
-If you're setting up Ferry in a **consumer project** (not this repository), stop here and follow [CONSUMER-SETUP.md](docs/CONSUMER-SETUP.md) instead.
-
-### Step 1 — Create a GitHub App with scoped permissions
-
-1. Go to **GitHub → Settings → Developer settings → GitHub Apps → New GitHub App**.
-2. Name it (e.g. `ferry-yourorg`). Webhook URL can be a placeholder — Ferry uses `repository_dispatch`, not webhooks.
-3. Set **repository permissions** (NFR-S6):
-
-   | Permission    | Access       |
-   | ------------- | ------------ |
-   | Contents      | Read & Write |
-   | Pull requests | Read & Write |
-   | Issues        | Read & Write |
-   | Metadata      | Read         |
-
-   Leave every other permission at **No access**. Subscribe to **no** events.
-
-4. Generate a **private key** (`.pem`). Save it — you'll paste it into a repository secret in step 5.
-5. Note the **App ID** shown on the App settings page.
-
-### Step 2 — Install the App on the target repo
-
-1. From the App settings page, click **Install App** in the left sidebar.
-2. Select the org/user, then **Only select repositories** → choose the target repo only.
-3. Confirm the install.
-
-### Step 3 — Create an Atlassian API token
-
-1. Go to **<https://id.atlassian.com/manage-profile/security/api-tokens>**.
-2. Click **Create API token**, give it a label like `ferry`.
-3. Copy the token. Note the email address of the Atlassian account that created it.
-
-### Step 4 — Configure Jira Automation rules
-
-For each Ferry column on your Jira board (Refinement, In Development, In Review, Iteration), create a Jira Automation rule:
-
-- **Trigger:** "Issue transitioned to" → the column.
-- **Action:** "Send web request" with method `POST` to:
-
-  ```
-  https://api.github.com/repos/<owner>/<repo>/dispatches
-  ```
-
-  **Headers:**
-  - `Accept: application/vnd.github+json`
-  - `Authorization: Bearer <fine-grained PAT with contents:write or App-installation token>`
-  - `X-GitHub-Api-Version: 2022-11-28`
-
-  **Body (JSON):**
-
-  ```json
-  {
-    "event_type": "ferry-refine",
-    "client_payload": {
-      "ticket_key": "{{issue.key}}",
-      "event_id": "{{#randomString}}20{{/randomString}}"
-    }
-  }
-  ```
-
-  Set `event_type` to one of: `ferry-refine`, `ferry-dev`, `ferry-review`, `ferry-iterate` — matching the column.
-
-Optional: add label-based rules (`ferry:refine`, `ferry:dev`, …) using the same dispatch shape.
-
-### Step 5 — Populate repository secrets
-
-> ℹ️ For **consumer projects**, see [CONSUMER-SETUP.md](docs/CONSUMER-SETUP.md) for which 4 secrets are required.
->
-> The secrets below apply when developing or customizing Ferry itself.
-
-In the target repo: **Settings → Secrets and variables → Actions → New repository secret**.
-
-| Secret                    | Description                                                                                 |
-| ------------------------- | ------------------------------------------------------------------------------------------- |
-| `FERRY_APP_ID`            | GitHub App ID from step 1 (Ferry's internal app)                                            |
-| `FERRY_PRIVATE_KEY`       | Full PEM contents of the App private key from step 1                                        |
-| `FERRY_JIRA_BASE_URL`     | e.g. `https://your-org.atlassian.net`                                                       |
-| `FERRY_JIRA_EMAIL`        | Atlassian account email from step 3                                                         |
-| `FERRY_JIRA_API_TOKEN`    | Atlassian API token from step 3                                                             |
-| `FERRY_ANTHROPIC_API_KEY` | Anthropic API key (Google AI and OpenAI keys are added later when their phases are enabled) |
-
-### Step 6 — Set hard spend caps on each provider console
-
-Ferry's design budget is **≤ 200€/provider/month** with an average **≤ 1.50€/story**. Provider HTTP 429/402 responses auto-pause affected tickets, but a hard cap on the provider side is your backstop.
-
-1. **Anthropic Console** → Billing → set monthly spend cap.
-2. **Google AI Studio** → Billing → enable budget alerts.
-3. **OpenAI** → Billing → set hard limit.
-
-Ferry's daily cost-governance cron warns at **50%** of the cap.
-
-### Step 7 — Deploy to your consumer project
-
-For each consumer project, follow the 3-step setup in [**CONSUMER-SETUP.md**](docs/CONSUMER-SETUP.md):
-1. Copy consumer workflow stubs from `examples/consumer-setup/workflows/`
-2. Add GitHub secrets (Jira credentials, API keys)
-3. Configure Jira webhook
-
-Do NOT copy Ferry's internal workflows (`.github/workflows/*.yml`) or actions (`.github/actions/`) directly — they reference internal paths. Use the consumer stubs instead.
-
 ---
 
 ## Examples
 
-The canonical agent prompts live in [`prompts/`](prompts/) — that is the single source of truth for each agent's LLM instructions and expected output schema. Consumers can enrich them per project without breaking the Ferry contract: see [Customizing agent prompts](docs/CONSUMER-SETUP.md#customizing-agent-prompts).
+The canonical agent prompts live in [`prompts/`](prompts/) — that is the single source of truth for each agent's LLM instructions and expected output schema. Consumers can enrich them per project without breaking the Ferry contract by creating `prompts/<agent>.extra.md` files. See [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) for full customization options.
 
 The [`examples/`](examples/) directory ships reference artifacts you can copy into your install:
 

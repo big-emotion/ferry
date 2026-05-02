@@ -7,6 +7,36 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.4.0] — 2026-05-02
+
+### Added
+
+- **`ferry-uninstall` CLI** — removes Ferry workflows, secrets, and variables from a consumer repo (#123).
+- **`ferry-update` CLI** — upgrades pinned Ferry versions in consumer workflow files; prints migration notes from `MIGRATIONS.md` (#130).
+- **Configurable status names** — `ferry-init` now prompts for Jira column names with sensible defaults (Refinement / In Development / In Review / Changes Requested / Ready to Merge) instead of requiring exact names (#122).
+
+### Changed
+
+- **`docs/CONSUMER-SETUP.md` deleted** — the install story now lives entirely in the README quick-install block. A volunteer with no prior Ferry knowledge can install end-to-end from the README in ≤ 10 minutes.
+- **`MIGRATIONS.md` added** — documents consumer-visible changes between releases; `ferry-update` reads it to print manual follow-ups after an upgrade.
+
+### Breaking (docs)
+
+- `docs/CONSUMER-SETUP.md` no longer exists. Any bookmarks or links to it should be updated to point to the README.
+
+---
+
+## [0.3.1] — 2026-05-02
+
+### Fixed
+
+- **Workflow stubs reference correct version** — consumer workflow stubs now pin to `@v0.3.0` consistently (#118).
+- **Jira import beta + manual fallback** — `ferry-init` supports both Jira Automation rule import (where available) and manual rule creation instructions (#119).
+- **`Iteration` → `Changes Requested` column name** — internal references to the Iterator Jira column are now consistent (#120).
+- **Workspace ARI + project ID auto-detection** — `ferry-init` wizard automatically collects the workspace ARI and Jira project ID, reducing manual input (#121).
+
+---
+
 ## [0.3.0] — 2026-05-01
 
 ### Changed
@@ -74,6 +104,8 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+[0.4.0]: https://github.com/big-emotion/ferry/releases/tag/v0.4.0
+[0.3.1]: https://github.com/big-emotion/ferry/releases/tag/v0.3.1
 [0.3.0]: https://github.com/big-emotion/ferry/releases/tag/v0.3.0
 [0.2.0]: https://github.com/big-emotion/ferry/releases/tag/v0.2.0
 [0.1.0]: https://github.com/big-emotion/ferry/releases/tag/v0.1.0

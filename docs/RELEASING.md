@@ -25,7 +25,7 @@ Ferry maintains **two tag types per major release**:
 | `v0`     | Floating  | Yes — updated on every `0.x.y` release | Optional reference for consumers who want patch/minor updates automatically                                                       |
 | `v0.3.0` | Immutable | Never                                  | Default reference in consumer workflow stubs (`uses: big-emotion/ferry/.github/workflows/...@v0.3.0`); recommended for production |
 
-**Consumer recommendation:** Stay on the pinned `@v0.3.0` tag (or a SHA pin) for production. The floating `@v0` tag is available for consumers who prefer automatic minor/patch upgrades — see `docs/CONSUMER-SETUP.md` §3.2.
+**Consumer recommendation:** Stay on the pinned `@v0.3.0` tag (or a SHA pin) for production. The floating `@v0` tag is available for consumers who prefer automatic minor/patch upgrades — see the SHA pinning section of the README.
 
 ### Why a floating major tag?
 
@@ -144,7 +144,8 @@ Before tagging any release:
 - [ ] `npm run build:ferry` succeeds and `.ferry/` is committed
 - [ ] `CHANGELOG.md` updated with the new version section
 - [ ] `package.json` `version` bumped
-- [ ] `docs/CONSUMER-SETUP.md` verified end-to-end on a clean test repo (P0 for MAJOR releases)
+- [ ] `MIGRATIONS.md` updated with a `## <prev> → <this>` section listing any consumer-visible changes (new secrets, new Jira-rule fields, status-name changes). If there are none, add `(none — internal changes only)`. **Incomplete entries cause silent breakage for consumers running `ferry-update`.**
+- [ ] README quick-install block verified end-to-end on a clean test repo (P0 for MAJOR releases)
 
 ---
 

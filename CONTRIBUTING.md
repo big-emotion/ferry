@@ -108,6 +108,10 @@ The `src/agents/__lint-fixtures__/` directory contains intentionally broken code
 
 Plain imperative summary line, no emoji, no `Co-Authored-By` trailers. Reference story IDs in the body when relevant (e.g. `Story 3-1`).
 
+## Releasing
+
+When preparing a release, add a `## <prev> → <this>` section to [`MIGRATIONS.md`](../MIGRATIONS.md) listing any consumer-visible changes (new secrets, new Jira-rule fields, status-name changes). See `docs/RELEASING.md` for the full pre-release checklist.
+
 ## Inspiration
 
 Ferry was inspired by [OpenAI Symphony](https://github.com/openai/symphony). It adapts the same agentic pipeline concept to be GitHub Actions–native, Jira-driven, and multi-provider (Anthropic + Google AI + OpenAI).
