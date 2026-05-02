@@ -88,9 +88,11 @@ All auto-transitions are configurable via `workflow.agents` in `ferry.config.yam
 ## Requirements
 
 - GitHub repository (target repo where Ferry runs)
+- **GitHub App** installed on the target repo with `contents: write`, `pull-requests: write`, and `issues: write`. The wizard's first step prompts for the App ID and the private-key PEM file — have both ready before running `ferry-init`. (The App is used by `ferry-doctor` to validate the install; the agent workflows themselves run on `${{ github.token }}`.)
 - Jira Cloud Standard or Premium (outbound web requests required)
 - Anthropic account (required for all phases); OpenAI or Google AI accounts if you configure those providers for the Refiner
 - **Story** issue type (and Task, Bug, Spike if your project uses them) must be enabled in the Jira project
+- Local tooling: `gh` CLI authenticated against the target repo (`gh auth status`), Node ≥ 20
 
 ---
 
@@ -235,14 +237,18 @@ Quick install checklist:
 
 ```
 [ ] Audit issue created + FERRY_AUDIT_ISSUE variable set
-[ ] 6 secrets confirmed (ferry-init sets them; verify with: gh secret list | grep FERRY)
+[ ] 6 secrets set by ferry-init (verify with: gh secret list | grep FERRY)
     FERRY_APP_ID, FERRY_PRIVATE_KEY, FERRY_JIRA_BASE_URL, FERRY_JIRA_EMAIL,
     FERRY_JIRA_API_TOKEN, ANTHROPIC_API_KEY
+[ ] 2 transition-ID secrets set manually (the wizard does NOT set these)
+    FERRY_REVIEW_TRANSITION_ID  — Jira transition ID into "In Review"
+    FERRY_ITER_TRANSITION_ID    — Jira transition ID into "Changes Requested"
 [ ] Workflow permissions = read+write
 [ ] 4 Jira automation rules created manually in Jira UI and enabled
 [ ] Smoke test passed (ferry-refine green, draft PR opened)
 [ ] ferry-reconcile.yml added (required)
 [ ] ferry-cost-daily.yml added (required)
+[ ] ferry-doctor reports green (npx -p @big-emotion/ferry ferry-doctor)
 ```
 
 ---
@@ -412,7 +418,10 @@ Then add the matching label to your Jira ticket (e.g. `ferry:mcp/context7`). Fer
 
 ## Cost governance
 
-Ferry is designed for a typical pilot budget: **≤ 200€/provider/month**, **≤ 1.50€ average per story**. A daily cron checks provider usage and warns at 50% of the cap. HTTP 429/402 responses auto-pause affected tickets via the `ferry:paused` label.
+Ferry is designed for a typical pilot budget: **≤ 200€/provider/month**, **≤ 1.50€ average per story**. Two independent guards apply:
+
+- **Daily spend alert** — `ferry-cost-daily.yml` checks provider usage once a day and posts an alert to the audit issue when spend crosses `FERRY_BUDGET_ALERT_RATIO` of `FERRY_SPEND_CAP_EUR` (default 50% of 200€). This is informational; it does not pause anything.
+- **Per-ticket auto-pause** — when an agent receives an HTTP 429 or 402 from the LLM provider mid-run, Ferry applies the `ferry:paused` Jira label so the ticket stops triggering further dispatches until you remove the label. This is independent of the daily alert.
 
 ---
 

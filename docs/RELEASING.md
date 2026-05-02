@@ -16,16 +16,18 @@ Ferry follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`MAJOR
 
 ---
 
-## Tag strategy — floating `v0` and immutable `v0.x.y`
+## Tag strategy — floating `v1` and immutable `v0.x.y`
 
 Ferry maintains **two tag types per major release**:
 
 | Tag      | Type      | Moves?                                 | Purpose                                                                                                                           |
 | -------- | --------- | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `v0`     | Floating  | Yes — updated on every `0.x.y` release | Optional reference for consumers who want patch/minor updates automatically                                                       |
+| `v1`     | Floating  | Yes — updated on every `0.x.y` release | Optional reference for consumers who want patch/minor updates automatically                                                       |
 | `v0.4.0` | Immutable | Never                                  | Default reference in consumer workflow stubs (`uses: big-emotion/ferry/.github/workflows/...@v0.4.0`); recommended for production |
 
-**Consumer recommendation:** Stay on the pinned `@v0.4.0` tag (or a SHA pin) for production. The floating `@v0` tag is available for consumers who prefer automatic minor/patch upgrades — see the SHA pinning section of the README.
+> **Why `v1` and not `v0` for the pre-1.0 line?** GitHub Actions convention treats the floating major tag as the single user-visible "version one" of the action, regardless of the underlying semver pre-release status. Ferry's `0.x.y` releases all move `v1` (see `scripts/retag-major.sh`) so consumers can pin `@v1` from day one without re-pinning when Ferry crosses 1.0.0. After the first `1.x.y` release the same `v1` tag continues to advance; `2.0.0` will introduce `v2`, etc.
+
+**Consumer recommendation:** Stay on the pinned `@v0.4.0` tag (or a SHA pin) for production. The floating `@v1` tag is available for consumers who prefer automatic minor/patch upgrades — see the SHA pinning section of the README.
 
 ### Why a floating major tag?
 
@@ -35,7 +37,7 @@ The floating tag is always safe to follow because:
 
 - Patch releases fix bugs and never break the API
 - Minor releases are backward-compatible
-- MAJOR bumps increment the tag (`v1`, `v2`, …) and leave `v0` frozen at the last `0.x.y`
+- MAJOR bumps increment the tag (`v2`, `v3`, …) once Ferry crosses 1.0.0; until then `v1` advances with every `0.x.y` release
 
 ---
 
@@ -98,16 +100,17 @@ npm version patch   # or minor / major
 git push origin main
 git push origin "v$(node -p "require('./package.json').version")"
 
-# 4. Force-update the floating major tag.
-git tag -f v0
-git push origin v0 --force
+# 4. Force-update the floating major tag (handled automatically by release.yml
+#    via scripts/retag-major.sh — only run manually if release.yml didn't run).
+git tag -f v1
+git push origin v1 --force
 ```
 
 The GitHub Release and npm publish are created automatically by `release.yml` — no manual `gh release create` or `npm publish` step is needed.
 
 ---
 
-## Cutting the initial v0 / v0.1.0 tags
+## Cutting the initial v1 / v0.1.0 tags
 
 After this PR is merged into `main`, a maintainer with `contents: write` permission must run:
 
@@ -125,11 +128,11 @@ git tag -a v0.1.0 -m "Ferry v0.1.0 — initial release"
 git push origin v0.1.0
 
 # Create (or force-update) the floating major tag
-git tag -f v0
-git push origin v0 --force
+git tag -f v1
+git push origin v1 --force
 ```
 
-> **Why `--force` for the floating tag?** The floating `v0` must always point to the latest `0.x.y` commit. Force-push is intentional and safe here — it only moves a tag pointer, not history.
+> **Why `--force` for the floating tag?** The floating `v1` must always point to the latest `0.x.y` commit. Force-push is intentional and safe here — it only moves a tag pointer, not history.
 
 ---
 

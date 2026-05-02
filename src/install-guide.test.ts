@@ -154,9 +154,21 @@ describe('Quick install — secret and variable names (README §Step 2)', () => 
     expect(doc).toContain('FERRY_AUDIT_ISSUE');
   });
 
-  it('README mentions 6 secrets', async () => {
+  it('README mentions the 6 secrets set by ferry-init', async () => {
     const doc = await readFile('README.md');
-    expect(doc, 'README must say "6 secrets" — there are 6 required secrets').toMatch(/6 secrets/);
+    expect(doc, 'README checklist must call out the 6 secrets set by ferry-init').toMatch(
+      /6 secrets/,
+    );
+  });
+
+  it('README checklist surfaces the 2 transition-ID secrets the wizard does NOT set', async () => {
+    const doc = await readFile('README.md');
+    expect(doc).toMatch(/FERRY_REVIEW_TRANSITION_ID/);
+    expect(doc).toMatch(/FERRY_ITER_TRANSITION_ID/);
+    expect(
+      doc,
+      'README checklist must explicitly note that 2 transition-ID secrets are set manually (the wizard does not set them)',
+    ).toMatch(/2 transition-ID secrets set manually/);
   });
 });
 

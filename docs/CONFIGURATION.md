@@ -55,17 +55,19 @@ Add these under **Settings → Secrets and variables → Actions → Variables**
 
 ### Optional
 
-| Variable                      | Default             | Affects         | Description                                                                                              |
-| ----------------------------- | ------------------- | --------------- | -------------------------------------------------------------------------------------------------------- |
-| `FERRY_REFINER_PROVIDER`      | (from config)       | Refiner agent   | Override the LLM provider for the Refiner. Must be `anthropic`, `openai`, or `google`.                   |
-| `FERRY_REFINER_MODEL`         | (from config)       | Refiner agent   | Override the model ID for the Refiner.                                                                   |
-| `FERRY_DEV_PROVIDER`          | (from config)       | Developer agent | Override the LLM provider for the Developer. Currently only `anthropic` is supported for agentic phases. |
-| `FERRY_DEV_MODEL`             | (from config)       | Developer agent | Override the model ID for the Developer.                                                                 |
-| `FERRY_REVIEW_PROVIDER`       | (from config)       | Reviewer agent  | Override the LLM provider for the Reviewer. Currently only `anthropic` is supported for agentic phases.  |
-| `FERRY_REVIEW_MODEL`          | `claude-sonnet-4-6` | Reviewer agent  | Override the model ID for the Reviewer.                                                                  |
-| `FERRY_ITER_PROVIDER`         | (from config)       | Iterator agent  | Override the LLM provider for the Iterator. Currently only `anthropic` is supported for agentic phases.  |
-| `FERRY_ITER_MODEL`            | `claude-sonnet-4-6` | Iterator agent  | Override the model ID for the Iterator.                                                                  |
-| `FERRY_ITER_MAX_INPUT_TOKENS` | `500000`            | Iterator agent  | Input token budget per Iterator run. Mapped to `limits.max_tokens_per_run` internally.                   |
+Only the variables marked **wired** below are read directly by the standard reusable workflows shipped in `.github/workflows/`. The other rows are read by `src/lib/config.ts` if (and only if) they are present in the agent runtime env — which the standard workflows do **not** set. To override the Refiner or Developer model with the bundled workflows, edit `models.refiner.model` / `models.dev.model` in `ferry.config.yaml` instead of relying on a repository variable.
+
+| Variable                      | Default             | Wired? | Affects         | Description                                                                                                                          |
+| ----------------------------- | ------------------- | ------ | --------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `FERRY_REVIEW_MODEL`          | `claude-sonnet-4-6` | yes    | Reviewer agent  | Override the model ID for the Reviewer. Read by `.github/workflows/review.yml`.                                                      |
+| `FERRY_ITER_MODEL`            | `claude-sonnet-4-6` | yes    | Iterator agent  | Override the model ID for the Iterator. Read by `.github/workflows/iterate.yml`.                                                     |
+| `FERRY_ITER_MAX_INPUT_TOKENS` | `500000`            | yes    | Iterator agent  | Input token budget per Iterator run. Mapped to `limits.max_tokens_per_run` internally.                                               |
+| `FERRY_REFINER_PROVIDER`      | (from config)       | no     | Refiner agent   | LLM provider override for the Refiner (`anthropic` / `openai` / `google`). Wire into a custom workflow via `env:` or use the config. |
+| `FERRY_REFINER_MODEL`         | (from config)       | no     | Refiner agent   | Model ID override for the Refiner. Wire into a custom workflow via `env:` or use the config.                                         |
+| `FERRY_DEV_PROVIDER`          | (from config)       | no     | Developer agent | LLM provider override for the Developer. Currently only `anthropic` is supported for agentic phases.                                 |
+| `FERRY_DEV_MODEL`             | (from config)       | no     | Developer agent | Model ID override for the Developer. Wire into a custom workflow via `env:` or use the config.                                       |
+| `FERRY_REVIEW_PROVIDER`       | (from config)       | no     | Reviewer agent  | LLM provider override for the Reviewer. Currently only `anthropic` is supported for agentic phases.                                  |
+| `FERRY_ITER_PROVIDER`         | (from config)       | no     | Iterator agent  | LLM provider override for the Iterator. Currently only `anthropic` is supported for agentic phases.                                  |
 
 ---
 
@@ -75,7 +77,7 @@ Create `ferry.config.json`, `ferry.config.yaml`, or `ferry.config.yml` at the **
 
 Ferry reads the config file from `GITHUB_WORKSPACE` (the checked-out repo root) at the start of each agent run.
 
-> **`ferry.config.*` is never auto-generated by `ferry-init`.** A missing file means Ferry uses its built-in defaults — which is the right starting point for most teams. Only create this file when you actually want to override a default. Generating a file that merely restates the defaults adds noise and creates a second source of truth that can drift from the bundled defaults over time.
+> **What `ferry-init` writes.** When the wizard runs against a repo without an existing config, it generates a minimal `ferry.config.yaml` containing **only** the `workflow.agents` block (Jira column names + auto-transitions captured from your prompts). Every other section (`models`, `limits`, `ticket_types`, `git`, `labels`) is omitted so the bundled defaults apply. If `ferry.config.yaml` (or `.json`/`.yml`) already exists, the wizard skips this step unless `--overwrite` is passed. Add additional sections by hand only when you actually want to override a default — restating defaults adds noise and creates a second source of truth that can drift over time.
 
 ### Full annotated example
 
@@ -88,7 +90,7 @@ Ferry reads the config file from `GITHUB_WORKSPACE` (the checked-out repo root) 
     },
     "dev": {
       "provider": "anthropic",
-      "model": "claude-opus-4-5"
+      "model": "claude-sonnet-4-6"
     },
     "review": {
       "provider": "anthropic",
@@ -144,16 +146,16 @@ Ferry supports three LLM providers: **`anthropic`**, **`openai`**, and **`google
 
 > **MCP:** Model Context Protocol (MCP) server integration is Anthropic-only and is not available when using other providers.
 
-| Field                     | Default               | Description                                                                           |
-| ------------------------- | --------------------- | ------------------------------------------------------------------------------------- |
-| `models.refiner.provider` | `"anthropic"`         | LLM provider for the Refiner agent. Accepts `"anthropic"`, `"openai"`, or `"google"`. |
-| `models.refiner.model`    | `"claude-sonnet-4-6"` | Model ID for the Refiner agent (overridden by `FERRY_REFINER_MODEL` env var)          |
-| `models.dev.provider`     | `"anthropic"`         | LLM provider for the Developer agent. Currently only `"anthropic"` is supported.      |
-| `models.dev.model`        | `"claude-opus-4-5"`   | Model ID for the Developer agent (overridden by `FERRY_DEV_MODEL` env var)            |
-| `models.review.provider`  | `"anthropic"`         | LLM provider for the Reviewer agent. Currently only `"anthropic"` is supported.       |
-| `models.review.model`     | `"claude-sonnet-4-6"` | Model ID for the Reviewer agent (overridden by `FERRY_REVIEW_MODEL` env var)          |
-| `models.iterate.provider` | `"anthropic"`         | LLM provider for the Iterator agent. Currently only `"anthropic"` is supported.       |
-| `models.iterate.model`    | `"claude-sonnet-4-6"` | Model ID for the Iterator agent (overridden by `FERRY_ITER_MODEL` env var)            |
+| Field                     | Default               | Description                                                                                                                                |
+| ------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `models.refiner.provider` | `"anthropic"`         | LLM provider for the Refiner agent. Accepts `"anthropic"`, `"openai"`, or `"google"`.                                                      |
+| `models.refiner.model`    | `"claude-sonnet-4-6"` | Model ID for the Refiner agent (overridden by `FERRY_REFINER_MODEL` env var)                                                               |
+| `models.dev.provider`     | `"anthropic"`         | LLM provider for the Developer agent. Currently only `"anthropic"` is supported.                                                           |
+| `models.dev.model`        | `"claude-sonnet-4-6"` | Model ID for the Developer agent. The standard `dev.yml` workflow always runs `claude-sonnet-4-6`; override here to use a different model. |
+| `models.review.provider`  | `"anthropic"`         | LLM provider for the Reviewer agent. Currently only `"anthropic"` is supported.                                                            |
+| `models.review.model`     | `"claude-sonnet-4-6"` | Model ID for the Reviewer agent (overridden by `FERRY_REVIEW_MODEL` env var)                                                               |
+| `models.iterate.provider` | `"anthropic"`         | LLM provider for the Iterator agent. Currently only `"anthropic"` is supported.                                                            |
+| `models.iterate.model`    | `"claude-sonnet-4-6"` | Model ID for the Iterator agent (overridden by `FERRY_ITER_MODEL` env var)                                                                 |
 
 #### `limits`
 
@@ -295,6 +297,37 @@ The following env vars must be set as **GitHub Actions Variables** (or injected 
 | `FERRY_AUDIT_ROTATION_THRESHOLD`    | `900`   | Comment count at which the audit issue is rotated to a new issue (GitHub cap is 1000)            |
 
 `ferry-doctor` warns when any of these env vars is set to a value outside a safe operating range.
+
+---
+
+## Prompt customization
+
+Each agent runs a layered system prompt assembled at runtime by `src/lib/agent-runtime/prompt.ts` (composition) and `src/lib/prompts/resolve.ts` (file resolution):
+
+```
+bundled prompt (prompts/<agent>.md, shipped with Ferry)
+  + prompts/<agent>.extra.md     (optional per-agent extension)
+  + prompts/_project.md          (optional project-wide context, appended last)
+```
+
+Both extension files live in **your consumer repository**, alongside `.github/workflows/ferry-*.yml`. They are loaded at the start of every agent run from `GITHUB_WORKSPACE`. Agent prompt names map to `dev`, `iterate`, `refiner`, and `review`.
+
+| File                       | Purpose                                                                                                                                                        | Size cap (default)                            |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| `prompts/_project.md`      | Project-wide context appended to **every** agent (refiner, developer, reviewer, iterator). Use for stack details, in-house conventions, repository-wide rules. | `2048` bytes (`limits.project_snippet_bytes`) |
+| `prompts/refiner.extra.md` | Refiner-only extension. Use for ticket-shape rules ("always emit a sub-task for migration", "skip refining tickets labelled `wontfix`").                       | `4096` bytes (`limits.agent_extension_bytes`) |
+| `prompts/dev.extra.md`     | Developer-only extension. Use for build-system specifics, code-gen guardrails, repo-specific test commands.                                                    | `4096` bytes (`limits.agent_extension_bytes`) |
+| `prompts/review.extra.md`  | Reviewer-only extension. Use for review-priority rules ("flag any new dependency", "block PRs without a TL;DR").                                               | `4096` bytes (`limits.agent_extension_bytes`) |
+| `prompts/iterate.extra.md` | Iterator-only extension. Mirrors the developer extension but applies during the iterate phase.                                                                 | `4096` bytes (`limits.agent_extension_bytes`) |
+
+**Rules:**
+
+- **Never edit the bundled `prompts/<agent>.md` shipped inside Ferry** — that breaks the contract Ferry's tests rely on. Always extend via the `.extra.md` mechanism.
+- Files larger than the configured cap are silently truncated (left-anchored). Raise the cap via `limits.project_snippet_bytes` / `limits.agent_extension_bytes` in `ferry.config.yaml` if you need more headroom.
+- Missing files are silently skipped — no need to create empty placeholders.
+- Composition is deterministic: bundled prompt first, then the agent's `.extra.md` (under a `## Project-specific guidance for <agent>` heading), then `_project.md` (under a `## Project conventions` heading). Later content cannot remove earlier instructions; treat it as additive only.
+
+To verify which extension files Ferry picked up on a given run, search the agent's job log for `loaded <name>.extra.md` (channel `ferry:prompts`). Files that fell over the cap log `<name>.extra.md exceeds limit — truncating`.
 
 ---
 

@@ -37,7 +37,8 @@ jobs:
 # Required secrets: FERRY_JIRA_BASE_URL, FERRY_JIRA_EMAIL, FERRY_JIRA_API_TOKEN,
 #                   ANTHROPIC_API_KEY, FERRY_REVIEW_TRANSITION_ID
 # Required variables: FERRY_AUDIT_ISSUE (GitHub Issue number for the audit log)
-# Optional variables: FERRY_DEV_MODEL (default: claude-sonnet-4-6)
+# Developer model: hardcoded to claude-sonnet-4-6 in the reusable dev.yml.
+# To override, set models.dev.model in ferry.config.yaml.
 
 name: Ferry — Dev
 
