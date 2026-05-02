@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import { createRequire } from 'node:module';
 import { execSync } from 'node:child_process';
 import { join } from 'node:path';
 import { ask, confirm, closePrompt, print, printStep, printSuccess, printError } from './prompt.js';
@@ -12,8 +11,6 @@ import { resolveJiraWorkspaceId, resolveJiraProjectId } from './steps/jira-resol
 import { stepVerify } from './steps/verify.js';
 import type { FerryConfig } from './types.js';
 
-const _require = createRequire(import.meta.url);
-const { version: pkgVersion } = _require('../../../package.json') as { version: string };
 const FERRY_VERSION_DEFAULT = 'v1';
 
 const TOTAL_STEPS = 5;
