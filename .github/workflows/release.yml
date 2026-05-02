@@ -101,3 +101,6 @@ jobs:
           gh release create "v${{ steps.notes.outputs.version }}" \
             --title "v${{ steps.notes.outputs.version }}" \
             --generate-notes
+
+      - name: Update moving major tag
+        run: bash scripts/retag-major.sh "${{ github.ref_name }}"
