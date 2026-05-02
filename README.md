@@ -31,7 +31,7 @@ Ferry connects your Jira board to a fully autonomous dev loop — Refiner, Devel
 
 - A replacement for human review — it opens draft PRs, it never merges
 - A general-purpose AI coding assistant — it only acts on explicit Jira column transitions
-- Vendor-locked — the LLM provider per phase (Anthropic / Google AI / OpenAI) is configurable
+- Currently Anthropic-only — Google AI and OpenAI providers exist in code but per-phase provider selection is not yet exposed to consumers; multi-provider support is a planned roadmap item
 
 ---
 
@@ -73,13 +73,13 @@ Ferry **never merges** and **never moves Jira columns** autonomously except for 
 
 ---
 
-> ⚠️ **Privacy notice — read before first use.** Ferry transmits the following data to third-party LLM providers (Anthropic, Google AI, OpenAI):
+> ⚠️ **Privacy notice — read before first use.** Ferry transmits the following data to Anthropic (the current LLM provider):
 >
 > - Jira ticket titles, descriptions, comments, and sub-tasks
 > - File contents and diffs from the target GitHub repository
 > - Code review feedback and re-prompts
 >
-> No customer data is stored by Ferry itself, but each provider's data-retention policy applies. Review provider terms and obtain organisational approval before pointing Ferry at any repo containing confidential code or PII.
+> No customer data is stored by Ferry itself, but Anthropic's data-retention policy applies. Review their terms and obtain organisational approval before pointing Ferry at any repo containing confidential code or PII.
 
 ---
 
@@ -87,7 +87,7 @@ Ferry **never merges** and **never moves Jira columns** autonomously except for 
 
 - GitHub repository (target repo where Ferry runs)
 - Jira Cloud Standard or Premium (outbound web requests required)
-- LLM provider accounts: Anthropic, Google AI, OpenAI
+- Anthropic account (the current LLM provider; multi-provider support is on the roadmap)
 - **Story** issue type (and Task, Bug, Spike if your project uses them) must be enabled in the Jira project
 
 ---
