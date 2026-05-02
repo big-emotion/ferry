@@ -10,7 +10,7 @@ import { checkSyntheticDispatch } from './checks/dispatch.js';
 import { checkWorkflowDrift } from './checks/workflows.js';
 import { checkPromptOverrides } from './checks/prompts.js';
 import { checkUpdateAvailable } from './checks/update-available.js';
-import { checkConfigLimits } from './checks/config.js';
+import { checkConfigLimits, checkGitConfig } from './checks/config.js';
 import { renderTable } from './table.js';
 import type { DoctorConfig } from './types.js';
 
@@ -114,6 +114,7 @@ Checks run in order:
   7. Prompt overrides       — warn on full prompts/<agent>.md overrides; suggest .extra.md
   8. Update available       — compare pinned ref in workflows to latest npm release
   9. Config limits          — warn if limits.max_iterations is outside the recommended range (1–10)
+ 10. Git branch config      — validate git.base_branch, git.target_branch, git.working_branch_prefix
 
 Exit code: 0 if all checks green/yellow, 1 if any check red.
 `);
@@ -155,6 +156,7 @@ Exit code: 0 if all checks green/yellow, 1 if any check red.
     checkPromptOverrides({ repoRoot: config.repoRoot }),
     checkUpdateAvailable({ repoRoot: config.repoRoot }),
     checkConfigLimits({ repoRoot: config.repoRoot }),
+    checkGitConfig({ repoRoot: config.repoRoot }),
   ]);
 
   process.stdout.write(renderTable(results));

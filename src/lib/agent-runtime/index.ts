@@ -7,7 +7,7 @@ export { appendOutput } from './output.js';
 export {
   configureFerryGitUser,
   makeCommitProgress,
-  fetchAndMergeMain,
+  fetchAndMergeBase,
   checkoutExistingBranch,
 } from './git.js';
 export type { CommitProgressFn } from './git.js';
@@ -15,5 +15,7 @@ export { makeSecretScan } from './secret-scan.js';
 export { logCapabilities } from './labels.js';
 export { createGitHubContext } from './context.js';
 export type { GitHubContext } from './context.js';
+export { resolveGitConfig } from './resolve-git-config.js';
+export type { ResolvedGitConfig } from './resolve-git-config.js';
 export { createLogger } from '../logger/index.js';
 export type { Logger } from '../logger/index.js';

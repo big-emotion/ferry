@@ -293,6 +293,94 @@ describe('loadFerryConfig', () => {
     });
   });
 
+  describe('git section', () => {
+    it('defaults git config when no file exists', () => {
+      mockNoConfigFile();
+      const cfg = loadFerryConfig('/repo');
+      expect(cfg.git).toEqual({
+        base_branch: null,
+        target_branch: null,
+        working_branch_prefix: 'ferry/',
+      });
+    });
+
+    it('defaults git config when git section is absent from file', () => {
+      mockConfigFile('ferry.config.json', JSON.stringify({ limits: { max_iterations: 2 } }));
+      const cfg = loadFerryConfig('/repo');
+      expect(cfg.git).toEqual({
+        base_branch: null,
+        target_branch: null,
+        working_branch_prefix: 'ferry/',
+      });
+    });
+
+    it('parses explicit base_branch and target_branch', () => {
+      mockConfigFile(
+        'ferry.config.json',
+        JSON.stringify({ git: { base_branch: 'develop', target_branch: 'develop' } }),
+      );
+      const cfg = loadFerryConfig('/repo');
+      expect(cfg.git.base_branch).toBe('develop');
+      expect(cfg.git.target_branch).toBe('develop');
+      expect(cfg.git.working_branch_prefix).toBe('ferry/');
+    });
+
+    it('parses custom working_branch_prefix', () => {
+      mockConfigFile(
+        'ferry.config.json',
+        JSON.stringify({ git: { working_branch_prefix: 'bot/' } }),
+      );
+      const cfg = loadFerryConfig('/repo');
+      expect(cfg.git.working_branch_prefix).toBe('bot/');
+    });
+
+    it('allows null base_branch and null target_branch explicitly', () => {
+      mockConfigFile(
+        'ferry.config.json',
+        JSON.stringify({ git: { base_branch: null, target_branch: null } }),
+      );
+      const cfg = loadFerryConfig('/repo');
+      expect(cfg.git.base_branch).toBeNull();
+      expect(cfg.git.target_branch).toBeNull();
+    });
+
+    it('allows target_branch: null with an explicit base_branch', () => {
+      mockConfigFile(
+        'ferry.config.json',
+        JSON.stringify({ git: { base_branch: 'next', target_branch: null } }),
+      );
+      const cfg = loadFerryConfig('/repo');
+      expect(cfg.git.base_branch).toBe('next');
+      expect(cfg.git.target_branch).toBeNull();
+    });
+
+    it('throws on empty working_branch_prefix', () => {
+      mockConfigFile(
+        'ferry.config.json',
+        JSON.stringify({ git: { working_branch_prefix: '' } }),
+      );
+      expect(() => loadFerryConfig('/repo')).toThrow(FerryError);
+    });
+
+    it('throws on non-string base_branch', () => {
+      mockConfigFile('ferry.config.json', JSON.stringify({ git: { base_branch: 42 } }));
+      let thrown: FerryError | null = null;
+      try {
+        loadFerryConfig('/repo');
+      } catch (e) {
+        thrown = e as FerryError;
+      }
+      expect(thrown).toBeInstanceOf(FerryError);
+      const errors = thrown?.context?.errors as string[];
+      expect(errors.some((e) => e.includes('git.base_branch'))).toBe(true);
+    });
+
+    it('throws on empty string base_branch', () => {
+      mockConfigFile('ferry.config.json', JSON.stringify({ git: { base_branch: '' } }));
+      expect(() => loadFerryConfig('/repo')).toThrow(FerryError);
+    });
+  });
+
   describe('labels section', () => {
     it('is undefined when not specified in config', () => {
       mockConfigFile('ferry.config.json', JSON.stringify({}));

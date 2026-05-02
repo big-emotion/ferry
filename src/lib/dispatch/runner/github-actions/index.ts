@@ -37,6 +37,11 @@ export class GitHubActionsRunner implements CIRunner {
     });
   }
 
+  async getRepoDefaultBranch(owner: string, repo: string): Promise<string> {
+    const { data } = await this.octokit.repos.get({ owner, repo });
+    return data.default_branch;
+  }
+
   async listPRsForBranch(owner: string, repo: string, branch: string): Promise<PR[]> {
     const { data } = await this.octokit.pulls.list({
       owner,

@@ -35,6 +35,8 @@ export type DispatchPayload = EventEnvelopeV1;
 export interface CIRunner {
   dispatch(phase: string, payload: DispatchPayload): Promise<void>;
 
+  getRepoDefaultBranch(owner: string, repo: string): Promise<string>;
+
   listPRsForBranch(owner: string, repo: string, branch: string): Promise<PR[]>;
   getPR(prRef: PRRef): Promise<PR>;
   listPRFiles(prRef: PRRef): Promise<PRFile[]>;

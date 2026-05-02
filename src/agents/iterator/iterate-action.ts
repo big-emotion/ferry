@@ -19,9 +19,10 @@ import {
   makeCommitProgress,
   makeSecretScan,
   logCapabilities,
-  fetchAndMergeMain,
+  fetchAndMergeBase,
   checkoutExistingBranch,
   createGitHubContext,
+  resolveGitConfig,
   byEventId,
   byReviewCommentId,
   runAgent,
@@ -68,7 +69,8 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
     ferryCfg.limits.max_iterations,
   );
 
-  const branchName = `ferry/${ticketKey}`;
+  const { baseBranch, workingBranchPrefix } = await resolveGitConfig(ferryCfg, runner, owner, repo);
+  const branchName = `${workingBranchPrefix}${ticketKey}`;
   const prs = await runner.listPRsForBranch(owner, repo, branchName);
 
   if (prs.length === 0) {
@@ -137,12 +139,13 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
     return;
   }
 
-  const mergeConflicts = fetchAndMergeMain(REPO_ROOT);
+  const mergeConflicts = fetchAndMergeBase(baseBranch, REPO_ROOT);
 
-  const existingLog = execFileSync('git', ['log', 'origin/main..HEAD', '--oneline'], {
-    cwd: REPO_ROOT,
-    encoding: 'utf8',
-  }).trim();
+  const existingLog = execFileSync(
+    'git',
+    ['log', `origin/${baseBranch}..HEAD`, '--oneline'],
+    { cwd: REPO_ROOT, encoding: 'utf8' },
+  ).trim();
 
   const ticketBlock = buildTicketBlock(ticketKey, issue);
 

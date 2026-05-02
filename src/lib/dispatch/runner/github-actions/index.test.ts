@@ -20,6 +20,7 @@ type MockOctokit = {
     listForRef: ReturnType<typeof vi.fn>;
   };
   repos: {
+    get: ReturnType<typeof vi.fn>;
     getContent: ReturnType<typeof vi.fn>;
     createDispatchEvent: ReturnType<typeof vi.fn>;
   };
@@ -46,6 +47,7 @@ function makeMockOctokit(): MockOctokit {
       listForRef: vi.fn(),
     },
     repos: {
+      get: vi.fn(),
       getContent: vi.fn(),
       createDispatchEvent: vi.fn(),
     },
@@ -376,6 +378,21 @@ describe('GitHubActionsRunner', () => {
       mock.repos.getContent.mockRejectedValue(new Error('Not Found'));
       const result = await runner.getFileContent(OWNER, REPO, 'missing.ts', 'main');
       expect(result).toContain('error fetching content');
+    });
+  });
+
+  describe('getRepoDefaultBranch', () => {
+    it('returns the default_branch from the repo', async () => {
+      mock.repos.get.mockResolvedValue({ data: { default_branch: 'develop' } });
+      const result = await runner.getRepoDefaultBranch(OWNER, REPO);
+      expect(result).toBe('develop');
+      expect(mock.repos.get).toHaveBeenCalledWith({ owner: OWNER, repo: REPO });
+    });
+
+    it('returns main as default_branch when repo defaults to main', async () => {
+      mock.repos.get.mockResolvedValue({ data: { default_branch: 'main' } });
+      const result = await runner.getRepoDefaultBranch(OWNER, REPO);
+      expect(result).toBe('main');
     });
   });
 });
