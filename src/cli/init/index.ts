@@ -33,7 +33,8 @@ function detectRepo(): string | undefined {
 function parseArgs(argv: string[]): { overwrite: boolean; version: string } {
   const overwrite = argv.includes('--overwrite');
   const versionIdx = argv.findIndex((a) => a === '--version');
-  const version = versionIdx >= 0 ? (argv[versionIdx + 1] ?? FERRY_VERSION_DEFAULT) : FERRY_VERSION_DEFAULT;
+  const version =
+    versionIdx >= 0 ? (argv[versionIdx + 1] ?? FERRY_VERSION_DEFAULT) : FERRY_VERSION_DEFAULT;
   return { overwrite, version };
 }
 
