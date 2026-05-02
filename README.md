@@ -42,7 +42,7 @@ Ferry connects your Jira board to a fully autonomous dev loop — Refiner, Devel
 | **Refiner**   | Refinement     | Reads the ticket, creates sub-tasks, awaits human approval     |
 | **Developer** | In Development | Reads approved sub-tasks, opens a draft PR on `ferry/<ticket>` |
 | **Reviewer**  | In Review      | Reads PR diff (green CI only), posts fingerprinted findings    |
-| **Iterator**  | Iteration      | Applies findings, re-triggers Reviewer (max 3 rounds)          |
+| **Iterator**  | Iteration      | Applies findings, re-triggers Reviewer (max 3 rounds by default; configurable via `limits.max_iterations`) |
 
 ---
 
@@ -59,7 +59,7 @@ Jira column move / label / @mention
   │   Refiner   │  → reads ticket → creates sub-tasks → awaits human approval
   │  Developer  │  → reads sub-tasks → opens draft PR on ferry/<ticket> branch
   │  Reviewer   │  → reads PR diff (green CI only) → posts fingerprinted findings
-  │  Iterator   │  → applies findings → re-triggers Reviewer (max 3 rounds)
+  │  Iterator   │  → applies findings → re-triggers Reviewer (max limits.max_iterations rounds, default 3)
   └─────────────┘
         ↓
   Human merges PR

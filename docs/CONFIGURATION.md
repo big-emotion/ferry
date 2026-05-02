@@ -134,7 +134,7 @@ All `limits.*` fields are optional and accept positive numbers.
 
 | Field | Default | Description |
 |-------|---------|-------------|
-| `limits.max_iterations` | `3` | Maximum review→iterate cycles before Ferry stops and marks the ticket as needing human review |
+| `limits.max_iterations` | `3` | **Integer, ≥ 1; recommended range 1–10.** Number of review→iterate cycles the Iterator runs before Ferry halts. When the cap is exceeded while findings remain, Ferry throws an oscillation error and stops — the ticket stays in its current Jira column for manual resolution. |
 | `limits.max_agent_iterations` | `200` | Internal LLM agent loop cap per single agent run (guards against runaway tool-call loops) |
 | `limits.max_tokens_per_run` | `500000` | Input token budget per agent run (overridden by `FERRY_ITER_MAX_INPUT_TOKENS` for Iterator) |
 | `limits.max_tokens_per_message` | `16384` | Maximum output tokens per individual LLM API call |
