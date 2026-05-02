@@ -17,7 +17,7 @@ describe('checkLlmKeys', () => {
   it('returns skip when anthropicApiKey is empty', async () => {
     const result = await checkLlmKeys({ anthropicApiKey: '' });
     expect(result.status).toBe('skip');
-    expect(result.detail).toContain('No Anthropic API key');
+    expect(result.detail).toContain('ANTHROPIC_API_KEY');
   });
 
   it('returns green for a 200 response', async () => {
