@@ -121,20 +121,23 @@ Note the returned issue number, then set the variable:
 gh variable set FERRY_AUDIT_ISSUE --body "<issue-number>"
 ```
 
-### Step 2 — Set the 6 required secrets
+### Step 2 — Verify secrets
+
+> **If you ran `ferry-init`**, the wizard already set these six secrets via `gh secret set` (with masked input):
+> `FERRY_APP_ID`, `FERRY_PRIVATE_KEY`, `FERRY_JIRA_BASE_URL`, `FERRY_JIRA_EMAIL`, `FERRY_JIRA_API_TOKEN`, `ANTHROPIC_API_KEY`
+>
+> Verify: `gh secret list --repo YOUR_ORG/YOUR_REPO | grep FERRY` must show all 6 secrets.
+
+**If you skipped the wizard or need to re-set any value**, run the relevant commands manually:
 
 ```bash
+gh secret set FERRY_APP_ID                --body "<github-app-numeric-id>"
+gh secret set FERRY_PRIVATE_KEY           --body "$(cat ferry-app.private-key.pem)"
 gh secret set FERRY_JIRA_BASE_URL         --body "https://YOUR-ORG.atlassian.net"
 gh secret set FERRY_JIRA_EMAIL            --body "you@example.com"
 gh secret set FERRY_JIRA_API_TOKEN        --body "<atlassian-api-token>"
 gh secret set ANTHROPIC_API_KEY           --body "<sk-ant-...>"
-gh secret set FERRY_REVIEW_TRANSITION_ID  --body "<jira-transition-id-for-In-Review>"
-gh secret set FERRY_ITER_TRANSITION_ID    --body "<jira-transition-id-for-Changes-Requested>"
 ```
-
-Verify: `gh secret list --repo YOUR_ORG/YOUR_REPO | grep FERRY` must show 6 secrets and 1 variable.
-
-> **Finding Jira transition IDs:** Run `curl -u you@example.com:<token> https://YOUR-ORG.atlassian.net/rest/api/3/issue/PROJ-1/transitions`. Note the numeric `id` for the "In Review" and "Changes Requested" transitions.
 
 ### Step 3 — Enable workflow permissions
 
@@ -211,8 +214,9 @@ Quick install checklist:
 
 ```
 [ ] Audit issue created + FERRY_AUDIT_ISSUE variable set
-[ ] 6 secrets set (FERRY_JIRA_BASE_URL, FERRY_JIRA_EMAIL, FERRY_JIRA_API_TOKEN,
-    ANTHROPIC_API_KEY, FERRY_REVIEW_TRANSITION_ID, FERRY_ITER_TRANSITION_ID)
+[ ] 6 secrets confirmed (ferry-init sets them; verify with: gh secret list | grep FERRY)
+    FERRY_APP_ID, FERRY_PRIVATE_KEY, FERRY_JIRA_BASE_URL, FERRY_JIRA_EMAIL,
+    FERRY_JIRA_API_TOKEN, ANTHROPIC_API_KEY
 [ ] Workflow permissions = read+write
 [ ] 4 Jira automation rules created and enabled
 [ ] Smoke test passed (ferry-refine green, draft PR opened)
