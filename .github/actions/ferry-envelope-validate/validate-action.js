@@ -1,3 +1,5 @@
+import { createRequire as __ferryCreateRequire } from 'node:module'; const require = __ferryCreateRequire(import.meta.url);
+
 // src/lib/envelope/validate-action.ts
 import { appendFileSync } from "fs";
 
