@@ -9,6 +9,7 @@ import { checkLlmKeys } from './checks/llm.js';
 import { checkSyntheticDispatch } from './checks/dispatch.js';
 import { checkWorkflowDrift } from './checks/workflows.js';
 import { checkPromptOverrides } from './checks/prompts.js';
+import { checkUpdateAvailable } from './checks/update-available.js';
 import { renderTable } from './table.js';
 import type { DoctorConfig } from './types.js';
 
@@ -107,6 +108,7 @@ Checks run in order:
   5. Synthetic dispatch     — trigger ferry-refine + poll for run start
   6. Workflow files         — compare .github/workflows/ferry-*.yml vs current release
   7. Prompt overrides       — warn on full prompts/<agent>.md overrides; suggest .extra.md
+  8. Update available       — compare pinned ref in workflows to latest npm release
 
 Exit code: 0 if all checks green/yellow, 1 if any check red.
 `);
@@ -141,6 +143,7 @@ Exit code: 0 if all checks green/yellow, 1 if any check red.
     checkSyntheticDispatch({ repo: config.repo, noDispatch: config.noDispatch }),
     checkWorkflowDrift({ repoRoot: config.repoRoot, ferryVersion: config.ferryVersion }),
     checkPromptOverrides({ repoRoot: config.repoRoot }),
+    checkUpdateAvailable({ repoRoot: config.repoRoot }),
   ]);
 
   process.stdout.write(renderTable(results));

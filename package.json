@@ -6,11 +6,13 @@
   "bin": {
     "ferry-init": "./dist/cli/init/index.js",
     "ferry-doctor": "./dist/cli/doctor/index.js",
-    "ferry-uninstall": "./dist/cli/uninstall/index.js"
+    "ferry-uninstall": "./dist/cli/uninstall/index.js",
+    "ferry-update": "./dist/cli/update/index.js"
   },
   "files": [
     "dist/cli/",
     "README.md",
+    "MIGRATIONS.md",
     "LICENSE"
   ],
   "publishConfig": {
@@ -39,6 +41,7 @@
     "ferry-init": "tsx src/cli/init/index.ts",
     "ferry-doctor": "tsx src/cli/doctor/index.ts",
     "ferry-uninstall": "tsx src/cli/uninstall/index.ts",
+    "ferry-update": "tsx src/cli/update/index.ts",
     "ferry-reconcile": "tsx src/reconciler/run.ts",
     "ferry-cost-check": "tsx src/cost-governance/run.ts",
     "typecheck": "tsc --noEmit",
