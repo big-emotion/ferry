@@ -46,10 +46,10 @@ describe('Phase 3 — consumer workflow stubs (install-guide §3.1)', () => {
   }
 
   for (const stub of coreStubs) {
-    it(`${stub}.yml references @v0.3.0 (not @main)`, async () => {
+    it(`${stub}.yml references @v0.4.0 (not @main)`, async () => {
       const content = await readFile(`examples/consumer-setup/workflows/${stub}.yml`);
-      expect(content, `${stub}.yml must pin to @v0.3.0 — @main is mutable and insecure`).toMatch(
-        /@v0\.3\.0\b/,
+      expect(content, `${stub}.yml must pin to @v0.4.0 — @main is mutable and insecure`).toMatch(
+        /@v0\.4\.0\b/,
       );
       expect(content, `${stub}.yml must not use @main (use a release tag or a SHA)`).not.toMatch(
         /@main/,
@@ -322,7 +322,7 @@ describe('Quick install — audit issue creation (README §Step 1)', () => {
 describe('Quick install — no @main in workflow refs (README)', () => {
   it('README does not tell users to use @main workflow refs', async () => {
     const doc = await readFile('README.md');
-    // The doc must not say stubs use @main (they use @v0.3.0)
+    // The doc must not say stubs use @main (they use @v0.4.0)
     expect(doc).not.toMatch(/uses.*@main/);
     expect(doc).not.toContain('always use the latest version automatically');
   });
@@ -379,7 +379,7 @@ describe('Supply-chain — no @main refs in internal workflows (issue #77)', () 
       );
       expect(
         mainRefs,
-        `${wf}.yml must not reference ferry-* composite actions at @main — pin to a release tag (e.g. @v0.3.0) instead`,
+        `${wf}.yml must not reference ferry-* composite actions at @main — pin to a release tag (e.g. @v0.4.0) instead`,
       ).toHaveLength(0);
     });
   }

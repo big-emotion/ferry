@@ -11,29 +11,29 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- **`ferry-uninstall` CLI** — removes Ferry workflows, secrets, and variables from a consumer repo (#123).
-- **`ferry-update` CLI** — upgrades pinned Ferry versions in consumer workflow files; prints migration notes from `MIGRATIONS.md` (#130).
-- **Configurable status names** — `ferry-init` now prompts for Jira column names with sensible defaults (Refinement / In Development / In Review / Changes Requested / Ready to Merge) instead of requiring exact names (#122).
+- **`ferry-uninstall` CLI** — removes Ferry workflows, secrets, and variables from a consumer repo (#129).
+- **`ferry-update` CLI** — upgrades pinned Ferry versions in consumer workflow files; prints migration notes from `MIGRATIONS.md` (#134).
+- **Configurable Jira status names** — `ferry-init` now prompts for Jira column names with sensible defaults (Refinement / In Development / In Review / Changes Requested / Ready to Merge) instead of requiring exact names (#132).
+- **Workspace ARI + project ID auto-detection** — `ferry-init` wizard automatically resolves the Jira workspace ARI and project ID via the API (#126).
+- **Floating major tag** — `scripts/retag-major.sh` keeps a moving `v1` tag pointing at the latest `0.x.y` release; `release.yml` invokes it after every successful release (#133).
 
 ### Changed
 
-- **`docs/CONSUMER-SETUP.md` deleted** — the install story now lives entirely in the README quick-install block. A volunteer with no prior Ferry knowledge can install end-to-end from the README in ≤ 10 minutes.
+- **`docs/CONSUMER-SETUP.md` deleted** — the install story now lives entirely in the README quick-install block. A volunteer with no prior Ferry knowledge can install end-to-end from the README in ≤ 10 minutes (#131, #135).
 - **`MIGRATIONS.md` added** — documents consumer-visible changes between releases; `ferry-update` reads it to print manual follow-ups after an upgrade.
+- **README "Operations setup" curl URLs pinned to a release tag** — replaces the previous `raw.githubusercontent.com/.../main/...` references with `/v0.4.0/...` to remove the mutable supply-chain pull.
+
+### Fixed
+
+- **Install-flow incoherence between `ferry-init` and the reusable workflows** — `ferry-init` previously scaffolded `ferry-reconciler.yml` and `ferry-audit-daily.yml` stubs that called reusable workflows (`reconciler.yml`, `audit-daily.yml`) which did not exist in `.github/workflows/`. Both broken stubs are now removed; consumers add the working scheduled workflows from `examples/consumer-setup/workflows/` per the README's Operations setup step.
+- **Anthropic API key secret renamed** — `ferry-init` previously stored the key as `FERRY_ANTHROPIC_API_KEY`, but the reusable agent workflows read `ANTHROPIC_API_KEY`. Wizard, `ferry-doctor`, and `ferry-uninstall` now use `ANTHROPIC_API_KEY` consistently. See `MIGRATIONS.md` for the manual rename step required for existing installs.
+- **`ferry-doctor` now checks for `FERRY_REVIEW_TRANSITION_ID` and `FERRY_ITER_TRANSITION_ID`** — these were always required by the agents (FR18 / FR24 / FR28) but the doctor previously did not flag them as missing.
+- **Default ferry workflow ref** — `ferry-init` now defaults the workflow pin to the package version rather than a hardcoded `v1` (#124).
+- **Jira automation bundle schema** — fixed bundle schema, added beta label and manual fallback flow (#127).
 
 ### Breaking (docs)
 
 - `docs/CONSUMER-SETUP.md` no longer exists. Any bookmarks or links to it should be updated to point to the README.
-
----
-
-## [0.3.1] — 2026-05-02
-
-### Fixed
-
-- **Workflow stubs reference correct version** — consumer workflow stubs now pin to `@v0.3.0` consistently (#118).
-- **Jira import beta + manual fallback** — `ferry-init` supports both Jira Automation rule import (where available) and manual rule creation instructions (#119).
-- **`Iteration` → `Changes Requested` column name** — internal references to the Iterator Jira column are now consistent (#120).
-- **Workspace ARI + project ID auto-detection** — `ferry-init` wizard automatically collects the workspace ARI and Jira project ID, reducing manual input (#121).
 
 ---
 
@@ -105,7 +105,6 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ---
 
 [0.4.0]: https://github.com/big-emotion/ferry/releases/tag/v0.4.0
-[0.3.1]: https://github.com/big-emotion/ferry/releases/tag/v0.3.1
 [0.3.0]: https://github.com/big-emotion/ferry/releases/tag/v0.3.0
 [0.2.0]: https://github.com/big-emotion/ferry/releases/tag/v0.2.0
 [0.1.0]: https://github.com/big-emotion/ferry/releases/tag/v0.1.0

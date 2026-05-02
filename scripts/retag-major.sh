@@ -2,7 +2,7 @@
 # Force-update the moving Actions-style major tag (e.g. v1) to the commit
 # pointed to by the semver tag passed as $1.
 #
-# Usage: scripts/retag-major.sh v0.3.0
+# Usage: scripts/retag-major.sh v0.4.0
 #
 # Wire this into .github/workflows/release.yml after "Create GitHub Release":
 #
@@ -13,7 +13,7 @@
 # v1.x.x releases move v1, v2.x.x move v2, and so on.
 set -euo pipefail
 
-TAG="${1:?Usage: retag-major.sh <semver-tag> (e.g. v0.3.0)}"
+TAG="${1:?Usage: retag-major.sh <semver-tag> (e.g. v0.4.0)}"
 COMMIT=$(git rev-list -n1 "$TAG")
 
 VERSION_CORE="${TAG#v}"
