@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { WorkflowItem, AuditIssueState } from './types.js';
@@ -42,12 +42,13 @@ export function detectCodeownersBlock(repoRoot: string): boolean {
 }
 
 function listSecrets(repo: string): string[] {
+  const result = spawnSync('gh', ['secret', 'list', '--repo', repo, '--json', 'name'], {
+    encoding: 'utf8',
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  if (result.status !== 0 || result.error) return [];
   try {
-    const out = execSync(`gh secret list --repo ${repo} --json name`, {
-      encoding: 'utf8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    const parsed = JSON.parse(out) as Array<{ name: string }>;
+    const parsed = JSON.parse(result.stdout) as Array<{ name: string }>;
     return parsed.map((s) => s.name);
   } catch {
     return [];
@@ -61,12 +62,14 @@ export function detectSecrets(repo: string, includeAnthropic: boolean): string[]
 }
 
 function listVariables(repo: string): Array<{ name: string; value: string }> {
+  const result = spawnSync(
+    'gh',
+    ['variable', 'list', '--repo', repo, '--json', 'name,value'],
+    { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] },
+  );
+  if (result.status !== 0 || result.error) return [];
   try {
-    const out = execSync(`gh variable list --repo ${repo} --json name,value`, {
-      encoding: 'utf8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    return JSON.parse(out) as Array<{ name: string; value: string }>;
+    return JSON.parse(result.stdout) as Array<{ name: string; value: string }>;
   } catch {
     return [];
   }
@@ -90,15 +93,14 @@ interface IssueResponse {
 }
 
 export function detectAuditIssue(repo: string, issueNumber: number): AuditIssueState {
+  const result = spawnSync(
+    'gh',
+    ['issue', 'view', String(issueNumber), '--repo', repo, '--json', 'number,labels'],
+    { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] },
+  );
+  if (result.status !== 0 || result.error) return { number: issueNumber, hasLabel: false };
   try {
-    const out = execSync(
-      `gh issue view ${issueNumber} --repo ${repo} --json number,labels`,
-      {
-        encoding: 'utf8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-      },
-    );
-    const data = JSON.parse(out) as IssueResponse;
+    const data = JSON.parse(result.stdout) as IssueResponse;
     const hasLabel = data.labels.some((l) => l.name === AUDIT_LABEL);
     return { number: issueNumber, hasLabel };
   } catch {

@@ -1,5 +1,5 @@
-import { execSync } from 'node:child_process';
-import { existsSync, unlinkSync, readFileSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { unlinkSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { WorkflowItem, AuditIssueState } from './types.js';
 import { AUDIT_LABEL } from './detect.js';
@@ -39,11 +39,13 @@ export function removeWorkflows(
 
 export function removeCodeownersBlock(repoRoot: string, opts: ExecOptions): void {
   const codeownersPath = join(repoRoot, '.github', 'CODEOWNERS');
-  if (!existsSync(codeownersPath)) {
+  let content: string;
+  try {
+    content = readFileSync(codeownersPath, 'utf8');
+  } catch {
     opts.onSkip('.github/CODEOWNERS not present — skipping');
     return;
   }
-  const content = readFileSync(codeownersPath, 'utf8');
   const lines = content.split('\n');
   const filtered = lines.filter((line) => !line.includes('ferry-'));
   const updated = filtered.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd() + '\n';
@@ -75,10 +77,13 @@ export function removeSecrets(repo: string, secrets: string[], opts: ExecOptions
       continue;
     }
     try {
-      execSync(`gh secret delete ${name} --repo ${repo}`, {
+      const result = spawnSync('gh', ['secret', 'delete', name, '--repo', repo], {
         encoding: 'utf8',
         stdio: ['pipe', 'pipe', 'pipe'],
       });
+      if (result.status !== 0 || result.error) {
+        throw result.error ?? new Error(result.stderr || `exit ${result.status}`);
+      }
       opts.onAction(`Deleted secret ${name}`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -93,10 +98,13 @@ export function removeVariable(repo: string, name: string, opts: ExecOptions): v
     return;
   }
   try {
-    execSync(`gh variable delete ${name} --repo ${repo}`, {
+    const result = spawnSync('gh', ['variable', 'delete', name, '--repo', repo], {
       encoding: 'utf8',
       stdio: ['pipe', 'pipe', 'pipe'],
     });
+    if (result.status !== 0 || result.error) {
+      throw result.error ?? new Error(result.stderr || `exit ${result.status}`);
+    }
     opts.onAction(`Deleted repo variable ${name}`);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -117,13 +125,14 @@ export function handleAuditIssue(
       );
     } else {
       try {
-        execSync(
-          `gh issue edit ${issue.number} --repo ${repo} --remove-label "${AUDIT_LABEL}"`,
-          {
-            encoding: 'utf8',
-            stdio: ['pipe', 'pipe', 'pipe'],
-          },
+        const result = spawnSync(
+          'gh',
+          ['issue', 'edit', String(issue.number), '--repo', repo, '--remove-label', AUDIT_LABEL],
+          { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] },
         );
+        if (result.status !== 0 || result.error) {
+          throw result.error ?? new Error(result.stderr || `exit ${result.status}`);
+        }
         opts.onAction(`Removed label '${AUDIT_LABEL}' from issue #${issue.number}`);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -141,10 +150,14 @@ export function handleAuditIssue(
       opts.onAction(`[dry-run] Would close issue #${issue.number}`);
     } else {
       try {
-        execSync(`gh issue close ${issue.number} --repo ${repo}`, {
-          encoding: 'utf8',
-          stdio: ['pipe', 'pipe', 'pipe'],
-        });
+        const result = spawnSync(
+          'gh',
+          ['issue', 'close', String(issue.number), '--repo', repo],
+          { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] },
+        );
+        if (result.status !== 0 || result.error) {
+          throw result.error ?? new Error(result.stderr || `exit ${result.status}`);
+        }
         opts.onAction(`Closed issue #${issue.number}`);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);

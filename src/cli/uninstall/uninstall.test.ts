@@ -3,10 +3,10 @@ import { mkdirSync, writeFileSync, existsSync, readFileSync, mkdtempSync, rmSync
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-const mockExecSync = vi.hoisted(() => vi.fn());
+const mockSpawnSync = vi.hoisted(() => vi.fn());
 
 vi.mock('node:child_process', () => ({
-  execSync: mockExecSync,
+  spawnSync: mockSpawnSync,
 }));
 
 import {
@@ -55,6 +55,14 @@ function makeTempRepo(): string {
 
 function cleanup(dir: string): void {
   rmSync(dir, { recursive: true, force: true });
+}
+
+function spawnOk(stdout = ''): ReturnType<typeof mockSpawnSync> {
+  return { stdout, stderr: '', status: 0, error: null };
+}
+
+function spawnFail(stderr = 'error'): ReturnType<typeof mockSpawnSync> {
+  return { stdout: '', stderr, status: 1, error: undefined };
 }
 
 // ── detectWorkflows ───────────────────────────────────────────────────────────
@@ -133,8 +141,8 @@ describe('detectSecrets', () => {
   });
 
   it('excludes ANTHROPIC_SECRET when includeAnthropic is false', () => {
-    mockExecSync.mockReturnValue(
-      JSON.stringify([...FERRY_SECRETS, ANTHROPIC_SECRET].map((name) => ({ name }))),
+    mockSpawnSync.mockReturnValue(
+      spawnOk(JSON.stringify([...FERRY_SECRETS, ANTHROPIC_SECRET].map((name) => ({ name })))),
     );
     const secrets = detectSecrets('owner/repo', false);
     expect(secrets).not.toContain(ANTHROPIC_SECRET);
@@ -142,8 +150,8 @@ describe('detectSecrets', () => {
   });
 
   it('includes ANTHROPIC_SECRET when includeAnthropic is true', () => {
-    mockExecSync.mockReturnValue(
-      JSON.stringify([...FERRY_SECRETS, ANTHROPIC_SECRET].map((name) => ({ name }))),
+    mockSpawnSync.mockReturnValue(
+      spawnOk(JSON.stringify([...FERRY_SECRETS, ANTHROPIC_SECRET].map((name) => ({ name })))),
     );
     const secrets = detectSecrets('owner/repo', true);
     expect(secrets).toContain(ANTHROPIC_SECRET);
@@ -151,15 +159,13 @@ describe('detectSecrets', () => {
   });
 
   it('returns empty array when gh CLI fails', () => {
-    mockExecSync.mockImplementation(() => {
-      throw new Error('gh: not found');
-    });
+    mockSpawnSync.mockReturnValue(spawnFail('gh: not found'));
     expect(detectSecrets('owner/repo', false)).toEqual([]);
   });
 
   it('only returns secrets that exist in the repo', () => {
-    mockExecSync.mockReturnValue(
-      JSON.stringify([{ name: 'FERRY_APP_ID' }, { name: 'FERRY_PRIVATE_KEY' }]),
+    mockSpawnSync.mockReturnValue(
+      spawnOk(JSON.stringify([{ name: 'FERRY_APP_ID' }, { name: 'FERRY_PRIVATE_KEY' }])),
     );
     expect(detectSecrets('owner/repo', false)).toEqual(['FERRY_APP_ID', 'FERRY_PRIVATE_KEY']);
   });
@@ -323,17 +329,19 @@ describe('removeSecrets', () => {
   });
 
   it('calls gh secret delete for each secret', () => {
-    mockExecSync.mockReturnValue('');
+    mockSpawnSync.mockReturnValue(spawnOk());
     const opts = makeOpts();
     removeSecrets('owner/repo', ['FERRY_APP_ID', 'FERRY_PRIVATE_KEY'], opts);
 
-    expect(mockExecSync).toHaveBeenCalledTimes(2);
-    expect(mockExecSync).toHaveBeenCalledWith(
-      'gh secret delete FERRY_APP_ID --repo owner/repo',
+    expect(mockSpawnSync).toHaveBeenCalledTimes(2);
+    expect(mockSpawnSync).toHaveBeenCalledWith(
+      'gh',
+      ['secret', 'delete', 'FERRY_APP_ID', '--repo', 'owner/repo'],
       expect.any(Object),
     );
-    expect(mockExecSync).toHaveBeenCalledWith(
-      'gh secret delete FERRY_PRIVATE_KEY --repo owner/repo',
+    expect(mockSpawnSync).toHaveBeenCalledWith(
+      'gh',
+      ['secret', 'delete', 'FERRY_PRIVATE_KEY', '--repo', 'owner/repo'],
       expect.any(Object),
     );
     expect(opts.actions).toContain('Deleted secret FERRY_APP_ID');
@@ -344,14 +352,12 @@ describe('removeSecrets', () => {
     const opts = makeOpts();
     removeSecrets('owner/repo', [], opts);
 
-    expect(mockExecSync).not.toHaveBeenCalled();
+    expect(mockSpawnSync).not.toHaveBeenCalled();
     expect(opts.skips.some((s) => s.includes('No Ferry secrets'))).toBe(true);
   });
 
   it('reports errors when gh fails', () => {
-    mockExecSync.mockImplementation(() => {
-      throw new Error('gh: not authenticated');
-    });
+    mockSpawnSync.mockReturnValue(spawnFail('gh: not authenticated'));
     const opts = makeOpts();
     removeSecrets('owner/repo', ['FERRY_APP_ID'], opts);
 
@@ -362,26 +368,27 @@ describe('removeSecrets', () => {
     const opts = makeOpts({ dryRun: true });
     removeSecrets('owner/repo', FERRY_SECRETS, opts);
 
-    expect(mockExecSync).not.toHaveBeenCalled();
+    expect(mockSpawnSync).not.toHaveBeenCalled();
     expect(opts.actions.every((a) => a.includes('[dry-run]'))).toBe(true);
   });
 
   it('does not remove ANTHROPIC_SECRET unless explicitly included in list', () => {
-    mockExecSync.mockReturnValue('');
+    mockSpawnSync.mockReturnValue(spawnOk());
     const opts = makeOpts();
     removeSecrets('owner/repo', FERRY_SECRETS, opts);
 
-    const calls = mockExecSync.mock.calls.map((c) => String(c[0]));
+    const calls = mockSpawnSync.mock.calls.map((c) => (c[1] as string[]).join(' '));
     expect(calls.some((c) => c.includes(ANTHROPIC_SECRET))).toBe(false);
   });
 
   it('removes ANTHROPIC_SECRET when included in the list', () => {
-    mockExecSync.mockReturnValue('');
+    mockSpawnSync.mockReturnValue(spawnOk());
     const opts = makeOpts();
     removeSecrets('owner/repo', [ANTHROPIC_SECRET], opts);
 
-    expect(mockExecSync).toHaveBeenCalledWith(
-      `gh secret delete ${ANTHROPIC_SECRET} --repo owner/repo`,
+    expect(mockSpawnSync).toHaveBeenCalledWith(
+      'gh',
+      ['secret', 'delete', ANTHROPIC_SECRET, '--repo', 'owner/repo'],
       expect.any(Object),
     );
   });
@@ -395,21 +402,20 @@ describe('removeVariable', () => {
   });
 
   it('calls gh variable delete', () => {
-    mockExecSync.mockReturnValue('');
+    mockSpawnSync.mockReturnValue(spawnOk());
     const opts = makeOpts();
     removeVariable('owner/repo', FERRY_VARIABLE, opts);
 
-    expect(mockExecSync).toHaveBeenCalledWith(
-      `gh variable delete ${FERRY_VARIABLE} --repo owner/repo`,
+    expect(mockSpawnSync).toHaveBeenCalledWith(
+      'gh',
+      ['variable', 'delete', FERRY_VARIABLE, '--repo', 'owner/repo'],
       expect.any(Object),
     );
     expect(opts.actions).toContain(`Deleted repo variable ${FERRY_VARIABLE}`);
   });
 
   it('reports errors when gh fails', () => {
-    mockExecSync.mockImplementation(() => {
-      throw new Error('variable not found');
-    });
+    mockSpawnSync.mockReturnValue(spawnFail('variable not found'));
     const opts = makeOpts();
     removeVariable('owner/repo', FERRY_VARIABLE, opts);
 
@@ -420,7 +426,7 @@ describe('removeVariable', () => {
     const opts = makeOpts({ dryRun: true });
     removeVariable('owner/repo', FERRY_VARIABLE, opts);
 
-    expect(mockExecSync).not.toHaveBeenCalled();
+    expect(mockSpawnSync).not.toHaveBeenCalled();
     expect(opts.actions.some((a) => a.includes('[dry-run]'))).toBe(true);
   });
 });
@@ -433,11 +439,11 @@ describe('handleAuditIssue', () => {
   });
 
   it('removes label when issue has it', () => {
-    mockExecSync.mockReturnValue('');
+    mockSpawnSync.mockReturnValue(spawnOk());
     const opts = makeOpts();
     handleAuditIssue('owner/repo', { number: 42, hasLabel: true }, false, opts);
 
-    const calls = mockExecSync.mock.calls.map((c) => String(c[0]));
+    const calls = mockSpawnSync.mock.calls.map((c) => (c[1] as string[]).join(' '));
     expect(calls.some((c) => c.includes('--remove-label') && c.includes('42'))).toBe(true);
     expect(opts.actions.some((a) => a.includes('#42'))).toBe(true);
   });
@@ -446,40 +452,38 @@ describe('handleAuditIssue', () => {
     const opts = makeOpts();
     handleAuditIssue('owner/repo', { number: 42, hasLabel: false }, false, opts);
 
-    expect(mockExecSync).not.toHaveBeenCalled();
+    expect(mockSpawnSync).not.toHaveBeenCalled();
     expect(opts.skips.some((s) => s.includes('#42'))).toBe(true);
   });
 
   it('closes issue when closeIt is true', () => {
-    mockExecSync.mockReturnValue('');
+    mockSpawnSync.mockReturnValue(spawnOk());
     const opts = makeOpts();
     handleAuditIssue('owner/repo', { number: 42, hasLabel: false }, true, opts);
 
-    const calls = mockExecSync.mock.calls.map((c) => String(c[0]));
-    expect(calls.some((c) => c.includes('gh issue close') && c.includes('42'))).toBe(true);
+    const calls = mockSpawnSync.mock.calls.map((c) => (c[1] as string[]).join(' '));
+    expect(calls.some((c) => c.includes('issue close') && c.includes('42'))).toBe(true);
   });
 
   it('does not close issue when closeIt is false', () => {
-    mockExecSync.mockReturnValue('');
+    mockSpawnSync.mockReturnValue(spawnOk());
     const opts = makeOpts();
     handleAuditIssue('owner/repo', { number: 42, hasLabel: true }, false, opts);
 
-    const calls = mockExecSync.mock.calls.map((c) => String(c[0]));
-    expect(calls.some((c) => c.includes('gh issue close'))).toBe(false);
+    const calls = mockSpawnSync.mock.calls.map((c) => (c[1] as string[]).join(' '));
+    expect(calls.some((c) => c.includes('issue close'))).toBe(false);
   });
 
   it('dry-run does not call gh', () => {
     const opts = makeOpts({ dryRun: true });
     handleAuditIssue('owner/repo', { number: 42, hasLabel: true }, true, opts);
 
-    expect(mockExecSync).not.toHaveBeenCalled();
+    expect(mockSpawnSync).not.toHaveBeenCalled();
     expect(opts.actions.every((a) => a.includes('[dry-run]'))).toBe(true);
   });
 
   it('reports errors on label removal failure', () => {
-    mockExecSync.mockImplementation(() => {
-      throw new Error('issue edit failed');
-    });
+    mockSpawnSync.mockReturnValue(spawnFail('issue edit failed'));
     const opts = makeOpts();
     handleAuditIssue('owner/repo', { number: 42, hasLabel: true }, false, opts);
 
