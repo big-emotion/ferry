@@ -177,7 +177,7 @@ describe('stepJiraBundle', () => {
     stepJiraBundle(tmpDir, 'acme-corp', 'acme-app', WORKSPACE_ID, PROJECT_ID);
     const mdPath = join(tmpDir, 'ferry-jira-automation-setup.md');
     const content = readFileSync(mdPath, 'utf8');
-    expect(content).toContain('Manual Setup');
+    expect(content).toContain('Ferry — Jira Automation Setup');
     expect(content).toContain('acme-corp/acme-app');
   });
 
