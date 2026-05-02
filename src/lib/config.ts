@@ -15,6 +15,15 @@ export interface LabelCapability {
   tools?: string[];
 }
 
+export interface GitConfig {
+  /** Branch to check out from and open PRs against. null = resolve repo default branch at runtime. */
+  base_branch: string | null;
+  /** Branch the PR targets. null = same as base_branch. */
+  target_branch: string | null;
+  /** Prefix for working branches created by the Developer. */
+  working_branch_prefix: string;
+}
+
 export interface RefinerWorkflowAgentConfig {
   trigger_column: string;
   auto_transition: null;
@@ -106,6 +115,7 @@ export interface FerryConfig {
     refine_allowlist: string[];
     dev_allowlist: string[];
   };
+  git: GitConfig;
   labels?: Record<string, LabelCapability>;
   workflow: WorkflowConfig;
 }
@@ -144,6 +154,11 @@ export const DEFAULT_FERRY_CONFIG: FerryConfig = {
   ticket_types: {
     refine_allowlist: ['Story', 'Bug', 'Spike'],
     dev_allowlist: ['Story', 'Bug', 'Spike'],
+  },
+  git: {
+    base_branch: null,
+    target_branch: null,
+    working_branch_prefix: 'ferry/',
   },
   workflow: {
     agents: {
@@ -357,6 +372,31 @@ function validateConfigShape(raw: unknown): ValidationError[] {
     }
   }
 
+  if (c.git !== undefined) {
+    if (!c.git || typeof c.git !== 'object' || Array.isArray(c.git)) {
+      errs.push('git: must be an object');
+    } else {
+      const g = c.git as Record<string, unknown>;
+      if (g.base_branch !== undefined && g.base_branch !== null && typeof g.base_branch !== 'string') {
+        errs.push('git.base_branch: must be a string or null');
+      }
+      if (g.base_branch !== undefined && typeof g.base_branch === 'string' && g.base_branch.trim() === '') {
+        errs.push('git.base_branch: must be a non-empty string or null');
+      }
+      if (g.target_branch !== undefined && g.target_branch !== null && typeof g.target_branch !== 'string') {
+        errs.push('git.target_branch: must be a string or null');
+      }
+      if (g.target_branch !== undefined && typeof g.target_branch === 'string' && g.target_branch.trim() === '') {
+        errs.push('git.target_branch: must be a non-empty string or null');
+      }
+      if (g.working_branch_prefix !== undefined) {
+        if (typeof g.working_branch_prefix !== 'string' || g.working_branch_prefix.length === 0) {
+          errs.push('git.working_branch_prefix: must be a non-empty string');
+        }
+      }
+    }
+  }
+
   if (c.labels !== undefined) {
     if (!c.labels || typeof c.labels !== 'object' || Array.isArray(c.labels)) {
       errs.push('labels: must be an object mapping label names to capability entries');
@@ -445,6 +485,7 @@ function mergeWithDefaults(raw: RawConfig): FerryConfig {
   const m = (raw.models ?? {}) as Record<string, unknown>;
   const l = (raw.limits ?? {}) as Record<string, unknown>;
   const t = (raw.ticket_types ?? {}) as Record<string, unknown>;
+  const g = (raw.git ?? {}) as Record<string, unknown>;
 
   const route = (val: unknown, def: LlmRoute): LlmRoute => {
     if (!val || typeof val !== 'object') return def;
@@ -458,6 +499,11 @@ function mergeWithDefaults(raw: RawConfig): FerryConfig {
   const num = (val: unknown, def: number): number => (typeof val === 'number' ? val : def);
   const strArr = (val: unknown, def: string[]): string[] =>
     Array.isArray(val) ? (val as string[]) : def;
+  const nullableStr = (val: unknown, def: string | null): string | null => {
+    if (val === null) return null;
+    if (typeof val === 'string') return val;
+    return def;
+  };
 
   const labelsRaw = raw.labels;
   let labels: Record<string, LabelCapability> | undefined;
@@ -520,6 +566,20 @@ function mergeWithDefaults(raw: RawConfig): FerryConfig {
         DEFAULT_FERRY_CONFIG.ticket_types.refine_allowlist,
       ),
       dev_allowlist: strArr(t.dev_allowlist, DEFAULT_FERRY_CONFIG.ticket_types.dev_allowlist),
+    },
+    git: {
+      base_branch:
+        'base_branch' in g
+          ? nullableStr(g.base_branch, null)
+          : DEFAULT_FERRY_CONFIG.git.base_branch,
+      target_branch:
+        'target_branch' in g
+          ? nullableStr(g.target_branch, null)
+          : DEFAULT_FERRY_CONFIG.git.target_branch,
+      working_branch_prefix:
+        typeof g.working_branch_prefix === 'string'
+          ? g.working_branch_prefix
+          : DEFAULT_FERRY_CONFIG.git.working_branch_prefix,
     },
     ...(labels !== undefined ? { labels } : {}),
     workflow: mergeWorkflow(raw.workflow),

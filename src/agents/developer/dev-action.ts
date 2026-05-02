@@ -11,6 +11,7 @@ import {
   makeSecretScan,
   logCapabilities,
   createGitHubContext,
+  resolveGitConfig,
   byEventId,
   runAgent,
 } from '../../lib/agent-runtime/index.js';
@@ -84,8 +85,15 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
   const system = buildSystem('dev', REPO_ROOT);
   const model = ferryCfg.models.dev.model;
 
+  const { baseBranch, targetBranch, workingBranchPrefix } = await resolveGitConfig(
+    ferryCfg,
+    runner,
+    owner,
+    repo,
+  );
+
   // Branch is determined upfront from the ticket key so restarts resume the same branch.
-  const branchName = `ferry/${ticketKey}`;
+  const branchName = `${workingBranchPrefix}${ticketKey}`;
 
   configureFerryGitUser(REPO_ROOT);
 
@@ -97,7 +105,7 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
     });
     execFileSync('git', ['fetch', 'origin', branchName], { cwd: REPO_ROOT });
     execFileSync('git', ['checkout', branchName], { cwd: REPO_ROOT });
-    const existingLog = execFileSync('git', ['log', 'origin/main..HEAD', '--oneline'], {
+    const existingLog = execFileSync('git', ['log', `origin/${baseBranch}..HEAD`, '--oneline'], {
       cwd: REPO_ROOT,
       encoding: 'utf8',
     }).trim();
@@ -240,7 +248,7 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
       notes: done.notes ?? [],
     });
 
-    const prUrl = await runner.createPR(owner, repo, branchName, 'main', prTitle, prBody);
+    const prUrl = await runner.createPR(owner, repo, branchName, targetBranch, prTitle, prBody);
 
     if (shouldAutoTransition) {
       await tracker.postTransition(ticketKey, reviewTransitionId);
