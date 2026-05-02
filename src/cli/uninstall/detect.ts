@@ -62,11 +62,10 @@ export function detectSecrets(repo: string, includeAnthropic: boolean): string[]
 }
 
 function listVariables(repo: string): Array<{ name: string; value: string }> {
-  const result = spawnSync(
-    'gh',
-    ['variable', 'list', '--repo', repo, '--json', 'name,value'],
-    { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] },
-  );
+  const result = spawnSync('gh', ['variable', 'list', '--repo', repo, '--json', 'name,value'], {
+    encoding: 'utf8',
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
   if (result.status !== 0 || result.error) return [];
   try {
     return JSON.parse(result.stdout) as Array<{ name: string; value: string }>;

@@ -148,8 +148,10 @@ Exit code: 0 on success, 1 on any error.
     auditIssueNumber !== null ? detectAuditIssue(opts.repo, auditIssueNumber) : null;
 
   const presentWorkflows = workflows.filter((w) => w.present);
-  const hasWorkflowChanges = !opts.keepWorkflows && (presentWorkflows.length > 0 || codeownersHasFerry);
-  const hasAnything = hasWorkflowChanges || secrets.length > 0 || variables.length > 0 || auditIssue !== null;
+  const hasWorkflowChanges =
+    !opts.keepWorkflows && (presentWorkflows.length > 0 || codeownersHasFerry);
+  const hasAnything =
+    hasWorkflowChanges || secrets.length > 0 || variables.length > 0 || auditIssue !== null;
 
   if (!hasAnything) {
     print('Nothing to remove — Ferry does not appear to be installed.');

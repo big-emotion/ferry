@@ -150,11 +150,10 @@ export function handleAuditIssue(
       opts.onAction(`[dry-run] Would close issue #${issue.number}`);
     } else {
       try {
-        const result = spawnSync(
-          'gh',
-          ['issue', 'close', String(issue.number), '--repo', repo],
-          { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] },
-        );
+        const result = spawnSync('gh', ['issue', 'close', String(issue.number), '--repo', repo], {
+          encoding: 'utf8',
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
         if (result.status !== 0 || result.error) {
           throw result.error ?? new Error(result.stderr || `exit ${result.status}`);
         }
