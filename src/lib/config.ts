@@ -15,6 +15,40 @@ export interface LabelCapability {
   tools?: string[];
 }
 
+export interface RefinerWorkflowAgentConfig {
+  trigger_column: string;
+  auto_transition: null;
+}
+
+export interface DeveloperWorkflowAgentConfig {
+  trigger_column: string;
+  /** Column name to transition into after implementation. null = no auto-transition. */
+  auto_transition: string | null;
+}
+
+export interface ReviewerWorkflowAgentConfig {
+  trigger_column: string;
+  /** Column name to transition into on approval. null = no auto-transition (default). */
+  auto_transition_approve: string | null;
+  /** Column name to transition into when changes are requested. null = no auto-transition. */
+  auto_transition_changes: string | null;
+}
+
+export interface IteratorWorkflowAgentConfig {
+  trigger_column: string;
+  /** Column name to transition into after iteration. null = no auto-transition. */
+  auto_transition: string | null;
+}
+
+export interface WorkflowConfig {
+  agents: {
+    refiner: RefinerWorkflowAgentConfig;
+    developer: DeveloperWorkflowAgentConfig;
+    reviewer: ReviewerWorkflowAgentConfig;
+    iterator: IteratorWorkflowAgentConfig;
+  };
+}
+
 export interface FerryConfig {
   models: {
     refiner: LlmRoute;
@@ -39,6 +73,7 @@ export interface FerryConfig {
     dev_allowlist: string[];
   };
   labels?: Record<string, LabelCapability>;
+  workflow: WorkflowConfig;
 }
 
 export const DEFAULT_FERRY_CONFIG: FerryConfig = {
@@ -58,6 +93,18 @@ export const DEFAULT_FERRY_CONFIG: FerryConfig = {
   ticket_types: {
     refine_allowlist: ['Story', 'Bug', 'Spike'],
     dev_allowlist: ['Story', 'Bug', 'Spike'],
+  },
+  workflow: {
+    agents: {
+      refiner: { trigger_column: 'Refinement', auto_transition: null },
+      developer: { trigger_column: 'In Development', auto_transition: 'In Review' },
+      reviewer: {
+        trigger_column: 'In Review',
+        auto_transition_approve: null,
+        auto_transition_changes: 'Changes Requested',
+      },
+      iterator: { trigger_column: 'Changes Requested', auto_transition: 'In Review' },
+    },
   },
 };
 
@@ -102,6 +149,79 @@ function validateStringArray(val: unknown, fieldPath: string): ValidationError[]
     return [`${fieldPath}: must be an array of strings`];
   }
   return [];
+}
+
+function validateStringOrNull(val: unknown, fieldPath: string): ValidationError[] {
+  if (val !== null && typeof val !== 'string') {
+    return [`${fieldPath}: must be a string or null`];
+  }
+  return [];
+}
+
+function validateWorkflowAgentBase(val: unknown, fieldPath: string): ValidationError[] {
+  if (!val || typeof val !== 'object') return [`${fieldPath}: must be an object`];
+  const v = val as Record<string, unknown>;
+  if (v.trigger_column !== undefined && typeof v.trigger_column !== 'string') {
+    return [`${fieldPath}.trigger_column: must be a string`];
+  }
+  return [];
+}
+
+function validateWorkflow(val: unknown): ValidationError[] {
+  if (!val || typeof val !== 'object') return ['workflow: must be an object'];
+  const w = val as Record<string, unknown>;
+  const errs: ValidationError[] = [];
+
+  if (w.agents === undefined) return errs;
+  if (!w.agents || typeof w.agents !== 'object') {
+    errs.push('workflow.agents: must be an object');
+    return errs;
+  }
+  const agents = w.agents as Record<string, unknown>;
+
+  if (agents.refiner !== undefined) {
+    errs.push(...validateWorkflowAgentBase(agents.refiner, 'workflow.agents.refiner'));
+  }
+  if (agents.developer !== undefined) {
+    errs.push(...validateWorkflowAgentBase(agents.developer, 'workflow.agents.developer'));
+    const dev = agents.developer as Record<string, unknown>;
+    if ('auto_transition' in dev && dev.auto_transition !== undefined) {
+      errs.push(
+        ...validateStringOrNull(dev.auto_transition, 'workflow.agents.developer.auto_transition'),
+      );
+    }
+  }
+  if (agents.reviewer !== undefined) {
+    errs.push(...validateWorkflowAgentBase(agents.reviewer, 'workflow.agents.reviewer'));
+    const rev = agents.reviewer as Record<string, unknown>;
+    if ('auto_transition_approve' in rev && rev.auto_transition_approve !== undefined) {
+      errs.push(
+        ...validateStringOrNull(
+          rev.auto_transition_approve,
+          'workflow.agents.reviewer.auto_transition_approve',
+        ),
+      );
+    }
+    if ('auto_transition_changes' in rev && rev.auto_transition_changes !== undefined) {
+      errs.push(
+        ...validateStringOrNull(
+          rev.auto_transition_changes,
+          'workflow.agents.reviewer.auto_transition_changes',
+        ),
+      );
+    }
+  }
+  if (agents.iterator !== undefined) {
+    errs.push(...validateWorkflowAgentBase(agents.iterator, 'workflow.agents.iterator'));
+    const iter = agents.iterator as Record<string, unknown>;
+    if ('auto_transition' in iter && iter.auto_transition !== undefined) {
+      errs.push(
+        ...validateStringOrNull(iter.auto_transition, 'workflow.agents.iterator.auto_transition'),
+      );
+    }
+  }
+
+  return errs;
 }
 
 function validateConfigShape(raw: unknown): ValidationError[] {
@@ -168,6 +288,10 @@ function validateConfigShape(raw: unknown): ValidationError[] {
         if (e.tools !== undefined) errs.push(...validateStringArray(e.tools, `${fieldPath}.tools`));
       }
     }
+  }
+
+  if (c.workflow !== undefined) {
+    errs.push(...validateWorkflow(c.workflow));
   }
 
   return errs;
@@ -296,6 +420,55 @@ function mergeWithDefaults(raw: RawConfig): FerryConfig {
       dev_allowlist: strArr(t.dev_allowlist, DEFAULT_FERRY_CONFIG.ticket_types.dev_allowlist),
     },
     ...(labels !== undefined ? { labels } : {}),
+    workflow: mergeWorkflow(raw.workflow),
+  };
+}
+
+function mergeWorkflow(rawWorkflow: unknown): WorkflowConfig {
+  const def = DEFAULT_FERRY_CONFIG.workflow;
+  if (!rawWorkflow || typeof rawWorkflow !== 'object') return def;
+  const w = rawWorkflow as Record<string, unknown>;
+  if (!w.agents || typeof w.agents !== 'object') return def;
+  const agents = w.agents as Record<string, unknown>;
+
+  const str = (val: unknown, def: string): string =>
+    typeof val === 'string' ? val : def;
+  const strOrNull = (obj: Record<string, unknown>, key: string, def: string | null): string | null =>
+    key in obj ? (obj[key] === null ? null : typeof obj[key] === 'string' ? (obj[key] as string) : def) : def;
+
+  const refinerRaw = agents.refiner && typeof agents.refiner === 'object'
+    ? (agents.refiner as Record<string, unknown>) : {};
+  const devRaw = agents.developer && typeof agents.developer === 'object'
+    ? (agents.developer as Record<string, unknown>) : {};
+  const revRaw = agents.reviewer && typeof agents.reviewer === 'object'
+    ? (agents.reviewer as Record<string, unknown>) : {};
+  const iterRaw = agents.iterator && typeof agents.iterator === 'object'
+    ? (agents.iterator as Record<string, unknown>) : {};
+
+  return {
+    agents: {
+      refiner: {
+        trigger_column: str(refinerRaw.trigger_column, def.agents.refiner.trigger_column),
+        auto_transition: null,
+      },
+      developer: {
+        trigger_column: str(devRaw.trigger_column, def.agents.developer.trigger_column),
+        auto_transition: strOrNull(devRaw, 'auto_transition', def.agents.developer.auto_transition),
+      },
+      reviewer: {
+        trigger_column: str(revRaw.trigger_column, def.agents.reviewer.trigger_column),
+        auto_transition_approve: strOrNull(
+          revRaw, 'auto_transition_approve', def.agents.reviewer.auto_transition_approve,
+        ),
+        auto_transition_changes: strOrNull(
+          revRaw, 'auto_transition_changes', def.agents.reviewer.auto_transition_changes,
+        ),
+      },
+      iterator: {
+        trigger_column: str(iterRaw.trigger_column, def.agents.iterator.trigger_column),
+        auto_transition: strOrNull(iterRaw, 'auto_transition', def.agents.iterator.auto_transition),
+      },
+    },
   };
 }
 

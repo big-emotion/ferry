@@ -171,6 +171,45 @@ Maps Jira ticket labels to MCP server capabilities. If this section is omitted, 
 
 **Unknown labels:** Any `ferry:*` label on a ticket that is not declared in `labels` is logged to stderr and silently ignored.
 
+#### `workflow.agents`
+
+Maps each Ferry agent to a Jira column and controls which auto-transitions are enabled. All fields are optional — omit any section to use the defaults shown below.
+
+```yaml
+workflow:
+  agents:
+    refiner:
+      trigger_column: "Refinement"
+      auto_transition: null           # refiner never auto-transitions
+    developer:
+      trigger_column: "In Development"
+      auto_transition: "In Review"    # FR18 — set null to disable
+    reviewer:
+      trigger_column: "In Review"
+      auto_transition_approve: null   # optional: set to a column to auto-move on approval
+      auto_transition_changes: "Changes Requested"  # FR24 — set null to disable
+    iterator:
+      trigger_column: "Changes Requested"
+      auto_transition: "In Review"    # FR28 — set null to disable
+```
+
+**Defaults reproduce today's behavior exactly** (FR18, FR24, FR28 all enabled with the column names above).
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `workflow.agents.refiner.trigger_column` | `"Refinement"` | Jira column that triggers the Refiner. Used by `ferry-doctor` to validate column existence. |
+| `workflow.agents.developer.trigger_column` | `"In Development"` | Jira column that triggers the Developer. |
+| `workflow.agents.developer.auto_transition` | `"In Review"` | Column to move the ticket into after the Developer finishes (FR18). Set to `null` to disable — humans drive the transition. Requires `FERRY_REVIEW_TRANSITION_ID` secret when non-null. |
+| `workflow.agents.reviewer.trigger_column` | `"In Review"` | Jira column that triggers the Reviewer. |
+| `workflow.agents.reviewer.auto_transition_approve` | `null` | Column to move the ticket into when the Reviewer approves. `null` = no transition (default). Requires `FERRY_APPROVE_TRANSITION_ID` secret when non-null. |
+| `workflow.agents.reviewer.auto_transition_changes` | `"Changes Requested"` | Column to move the ticket into when the Reviewer requests changes (FR24). Set to `null` to disable. Requires `FERRY_ITER_TRANSITION_ID` secret when non-null. |
+| `workflow.agents.iterator.trigger_column` | `"Changes Requested"` | Jira column that triggers the Iterator. |
+| `workflow.agents.iterator.auto_transition` | `"In Review"` | Column to move the ticket into after the Iterator finishes (FR28). Set to `null` to disable. Requires `FERRY_REVIEW_TRANSITION_ID` secret when non-null. |
+
+> **Finding Jira transition IDs for custom columns:** Call `GET https://<your-domain>.atlassian.net/rest/api/3/issue/<TICKET-KEY>/transitions` with Basic Auth. Match the transition `name` to your target column and use the `id` field as the secret value.
+
+> **`ferry-doctor` validates columns:** When `workflow.agents` is present in your config, `ferry-doctor` calls the Jira API to confirm each `trigger_column` and `auto_transition` value exists in your project. Run `ferry-doctor` after changing column names.
+
 ---
 
 ## What is hardcoded vs. configurable
@@ -179,7 +218,6 @@ The following are intentionally not configurable by consumers:
 
 | Parameter | Why hardcoded |
 |-----------|---------------|
-| Jira column transitions (except the two IDs above) | Managed by Ferry's internal state machine |
 | Branch naming (`ferry/<ticket-key>`) | Required by Ferry's state logic |
 | PR/comment fingerprint formats | Required for idempotency |
 | `FERRY_MODEL` env var used by Refiner/Developer workflows | Set to `claude-sonnet-4-6` internally; use `ferry.config.json` to change those models |

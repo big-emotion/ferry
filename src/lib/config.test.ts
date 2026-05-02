@@ -328,4 +328,133 @@ describe('loadFerryConfig', () => {
       expect(() => loadFerryConfig('/repo')).toThrow(FerryError);
     });
   });
+
+  describe('workflow.agents section', () => {
+    it('defaults include all workflow.agents settings', () => {
+      mockNoConfigFile();
+      const cfg = loadFerryConfig('/repo');
+      expect(cfg.workflow.agents.refiner.trigger_column).toBe('Refinement');
+      expect(cfg.workflow.agents.refiner.auto_transition).toBeNull();
+      expect(cfg.workflow.agents.developer.trigger_column).toBe('In Development');
+      expect(cfg.workflow.agents.developer.auto_transition).toBe('In Review');
+      expect(cfg.workflow.agents.reviewer.trigger_column).toBe('In Review');
+      expect(cfg.workflow.agents.reviewer.auto_transition_approve).toBeNull();
+      expect(cfg.workflow.agents.reviewer.auto_transition_changes).toBe('Changes Requested');
+      expect(cfg.workflow.agents.iterator.trigger_column).toBe('Changes Requested');
+      expect(cfg.workflow.agents.iterator.auto_transition).toBe('In Review');
+    });
+
+    it('merges partial workflow.agents from config', () => {
+      mockConfigFile(
+        'ferry.config.json',
+        JSON.stringify({
+          workflow: {
+            agents: {
+              developer: { trigger_column: 'Dev Queue', auto_transition: null },
+            },
+          },
+        }),
+      );
+      const cfg = loadFerryConfig('/repo');
+      expect(cfg.workflow.agents.developer.trigger_column).toBe('Dev Queue');
+      expect(cfg.workflow.agents.developer.auto_transition).toBeNull();
+      // Non-configured agents keep defaults
+      expect(cfg.workflow.agents.reviewer.trigger_column).toBe('In Review');
+      expect(cfg.workflow.agents.reviewer.auto_transition_changes).toBe('Changes Requested');
+    });
+
+    it('allows null auto_transition for developer', () => {
+      mockConfigFile(
+        'ferry.config.json',
+        JSON.stringify({ workflow: { agents: { developer: { auto_transition: null } } } }),
+      );
+      const cfg = loadFerryConfig('/repo');
+      expect(cfg.workflow.agents.developer.auto_transition).toBeNull();
+    });
+
+    it('allows null auto_transition_changes for reviewer', () => {
+      mockConfigFile(
+        'ferry.config.json',
+        JSON.stringify({
+          workflow: { agents: { reviewer: { auto_transition_changes: null } } },
+        }),
+      );
+      const cfg = loadFerryConfig('/repo');
+      expect(cfg.workflow.agents.reviewer.auto_transition_changes).toBeNull();
+    });
+
+    it('allows setting auto_transition_approve for reviewer', () => {
+      mockConfigFile(
+        'ferry.config.json',
+        JSON.stringify({
+          workflow: { agents: { reviewer: { auto_transition_approve: 'Ready to Merge' } } },
+        }),
+      );
+      const cfg = loadFerryConfig('/repo');
+      expect(cfg.workflow.agents.reviewer.auto_transition_approve).toBe('Ready to Merge');
+    });
+
+    it('throws on invalid auto_transition type', () => {
+      mockConfigFile(
+        'ferry.config.json',
+        JSON.stringify({
+          workflow: { agents: { developer: { auto_transition: 42 } } },
+        }),
+      );
+      let thrown: FerryError | null = null;
+      try {
+        loadFerryConfig('/repo');
+      } catch (e) {
+        thrown = e as FerryError;
+      }
+      expect(thrown).toBeInstanceOf(FerryError);
+      const errors = thrown?.context?.errors as string[];
+      expect(errors.some((e) => e.includes('workflow.agents.developer.auto_transition'))).toBe(true);
+    });
+
+    it('throws on invalid trigger_column type', () => {
+      mockConfigFile(
+        'ferry.config.json',
+        JSON.stringify({
+          workflow: { agents: { refiner: { trigger_column: 123 } } },
+        }),
+      );
+      let thrown: FerryError | null = null;
+      try {
+        loadFerryConfig('/repo');
+      } catch (e) {
+        thrown = e as FerryError;
+      }
+      expect(thrown).toBeInstanceOf(FerryError);
+      const errors = thrown?.context?.errors as string[];
+      expect(errors.some((e) => e.includes('workflow.agents.refiner.trigger_column'))).toBe(true);
+    });
+
+    it('supports custom column names for all agents', () => {
+      mockConfigFile(
+        'ferry.config.json',
+        JSON.stringify({
+          workflow: {
+            agents: {
+              refiner: { trigger_column: 'Ready for Refinement' },
+              developer: { trigger_column: 'In Progress', auto_transition: 'Code Review' },
+              reviewer: {
+                trigger_column: 'Code Review',
+                auto_transition_approve: 'Ready to Deploy',
+                auto_transition_changes: 'Needs Work',
+              },
+              iterator: { trigger_column: 'Needs Work', auto_transition: 'Code Review' },
+            },
+          },
+        }),
+      );
+      const cfg = loadFerryConfig('/repo');
+      expect(cfg.workflow.agents.refiner.trigger_column).toBe('Ready for Refinement');
+      expect(cfg.workflow.agents.developer.trigger_column).toBe('In Progress');
+      expect(cfg.workflow.agents.developer.auto_transition).toBe('Code Review');
+      expect(cfg.workflow.agents.reviewer.auto_transition_approve).toBe('Ready to Deploy');
+      expect(cfg.workflow.agents.reviewer.auto_transition_changes).toBe('Needs Work');
+      expect(cfg.workflow.agents.iterator.auto_transition).toBe('Code Review');
+    });
+  });
 });

@@ -34,8 +34,10 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
   const { ticket_key: ticketKey, event_id: eventId } = envelope;
 
   const anthropicAuth = resolveAnthropicAuth({ apiKeyEnv: 'ANTHROPIC_API_KEY' });
-  const reviewTransitionId = requireEnv('FERRY_REVIEW_TRANSITION_ID');
   const { owner, repo, runner, tracker, ferryCfg } = createGitHubContext(REPO_ROOT);
+  const iteratorWorkflow = ferryCfg.workflow.agents.iterator;
+  const shouldAutoTransition = iteratorWorkflow.auto_transition !== null;
+  const reviewTransitionId = shouldAutoTransition ? requireEnv('FERRY_REVIEW_TRANSITION_ID') : '';
   const model = ferryCfg.models.iterate.model;
 
   const issue = await tracker.getIssue(ticketKey);
@@ -212,12 +214,15 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
   }
   execFileSync('git', ['push', 'origin', branchName, '--force-with-lease'], { cwd: REPO_ROOT });
 
-  await tracker.postTransition(ticketKey, reviewTransitionId);
+  if (shouldAutoTransition) {
+    await tracker.postTransition(ticketKey, reviewTransitionId);
+  }
 
   const { next_iteration } = decideIteratorTransition({ current_iteration: priorIterations });
+  const transitionNote = shouldAutoTransition ? ' Moved back to Review.' : '';
   await tracker.postComment(
     ticketKey,
-    `${idempotencyMarker} Iteration ${next_iteration} complete. Pushed fixes to PR#${prNumber}. Moved back to Review.`,
+    `${idempotencyMarker} Iteration ${next_iteration} complete. Pushed fixes to PR#${prNumber}.${transitionNote}`,
   );
 
   appendOutput({ ...usage, model });

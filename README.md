@@ -65,11 +65,13 @@ Jira column move / label / @mention
   Human merges PR
 ```
 
-Ferry **never merges** and **never moves Jira columns** autonomously except for three explicit transitions:
+Ferry **never merges** and **rarely moves Jira columns** autonomously. By default, three auto-transitions are enabled:
 
 1. Developer → In Review (FR18)
-2. Reviewer → Ready to Merge or Changes Requested (FR24)
+2. Reviewer → Changes Requested (FR24, on review findings)
 3. Iterator → In Review (FR28)
+
+All auto-transitions are configurable via `workflow.agents` in `ferry.config.yaml` — set any to `null` to hand control back to humans, or set custom column names to match your board. See [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md#workflowagents) for details.
 
 ---
 

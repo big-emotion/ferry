@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { execSync } from 'node:child_process';
+import { existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   ask,
@@ -10,6 +11,7 @@ import {
   printStep,
   printSuccess,
   printError,
+  printSkip,
 } from './prompt.js';
 import { workflowTemplates } from './templates.js';
 import { stepGitHubApp } from './steps/github-app.js';
@@ -139,6 +141,25 @@ async function main(): Promise<void> {
   const iterateStatus = await ask('Iterator trigger status', DEFAULT_STATUS_NAMES.iterate);
 
   print('');
+  print('Auto-transitions (column to move to after each step, leave blank to disable):');
+  const devAutoTransition = await ask(
+    'Developer → after implementation (moves to)',
+    'In Review',
+  );
+  const reviewerChangesAutoTransition = await ask(
+    'Reviewer → after requesting changes (moves to)',
+    'Changes Requested',
+  );
+  const reviewerApproveAutoTransition = await ask(
+    'Reviewer → after approving (moves to, blank = no transition)',
+    '',
+  );
+  const iteratorAutoTransition = await ask(
+    'Iterator → after iteration (moves to)',
+    'In Review',
+  );
+
+  print('');
   print('LLM provider:');
   const anthropicApiKey = await askSecret('Anthropic API key (sk-ant-...)');
 
@@ -168,12 +189,39 @@ async function main(): Promise<void> {
     print('You can re-run ferry-init to retry.');
   }
 
-  // ── Step 3: Workflows ─────────────────────────────────────────────────────
+  // ── Step 3: Workflows + ferry.config.yaml ────────────────────────────────
   printStep(3, TOTAL_STEPS, 'Installing workflow files');
   const templates = workflowTemplates(config.ferryVersion);
   const workflowDir = join(repoRoot, '.github', 'workflows');
   installWorkflows(workflowDir, templates, overwrite);
   scaffoldCodeowners(repoRoot, owner);
+
+  const configPath = join(repoRoot, 'ferry.config.yaml');
+  if (!existsSync(configPath) || overwrite) {
+    const nullable = (val: string): string => val.trim() ? `"${val.trim()}"` : 'null';
+    const workflowYaml = [
+      'workflow:',
+      '  agents:',
+      '    refiner:',
+      `      trigger_column: "${refineStatus || DEFAULT_STATUS_NAMES.refine}"`,
+      '      auto_transition: null',
+      '    developer:',
+      `      trigger_column: "${devStatus || DEFAULT_STATUS_NAMES.dev}"`,
+      `      auto_transition: ${nullable(devAutoTransition)}`,
+      '    reviewer:',
+      `      trigger_column: "${reviewStatus || DEFAULT_STATUS_NAMES.review}"`,
+      `      auto_transition_approve: ${nullable(reviewerApproveAutoTransition)}`,
+      `      auto_transition_changes: ${nullable(reviewerChangesAutoTransition)}`,
+      '    iterator:',
+      `      trigger_column: "${iterateStatus || DEFAULT_STATUS_NAMES.iterate}"`,
+      `      auto_transition: ${nullable(iteratorAutoTransition)}`,
+      '',
+    ].join('\n');
+    writeFileSync(configPath, workflowYaml, 'utf8');
+    printSuccess('Generated ferry.config.yaml with workflow.agents settings');
+  } else {
+    printSkip('ferry.config.yaml already exists — skipping (use --overwrite to replace)');
+  }
 
   // ── Step 4: Jira automation bundle ────────────────────────────────────────
   printStep(4, TOTAL_STEPS, 'Generating Jira Automation import bundle');
@@ -195,7 +243,7 @@ async function main(): Promise<void> {
   print('════════════════════════════════════════');
   print('');
   print('Next steps:');
-  print('  1. Commit .github/workflows/ferry-*.yml and .github/CODEOWNERS');
+  print('  1. Commit .github/workflows/ferry-*.yml, ferry.config.yaml, and .github/CODEOWNERS');
   print('  2. Set up Jira Automation rules (choose one):');
   print('     a) Manual (recommended): follow ferry-jira-automation-setup.md');
   print('     b) Import (beta): Jira → Project settings → Automation → Import rules');

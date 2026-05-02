@@ -25,8 +25,12 @@ const REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
 async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
   const { ticket_key: ticketKey, event_id: eventId } = envelope;
 
-  const iterTransitionId = requireEnv('FERRY_ITER_TRANSITION_ID');
   const { owner, repo, runner, tracker, ferryCfg } = createGitHubContext(REPO_ROOT);
+  const reviewerWorkflow = ferryCfg.workflow.agents.reviewer;
+  const shouldTransitionChanges = reviewerWorkflow.auto_transition_changes !== null;
+  const shouldTransitionApprove = reviewerWorkflow.auto_transition_approve !== null;
+  const iterTransitionId = shouldTransitionChanges ? requireEnv('FERRY_ITER_TRANSITION_ID') : '';
+  const approveTransitionId = shouldTransitionApprove ? requireEnv('FERRY_APPROVE_TRANSITION_ID') : '';
   const model = ferryCfg.models.review.model;
 
   const issue = await tracker.getIssue(ticketKey);
@@ -84,15 +88,18 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
 
     const ciMessage =
       ciOutcome.findings[0]?.message ?? 'CI checks failed. See the Actions run for details.';
+    const ciTransitionNote = shouldTransitionChanges ? ' Moved to Dev Iteration.' : '';
     await tracker.postComment(
       ticketKey,
-      `${idempotencyMarker} CI checks failed. Moved to Dev Iteration.`,
+      `${idempotencyMarker} CI checks failed.${ciTransitionNote}`,
     );
     await runner.commentOnPR(
       { owner, repo, prNumber },
       `${idempotencyMarker}\n\n**CI failed:** ${ciMessage}`,
     );
-    await tracker.postTransition(ticketKey, iterTransitionId);
+    if (shouldTransitionChanges) {
+      await tracker.postTransition(ticketKey, iterTransitionId);
+    }
     appendOutput({ input_tokens: 0, output_tokens: 0, model });
     return;
   }
@@ -181,17 +188,23 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
     await runner.removeLabelFromPR({ owner, repo, prNumber }, 'ferry:reviewing').catch(() => {});
     await runner.markPRReadyForReview(owner, repo, prNumber);
     await runner.commentOnPR({ owner, repo, prNumber }, review.comment);
+    if (shouldTransitionApprove) {
+      await tracker.postTransition(ticketKey, approveTransitionId);
+    }
   } else {
     const hasIteratorMarker = existingComments.some((c) => c.includes('[ferry:iterator:'));
 
     await runner.commentOnPR({ owner, repo, prNumber }, review.comment);
 
     if (!hasIteratorMarker) {
+      const changesNote = shouldTransitionChanges ? ' Moved to Dev Iteration.' : '';
       await tracker.postComment(
         ticketKey,
-        `${idempotencyMarker} Changes requested. Moved to Dev Iteration. See PR#${prNumber} for details.`,
+        `${idempotencyMarker} Changes requested.${changesNote} See PR#${prNumber} for details.`,
       );
-      await tracker.postTransition(ticketKey, iterTransitionId);
+      if (shouldTransitionChanges) {
+        await tracker.postTransition(ticketKey, iterTransitionId);
+      }
     } else {
       await tracker.postComment(
         ticketKey,
