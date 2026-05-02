@@ -45,21 +45,24 @@ describe('buildSecrets', () => {
 
 // ── buildJiraBundle ───────────────────────────────────────────────────────────
 
+const WORKSPACE_ID = '75eb33f5-5dd0-4328-b0e6-8bb3f4e0af91';
+const PROJECT_ID = '10033';
+
 describe('buildJiraBundle', () => {
   it('produces exactly 4 rules', () => {
-    const bundle = buildJiraBundle('acme-corp', 'acme-app');
+    const bundle = buildJiraBundle('acme-corp', 'acme-app', WORKSPACE_ID, PROJECT_ID);
     expect(bundle.rules).toHaveLength(4);
   });
 
   it('sets cloud:true with no version or type fields', () => {
-    const bundle = buildJiraBundle('acme-corp', 'acme-app');
+    const bundle = buildJiraBundle('acme-corp', 'acme-app', WORKSPACE_ID, PROJECT_ID);
     expect(bundle.cloud).toBe(true);
     expect(bundle).not.toHaveProperty('version');
     expect(bundle).not.toHaveProperty('type');
   });
 
   it('uses the correct dispatch URL for all rules', () => {
-    const bundle = buildJiraBundle('my-org', 'my-repo');
+    const bundle = buildJiraBundle('my-org', 'my-repo', WORKSPACE_ID, PROJECT_ID);
     const expected = 'https://api.github.com/repos/my-org/my-repo/dispatches';
     for (const rule of bundle.rules) {
       expect(rule.components[0]?.value.url).toBe(expected);
@@ -67,10 +70,9 @@ describe('buildJiraBundle', () => {
   });
 
   it('uses the four Ferry event types', () => {
-    const bundle = buildJiraBundle('acme-corp', 'acme-app');
+    const bundle = buildJiraBundle('acme-corp', 'acme-app', WORKSPACE_ID, PROJECT_ID);
     const bodies = bundle.rules.map(
-      (r) =>
-        JSON.parse(r.components[0]?.value.customBody ?? '{}') as { event_type: string },
+      (r) => JSON.parse(r.components[0]?.value.customBody ?? '{}') as { event_type: string },
     );
     const eventTypes = bodies.map((b) => b.event_type);
     expect(eventTypes).toContain('ferry-refine');
@@ -80,7 +82,7 @@ describe('buildJiraBundle', () => {
   });
 
   it('includes {{issue.key}} in each rule body', () => {
-    const bundle = buildJiraBundle('acme-corp', 'acme-app');
+    const bundle = buildJiraBundle('acme-corp', 'acme-app', WORKSPACE_ID, PROJECT_ID);
     for (const rule of bundle.rules) {
       const body = JSON.parse(rule.components[0]?.value.customBody ?? '{}') as {
         client_payload: { ticket_key: string };
@@ -90,14 +92,14 @@ describe('buildJiraBundle', () => {
   });
 
   it('creates all rules in DISABLED state', () => {
-    const bundle = buildJiraBundle('acme-corp', 'acme-app');
+    const bundle = buildJiraBundle('acme-corp', 'acme-app', WORKSPACE_ID, PROJECT_ID);
     for (const rule of bundle.rules) {
       expect(rule.state).toBe('DISABLED');
     }
   });
 
   it('triggers on the real Jira Cloud transitioned event', () => {
-    const bundle = buildJiraBundle('acme-corp', 'acme-app');
+    const bundle = buildJiraBundle('acme-corp', 'acme-app', WORKSPACE_ID, PROJECT_ID);
     for (const rule of bundle.rules) {
       expect(rule.trigger.type).toBe('jira.issue.event.trigger:transitioned');
       expect(rule.trigger.component).toBe('TRIGGER');
@@ -105,7 +107,7 @@ describe('buildJiraBundle', () => {
   });
 
   it('maps phases to correct Jira column names', () => {
-    const bundle = buildJiraBundle('acme-corp', 'acme-app');
+    const bundle = buildJiraBundle('acme-corp', 'acme-app', WORKSPACE_ID, PROJECT_ID);
     const statuses = bundle.rules.map((r) => r.trigger.value.toStatus[0]?.value);
     expect(statuses).toContain('Refinement');
     expect(statuses).toContain('In Development');

@@ -13,21 +13,24 @@ vi.mock('../prompt.js', () => ({
 
 import { buildJiraBundle, stepJiraBundle } from './jira-bundle.js';
 
+const WORKSPACE_ID = '75eb33f5-5dd0-4328-b0e6-8bb3f4e0af91';
+const PROJECT_ID = '10033';
+
 describe('buildJiraBundle', () => {
   it('returns cloud:true at top level with no version or type fields', () => {
-    const bundle = buildJiraBundle('owner', 'repo');
+    const bundle = buildJiraBundle('owner', 'repo', WORKSPACE_ID, PROJECT_ID);
     expect(bundle.cloud).toBe(true);
     expect(bundle).not.toHaveProperty('version');
     expect(bundle).not.toHaveProperty('type');
   });
 
   it('returns 4 rules', () => {
-    const bundle = buildJiraBundle('owner', 'repo');
+    const bundle = buildJiraBundle('owner', 'repo', WORKSPACE_ID, PROJECT_ID);
     expect(bundle.rules).toHaveLength(4);
   });
 
   it('each rule uses components array with correct action type', () => {
-    const bundle = buildJiraBundle('owner', 'repo');
+    const bundle = buildJiraBundle('owner', 'repo', WORKSPACE_ID, PROJECT_ID);
     for (const rule of bundle.rules) {
       expect(rule).not.toHaveProperty('actions');
       expect(rule.components).toHaveLength(1);
@@ -37,7 +40,7 @@ describe('buildJiraBundle', () => {
   });
 
   it('trigger uses real Jira Cloud component/type format', () => {
-    const bundle = buildJiraBundle('owner', 'repo');
+    const bundle = buildJiraBundle('owner', 'repo', WORKSPACE_ID, PROJECT_ID);
     for (const rule of bundle.rules) {
       expect(rule.trigger.component).toBe('TRIGGER');
       expect(rule.trigger.type).toBe('jira.issue.event.trigger:transitioned');
@@ -46,14 +49,14 @@ describe('buildJiraBundle', () => {
   });
 
   it('trigger toStatus is an array of NAME objects', () => {
-    const bundle = buildJiraBundle('owner', 'repo');
+    const bundle = buildJiraBundle('owner', 'repo', WORKSPACE_ID, PROJECT_ID);
     const firstRule = bundle.rules[0]!;
     expect(Array.isArray(firstRule.trigger.value.toStatus)).toBe(true);
     expect(firstRule.trigger.value.toStatus[0]).toEqual({ type: 'NAME', value: 'Refinement' });
   });
 
   it('trigger value has required event fields', () => {
-    const bundle = buildJiraBundle('owner', 'repo');
+    const bundle = buildJiraBundle('owner', 'repo', WORKSPACE_ID, PROJECT_ID);
     for (const rule of bundle.rules) {
       expect(rule.trigger.value.eventKey).toBe('jira:issue_updated');
       expect(rule.trigger.value.issueEvent).toBe('issue_generic');
@@ -62,7 +65,7 @@ describe('buildJiraBundle', () => {
   });
 
   it('action uses contentType:custom with customBody', () => {
-    const bundle = buildJiraBundle('owner', 'repo');
+    const bundle = buildJiraBundle('owner', 'repo', WORKSPACE_ID, PROJECT_ID);
     for (const rule of bundle.rules) {
       const action = rule.components[0]!;
       expect(action.value.contentType).toBe('custom');
@@ -72,7 +75,7 @@ describe('buildJiraBundle', () => {
   });
 
   it('Authorization header has headerSecure:true', () => {
-    const bundle = buildJiraBundle('owner', 'repo');
+    const bundle = buildJiraBundle('owner', 'repo', WORKSPACE_ID, PROJECT_ID);
     for (const rule of bundle.rules) {
       const headers = rule.components[0]!.value.headers;
       const authHeader = headers.find((h) => h.name === 'Authorization');
@@ -82,7 +85,7 @@ describe('buildJiraBundle', () => {
   });
 
   it('non-auth headers have headerSecure:false', () => {
-    const bundle = buildJiraBundle('owner', 'repo');
+    const bundle = buildJiraBundle('owner', 'repo', WORKSPACE_ID, PROJECT_ID);
     const headers = bundle.rules[0]!.components[0]!.value.headers;
     for (const h of headers) {
       if (h.name !== 'Authorization') {
@@ -92,7 +95,7 @@ describe('buildJiraBundle', () => {
   });
 
   it('dispatch URL uses correct owner and repo', () => {
-    const bundle = buildJiraBundle('my-owner', 'my-repo');
+    const bundle = buildJiraBundle('my-owner', 'my-repo', WORKSPACE_ID, PROJECT_ID);
     for (const rule of bundle.rules) {
       expect(rule.components[0]!.value.url).toBe(
         'https://api.github.com/repos/my-owner/my-repo/dispatches',
@@ -100,11 +103,28 @@ describe('buildJiraBundle', () => {
     }
   });
 
-  it('each rule has ruleScope with ARI placeholder', () => {
-    const bundle = buildJiraBundle('owner', 'repo');
+  it('stamps real ARI into ruleScope.resources for every rule', () => {
+    const bundle = buildJiraBundle('acme-corp', 'acme-app', WORKSPACE_ID, PROJECT_ID);
+    const expectedAri = `ari:cloud:jira:${WORKSPACE_ID}:project/${PROJECT_ID}`;
     for (const rule of bundle.rules) {
-      expect(rule.ruleScope.resources).toHaveLength(1);
-      expect(rule.ruleScope.resources[0]).toContain('YOUR_WORKSPACE_ID');
+      expect(rule.ruleScope.resources).toEqual([expectedAri]);
+    }
+  });
+
+  it('stamps real ARI into trigger.value.eventFilters for every rule', () => {
+    const bundle = buildJiraBundle('acme-corp', 'acme-app', WORKSPACE_ID, PROJECT_ID);
+    const expectedAri = `ari:cloud:jira:${WORKSPACE_ID}:project/${PROJECT_ID}`;
+    for (const rule of bundle.rules) {
+      expect(rule.trigger.value.eventFilters).toEqual([expectedAri]);
+    }
+  });
+
+  it('uses placeholder ARI when workspaceId is a placeholder string', () => {
+    const bundle = buildJiraBundle('acme-corp', 'acme-app', 'YOUR_WORKSPACE_ID', 'YOUR_PROJECT_ID');
+    for (const rule of bundle.rules) {
+      expect(rule.ruleScope.resources[0]).toBe(
+        'ari:cloud:jira:YOUR_WORKSPACE_ID:project/YOUR_PROJECT_ID',
+      );
     }
   });
 });
@@ -119,7 +139,7 @@ describe('stepJiraBundle', () => {
 
   it('writes ferry-jira-automation-rules.beta.json (not .json)', () => {
     tmpDir = mkdtempSync(join(tmpdir(), 'ferry-jb-test-'));
-    const result = stepJiraBundle(tmpDir, 'acme-corp', 'acme-app');
+    const result = stepJiraBundle(tmpDir, 'acme-corp', 'acme-app', WORKSPACE_ID, PROJECT_ID);
     expect(result.ok).toBe(true);
     const betaPath = join(tmpDir, 'ferry-jira-automation-rules.beta.json');
     expect(() => readFileSync(betaPath, 'utf8')).not.toThrow();
@@ -129,7 +149,7 @@ describe('stepJiraBundle', () => {
 
   it('writes ferry-jira-automation-setup.md manual fallback', () => {
     tmpDir = mkdtempSync(join(tmpdir(), 'ferry-jb-md-'));
-    stepJiraBundle(tmpDir, 'acme-corp', 'acme-app');
+    stepJiraBundle(tmpDir, 'acme-corp', 'acme-app', WORKSPACE_ID, PROJECT_ID);
     const mdPath = join(tmpDir, 'ferry-jira-automation-setup.md');
     const content = readFileSync(mdPath, 'utf8');
     expect(content).toContain('Manual Setup');
@@ -138,11 +158,8 @@ describe('stepJiraBundle', () => {
 
   it('JSON output is valid and contains 4 rules', () => {
     tmpDir = mkdtempSync(join(tmpdir(), 'ferry-jb-json-'));
-    stepJiraBundle(tmpDir, 'acme-corp', 'acme-app');
-    const content = readFileSync(
-      join(tmpDir, 'ferry-jira-automation-rules.beta.json'),
-      'utf8',
-    );
+    stepJiraBundle(tmpDir, 'acme-corp', 'acme-app', WORKSPACE_ID, PROJECT_ID);
+    const content = readFileSync(join(tmpDir, 'ferry-jira-automation-rules.beta.json'), 'utf8');
     expect(() => JSON.parse(content)).not.toThrow();
     const bundle = JSON.parse(content) as { rules: unknown[] };
     expect(bundle.rules).toHaveLength(4);
@@ -150,17 +167,14 @@ describe('stepJiraBundle', () => {
 
   it('JSON output ends with a newline', () => {
     tmpDir = mkdtempSync(join(tmpdir(), 'ferry-jb-nl-'));
-    stepJiraBundle(tmpDir, 'acme-corp', 'acme-app');
-    const content = readFileSync(
-      join(tmpDir, 'ferry-jira-automation-rules.beta.json'),
-      'utf8',
-    );
+    stepJiraBundle(tmpDir, 'acme-corp', 'acme-app', WORKSPACE_ID, PROJECT_ID);
+    const content = readFileSync(join(tmpDir, 'ferry-jira-automation-rules.beta.json'), 'utf8');
     expect(content.endsWith('\n')).toBe(true);
   });
 
   it('markdown includes all 4 phase names', () => {
     tmpDir = mkdtempSync(join(tmpdir(), 'ferry-jb-phases-'));
-    stepJiraBundle(tmpDir, 'acme-corp', 'acme-app');
+    stepJiraBundle(tmpDir, 'acme-corp', 'acme-app', WORKSPACE_ID, PROJECT_ID);
     const content = readFileSync(join(tmpDir, 'ferry-jira-automation-setup.md'), 'utf8');
     expect(content).toContain('Refinement');
     expect(content).toContain('In Development');
@@ -170,11 +184,25 @@ describe('stepJiraBundle', () => {
 
   it('markdown does not contain a real Authorization token', () => {
     tmpDir = mkdtempSync(join(tmpdir(), 'ferry-jb-auth-'));
-    stepJiraBundle(tmpDir, 'acme-corp', 'acme-app');
+    stepJiraBundle(tmpDir, 'acme-corp', 'acme-app', WORKSPACE_ID, PROJECT_ID);
     const content = readFileSync(join(tmpDir, 'ferry-jira-automation-setup.md'), 'utf8');
     // Must not contain a real GitHub PAT pattern (ghp_ prefix)
     expect(content).not.toMatch(/ghp_[A-Za-z0-9]{36}/);
     // Should only contain the placeholder
     expect(content).toContain('YOUR_GITHUB_PAT_WITH_REPO_SCOPE');
+  });
+
+  it('dispatch URL uses correct owner and repo', () => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'ferry-jb-url-'));
+    stepJiraBundle(tmpDir, 'my-owner', 'my-repo', WORKSPACE_ID, PROJECT_ID);
+    const content = readFileSync(join(tmpDir, 'ferry-jira-automation-rules.beta.json'), 'utf8');
+    expect(content).toContain('https://api.github.com/repos/my-owner/my-repo/dispatches');
+  });
+
+  it('output contains real ARI in ruleScope', () => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'ferry-jb-ari-'));
+    stepJiraBundle(tmpDir, 'acme-corp', 'acme-app', WORKSPACE_ID, PROJECT_ID);
+    const content = readFileSync(join(tmpDir, 'ferry-jira-automation-rules.beta.json'), 'utf8');
+    expect(content).toContain(`ari:cloud:jira:${WORKSPACE_ID}:project/${PROJECT_ID}`);
   });
 });

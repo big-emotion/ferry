@@ -7,6 +7,9 @@ export interface FerryConfig {
   jiraBaseUrl: string;
   jiraEmail: string;
   jiraApiToken: string;
+  jiraProjectKey: string;
+  jiraWorkspaceId: string;
+  jiraProjectId: string;
   anthropicApiKey: string;
 }
 

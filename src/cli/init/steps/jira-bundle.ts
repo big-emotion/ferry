@@ -3,10 +3,6 @@ import { join } from 'node:path';
 import { printSuccess, printWarn, print } from '../prompt.js';
 import type { StepResult } from '../types.js';
 
-// Placeholder for site-specific Atlassian Resource Identifier.
-// Users must replace with their actual workspace and project IDs.
-const ARI_PLACEHOLDER = 'ari:cloud:jira:YOUR_WORKSPACE_ID:project/YOUR_PROJECT_ID';
-
 interface JiraHeader {
   name: string;
   value: string;
@@ -67,8 +63,14 @@ const PHASES = [
   { eventType: 'ferry-iterate', statusName: 'Iteration', label: 'Iterate' },
 ] as const;
 
-export function buildJiraBundle(owner: string, repo: string): JiraAutomationBundle {
+export function buildJiraBundle(
+  owner: string,
+  repo: string,
+  workspaceId: string,
+  projectId: string,
+): JiraAutomationBundle {
   const dispatchUrl = `https://api.github.com/repos/${owner}/${repo}/dispatches`;
+  const ari = `ari:cloud:jira:${workspaceId}:project/${projectId}`;
 
   const rules: JiraRule[] = PHASES.map((phase) => {
     const customBody = JSON.stringify({
@@ -79,18 +81,19 @@ export function buildJiraBundle(owner: string, repo: string): JiraAutomationBund
         issue_type: '{{issue.issuetype.name}}',
         actor: '{{initiator.displayName}}',
         source: 'jira-column',
-        ts: "{{now.format(\"yyyy-MM-dd'T'HH:mm:ssXXX\")}}",
+        ts: '{{now.format("yyyy-MM-dd\'T\'HH:mm:ssXXX")}}',
       },
     });
 
     return {
       name: `Ferry — ${phase.label} (column trigger)`,
       state: 'DISABLED',
+      ruleScope: { resources: [ari] },
       trigger: {
         component: 'TRIGGER',
         type: 'jira.issue.event.trigger:transitioned',
         value: {
-          eventFilters: [ARI_PLACEHOLDER],
+          eventFilters: [ari],
           fromStatus: [],
           toStatus: [{ type: 'NAME', value: phase.statusName }],
           eventKey: 'jira:issue_updated',
@@ -122,7 +125,6 @@ export function buildJiraBundle(owner: string, repo: string): JiraAutomationBund
           schemaVersion: 1,
         },
       ],
-      ruleScope: { resources: [ARI_PLACEHOLDER] },
       labels: [],
       tags: [],
       canOtherRuleTrigger: false,
@@ -146,7 +148,7 @@ function buildManualSetupDoc(owner: string, repo: string): string {
           issue_type: '{{issue.issuetype.name}}',
           actor: '{{initiator.displayName}}',
           source: 'jira-column',
-          ts: "{{now.format(\"yyyy-MM-dd'T'HH:mm:ssXXX\")}}",
+          ts: '{{now.format("yyyy-MM-dd\'T\'HH:mm:ssXXX")}}',
         },
       },
       null,
@@ -224,8 +226,14 @@ After enabling a rule, move a Jira issue to the target column and check:
 `;
 }
 
-export function stepJiraBundle(repoRoot: string, owner: string, repo: string): StepResult {
-  const bundle = buildJiraBundle(owner, repo);
+export function stepJiraBundle(
+  repoRoot: string,
+  owner: string,
+  repo: string,
+  workspaceId: string,
+  projectId: string,
+): StepResult {
+  const bundle = buildJiraBundle(owner, repo, workspaceId, projectId);
   const jsonPath = join(repoRoot, 'ferry-jira-automation-rules.beta.json');
   writeFileSync(jsonPath, JSON.stringify(bundle, null, 2) + '\n', 'utf8');
 
@@ -235,11 +243,8 @@ export function stepJiraBundle(repoRoot: string, owner: string, repo: string): S
   printSuccess(`Generated ferry-jira-automation-rules.beta.json`);
   printSuccess(`Generated ferry-jira-automation-setup.md (manual fallback)`);
   print('');
-  printWarn('The JSON import is BETA — Jira Cloud\'s import format changes frequently.');
-  printWarn(
-    'Before importing the JSON, replace the two YOUR_* placeholders with your Jira',
-  );
-  printWarn('workspace ID and project ID (see ferry-jira-automation-setup.md for details).');
+  printWarn("The JSON import is BETA — Jira Cloud's import format changes frequently.");
+  printWarn('Replace YOUR_GITHUB_PAT_WITH_REPO_SCOPE in each rule before enabling.');
   print('');
   print('  Option A — JSON import (beta):');
   print('    1. Jira → Project settings → Automation → Import rules (top-right menu)');
