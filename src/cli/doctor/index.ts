@@ -67,8 +67,7 @@ function parseConfig(argv: string[]): DoctorConfig {
     jiraEmail: getArg(argv, '--jira-email') ?? process.env['FERRY_JIRA_EMAIL'] ?? '',
     jiraApiToken: getArg(argv, '--jira-token') ?? process.env['FERRY_JIRA_API_TOKEN'] ?? '',
     jiraProjectKey: getArg(argv, '--jira-project') ?? process.env['FERRY_JIRA_PROJECT_KEY'] ?? '',
-    anthropicApiKey:
-      getArg(argv, '--anthropic-key') ?? process.env['FERRY_ANTHROPIC_API_KEY'] ?? '',
+    anthropicApiKey: getArg(argv, '--anthropic-key') ?? process.env['ANTHROPIC_API_KEY'] ?? '',
     ferryVersion: getArg(argv, '--version') ?? 'v1',
     repoRoot: getArg(argv, '--repo-root') ?? process.cwd(),
     noDispatch: hasFlag(argv, '--no-dispatch'),
@@ -94,14 +93,14 @@ Options:
   --jira-email <email>         Jira account email (default: FERRY_JIRA_EMAIL)
   --jira-token <token>         Jira API token (default: FERRY_JIRA_API_TOKEN)
   --jira-project <key>         Jira project key to verify (default: FERRY_JIRA_PROJECT_KEY)
-  --anthropic-key <key>        Anthropic API key (default: FERRY_ANTHROPIC_API_KEY)
+  --anthropic-key <key>        Anthropic API key (default: ANTHROPIC_API_KEY)
   --version <tag>              Ferry version tag for workflow drift check (default: v1)
   --repo-root <path>           Path to the repo root (default: cwd)
   --no-dispatch                Skip the synthetic dispatch probe
   -h, --help                   Show this help
 
 Checks run in order:
-  1. Secrets present        — all 6 FERRY_* repo secrets exist
+  1. Secrets present        — all 8 required repo secrets exist
   2. GitHub App             — mint installation token, verify permissions
   3. Jira reachable         — /myself + project key resolution
   4. LLM keys valid         — 1-token Anthropic sanity call

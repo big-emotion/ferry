@@ -22,7 +22,7 @@ export const FERRY_SECRETS = [
   'FERRY_ITER_TRANSITION_ID',
 ];
 
-export const ANTHROPIC_SECRET = 'FERRY_ANTHROPIC_API_KEY';
+export const ANTHROPIC_SECRET = 'ANTHROPIC_API_KEY';
 export const FERRY_VARIABLE = 'FERRY_AUDIT_ISSUE';
 export const AUDIT_LABEL = 'ferry:audit-log:active';
 

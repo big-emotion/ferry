@@ -53,12 +53,14 @@ describe('checkSecrets', () => {
       { name: 'FERRY_JIRA_BASE_URL' },
       { name: 'FERRY_JIRA_EMAIL' },
       { name: 'FERRY_JIRA_API_TOKEN' },
-      { name: 'FERRY_ANTHROPIC_API_KEY' },
+      { name: 'ANTHROPIC_API_KEY' },
+      { name: 'FERRY_REVIEW_TRANSITION_ID' },
+      { name: 'FERRY_ITER_TRANSITION_ID' },
     ];
     mockExecSync.mockReturnValue(JSON.stringify(allSecrets));
     const result = checkSecrets('org/repo');
     expect(result.status).toBe('green');
-    expect(result.detail).toContain('All 6');
+    expect(result.detail).toContain('All 8');
   });
 
   it('returns red when some secrets are missing', () => {
@@ -90,10 +92,12 @@ describe('checkSecrets', () => {
       { name: 'FERRY_JIRA_BASE_URL' },
       { name: 'FERRY_JIRA_EMAIL' },
       { name: 'FERRY_JIRA_API_TOKEN' },
-      { name: 'FERRY_ANTHROPIC_API_KEY' },
+      { name: 'ANTHROPIC_API_KEY' },
+      { name: 'FERRY_REVIEW_TRANSITION_ID' },
+      { name: 'FERRY_ITER_TRANSITION_ID' },
     ];
     mockExecSync.mockReturnValue(JSON.stringify(allSecrets));
     const result = checkSecrets('org/repo');
-    expect(result.detail).toContain('FERRY_*');
+    expect(result.detail).toContain('required secrets');
   });
 });

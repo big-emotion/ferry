@@ -7,7 +7,9 @@ const REQUIRED_SECRETS = [
   'FERRY_JIRA_BASE_URL',
   'FERRY_JIRA_EMAIL',
   'FERRY_JIRA_API_TOKEN',
-  'FERRY_ANTHROPIC_API_KEY',
+  'ANTHROPIC_API_KEY',
+  'FERRY_REVIEW_TRANSITION_ID',
+  'FERRY_ITER_TRANSITION_ID',
 ];
 
 export function listRepoSecrets(repo: string): string[] {
@@ -42,7 +44,7 @@ export function checkSecrets(repo: string): CheckResult {
     return {
       label: 'Secrets present',
       status: 'green',
-      detail: `All ${REQUIRED_SECRETS.length} FERRY_* secrets found`,
+      detail: `All ${REQUIRED_SECRETS.length} required secrets found`,
     };
   }
 

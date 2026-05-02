@@ -26,7 +26,7 @@ describe('buildSecrets', () => {
     expect(names).toContain('FERRY_JIRA_BASE_URL');
     expect(names).toContain('FERRY_JIRA_EMAIL');
     expect(names).toContain('FERRY_JIRA_API_TOKEN');
-    expect(names).toContain('FERRY_ANTHROPIC_API_KEY');
+    expect(names).toContain('ANTHROPIC_API_KEY');
   });
 
   it('propagates values correctly', () => {
@@ -119,8 +119,8 @@ describe('buildJiraBundle', () => {
 // ── workflowTemplates ─────────────────────────────────────────────────────────
 
 describe('workflowTemplates', () => {
-  it('returns 6 workflow files', () => {
-    expect(workflowTemplates('v1')).toHaveLength(6);
+  it('returns 4 workflow files', () => {
+    expect(workflowTemplates('v1')).toHaveLength(4);
   });
 
   it('includes all required workflow filenames', () => {
@@ -129,8 +129,6 @@ describe('workflowTemplates', () => {
     expect(names).toContain('ferry-dev.yml');
     expect(names).toContain('ferry-review.yml');
     expect(names).toContain('ferry-iterate.yml');
-    expect(names).toContain('ferry-reconciler.yml');
-    expect(names).toContain('ferry-audit-daily.yml');
   });
 
   it('embeds the ferry version tag in each agent workflow', () => {

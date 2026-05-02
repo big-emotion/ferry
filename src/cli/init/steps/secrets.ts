@@ -25,7 +25,7 @@ export function buildSecrets(config: {
       description: 'Atlassian API token',
     },
     {
-      name: 'FERRY_ANTHROPIC_API_KEY',
+      name: 'ANTHROPIC_API_KEY',
       value: config.anthropicApiKey,
       description: 'Anthropic API key',
     },

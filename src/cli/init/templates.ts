@@ -5,8 +5,8 @@ export function workflowTemplates(version: string): WorkflowEntry[] {
     {
       filename: 'ferry-refine.yml',
       content: `# Managed by ferry-init. Re-run \`npx -p @big-emotion/ferry ferry-init\` to update.
-# Required secrets: FERRY_APP_ID, FERRY_PRIVATE_KEY, FERRY_JIRA_BASE_URL,
-#                   FERRY_JIRA_EMAIL, FERRY_JIRA_API_TOKEN, FERRY_ANTHROPIC_API_KEY
+# Required secrets: FERRY_JIRA_BASE_URL, FERRY_JIRA_EMAIL, FERRY_JIRA_API_TOKEN,
+#                   ANTHROPIC_API_KEY
 # Required variables: FERRY_AUDIT_ISSUE (GitHub Issue number for the audit log)
 
 name: Ferry — Refine
@@ -34,8 +34,8 @@ jobs:
     {
       filename: 'ferry-dev.yml',
       content: `# Managed by ferry-init. Re-run \`npx -p @big-emotion/ferry ferry-init\` to update.
-# Required secrets: FERRY_APP_ID, FERRY_PRIVATE_KEY, FERRY_JIRA_BASE_URL,
-#                   FERRY_JIRA_EMAIL, FERRY_JIRA_API_TOKEN, FERRY_ANTHROPIC_API_KEY
+# Required secrets: FERRY_JIRA_BASE_URL, FERRY_JIRA_EMAIL, FERRY_JIRA_API_TOKEN,
+#                   ANTHROPIC_API_KEY, FERRY_REVIEW_TRANSITION_ID
 # Required variables: FERRY_AUDIT_ISSUE (GitHub Issue number for the audit log)
 # Optional variables: FERRY_DEV_MODEL (default: claude-sonnet-4-6)
 #                     FERRY_DEV_MAX_ITERATIONS (default: 200)
@@ -69,8 +69,8 @@ jobs:
     {
       filename: 'ferry-review.yml',
       content: `# Managed by ferry-init. Re-run \`npx -p @big-emotion/ferry ferry-init\` to update.
-# Required secrets: FERRY_APP_ID, FERRY_PRIVATE_KEY, FERRY_JIRA_BASE_URL,
-#                   FERRY_JIRA_EMAIL, FERRY_JIRA_API_TOKEN, FERRY_ANTHROPIC_API_KEY
+# Required secrets: FERRY_JIRA_BASE_URL, FERRY_JIRA_EMAIL, FERRY_JIRA_API_TOKEN,
+#                   ANTHROPIC_API_KEY, FERRY_ITER_TRANSITION_ID
 # Required variables: FERRY_AUDIT_ISSUE (GitHub Issue number for the audit log)
 # Optional variables: FERRY_REVIEW_MODEL (default: claude-sonnet-4-6)
 
@@ -101,8 +101,8 @@ jobs:
     {
       filename: 'ferry-iterate.yml',
       content: `# Managed by ferry-init. Re-run \`npx -p @big-emotion/ferry ferry-init\` to update.
-# Required secrets: FERRY_APP_ID, FERRY_PRIVATE_KEY, FERRY_JIRA_BASE_URL,
-#                   FERRY_JIRA_EMAIL, FERRY_JIRA_API_TOKEN, FERRY_ANTHROPIC_API_KEY
+# Required secrets: FERRY_JIRA_BASE_URL, FERRY_JIRA_EMAIL, FERRY_JIRA_API_TOKEN,
+#                   ANTHROPIC_API_KEY, FERRY_REVIEW_TRANSITION_ID
 # Required variables: FERRY_AUDIT_ISSUE (GitHub Issue number for the audit log)
 # Optional variables: FERRY_ITER_MODEL (default: claude-sonnet-4-6)
 #                     FERRY_ITER_MAX_INPUT_TOKENS (default: 500000)
@@ -127,50 +127,6 @@ jobs:
       ticket_key: \${{ github.event.client_payload.ticket_key }}
       event_id: \${{ github.event.client_payload.event_id }}
       payload: \${{ toJson(github.event.client_payload) }}
-    secrets: inherit
-`,
-    },
-    {
-      filename: 'ferry-reconciler.yml',
-      content: `# Managed by ferry-init. Re-run \`npx -p @big-emotion/ferry ferry-init\` to update.
-# Required variables: FERRY_AUDIT_ISSUE (GitHub Issue number for the audit log)
-
-name: Ferry — Reconciler
-
-on:
-  schedule:
-    - cron: '*/15 * * * *'
-  workflow_dispatch: {}
-
-concurrency:
-  group: ferry-reconciler
-  cancel-in-progress: true
-
-jobs:
-  reconciler:
-    uses: big-emotion/ferry/.github/workflows/reconciler.yml@${version}
-    secrets: inherit
-`,
-    },
-    {
-      filename: 'ferry-audit-daily.yml',
-      content: `# Managed by ferry-init. Re-run \`npx -p @big-emotion/ferry ferry-init\` to update.
-# This workflow runs daily governance checks (spend monitoring, event pruning).
-
-name: Ferry — Audit Daily
-
-on:
-  schedule:
-    - cron: '0 9 * * *'
-  workflow_dispatch: {}
-
-concurrency:
-  group: ferry-audit-daily
-  cancel-in-progress: true
-
-jobs:
-  audit-daily:
-    uses: big-emotion/ferry/.github/workflows/audit-daily.yml@${version}
     secrets: inherit
 `,
     },

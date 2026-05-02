@@ -48,7 +48,7 @@ async function main(): Promise<void> {
   print('This wizard will:');
   print('  1. Guide you through creating a GitHub App');
   print('  2. Set 6 repository secrets via the gh CLI');
-  print('  3. Install 6 Ferry workflow stubs into .github/workflows/');
+  print('  3. Install 4 Ferry workflow stubs into .github/workflows/');
   print('  4. Generate a Jira Automation import bundle');
   print('  5. Verify your Anthropic API key');
   print('');

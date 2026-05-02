@@ -48,7 +48,7 @@ export async function checkLlmKeys(opts: { anthropicApiKey: string }): Promise<C
       status: 'skip',
       detail: 'No Anthropic API key provided — skipping',
       remedy:
-        'Provide --anthropic-key or set FERRY_ANTHROPIC_API_KEY. Generate at console.anthropic.com/account/keys',
+        'Provide --anthropic-key or set ANTHROPIC_API_KEY. Generate at console.anthropic.com/account/keys',
     };
   }
 

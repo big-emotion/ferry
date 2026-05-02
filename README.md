@@ -22,11 +22,13 @@ Ferry connects your Jira board to a fully autonomous dev loop — Refiner, Devel
 ## What Ferry is — and isn't
 
 **Ferry is:**
+
 - A set of GitHub Actions workflows you copy into your repo — no server, no daemon, no infra to own
 - An autonomous loop that goes from Jira ticket to reviewed draft PR without you writing a line of code
 - Designed for teams that already use Jira + GitHub and want AI-assisted development without leaving those tools
 
 **Ferry is not:**
+
 - A replacement for human review — it opens draft PRs, it never merges
 - A general-purpose AI coding assistant — it only acts on explicit Jira column transitions
 - Vendor-locked — the LLM provider per phase (Anthropic / Google AI / OpenAI) is configurable
@@ -35,12 +37,12 @@ Ferry connects your Jira board to a fully autonomous dev loop — Refiner, Devel
 
 ## Agent phases at a glance
 
-| Phase | Jira column | What the agent does |
-|---|---|---|
-| **Refiner** | Refinement | Reads the ticket, creates sub-tasks, awaits human approval |
+| Phase         | Jira column    | What the agent does                                            |
+| ------------- | -------------- | -------------------------------------------------------------- |
+| **Refiner**   | Refinement     | Reads the ticket, creates sub-tasks, awaits human approval     |
 | **Developer** | In Development | Reads approved sub-tasks, opens a draft PR on `ferry/<ticket>` |
-| **Reviewer** | In Review | Reads PR diff (green CI only), posts fingerprinted findings |
-| **Iterator** | Iteration | Applies findings, re-triggers Reviewer (max 3 rounds) |
+| **Reviewer**  | In Review      | Reads PR diff (green CI only), posts fingerprinted findings    |
+| **Iterator**  | Iteration      | Applies findings, re-triggers Reviewer (max 3 rounds)          |
 
 ---
 
@@ -193,11 +195,11 @@ Add two scheduled maintenance workflows after your smoke test passes:
 
 ```bash
 # Stale-ticket reconciler — required, runs every 30 min
-curl -fsSL "https://raw.githubusercontent.com/big-emotion/ferry/main/examples/consumer-setup/workflows/ferry-reconcile.yml" \
+curl -fsSL "https://raw.githubusercontent.com/big-emotion/ferry/v0.3.0/examples/consumer-setup/workflows/ferry-reconcile.yml" \
   -o ".github/workflows/ferry-reconcile.yml"
 
 # Daily cost check — required, runs at 06:00 UTC
-curl -fsSL "https://raw.githubusercontent.com/big-emotion/ferry/main/examples/consumer-setup/workflows/ferry-cost-daily.yml" \
+curl -fsSL "https://raw.githubusercontent.com/big-emotion/ferry/v0.3.0/examples/consumer-setup/workflows/ferry-cost-daily.yml" \
   -o ".github/workflows/ferry-cost-daily.yml"
 
 git add .github/workflows/ferry-reconcile.yml .github/workflows/ferry-cost-daily.yml
@@ -222,12 +224,12 @@ Quick install checklist:
 
 ## Lifecycle commands
 
-| Command | What it does |
-|---|---|
-| `npx -p @big-emotion/ferry ferry-init` | Scaffold Ferry into a new repo |
-| `npx -p @big-emotion/ferry ferry-doctor` | Diagnose configuration issues |
-| `npx -p @big-emotion/ferry ferry-update` | Upgrade Ferry to a newer version |
-| `npx -p @big-emotion/ferry ferry-uninstall` | Remove Ferry from a repo |
+| Command                                     | What it does                     |
+| ------------------------------------------- | -------------------------------- |
+| `npx -p @big-emotion/ferry ferry-init`      | Scaffold Ferry into a new repo   |
+| `npx -p @big-emotion/ferry ferry-doctor`    | Diagnose configuration issues    |
+| `npx -p @big-emotion/ferry ferry-update`    | Upgrade Ferry to a newer version |
+| `npx -p @big-emotion/ferry ferry-uninstall` | Remove Ferry from a repo         |
 
 `ferry-doctor` will warn when a newer version is available:
 
@@ -250,12 +252,12 @@ npx -p @big-emotion/ferry@<new-version> ferry-update
 
 Options:
 
-| Flag | Description |
-|---|---|
-| `--dry-run` | Print the diff, write nothing |
-| `--yes` | Skip confirmation prompt |
-| `--from <version>` | Override autodetected current version |
-| `--to <version>` | Target a specific version (default: package version) |
+| Flag               | Description                                          |
+| ------------------ | ---------------------------------------------------- |
+| `--dry-run`        | Print the diff, write nothing                        |
+| `--yes`            | Skip confirmation prompt                             |
+| `--from <version>` | Override autodetected current version                |
+| `--to <version>`   | Target a specific version (default: package version) |
 
 ---
 
@@ -329,13 +331,13 @@ Set the `AGENT_MCP_SERVERS` environment variable (repository variable or secret)
 
 Each entry accepts:
 
-| Field               | Required | Description                                     |
-| ------------------- | -------- | ----------------------------------------------- |
-| `name`              | yes      | Logical name used in prompts and audit logs      |
-| `url`               | yes      | HTTP/SSE endpoint — **must be `https://`**       |
-| `authorization_token` | no     | Bearer token forwarded to the MCP server         |
-| `allowed_tools`     | no       | Allowlist — only these MCP tools are exposed     |
-| `denied_tools`      | no       | Denylist — these MCP tools are hidden            |
+| Field                 | Required | Description                                  |
+| --------------------- | -------- | -------------------------------------------- |
+| `name`                | yes      | Logical name used in prompts and audit logs  |
+| `url`                 | yes      | HTTP/SSE endpoint — **must be `https://`**   |
+| `authorization_token` | no       | Bearer token forwarded to the MCP server     |
+| `allowed_tools`       | no       | Allowlist — only these MCP tools are exposed |
+| `denied_tools`        | no       | Denylist — these MCP tools are hidden        |
 
 **Constraints**
 
@@ -367,10 +369,10 @@ labels:
 
   ferry:mcp/sentry:
     mcp_servers: [sentry]
-    tools: [fetch_runtime_logs]   # only expose this tool from the Sentry server
+    tools: [fetch_runtime_logs] # only expose this tool from the Sentry server
 
   ferry:profile/frontend:
-    mcp_servers: [context7, playwright]   # profile = curated bundle
+    mcp_servers: [context7, playwright] # profile = curated bundle
 ```
 
 Then add the matching label to your Jira ticket (e.g. `ferry:mcp/context7`). Ferry unions all matching entries and passes the resulting server list to the agent.
@@ -391,8 +393,8 @@ Ferry is designed for a typical pilot budget: **≤ 200€/provider/month**, **�
 
 ## Contributors
 
-| Role | GitHub |
-|---|---|
+| Role                 | GitHub                                   |
+| -------------------- | ---------------------------------------- |
 | Creator & maintainer | [@jean-noe](https://github.com/jean-noe) |
 
 ---
