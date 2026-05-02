@@ -151,7 +151,7 @@ Before tagging any release:
 
 ## npm publishing
 
-The `@big-emotion/ferry` package is published to npm automatically by `release.yml` on every `v*.*.*` tag push, using `npm publish --provenance --access public`. The CLIs are exposed under their original bin names — `ferry-init` and `ferry-doctor` — and consumers invoke them via `npx -p @big-emotion/ferry ferry-init`. The primary distribution mechanism for the GitHub Actions side remains the reusable workflows referenced via `@v0.4.0` (or a pinned SHA).
+The `@big-emotion/ferry` package is published to npm automatically by `release.yml` on every `v*.*.*` tag push, using `npm publish --provenance --access public`. Four CLIs are exposed under the `bin` field — `ferry-init`, `ferry-doctor`, `ferry-update`, and `ferry-uninstall` — and consumers invoke them via `npx -p @big-emotion/ferry <cli>` (e.g. `npx -p @big-emotion/ferry ferry-init`). The primary distribution mechanism for the GitHub Actions side remains the reusable workflows referenced via `@v0.4.0` (or a pinned SHA).
 
 Required repository secret:
 

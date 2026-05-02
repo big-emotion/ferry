@@ -32,7 +32,7 @@ describe('resolveGitConfig', () => {
     const result = await resolveGitConfig(cfg, runner, 'org', 'repo');
     expect(result.baseBranch).toBe('release/v2');
     expect(result.targetBranch).toBe('release/v2');
-    expect((runner.getRepoDefaultBranch as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+    expect(runner.getRepoDefaultBranch as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
   });
 
   it('uses explicit target_branch independently of base_branch', async () => {
@@ -61,6 +61,6 @@ describe('resolveGitConfig', () => {
     const runner = makeMockRunner('next');
     const cfg = makeConfig({ base_branch: null, target_branch: null });
     await resolveGitConfig(cfg, runner, 'org', 'repo');
-    expect((runner.getRepoDefaultBranch as ReturnType<typeof vi.fn>)).toHaveBeenCalledTimes(1);
+    expect(runner.getRepoDefaultBranch as ReturnType<typeof vi.fn>).toHaveBeenCalledTimes(1);
   });
 });

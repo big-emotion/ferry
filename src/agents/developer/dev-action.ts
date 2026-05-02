@@ -44,8 +44,6 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
   }
 
   const anthropicAuth = resolveAnthropicAuth({ apiKeyEnv: 'ANTHROPIC_API_KEY' });
-  const reviewTransitionId = dryRun ? '' : requireEnv('FERRY_REVIEW_TRANSITION_ID');
-  const jiraBaseUrl = requireEnv('FERRY_JIRA_BASE_URL');
   const { owner, repo, runner, tracker, ferryCfg } = createGitHubContext(REPO_ROOT);
   const { provider: devProvider } = ferryCfg.models.dev;
   if (devProvider !== 'anthropic') {
@@ -57,6 +55,11 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
         "The developer phase requires provider 'anthropic'. OpenAI and Google support for agentic phases is planned for a future release.",
     });
   }
+  const devWorkflow = ferryCfg.workflow.agents.developer;
+  const shouldAutoTransition = devWorkflow.auto_transition !== null;
+  const reviewTransitionId =
+    dryRun || !shouldAutoTransition ? '' : requireEnv('FERRY_REVIEW_TRANSITION_ID');
+  const jiraBaseUrl = requireEnv('FERRY_JIRA_BASE_URL');
 
   const issue = await tracker.getIssue(ticketKey);
   const labels = issue.labels.join(', ');
@@ -102,14 +105,10 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
     });
     execFileSync('git', ['fetch', 'origin', branchName], { cwd: REPO_ROOT });
     execFileSync('git', ['checkout', branchName], { cwd: REPO_ROOT });
-    const existingLog = execFileSync(
-      'git',
-      ['log', `origin/${baseBranch}..HEAD`, '--oneline'],
-      {
-        cwd: REPO_ROOT,
-        encoding: 'utf8',
-      },
-    ).trim();
+    const existingLog = execFileSync('git', ['log', `origin/${baseBranch}..HEAD`, '--oneline'], {
+      cwd: REPO_ROOT,
+      encoding: 'utf8',
+    }).trim();
     if (existingLog) {
       resumeContext = `\nEXISTING WORK ON BRANCH (already committed — skip these, only do what remains):\n${existingLog}`;
       logger.info('resuming branch', {
@@ -251,10 +250,13 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
 
     const prUrl = await runner.createPR(owner, repo, branchName, targetBranch, prTitle, prBody);
 
-    await tracker.postTransition(ticketKey, reviewTransitionId);
+    if (shouldAutoTransition) {
+      await tracker.postTransition(ticketKey, reviewTransitionId);
+    }
+    const transitionNote = shouldAutoTransition ? ' Moved to Review.' : '';
     await tracker.postComment(
       ticketKey,
-      `${idempotencyMarker} Implementation complete — PR: ${prUrl}. Moved to Review.`,
+      `${idempotencyMarker} Implementation complete — PR: ${prUrl}.${transitionNote}`,
     );
   } catch (err) {
     if (!dryRun) {

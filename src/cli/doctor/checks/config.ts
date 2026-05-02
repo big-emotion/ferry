@@ -113,7 +113,8 @@ export function checkGitConfig(opts: { repoRoot: string }): CheckResult {
     return {
       label: 'Git branch config',
       status: 'green',
-      detail: 'No ferry.config.* found — using defaults (base_branch resolved from repo at runtime, prefix: ferry/)',
+      detail:
+        'No ferry.config.* found — using defaults (base_branch resolved from repo at runtime, prefix: ferry/)',
     };
   }
 
@@ -122,7 +123,8 @@ export function checkGitConfig(opts: { repoRoot: string }): CheckResult {
     return {
       label: 'Git branch config',
       status: 'green',
-      detail: 'git section not set — using defaults (base_branch resolved from repo at runtime, prefix: ferry/)',
+      detail:
+        'git section not set — using defaults (base_branch resolved from repo at runtime, prefix: ferry/)',
     };
   }
 

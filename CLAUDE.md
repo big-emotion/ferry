@@ -68,12 +68,14 @@ Each agent has a composite action used by its workflow: `ferry-envelope-validate
 
 ### 6. **CLI Entrypoints** (`src/cli/`)
 
-Two consumer-facing CLIs are exposed via `package.json` `bin`:
+Four consumer-facing CLIs are exposed via `package.json` `bin`:
 
 - `ferry-init` (`src/cli/init/`) — scaffolds Ferry into a new consumer repo
 - `ferry-doctor` (`src/cli/doctor/`) — diagnoses configuration issues in a consumer repo
+- `ferry-update` (`src/cli/update/`) — upgrades pinned Ferry refs in consumer workflows; reads `MIGRATIONS.md` and prints required follow-ups
+- `ferry-uninstall` (`src/cli/uninstall/`) — removes Ferry workflows, secrets, and variables from a consumer repo
 
-Run locally with `npm run ferry-init` / `npm run ferry-doctor` (uses `tsx`).
+Run locally with `npm run ferry-init` / `npm run ferry-doctor` / `npm run ferry-update` / `npm run ferry-uninstall` (uses `tsx`).
 
 ## Language & Module Rules
 
