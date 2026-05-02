@@ -142,10 +142,7 @@ async function main(): Promise<void> {
 
   print('');
   print('Auto-transitions (column to move to after each step, leave blank to disable):');
-  const devAutoTransition = await ask(
-    'Developer → after implementation (moves to)',
-    'In Review',
-  );
+  const devAutoTransition = await ask('Developer → after implementation (moves to)', 'In Review');
   const reviewerChangesAutoTransition = await ask(
     'Reviewer → after requesting changes (moves to)',
     'Changes Requested',
@@ -154,10 +151,7 @@ async function main(): Promise<void> {
     'Reviewer → after approving (moves to, blank = no transition)',
     '',
   );
-  const iteratorAutoTransition = await ask(
-    'Iterator → after iteration (moves to)',
-    'In Review',
-  );
+  const iteratorAutoTransition = await ask('Iterator → after iteration (moves to)', 'In Review');
 
   print('');
   print('LLM provider:');
@@ -198,7 +192,7 @@ async function main(): Promise<void> {
 
   const configPath = join(repoRoot, 'ferry.config.yaml');
   if (!existsSync(configPath) || overwrite) {
-    const nullable = (val: string): string => val.trim() ? `"${val.trim()}"` : 'null';
+    const nullable = (val: string): string => (val.trim() ? `"${val.trim()}"` : 'null');
     const workflowYaml = [
       'workflow:',
       '  agents:',
