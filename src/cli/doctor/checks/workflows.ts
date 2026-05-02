@@ -40,7 +40,7 @@ export function checkWorkflowDrift(opts: { repoRoot: string; ferryVersion: strin
       label: 'Workflow files',
       status: 'yellow',
       detail: `${drifted.length} file(s) differ from Ferry ${ferryVersion}: ${drifted.join(', ')}`,
-      remedy: `Run \`npx -p @big-emotion/ferry ferry-init --overwrite\` to update the workflows to the current Ferry release`,
+      remedy: `Run \`npx -p @big-emotion/ferry ferry-update\` to upgrade the workflow files, or \`ferry-init --overwrite\` to re-run full setup`,
     };
   }
 

@@ -92,6 +92,34 @@ Ferry **never merges** and **never moves Jira columns** autonomously except for 
 
 ---
 
+## Upgrading Ferry
+
+To upgrade the pinned Ferry version in your workflow files without re-entering credentials:
+
+```bash
+npx -p @big-emotion/ferry@<new-version> ferry-update
+```
+
+Options:
+
+| Flag | Description |
+|---|---|
+| `--dry-run` | Print the diff, write nothing |
+| `--yes` | Skip confirmation prompt |
+| `--from <version>` | Override autodetected current version |
+| `--to <version>` | Target a specific version (default: package version) |
+
+`ferry-doctor` will warn you when a newer version is available:
+
+```
+! Ferry update available: v0.3.0 → v0.3.1
+  Run `npx -p @big-emotion/ferry@0.3.1 ferry-update` to upgrade
+```
+
+See [`MIGRATIONS.md`](MIGRATIONS.md) for a list of consumer-visible changes per release.
+
+---
+
 ## Setup — Using Ferry in your project
 
 > **Using Ferry in another repo?** See [**CONSUMER-SETUP.md**](docs/CONSUMER-SETUP.md) for step-by-step instructions — it's 3 simple steps and takes ~15 minutes.
