@@ -7,6 +7,14 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.5.2] — 2026-05-02
+
+### Fixed
+
+- **Refiner agent crash on consumer repos pinned to v0.5.1** — `@google/genai` (added in v0.5.1) pulls `google-auth-library`, which performs a dynamic `require('child_process')`. esbuild bundled the SDK in ESM mode and replaced the dynamic require with a shim that throws `Dynamic require of "child_process" is not supported`. The action bundles now ship a `createRequire` banner so transitive CJS dependencies resolve dynamic requires through Node's real `require` instead of the throwing shim. Affects all four agent actions (refiner, developer, reviewer, iterator); pinning consumers to `@v0.5.2` (or later) restores the refiner. See issue #158 for the cleaner externalization follow-up.
+
+---
+
 ## [0.5.1] — 2026-05-02
 
 ### Fixed

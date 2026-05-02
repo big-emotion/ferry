@@ -19,6 +19,12 @@ If there are no consumer-visible changes, omit the section (or note `(none — i
 
 ---
 
+## v0.5.1 → v0.5.2
+
+- **(action)** v0.5.1 ships a broken refiner action (crashes with `Dynamic require of "child_process" is not supported` on every run because the bundled `@google/genai` SDK pulls `google-auth-library`'s CJS dynamic requires). Upgrade your pinned tag from `@v0.5.1` to `@v0.5.2` in every Ferry workflow stub (`.github/workflows/ferry-*.yml`) and in the `FERRY_REF` env value of `ferry-reconcile.yml` / `ferry-cost-daily.yml`. `ferry-update` does this automatically. No other consumer-visible changes.
+
+---
+
 ## v0.5.0 → v0.5.1
 
 - **(action)** Jira Automation custom body JSON format corrected: `{{now.format(...)}}` smart value was invalid and caused empty timestamp fields. Now uses `{{now.jiraDate}}` (valid Jira syntax). The `actor` field (which failed to resolve in column triggers) has been removed. Added `version` and `event_id` fields. If you manually created rules before v0.5.1, you must update the JSON in each rule's "Web request" action. `ferry-update` automatically regenerates `ferry-jira-automation-setup.md` with the corrected format — review and apply the new JSON to each rule before testing.
