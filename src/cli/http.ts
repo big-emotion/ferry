@@ -18,7 +18,8 @@ function httpsRequest(options: RequestOptions, body?: string): Promise<HttpRespo
       });
     });
     req.on('error', reject);
-    req.setTimeout(15_000, () => {
+    const httpTimeoutMs = parseInt(process.env.FERRY_HTTP_TIMEOUT_MS ?? '', 10) || 15_000;
+    req.setTimeout(httpTimeoutMs, () => {
       req.destroy(new Error('Request timed out'));
     });
     if (body !== undefined) {

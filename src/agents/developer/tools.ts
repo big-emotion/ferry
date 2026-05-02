@@ -16,9 +16,9 @@ export type ToolName =
   | 'bash'
   | 'done';
 
-const MAX_BASH_OUTPUT = 64 * 1024;
-const DEFAULT_BASH_TIMEOUT_MS = 60_000;
-const MAX_BASH_TIMEOUT_MS = 300_000;
+const MAX_BASH_OUTPUT_DEFAULT = 64 * 1024;
+const DEFAULT_BASH_TIMEOUT_MS_DEFAULT = 60_000;
+const MAX_BASH_TIMEOUT_MS_DEFAULT = 300_000;
 const MAX_SEARCH_MATCHES = 200;
 
 export const TOOL_SCHEMAS: AgentTool[] = [
@@ -122,7 +122,7 @@ export const TOOL_SCHEMAS: AgentTool[] = [
         command: { type: 'string', description: 'Shell command to run.' },
         timeout_ms: {
           type: 'number',
-          description: `Timeout in ms (default ${DEFAULT_BASH_TIMEOUT_MS}, max ${MAX_BASH_TIMEOUT_MS}).`,
+          description: `Timeout in ms (default ${DEFAULT_BASH_TIMEOUT_MS_DEFAULT}, max ${MAX_BASH_TIMEOUT_MS_DEFAULT}).`,
         },
       },
       required: ['command'],
@@ -314,7 +314,8 @@ export async function executeTool(
       const resolved = assertPathUnderRoot(repoRoot, searchPath);
 
       const args = ['-rn', '--include', glob || '*', pattern, resolved];
-      const result = await runProcess('grep', args, repoRoot, 30_000);
+      const grepTimeoutMs = parseInt(process.env.FERRY_GREP_TIMEOUT_MS ?? '', 10) || 30_000;
+      const result = await runProcess('grep', args, repoRoot, grepTimeoutMs);
       const lines = result.stdout.split('\n').filter(Boolean);
       const truncated = lines.slice(0, MAX_SEARCH_MATCHES);
       const suffix =
@@ -327,13 +328,19 @@ export async function executeTool(
     case 'bash': {
       const command = input.command as string;
       assertBashAllowed(command);
+      const defaultBashTimeoutMs =
+        parseInt(process.env.FERRY_BASH_TIMEOUT_MS ?? '', 10) || DEFAULT_BASH_TIMEOUT_MS_DEFAULT;
+      const maxBashTimeoutMs =
+        parseInt(process.env.FERRY_BASH_TIMEOUT_MAX_MS ?? '', 10) || MAX_BASH_TIMEOUT_MS_DEFAULT;
       const timeoutMs = Math.min(
-        (input.timeout_ms as number | undefined) ?? DEFAULT_BASH_TIMEOUT_MS,
-        MAX_BASH_TIMEOUT_MS,
+        (input.timeout_ms as number | undefined) ?? defaultBashTimeoutMs,
+        maxBashTimeoutMs,
       );
       const result = await runProcess('bash', ['-c', command], repoRoot, timeoutMs);
+      const maxBashOutput =
+        parseInt(process.env.FERRY_BASH_OUTPUT_MAX_BYTES ?? '', 10) || MAX_BASH_OUTPUT_DEFAULT;
       const combined = `exit_code: ${result.exitCode}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`;
-      return combined.slice(0, MAX_BASH_OUTPUT);
+      return combined.slice(0, maxBashOutput);
     }
 
     default:

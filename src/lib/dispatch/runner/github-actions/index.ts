@@ -10,7 +10,7 @@ import type {
   DispatchPayload,
 } from '../types.js';
 
-const MAX_CONTENT_CHARS = 40_000;
+const MAX_CONTENT_CHARS_DEFAULT = 40_000;
 
 export class GitHubActionsRunner implements CIRunner {
   private readonly octokit: Octokit;
@@ -115,8 +115,10 @@ export class GitHubActionsRunner implements CIRunner {
       const { data } = await this.octokit.repos.getContent({ owner, repo, path, ref });
       if ('content' in data && typeof data.content === 'string') {
         const decoded = Buffer.from(data.content, 'base64').toString('utf8');
-        return decoded.length > MAX_CONTENT_CHARS
-          ? decoded.slice(0, MAX_CONTENT_CHARS) + '\n... (truncated)'
+        const maxChars =
+          parseInt(process.env.FERRY_FILE_DISPLAY_CHARS ?? '', 10) || MAX_CONTENT_CHARS_DEFAULT;
+        return decoded.length > maxChars
+          ? decoded.slice(0, maxChars) + '\n... (truncated)'
           : decoded;
       }
       return '(binary file or directory — cannot display)';

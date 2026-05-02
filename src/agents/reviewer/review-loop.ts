@@ -103,8 +103,11 @@ export async function runReviewLoop(opts: {
 }): Promise<{ result: ReviewResult; inputTokens: number; outputTokens: number }> {
   const { anthropic, model, system, initialPrompt, fileMap, runner, owner, repo, headSha } = opts;
   const logger = opts.logger ?? createLogger('', 'ferry:review-loop');
-  const maxIterations = opts.maxIterations ?? MAX_ITERATIONS;
-  const maxTokens = opts.maxTokens ?? 16384;
+  const maxIterations =
+    opts.maxIterations ??
+    (parseInt(process.env.FERRY_REVIEWER_MAX_ITERATIONS ?? '', 10) || MAX_ITERATIONS);
+  const maxTokens =
+    opts.maxTokens ?? (parseInt(process.env.FERRY_REVIEWER_MAX_TOKENS ?? '', 10) || 16384);
 
   const tools = REVIEW_TOOLS.map((t, i) =>
     i === REVIEW_TOOLS.length - 1 ? { ...t, cache_control: { type: 'ephemeral' as const } } : t,
@@ -193,10 +196,10 @@ export async function runReviewLoop(opts: {
         } else if (!patch) {
           content = '(no patch — binary, empty, or content unchanged)';
         } else {
+          const patchLimit =
+            parseInt(process.env.FERRY_REVIEW_PATCH_TRUNCATE_CHARS ?? '', 10) || MAX_PATCH_CHARS;
           content =
-            patch.length > MAX_PATCH_CHARS
-              ? patch.slice(0, MAX_PATCH_CHARS) + '\n... (truncated)'
-              : patch;
+            patch.length > patchLimit ? patch.slice(0, patchLimit) + '\n... (truncated)' : patch;
         }
         toolResults.push({ type: 'tool_result', tool_use_id: block.id, content });
         continue;
@@ -205,7 +208,13 @@ export async function runReviewLoop(opts: {
       if (block.name === 'get_file_content') {
         const filename = input.filename as string;
         logger.info('tool', { iter: iter + 1, tool: 'get_file_content', file: filename });
-        const content = await runner.getFileContent(owner, repo, filename, headSha);
+        const fileLimit =
+          parseInt(process.env.FERRY_REVIEW_FILE_TRUNCATE_CHARS ?? '', 10) || MAX_CONTENT_CHARS;
+        const rawContent = await runner.getFileContent(owner, repo, filename, headSha);
+        const content =
+          rawContent.length > fileLimit
+            ? rawContent.slice(0, fileLimit) + '\n... (truncated)'
+            : rawContent;
         toolResults.push({ type: 'tool_result', tool_use_id: block.id, content });
         continue;
       }

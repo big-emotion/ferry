@@ -76,6 +76,40 @@ export interface FerryConfig {
     max_tokens_per_message: number;
     /** Cost budget in EUR per run */
     max_cost_eur_per_run: number;
+    /** Default bash command timeout in ms (developer agent) */
+    bash_timeout_ms: number;
+    /** Maximum bash command timeout in ms (developer agent) */
+    bash_timeout_max_ms: number;
+    /** Grep tool timeout in ms (developer agent) */
+    grep_timeout_ms: number;
+    /** Anthropic API key verification timeout in ms (ferry-init) */
+    anthropic_verify_timeout_ms: number;
+    /** Base delay for Jira API retries in ms */
+    jira_retry_base_delay_ms: number;
+    /** Maximum Jira API retry attempts */
+    jira_retry_max_attempts: number;
+    /** Maximum characters for envelope instructions field */
+    envelope_instructions_chars: number;
+    /** Maximum bytes for _project.md snippet */
+    project_snippet_bytes: number;
+    /** Maximum bytes for agent .extra.md extension file */
+    agent_extension_bytes: number;
+    /** Maximum characters for TL;DR block total */
+    tldr_total_chars: number;
+    /** Maximum characters for TL;DR reviewer verdict field */
+    tldr_verdict_chars: number;
+    /** Maximum characters for file content display (GitHub runner) */
+    file_display_chars: number;
+    /** Maximum subtasks per refiner batch */
+    refiner_subtask_cap: number;
+    /** Maximum touch_paths entries in refiner output */
+    refiner_touch_paths_cap: number;
+    /** Maximum tool-use iterations in the reviewer loop */
+    reviewer_max_iterations: number;
+    /** Maximum output tokens per reviewer LLM call */
+    reviewer_max_tokens: number;
+    /** Minutes after which a ticket without a recent audit is considered stale */
+    reconciler_stale_window_minutes: number;
   };
   ticket_types: {
     refine_allowlist: string[];
@@ -99,6 +133,23 @@ export const DEFAULT_FERRY_CONFIG: FerryConfig = {
     max_tokens_per_run: 500_000,
     max_tokens_per_message: 16_384,
     max_cost_eur_per_run: 10,
+    bash_timeout_ms: 60_000,
+    bash_timeout_max_ms: 300_000,
+    grep_timeout_ms: 30_000,
+    anthropic_verify_timeout_ms: 10_000,
+    jira_retry_base_delay_ms: 2_000,
+    jira_retry_max_attempts: 3,
+    envelope_instructions_chars: 2_000,
+    project_snippet_bytes: 2_048,
+    agent_extension_bytes: 4_096,
+    tldr_total_chars: 500,
+    tldr_verdict_chars: 40,
+    file_display_chars: 40_000,
+    refiner_subtask_cap: 12,
+    refiner_touch_paths_cap: 20,
+    reviewer_max_iterations: 40,
+    reviewer_max_tokens: 16_384,
+    reconciler_stale_window_minutes: 20,
   },
   ticket_types: {
     refine_allowlist: ['Story', 'Bug', 'Spike'],
@@ -272,6 +323,49 @@ function validateConfigShape(raw: unknown): ValidationError[] {
         errs.push(...validatePosInt(l.max_tokens_per_message, 'limits.max_tokens_per_message'));
       if (l.max_cost_eur_per_run !== undefined)
         errs.push(...validatePosNumber(l.max_cost_eur_per_run, 'limits.max_cost_eur_per_run'));
+      if (l.bash_timeout_ms !== undefined)
+        errs.push(...validatePosInt(l.bash_timeout_ms, 'limits.bash_timeout_ms'));
+      if (l.bash_timeout_max_ms !== undefined)
+        errs.push(...validatePosInt(l.bash_timeout_max_ms, 'limits.bash_timeout_max_ms'));
+      if (l.grep_timeout_ms !== undefined)
+        errs.push(...validatePosInt(l.grep_timeout_ms, 'limits.grep_timeout_ms'));
+      if (l.anthropic_verify_timeout_ms !== undefined)
+        errs.push(
+          ...validatePosInt(l.anthropic_verify_timeout_ms, 'limits.anthropic_verify_timeout_ms'),
+        );
+      if (l.jira_retry_base_delay_ms !== undefined)
+        errs.push(...validatePosInt(l.jira_retry_base_delay_ms, 'limits.jira_retry_base_delay_ms'));
+      if (l.jira_retry_max_attempts !== undefined)
+        errs.push(...validatePosInt(l.jira_retry_max_attempts, 'limits.jira_retry_max_attempts'));
+      if (l.envelope_instructions_chars !== undefined)
+        errs.push(
+          ...validatePosInt(l.envelope_instructions_chars, 'limits.envelope_instructions_chars'),
+        );
+      if (l.project_snippet_bytes !== undefined)
+        errs.push(...validatePosInt(l.project_snippet_bytes, 'limits.project_snippet_bytes'));
+      if (l.agent_extension_bytes !== undefined)
+        errs.push(...validatePosInt(l.agent_extension_bytes, 'limits.agent_extension_bytes'));
+      if (l.tldr_total_chars !== undefined)
+        errs.push(...validatePosInt(l.tldr_total_chars, 'limits.tldr_total_chars'));
+      if (l.tldr_verdict_chars !== undefined)
+        errs.push(...validatePosInt(l.tldr_verdict_chars, 'limits.tldr_verdict_chars'));
+      if (l.file_display_chars !== undefined)
+        errs.push(...validatePosInt(l.file_display_chars, 'limits.file_display_chars'));
+      if (l.refiner_subtask_cap !== undefined)
+        errs.push(...validatePosInt(l.refiner_subtask_cap, 'limits.refiner_subtask_cap'));
+      if (l.refiner_touch_paths_cap !== undefined)
+        errs.push(...validatePosInt(l.refiner_touch_paths_cap, 'limits.refiner_touch_paths_cap'));
+      if (l.reviewer_max_iterations !== undefined)
+        errs.push(...validatePosInt(l.reviewer_max_iterations, 'limits.reviewer_max_iterations'));
+      if (l.reviewer_max_tokens !== undefined)
+        errs.push(...validatePosInt(l.reviewer_max_tokens, 'limits.reviewer_max_tokens'));
+      if (l.reconciler_stale_window_minutes !== undefined)
+        errs.push(
+          ...validatePosInt(
+            l.reconciler_stale_window_minutes,
+            'limits.reconciler_stale_window_minutes',
+          ),
+        );
     }
   }
 
@@ -430,7 +524,6 @@ function mergeWithDefaults(raw: RawConfig): FerryConfig {
   const num = (val: unknown, def: number): number => (typeof val === 'number' ? val : def);
   const strArr = (val: unknown, def: string[]): string[] =>
     Array.isArray(val) ? (val as string[]) : def;
-
   const nullableStr = (val: unknown, def: string | null): string | null => {
     if (val === null) return null;
     if (typeof val === 'string') return val;
@@ -473,6 +566,59 @@ function mergeWithDefaults(raw: RawConfig): FerryConfig {
       max_cost_eur_per_run: num(
         l.max_cost_eur_per_run,
         DEFAULT_FERRY_CONFIG.limits.max_cost_eur_per_run,
+      ),
+      bash_timeout_ms: num(l.bash_timeout_ms, DEFAULT_FERRY_CONFIG.limits.bash_timeout_ms),
+      bash_timeout_max_ms: num(
+        l.bash_timeout_max_ms,
+        DEFAULT_FERRY_CONFIG.limits.bash_timeout_max_ms,
+      ),
+      grep_timeout_ms: num(l.grep_timeout_ms, DEFAULT_FERRY_CONFIG.limits.grep_timeout_ms),
+      anthropic_verify_timeout_ms: num(
+        l.anthropic_verify_timeout_ms,
+        DEFAULT_FERRY_CONFIG.limits.anthropic_verify_timeout_ms,
+      ),
+      jira_retry_base_delay_ms: num(
+        l.jira_retry_base_delay_ms,
+        DEFAULT_FERRY_CONFIG.limits.jira_retry_base_delay_ms,
+      ),
+      jira_retry_max_attempts: num(
+        l.jira_retry_max_attempts,
+        DEFAULT_FERRY_CONFIG.limits.jira_retry_max_attempts,
+      ),
+      envelope_instructions_chars: num(
+        l.envelope_instructions_chars,
+        DEFAULT_FERRY_CONFIG.limits.envelope_instructions_chars,
+      ),
+      project_snippet_bytes: num(
+        l.project_snippet_bytes,
+        DEFAULT_FERRY_CONFIG.limits.project_snippet_bytes,
+      ),
+      agent_extension_bytes: num(
+        l.agent_extension_bytes,
+        DEFAULT_FERRY_CONFIG.limits.agent_extension_bytes,
+      ),
+      tldr_total_chars: num(l.tldr_total_chars, DEFAULT_FERRY_CONFIG.limits.tldr_total_chars),
+      tldr_verdict_chars: num(l.tldr_verdict_chars, DEFAULT_FERRY_CONFIG.limits.tldr_verdict_chars),
+      file_display_chars: num(l.file_display_chars, DEFAULT_FERRY_CONFIG.limits.file_display_chars),
+      refiner_subtask_cap: num(
+        l.refiner_subtask_cap,
+        DEFAULT_FERRY_CONFIG.limits.refiner_subtask_cap,
+      ),
+      refiner_touch_paths_cap: num(
+        l.refiner_touch_paths_cap,
+        DEFAULT_FERRY_CONFIG.limits.refiner_touch_paths_cap,
+      ),
+      reviewer_max_iterations: num(
+        l.reviewer_max_iterations,
+        DEFAULT_FERRY_CONFIG.limits.reviewer_max_iterations,
+      ),
+      reviewer_max_tokens: num(
+        l.reviewer_max_tokens,
+        DEFAULT_FERRY_CONFIG.limits.reviewer_max_tokens,
+      ),
+      reconciler_stale_window_minutes: num(
+        l.reconciler_stale_window_minutes,
+        DEFAULT_FERRY_CONFIG.limits.reconciler_stale_window_minutes,
       ),
     },
     ticket_types: {
@@ -616,6 +762,73 @@ function applyEnvOverrides(cfg: FerryConfig): FerryConfig {
 
   const maxCost = parseFloat(process.env.FERRY_MAX_COST_EUR_PER_RUN ?? '');
   if (Number.isFinite(maxCost)) limits.max_cost_eur_per_run = maxCost;
+
+  // P1 env var overrides for new limit fields
+  const envInt = (key: string): number | undefined => {
+    const v = parseInt(process.env[key] ?? '', 10);
+    return Number.isFinite(v) ? v : undefined;
+  };
+
+  const bashTimeoutMs = envInt('FERRY_BASH_TIMEOUT_MS');
+  if (bashTimeoutMs !== undefined) limits.bash_timeout_ms = bashTimeoutMs;
+  const bashTimeoutMaxMs = envInt('FERRY_BASH_TIMEOUT_MAX_MS');
+  if (bashTimeoutMaxMs !== undefined) limits.bash_timeout_max_ms = bashTimeoutMaxMs;
+  const grepTimeoutMs = envInt('FERRY_GREP_TIMEOUT_MS');
+  if (grepTimeoutMs !== undefined) limits.grep_timeout_ms = grepTimeoutMs;
+  const anthropicVerifyTimeoutMs = envInt('FERRY_ANTHROPIC_VERIFY_TIMEOUT_MS');
+  if (anthropicVerifyTimeoutMs !== undefined)
+    limits.anthropic_verify_timeout_ms = anthropicVerifyTimeoutMs;
+  const jiraRetryBaseDelayMs = envInt('FERRY_JIRA_RETRY_BASE_DELAY_MS');
+  if (jiraRetryBaseDelayMs !== undefined) limits.jira_retry_base_delay_ms = jiraRetryBaseDelayMs;
+  const jiraRetryMaxAttempts = envInt('FERRY_JIRA_RETRY_MAX_ATTEMPTS');
+  if (jiraRetryMaxAttempts !== undefined) limits.jira_retry_max_attempts = jiraRetryMaxAttempts;
+  const envelopeInstructionsChars = envInt('FERRY_ENVELOPE_INSTRUCTIONS_CHARS');
+  if (envelopeInstructionsChars !== undefined)
+    limits.envelope_instructions_chars = envelopeInstructionsChars;
+  const projectSnippetBytes = envInt('FERRY_PROJECT_SNIPPET_BYTES');
+  if (projectSnippetBytes !== undefined) limits.project_snippet_bytes = projectSnippetBytes;
+  const agentExtensionBytes = envInt('FERRY_AGENT_EXTENSION_BYTES');
+  if (agentExtensionBytes !== undefined) limits.agent_extension_bytes = agentExtensionBytes;
+  const tldrTotalChars = envInt('FERRY_TLDR_TOTAL_CHARS');
+  if (tldrTotalChars !== undefined) limits.tldr_total_chars = tldrTotalChars;
+  const tldrVerdictChars = envInt('FERRY_TLDR_VERDICT_CHARS');
+  if (tldrVerdictChars !== undefined) limits.tldr_verdict_chars = tldrVerdictChars;
+  const fileDisplayChars = envInt('FERRY_FILE_DISPLAY_CHARS');
+  if (fileDisplayChars !== undefined) limits.file_display_chars = fileDisplayChars;
+  const refinerSubtaskCap = envInt('FERRY_REFINER_SUBTASK_CAP');
+  if (refinerSubtaskCap !== undefined) limits.refiner_subtask_cap = refinerSubtaskCap;
+  const refinerTouchPathsCap = envInt('FERRY_REFINER_TOUCH_PATHS_CAP');
+  if (refinerTouchPathsCap !== undefined) limits.refiner_touch_paths_cap = refinerTouchPathsCap;
+  const reviewerMaxIterations = envInt('FERRY_REVIEWER_MAX_ITERATIONS');
+  if (reviewerMaxIterations !== undefined) limits.reviewer_max_iterations = reviewerMaxIterations;
+  const reviewerMaxTokens = envInt('FERRY_REVIEWER_MAX_TOKENS');
+  if (reviewerMaxTokens !== undefined) limits.reviewer_max_tokens = reviewerMaxTokens;
+  const reconcilerStaleWindowMinutes = envInt('FERRY_RECONCILER_STALE_WINDOW_MINUTES');
+  if (reconcilerStaleWindowMinutes !== undefined)
+    limits.reconciler_stale_window_minutes = reconcilerStaleWindowMinutes;
+
+  // Propagate resolved P1 limits as env vars so standalone modules can read them at call time.
+  // This allows ferry.config.json values to reach modules that don't receive config directly.
+  // Always overwrite so subsequent loadFerryConfig calls propagate updated config values.
+  process.env.FERRY_BASH_TIMEOUT_MS = String(limits.bash_timeout_ms);
+  process.env.FERRY_BASH_TIMEOUT_MAX_MS = String(limits.bash_timeout_max_ms);
+  process.env.FERRY_GREP_TIMEOUT_MS = String(limits.grep_timeout_ms);
+  process.env.FERRY_ANTHROPIC_VERIFY_TIMEOUT_MS = String(limits.anthropic_verify_timeout_ms);
+  process.env.FERRY_JIRA_RETRY_BASE_DELAY_MS = String(limits.jira_retry_base_delay_ms);
+  process.env.FERRY_JIRA_RETRY_MAX_ATTEMPTS = String(limits.jira_retry_max_attempts);
+  process.env.FERRY_ENVELOPE_INSTRUCTIONS_CHARS = String(limits.envelope_instructions_chars);
+  process.env.FERRY_PROJECT_SNIPPET_BYTES = String(limits.project_snippet_bytes);
+  process.env.FERRY_AGENT_EXTENSION_BYTES = String(limits.agent_extension_bytes);
+  process.env.FERRY_TLDR_TOTAL_CHARS = String(limits.tldr_total_chars);
+  process.env.FERRY_TLDR_VERDICT_CHARS = String(limits.tldr_verdict_chars);
+  process.env.FERRY_FILE_DISPLAY_CHARS = String(limits.file_display_chars);
+  process.env.FERRY_REFINER_SUBTASK_CAP = String(limits.refiner_subtask_cap);
+  process.env.FERRY_REFINER_TOUCH_PATHS_CAP = String(limits.refiner_touch_paths_cap);
+  process.env.FERRY_REVIEWER_MAX_ITERATIONS = String(limits.reviewer_max_iterations);
+  process.env.FERRY_REVIEWER_MAX_TOKENS = String(limits.reviewer_max_tokens);
+  process.env.FERRY_RECONCILER_STALE_WINDOW_MINUTES = String(
+    limits.reconciler_stale_window_minutes,
+  );
 
   return { ...cfg, models, limits };
 }

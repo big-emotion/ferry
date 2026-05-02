@@ -10,7 +10,7 @@ import { createRequire } from 'module';
 import type { ValidateFunction } from 'ajv';
 import { FerryError } from '../../lib/errors/index.js';
 import { delimitUntrusted } from '../../lib/llm/delimit-untrusted.js';
-import { REFINER_OUTPUT_SCHEMA, REFINER_TOUCH_PATHS_CAP, type RefinerOutput } from './schema.js';
+import { REFINER_OUTPUT_SCHEMA, getRefinerTouchPathsCap, type RefinerOutput } from './schema.js';
 
 const _require = createRequire(import.meta.url);
 
@@ -120,11 +120,12 @@ export async function runRefiner(input: RefinerInput): Promise<RefinerResult> {
   const llm = await input.callLlm(prompt);
   const parsed = parseJsonOrThrow(llm.text);
   ensureSchemaValid(parsed);
-  if (parsed.touch_paths.length > REFINER_TOUCH_PATHS_CAP) {
+  const touchPathsCap = getRefinerTouchPathsCap();
+  if (parsed.touch_paths.length > touchPathsCap) {
     throw new FerryError('oscillation', {
       reason: 'spec-too-broad',
       touchPaths: parsed.touch_paths.length,
-      cap: REFINER_TOUCH_PATHS_CAP,
+      cap: touchPathsCap,
     });
   }
   return {

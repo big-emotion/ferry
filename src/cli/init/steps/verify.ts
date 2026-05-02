@@ -39,7 +39,7 @@ export async function verifyAnthropicKey(apiKey: string): Promise<boolean> {
           'content-type': 'application/json',
           'content-length': Buffer.byteLength(body),
         },
-        timeout: 10_000,
+        timeout: parseInt(process.env.FERRY_ANTHROPIC_VERIFY_TIMEOUT_MS ?? '', 10) || 10_000,
       },
       body,
     );

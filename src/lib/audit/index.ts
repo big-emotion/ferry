@@ -31,6 +31,10 @@ export interface AuditResult {
 
 export const ROTATION_THRESHOLD = 900;
 export const AUDIT_ACTIVE_LABEL = 'ferry:audit-log:active';
+
+function getRotationThreshold(): number {
+  return parseInt(process.env.FERRY_AUDIT_ROTATION_THRESHOLD ?? '', 10) || ROTATION_THRESHOLD;
+}
 const ROTATION_MARKER = '[ferry:audit:rotation]';
 const MAX_PAGES = 10;
 
@@ -125,7 +129,7 @@ export async function emitAudit(payload: AuditPayload, opts: AuditOpts): Promise
     issue_number: auditIssue,
   });
 
-  if (issueData.data.comments >= ROTATION_THRESHOLD) {
+  if (issueData.data.comments >= getRotationThreshold()) {
     // Prefer an already-rotated active issue (stale FERRY_AUDIT_ISSUE variable case)
     const activeIssue = await findActiveAuditIssue(octokit, owner, repo);
     if (activeIssue !== null && activeIssue !== auditIssue) {

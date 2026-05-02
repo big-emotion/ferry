@@ -37,11 +37,11 @@ export function loadProjectSnippet(
   for (const candidate of candidates) {
     if (_checkExists(candidate)) {
       const raw = _readFile(candidate, 'utf8');
-      if (raw.length > PROJECT_SNIPPET_MAX_BYTES) {
-        _logger?.warn('_project.md exceeds limit — truncating', {
-          limit: PROJECT_SNIPPET_MAX_BYTES,
-        });
-        return raw.slice(0, PROJECT_SNIPPET_MAX_BYTES);
+      const limit =
+        parseInt(process.env.FERRY_PROJECT_SNIPPET_BYTES ?? '', 10) || PROJECT_SNIPPET_MAX_BYTES;
+      if (raw.length > limit) {
+        _logger?.warn('_project.md exceeds limit — truncating', { limit });
+        return raw.slice(0, limit);
       }
       _logger?.info('loaded _project.md', { path: candidate });
       return raw;
@@ -65,11 +65,11 @@ export function loadAgentExtension(
     return null;
   }
   const raw = _readFile(candidate, 'utf8');
-  if (raw.length > AGENT_EXTENSION_MAX_BYTES) {
-    _logger?.warn(`${name}.extra.md exceeds limit — truncating`, {
-      limit: AGENT_EXTENSION_MAX_BYTES,
-    });
-    return raw.slice(0, AGENT_EXTENSION_MAX_BYTES);
+  const limit =
+    parseInt(process.env.FERRY_AGENT_EXTENSION_BYTES ?? '', 10) || AGENT_EXTENSION_MAX_BYTES;
+  if (raw.length > limit) {
+    _logger?.warn(`${name}.extra.md exceeds limit — truncating`, { limit });
+    return raw.slice(0, limit);
   }
   _logger?.info(`loaded ${name}.extra.md`, { path: candidate });
   return raw;
