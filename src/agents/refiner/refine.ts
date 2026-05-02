@@ -98,19 +98,33 @@ function stripMarkdownFences(text: string): string {
     .trim();
 }
 
+const SAMPLE_MAX = 512;
+
+function sampleOf(text: string): string {
+  return text.length <= SAMPLE_MAX ? text : text.slice(0, SAMPLE_MAX);
+}
+
 function parseJsonOrThrow(text: string): unknown {
   try {
     return JSON.parse(stripMarkdownFences(text));
   } catch {
-    throw new FerryError('state-invariant', { reason: 'refiner-output-invalid' });
+    throw new FerryError('state-invariant', {
+      reason: 'refiner-output-invalid',
+      stage: 'parse',
+      sample: sampleOf(text),
+      text_length: text.length,
+    });
   }
 }
 
-function ensureSchemaValid(plan: unknown): asserts plan is RefinerOutput {
+function ensureSchemaValid(plan: unknown, rawText: string): asserts plan is RefinerOutput {
   if (!validatePlan(plan)) {
     throw new FerryError('state-invariant', {
       reason: 'refiner-output-invalid',
+      stage: 'schema',
       paths: (validatePlan.errors ?? []).map((e) => `${e.instancePath} ${e.keyword}`),
+      sample: sampleOf(rawText),
+      text_length: rawText.length,
     });
   }
 }
@@ -119,7 +133,7 @@ export async function runRefiner(input: RefinerInput): Promise<RefinerResult> {
   const prompt = buildPrompt(input);
   const llm = await input.callLlm(prompt);
   const parsed = parseJsonOrThrow(llm.text);
-  ensureSchemaValid(parsed);
+  ensureSchemaValid(parsed, llm.text);
   const touchPathsCap = getRefinerTouchPathsCap();
   if (parsed.touch_paths.length > touchPathsCap) {
     throw new FerryError('oscillation', {

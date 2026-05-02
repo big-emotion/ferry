@@ -54747,18 +54747,30 @@ ${input.ticket.comments.join("\n---\n")}`
 function stripMarkdownFences(text) {
   return text.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "").trim();
 }
+var SAMPLE_MAX = 512;
+function sampleOf(text) {
+  return text.length <= SAMPLE_MAX ? text : text.slice(0, SAMPLE_MAX);
+}
 function parseJsonOrThrow(text) {
   try {
     return JSON.parse(stripMarkdownFences(text));
   } catch {
-    throw new FerryError("state-invariant", { reason: "refiner-output-invalid" });
+    throw new FerryError("state-invariant", {
+      reason: "refiner-output-invalid",
+      stage: "parse",
+      sample: sampleOf(text),
+      text_length: text.length
+    });
   }
 }
-function ensureSchemaValid(plan) {
+function ensureSchemaValid(plan, rawText) {
   if (!validatePlan(plan)) {
     throw new FerryError("state-invariant", {
       reason: "refiner-output-invalid",
-      paths: (validatePlan.errors ?? []).map((e2) => `${e2.instancePath} ${e2.keyword}`)
+      stage: "schema",
+      paths: (validatePlan.errors ?? []).map((e2) => `${e2.instancePath} ${e2.keyword}`),
+      sample: sampleOf(rawText),
+      text_length: rawText.length
     });
   }
 }
@@ -54766,7 +54778,7 @@ async function runRefiner(input) {
   const prompt = buildPrompt(input);
   const llm = await input.callLlm(prompt);
   const parsed = parseJsonOrThrow(llm.text);
-  ensureSchemaValid(parsed);
+  ensureSchemaValid(parsed, llm.text);
   const touchPathsCap = getRefinerTouchPathsCap();
   if (parsed.touch_paths.length > touchPathsCap) {
     throw new FerryError("oscillation", {

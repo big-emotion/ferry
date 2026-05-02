@@ -102,6 +102,35 @@ describe('runRefiner error paths (Story 3-1)', () => {
     );
   });
 
+  it('includes a sample of the raw LLM text on JSON parse failure', async () => {
+    const raw = 'Here is the plan: { "subtasks": [ ... }'; // looks like JSON but isn't
+    const badLlm: LlmCall = async () => ({ text: raw, usage: null });
+    try {
+      await runRefiner({ ticket, callLlm: badLlm, runLink: 'r' });
+      throw new Error('expected runRefiner to throw');
+    } catch (err) {
+      expect(err).toBeInstanceOf(FerryError);
+      const ctx = (err as FerryError).context;
+      expect(ctx?.reason).toBe('refiner-output-invalid');
+      expect(ctx?.stage).toBe('parse');
+      expect(ctx?.sample).toBe(raw);
+      expect(ctx?.text_length).toBe(raw.length);
+    }
+  });
+
+  it('truncates the sample for very long LLM output', async () => {
+    const raw = 'x'.repeat(2000) + '<<TAIL>>';
+    const badLlm: LlmCall = async () => ({ text: raw, usage: null });
+    try {
+      await runRefiner({ ticket, callLlm: badLlm, runLink: 'r' });
+      throw new Error('expected runRefiner to throw');
+    } catch (err) {
+      const ctx = (err as FerryError).context;
+      expect((ctx?.sample as string).length).toBeLessThanOrEqual(512);
+      expect(ctx?.text_length).toBe(raw.length);
+    }
+  });
+
   it('throws state-invariant on schema violation', async () => {
     const badLlm: LlmCall = async () => ({
       text: JSON.stringify({ ...validPlan, subtasks: [] }),
@@ -116,6 +145,22 @@ describe('runRefiner error paths (Story 3-1)', () => {
     await expect(runRefiner({ ticket, callLlm: reallyBad, runLink: 'r' })).rejects.toBeInstanceOf(
       FerryError,
     );
+  });
+
+  it('includes a sample of the raw LLM text on schema violation', async () => {
+    const raw = JSON.stringify({ ...validPlan, output_locale: 'es' });
+    const badLlm: LlmCall = async () => ({ text: raw, usage: null });
+    try {
+      await runRefiner({ ticket, callLlm: badLlm, runLink: 'r' });
+      throw new Error('expected runRefiner to throw');
+    } catch (err) {
+      expect(err).toBeInstanceOf(FerryError);
+      const ctx = (err as FerryError).context;
+      expect(ctx?.reason).toBe('refiner-output-invalid');
+      expect(ctx?.stage).toBe('schema');
+      expect(ctx?.sample).toBe(raw);
+      expect(Array.isArray(ctx?.paths)).toBe(true);
+    }
   });
 
   it('throws oscillation on touch_paths over the cap', async () => {
