@@ -148,11 +148,24 @@ Or via the UI: **Settings → Actions → General → Workflow permissions → R
 
 ### Step 4 — Connect Jira → GitHub
 
-Import the automation rules JSON the wizard generated at **Jira → Project Settings → Automation → Import rules**. If your Jira tier doesn't support import, create 4 rules manually — one per Ferry column:
+Create 4 Jira automation rules manually — one per Ferry column. For each rule:
 
-- **Trigger:** Issue transitioned to `<column>`
-- **Action:** Send web request (POST `https://api.github.com/repos/YOUR_ORG/YOUR_REPO/dispatches`)
-- **Body** (example for the Refiner column):
+1. **Project Settings → Automation → Create rule** (top-right button)
+2. **Trigger:** "Issue transitioned" → set **To status** to the target column (e.g. `Refinement`)
+3. **Action:** "Send web request"
+   - **URL:** `https://api.github.com/repos/YOUR_ORG/YOUR_REPO/dispatches`
+   - **HTTP method:** `POST`
+   - **Web request body:** Custom data
+   - **Headers** — add all four; toggle the lock icon on `Authorization` to mark it secret:
+
+   | Name | Value | Secret? |
+   |------|-------|---------|
+   | `Accept` | `application/vnd.github+json` | No |
+   | `Authorization` | `Bearer YOUR_GITHUB_PAT` | **Yes** |
+   | `X-GitHub-Api-Version` | `2022-11-28` | No |
+   | `Content-Type` | `application/json` | No |
+
+4. **Custom body** (example for the Refiner column):
 
 ```json
 {
@@ -169,7 +182,11 @@ Import the automation rules JSON the wizard generated at **Jira → Project Sett
 }
 ```
 
-Set `event_type` and `phase` to `ferry-dev` / `ferry-review` / `ferry-iterate` for the other three columns.
+Set `event_type` and `phase` to `ferry-dev` / `ferry-review` / `ferry-iterate` for the other three columns. Save and **enable** each rule.
+
+> **PAT:** Use a GitHub fine-grained PAT with **Contents: write** on `YOUR_ORG/YOUR_REPO`. Marking `Authorization` as secret keeps the token out of Jira's audit log.
+
+> **Generated reference files:** `ferry-init` writes `ferry-jira-automation-setup.md` (per-rule UI walkthrough) and `ferry-jira-automation-rules.beta.json` into your repo root. The Markdown file mirrors the steps above. The JSON can be loaded via **Automation → ⋮ → Import rules**, but that feature is beta and breaks across Jira Cloud releases — treat it as a reference only.
 
 ### SHA pinning (recommended)
 
@@ -214,7 +231,7 @@ Quick install checklist:
 [ ] 6 secrets set (FERRY_JIRA_BASE_URL, FERRY_JIRA_EMAIL, FERRY_JIRA_API_TOKEN,
     ANTHROPIC_API_KEY, FERRY_REVIEW_TRANSITION_ID, FERRY_ITER_TRANSITION_ID)
 [ ] Workflow permissions = read+write
-[ ] 4 Jira automation rules created and enabled
+[ ] 4 Jira automation rules created manually in Jira UI and enabled
 [ ] Smoke test passed (ferry-refine green, draft PR opened)
 [ ] ferry-reconcile.yml added (required)
 [ ] ferry-cost-daily.yml added (required)
