@@ -5,7 +5,8 @@
   "type": "module",
   "bin": {
     "ferry-init": "./dist/cli/init/index.js",
-    "ferry-doctor": "./dist/cli/doctor/index.js"
+    "ferry-doctor": "./dist/cli/doctor/index.js",
+    "ferry-uninstall": "./dist/cli/uninstall/index.js"
   },
   "files": [
     "dist/cli/",
@@ -37,6 +38,7 @@
     "prepublishOnly": "npm run build:cli",
     "ferry-init": "tsx src/cli/init/index.ts",
     "ferry-doctor": "tsx src/cli/doctor/index.ts",
+    "ferry-uninstall": "tsx src/cli/uninstall/index.ts",
     "ferry-reconcile": "tsx src/reconciler/run.ts",
     "ferry-cost-check": "tsx src/cost-governance/run.ts",
     "typecheck": "tsc --noEmit",
