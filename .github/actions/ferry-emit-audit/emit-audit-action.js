@@ -3756,6 +3756,9 @@ var Octokit2 = Octokit.plugin(requestLog, legacyRestEndpointMethods, paginateRes
 // src/lib/audit/index.ts
 var ROTATION_THRESHOLD = 900;
 var AUDIT_ACTIVE_LABEL = "ferry:audit-log:active";
+function getRotationThreshold() {
+  return parseInt(process.env.FERRY_AUDIT_ROTATION_THRESHOLD ?? "", 10) || ROTATION_THRESHOLD;
+}
 var ROTATION_MARKER = "[ferry:audit:rotation]";
 var MAX_PAGES = 10;
 function parseAuditSeq(title) {
@@ -3829,7 +3832,7 @@ async function emitAudit(payload, opts) {
     repo: repo2,
     issue_number: auditIssue2
   });
-  if (issueData.data.comments >= ROTATION_THRESHOLD) {
+  if (issueData.data.comments >= getRotationThreshold()) {
     const activeIssue = await findActiveAuditIssue(octokit2, owner2, repo2);
     if (activeIssue !== null && activeIssue !== auditIssue2) {
       rotatedTo = activeIssue;

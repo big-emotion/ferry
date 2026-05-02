@@ -30,7 +30,8 @@ function validateEnvelope(raw2) {
   }
   const envelope = raw2;
   if (envelope.instructions !== void 0) {
-    envelope.instructions = envelope.instructions.slice(0, 2e3);
+    const cap = parseInt(process.env.FERRY_ENVELOPE_INSTRUCTIONS_CHARS ?? "", 10) || 2e3;
+    envelope.instructions = envelope.instructions.slice(0, cap);
   }
   return envelope;
 }

@@ -332,6 +332,8 @@ async function postComment(params) {
   }) : { action: "create", body: params.body };
   await scanStringPayload(directive.body);
   const c = createJiraRestClientFromEnv();
+  const jiraRetryBaseDelayMs = parseInt(process.env.FERRY_JIRA_RETRY_BASE_DELAY_MS ?? "", 10) || 2e3;
+  const jiraRetryMaxAttempts = parseInt(process.env.FERRY_JIRA_RETRY_MAX_ATTEMPTS ?? "", 10) || 3;
   const run = retry(
     async () => {
       if (directive.action === "update") {
@@ -345,7 +347,7 @@ async function postComment(params) {
       }
       return { skipped: false, body: params.body };
     },
-    { baseDelayMs: 2e3, maxAttempts: 3 }
+    { baseDelayMs: jiraRetryBaseDelayMs, maxAttempts: jiraRetryMaxAttempts }
   );
   return run();
 }
@@ -365,7 +367,8 @@ function validateEnvelope(raw2) {
   }
   const envelope2 = raw2;
   if (envelope2.instructions !== void 0) {
-    envelope2.instructions = envelope2.instructions.slice(0, 2e3);
+    const cap = parseInt(process.env.FERRY_ENVELOPE_INSTRUCTIONS_CHARS ?? "", 10) || 2e3;
+    envelope2.instructions = envelope2.instructions.slice(0, cap);
   }
   return envelope2;
 }

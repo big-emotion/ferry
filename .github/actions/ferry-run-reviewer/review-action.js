@@ -6489,6 +6489,7 @@ function createLogger(correlationId, component = "ferry") {
 
 // src/agents/reviewer/review-loop.ts
 var MAX_PATCH_CHARS = 2e4;
+var MAX_CONTENT_CHARS = 4e4;
 var MAX_ITERATIONS = 40;
 var REVIEW_TOOLS = [
   {
@@ -6547,8 +6548,8 @@ function buildFileList(files) {
 async function runReviewLoop(opts) {
   const { anthropic, model, system, initialPrompt, fileMap, runner, owner, repo, headSha } = opts;
   const logger = opts.logger ?? createLogger("", "ferry:review-loop");
-  const maxIterations = opts.maxIterations ?? MAX_ITERATIONS;
-  const maxTokens = opts.maxTokens ?? 16384;
+  const maxIterations = opts.maxIterations ?? (parseInt(process.env.FERRY_REVIEWER_MAX_ITERATIONS ?? "", 10) || MAX_ITERATIONS);
+  const maxTokens = opts.maxTokens ?? (parseInt(process.env.FERRY_REVIEWER_MAX_TOKENS ?? "", 10) || 16384);
   const tools = REVIEW_TOOLS.map(
     (t, i) => i === REVIEW_TOOLS.length - 1 ? { ...t, cache_control: { type: "ephemeral" } } : t
   );
@@ -6626,7 +6627,8 @@ async function runReviewLoop(opts) {
         } else if (!patch) {
           content = "(no patch \u2014 binary, empty, or content unchanged)";
         } else {
-          content = patch.length > MAX_PATCH_CHARS ? patch.slice(0, MAX_PATCH_CHARS) + "\n... (truncated)" : patch;
+          const patchLimit = parseInt(process.env.FERRY_REVIEW_PATCH_TRUNCATE_CHARS ?? "", 10) || MAX_PATCH_CHARS;
+          content = patch.length > patchLimit ? patch.slice(0, patchLimit) + "\n... (truncated)" : patch;
         }
         toolResults.push({ type: "tool_result", tool_use_id: block.id, content });
         continue;
@@ -6634,7 +6636,9 @@ async function runReviewLoop(opts) {
       if (block.name === "get_file_content") {
         const filename = input.filename;
         logger.info("tool", { iter: iter + 1, tool: "get_file_content", file: filename });
-        const content = await runner.getFileContent(owner, repo, filename, headSha);
+        const fileLimit = parseInt(process.env.FERRY_REVIEW_FILE_TRUNCATE_CHARS ?? "", 10) || MAX_CONTENT_CHARS;
+        const rawContent = await runner.getFileContent(owner, repo, filename, headSha);
+        const content = rawContent.length > fileLimit ? rawContent.slice(0, fileLimit) + "\n... (truncated)" : rawContent;
         toolResults.push({ type: "tool_result", tool_use_id: block.id, content });
         continue;
       }
@@ -6750,7 +6754,8 @@ function validateEnvelope(raw) {
   }
   const envelope = raw;
   if (envelope.instructions !== void 0) {
-    envelope.instructions = envelope.instructions.slice(0, 2e3);
+    const cap = parseInt(process.env.FERRY_ENVELOPE_INSTRUCTIONS_CHARS ?? "", 10) || 2e3;
+    envelope.instructions = envelope.instructions.slice(0, cap);
   }
   return envelope;
 }
@@ -6810,11 +6815,10 @@ function loadProjectSnippet(repoRoot, _checkExists = existsSync, _readFile = (p,
   for (const candidate of candidates) {
     if (_checkExists(candidate)) {
       const raw = _readFile(candidate, "utf8");
-      if (raw.length > PROJECT_SNIPPET_MAX_BYTES) {
-        _logger?.warn("_project.md exceeds limit \u2014 truncating", {
-          limit: PROJECT_SNIPPET_MAX_BYTES
-        });
-        return raw.slice(0, PROJECT_SNIPPET_MAX_BYTES);
+      const limit = parseInt(process.env.FERRY_PROJECT_SNIPPET_BYTES ?? "", 10) || PROJECT_SNIPPET_MAX_BYTES;
+      if (raw.length > limit) {
+        _logger?.warn("_project.md exceeds limit \u2014 truncating", { limit });
+        return raw.slice(0, limit);
       }
       _logger?.info("loaded _project.md", { path: candidate });
       return raw;
@@ -6830,11 +6834,10 @@ function loadAgentExtension(name, repoRoot, _checkExists = existsSync, _readFile
     return null;
   }
   const raw = _readFile(candidate, "utf8");
-  if (raw.length > AGENT_EXTENSION_MAX_BYTES) {
-    _logger?.warn(`${name}.extra.md exceeds limit \u2014 truncating`, {
-      limit: AGENT_EXTENSION_MAX_BYTES
-    });
-    return raw.slice(0, AGENT_EXTENSION_MAX_BYTES);
+  const limit = parseInt(process.env.FERRY_AGENT_EXTENSION_BYTES ?? "", 10) || AGENT_EXTENSION_MAX_BYTES;
+  if (raw.length > limit) {
+    _logger?.warn(`${name}.extra.md exceeds limit \u2014 truncating`, { limit });
+    return raw.slice(0, limit);
   }
   _logger?.info(`loaded ${name}.extra.md`, { path: candidate });
   return raw;
@@ -6891,6 +6894,8 @@ function appendOutput(usage) {
 output_tokens=${usage.output_tokens}
 `;
     if (usage.model) out += `model=${usage.model}
+`;
+    if (usage.provider) out += `provider=${usage.provider}
 `;
     appendFileSync(githubOutput, out);
   }
@@ -10548,7 +10553,7 @@ var PHASE_TO_WORKFLOW = Object.freeze({
 });
 
 // src/lib/dispatch/runner/github-actions/index.ts
-var MAX_CONTENT_CHARS = 4e4;
+var MAX_CONTENT_CHARS_DEFAULT = 4e4;
 var GitHubActionsRunner = class {
   octokit;
   defaultOwner;
@@ -10567,6 +10572,10 @@ var GitHubActionsRunner = class {
       event_type: route.dispatchType,
       client_payload: payload
     });
+  }
+  async getRepoDefaultBranch(owner, repo) {
+    const { data } = await this.octokit.repos.get({ owner, repo });
+    return data.default_branch;
   }
   async listPRsForBranch(owner, repo, branch) {
     const { data } = await this.octokit.pulls.list({
@@ -10636,7 +10645,8 @@ var GitHubActionsRunner = class {
       const { data } = await this.octokit.repos.getContent({ owner, repo, path: path4, ref });
       if ("content" in data && typeof data.content === "string") {
         const decoded = Buffer.from(data.content, "base64").toString("utf8");
-        return decoded.length > MAX_CONTENT_CHARS ? decoded.slice(0, MAX_CONTENT_CHARS) + "\n... (truncated)" : decoded;
+        const maxChars = parseInt(process.env.FERRY_FILE_DISPLAY_CHARS ?? "", 10) || MAX_CONTENT_CHARS_DEFAULT;
+        return decoded.length > maxChars ? decoded.slice(0, maxChars) + "\n... (truncated)" : decoded;
       }
       return "(binary file or directory \u2014 cannot display)";
     } catch (e) {
@@ -10645,7 +10655,15 @@ var GitHubActionsRunner = class {
   }
   async createPR(owner, repo, head, base, title, body) {
     try {
-      const { data } = await this.octokit.pulls.create({ owner, repo, head, base, title, body });
+      const { data } = await this.octokit.pulls.create({
+        owner,
+        repo,
+        head,
+        base,
+        title,
+        body,
+        draft: true
+      });
       return data.html_url;
     } catch {
       const { data: existing } = await this.octokit.pulls.list({
@@ -10658,6 +10676,17 @@ var GitHubActionsRunner = class {
       if (existing.length > 0) return existing[0].html_url;
       throw new Error(`Failed to create or find PR for head branch ${head}`);
     }
+  }
+  async markPRReadyForReview(owner, repo, prNumber) {
+    const { data } = await this.octokit.pulls.get({ owner, repo, pull_number: prNumber });
+    await this.octokit.graphql(
+      `mutation($pullRequestId: ID!) {
+        markPullRequestReadyForReview(input: { pullRequestId: $pullRequestId }) {
+          pullRequest { id }
+        }
+      }`,
+      { pullRequestId: data.node_id }
+    );
   }
   async commentOnPR(prRef, body) {
     await this.octokit.issues.createComment({
@@ -10917,11 +10946,45 @@ var DEFAULT_FERRY_CONFIG = {
     max_agent_iterations: 200,
     max_tokens_per_run: 5e5,
     max_tokens_per_message: 16384,
-    max_cost_eur_per_run: 10
+    max_cost_eur_per_run: 10,
+    bash_timeout_ms: 6e4,
+    bash_timeout_max_ms: 3e5,
+    grep_timeout_ms: 3e4,
+    anthropic_verify_timeout_ms: 1e4,
+    jira_retry_base_delay_ms: 2e3,
+    jira_retry_max_attempts: 3,
+    envelope_instructions_chars: 2e3,
+    project_snippet_bytes: 2048,
+    agent_extension_bytes: 4096,
+    tldr_total_chars: 500,
+    tldr_verdict_chars: 40,
+    file_display_chars: 4e4,
+    refiner_subtask_cap: 12,
+    refiner_touch_paths_cap: 20,
+    reviewer_max_iterations: 40,
+    reviewer_max_tokens: 16384,
+    reconciler_stale_window_minutes: 20
   },
   ticket_types: {
     refine_allowlist: ["Story", "Bug", "Spike"],
     dev_allowlist: ["Story", "Bug", "Spike"]
+  },
+  git: {
+    base_branch: null,
+    target_branch: null,
+    working_branch_prefix: "ferry/"
+  },
+  workflow: {
+    agents: {
+      refiner: { trigger_column: "Refinement", auto_transition: null },
+      developer: { trigger_column: "In Development", auto_transition: "In Review" },
+      reviewer: {
+        trigger_column: "In Review",
+        auto_transition_approve: null,
+        auto_transition_changes: "Changes Requested"
+      },
+      iterator: { trigger_column: "Changes Requested", auto_transition: "In Review" }
+    }
   }
 };
 function validateProvider(val, fieldPath) {
@@ -10956,6 +11019,73 @@ function validateStringArray(val, fieldPath) {
   }
   return [];
 }
+function validateStringOrNull(val, fieldPath) {
+  if (val !== null && typeof val !== "string") {
+    return [`${fieldPath}: must be a string or null`];
+  }
+  return [];
+}
+function validateWorkflowAgentBase(val, fieldPath) {
+  if (!val || typeof val !== "object") return [`${fieldPath}: must be an object`];
+  const v = val;
+  if (v.trigger_column !== void 0 && typeof v.trigger_column !== "string") {
+    return [`${fieldPath}.trigger_column: must be a string`];
+  }
+  return [];
+}
+function validateWorkflow(val) {
+  if (!val || typeof val !== "object") return ["workflow: must be an object"];
+  const w = val;
+  const errs = [];
+  if (w.agents === void 0) return errs;
+  if (!w.agents || typeof w.agents !== "object") {
+    errs.push("workflow.agents: must be an object");
+    return errs;
+  }
+  const agents = w.agents;
+  if (agents.refiner !== void 0) {
+    errs.push(...validateWorkflowAgentBase(agents.refiner, "workflow.agents.refiner"));
+  }
+  if (agents.developer !== void 0) {
+    errs.push(...validateWorkflowAgentBase(agents.developer, "workflow.agents.developer"));
+    const dev = agents.developer;
+    if ("auto_transition" in dev && dev.auto_transition !== void 0) {
+      errs.push(
+        ...validateStringOrNull(dev.auto_transition, "workflow.agents.developer.auto_transition")
+      );
+    }
+  }
+  if (agents.reviewer !== void 0) {
+    errs.push(...validateWorkflowAgentBase(agents.reviewer, "workflow.agents.reviewer"));
+    const rev = agents.reviewer;
+    if ("auto_transition_approve" in rev && rev.auto_transition_approve !== void 0) {
+      errs.push(
+        ...validateStringOrNull(
+          rev.auto_transition_approve,
+          "workflow.agents.reviewer.auto_transition_approve"
+        )
+      );
+    }
+    if ("auto_transition_changes" in rev && rev.auto_transition_changes !== void 0) {
+      errs.push(
+        ...validateStringOrNull(
+          rev.auto_transition_changes,
+          "workflow.agents.reviewer.auto_transition_changes"
+        )
+      );
+    }
+  }
+  if (agents.iterator !== void 0) {
+    errs.push(...validateWorkflowAgentBase(agents.iterator, "workflow.agents.iterator"));
+    const iter = agents.iterator;
+    if ("auto_transition" in iter && iter.auto_transition !== void 0) {
+      errs.push(
+        ...validateStringOrNull(iter.auto_transition, "workflow.agents.iterator.auto_transition")
+      );
+    }
+  }
+  return errs;
+}
 function validateConfigShape(raw) {
   if (!raw || typeof raw !== "object") return ["config: must be an object"];
   const c = raw;
@@ -10987,6 +11117,49 @@ function validateConfigShape(raw) {
         errs.push(...validatePosInt(l.max_tokens_per_message, "limits.max_tokens_per_message"));
       if (l.max_cost_eur_per_run !== void 0)
         errs.push(...validatePosNumber(l.max_cost_eur_per_run, "limits.max_cost_eur_per_run"));
+      if (l.bash_timeout_ms !== void 0)
+        errs.push(...validatePosInt(l.bash_timeout_ms, "limits.bash_timeout_ms"));
+      if (l.bash_timeout_max_ms !== void 0)
+        errs.push(...validatePosInt(l.bash_timeout_max_ms, "limits.bash_timeout_max_ms"));
+      if (l.grep_timeout_ms !== void 0)
+        errs.push(...validatePosInt(l.grep_timeout_ms, "limits.grep_timeout_ms"));
+      if (l.anthropic_verify_timeout_ms !== void 0)
+        errs.push(
+          ...validatePosInt(l.anthropic_verify_timeout_ms, "limits.anthropic_verify_timeout_ms")
+        );
+      if (l.jira_retry_base_delay_ms !== void 0)
+        errs.push(...validatePosInt(l.jira_retry_base_delay_ms, "limits.jira_retry_base_delay_ms"));
+      if (l.jira_retry_max_attempts !== void 0)
+        errs.push(...validatePosInt(l.jira_retry_max_attempts, "limits.jira_retry_max_attempts"));
+      if (l.envelope_instructions_chars !== void 0)
+        errs.push(
+          ...validatePosInt(l.envelope_instructions_chars, "limits.envelope_instructions_chars")
+        );
+      if (l.project_snippet_bytes !== void 0)
+        errs.push(...validatePosInt(l.project_snippet_bytes, "limits.project_snippet_bytes"));
+      if (l.agent_extension_bytes !== void 0)
+        errs.push(...validatePosInt(l.agent_extension_bytes, "limits.agent_extension_bytes"));
+      if (l.tldr_total_chars !== void 0)
+        errs.push(...validatePosInt(l.tldr_total_chars, "limits.tldr_total_chars"));
+      if (l.tldr_verdict_chars !== void 0)
+        errs.push(...validatePosInt(l.tldr_verdict_chars, "limits.tldr_verdict_chars"));
+      if (l.file_display_chars !== void 0)
+        errs.push(...validatePosInt(l.file_display_chars, "limits.file_display_chars"));
+      if (l.refiner_subtask_cap !== void 0)
+        errs.push(...validatePosInt(l.refiner_subtask_cap, "limits.refiner_subtask_cap"));
+      if (l.refiner_touch_paths_cap !== void 0)
+        errs.push(...validatePosInt(l.refiner_touch_paths_cap, "limits.refiner_touch_paths_cap"));
+      if (l.reviewer_max_iterations !== void 0)
+        errs.push(...validatePosInt(l.reviewer_max_iterations, "limits.reviewer_max_iterations"));
+      if (l.reviewer_max_tokens !== void 0)
+        errs.push(...validatePosInt(l.reviewer_max_tokens, "limits.reviewer_max_tokens"));
+      if (l.reconciler_stale_window_minutes !== void 0)
+        errs.push(
+          ...validatePosInt(
+            l.reconciler_stale_window_minutes,
+            "limits.reconciler_stale_window_minutes"
+          )
+        );
     }
   }
   if (c.ticket_types !== void 0) {
@@ -10998,6 +11171,30 @@ function validateConfigShape(raw) {
         errs.push(...validateStringArray(t.refine_allowlist, "ticket_types.refine_allowlist"));
       if (t.dev_allowlist !== void 0)
         errs.push(...validateStringArray(t.dev_allowlist, "ticket_types.dev_allowlist"));
+    }
+  }
+  if (c.git !== void 0) {
+    if (!c.git || typeof c.git !== "object" || Array.isArray(c.git)) {
+      errs.push("git: must be an object");
+    } else {
+      const g = c.git;
+      if (g.base_branch !== void 0 && g.base_branch !== null && typeof g.base_branch !== "string") {
+        errs.push("git.base_branch: must be a string or null");
+      }
+      if (g.base_branch !== void 0 && typeof g.base_branch === "string" && g.base_branch.trim() === "") {
+        errs.push("git.base_branch: must be a non-empty string or null");
+      }
+      if (g.target_branch !== void 0 && g.target_branch !== null && typeof g.target_branch !== "string") {
+        errs.push("git.target_branch: must be a string or null");
+      }
+      if (g.target_branch !== void 0 && typeof g.target_branch === "string" && g.target_branch.trim() === "") {
+        errs.push("git.target_branch: must be a non-empty string or null");
+      }
+      if (g.working_branch_prefix !== void 0) {
+        if (typeof g.working_branch_prefix !== "string" || g.working_branch_prefix.length === 0) {
+          errs.push("git.working_branch_prefix: must be a non-empty string");
+        }
+      }
     }
   }
   if (c.labels !== void 0) {
@@ -11016,6 +11213,9 @@ function validateConfigShape(raw) {
         if (e.tools !== void 0) errs.push(...validateStringArray(e.tools, `${fieldPath}.tools`));
       }
     }
+  }
+  if (c.workflow !== void 0) {
+    errs.push(...validateWorkflow(c.workflow));
   }
   return errs;
 }
@@ -11071,6 +11271,7 @@ function mergeWithDefaults(raw) {
   const m = raw.models ?? {};
   const l = raw.limits ?? {};
   const t = raw.ticket_types ?? {};
+  const g = raw.git ?? {};
   const route = (val, def) => {
     if (!val || typeof val !== "object") return def;
     const r = val;
@@ -11081,6 +11282,11 @@ function mergeWithDefaults(raw) {
   };
   const num = (val, def) => typeof val === "number" ? val : def;
   const strArr = (val, def) => Array.isArray(val) ? val : def;
+  const nullableStr = (val, def) => {
+    if (val === null) return null;
+    if (typeof val === "string") return val;
+    return def;
+  };
   const labelsRaw = raw.labels;
   let labels;
   if (labelsRaw && typeof labelsRaw === "object" && !Array.isArray(labelsRaw)) {
@@ -11116,6 +11322,59 @@ function mergeWithDefaults(raw) {
       max_cost_eur_per_run: num(
         l.max_cost_eur_per_run,
         DEFAULT_FERRY_CONFIG.limits.max_cost_eur_per_run
+      ),
+      bash_timeout_ms: num(l.bash_timeout_ms, DEFAULT_FERRY_CONFIG.limits.bash_timeout_ms),
+      bash_timeout_max_ms: num(
+        l.bash_timeout_max_ms,
+        DEFAULT_FERRY_CONFIG.limits.bash_timeout_max_ms
+      ),
+      grep_timeout_ms: num(l.grep_timeout_ms, DEFAULT_FERRY_CONFIG.limits.grep_timeout_ms),
+      anthropic_verify_timeout_ms: num(
+        l.anthropic_verify_timeout_ms,
+        DEFAULT_FERRY_CONFIG.limits.anthropic_verify_timeout_ms
+      ),
+      jira_retry_base_delay_ms: num(
+        l.jira_retry_base_delay_ms,
+        DEFAULT_FERRY_CONFIG.limits.jira_retry_base_delay_ms
+      ),
+      jira_retry_max_attempts: num(
+        l.jira_retry_max_attempts,
+        DEFAULT_FERRY_CONFIG.limits.jira_retry_max_attempts
+      ),
+      envelope_instructions_chars: num(
+        l.envelope_instructions_chars,
+        DEFAULT_FERRY_CONFIG.limits.envelope_instructions_chars
+      ),
+      project_snippet_bytes: num(
+        l.project_snippet_bytes,
+        DEFAULT_FERRY_CONFIG.limits.project_snippet_bytes
+      ),
+      agent_extension_bytes: num(
+        l.agent_extension_bytes,
+        DEFAULT_FERRY_CONFIG.limits.agent_extension_bytes
+      ),
+      tldr_total_chars: num(l.tldr_total_chars, DEFAULT_FERRY_CONFIG.limits.tldr_total_chars),
+      tldr_verdict_chars: num(l.tldr_verdict_chars, DEFAULT_FERRY_CONFIG.limits.tldr_verdict_chars),
+      file_display_chars: num(l.file_display_chars, DEFAULT_FERRY_CONFIG.limits.file_display_chars),
+      refiner_subtask_cap: num(
+        l.refiner_subtask_cap,
+        DEFAULT_FERRY_CONFIG.limits.refiner_subtask_cap
+      ),
+      refiner_touch_paths_cap: num(
+        l.refiner_touch_paths_cap,
+        DEFAULT_FERRY_CONFIG.limits.refiner_touch_paths_cap
+      ),
+      reviewer_max_iterations: num(
+        l.reviewer_max_iterations,
+        DEFAULT_FERRY_CONFIG.limits.reviewer_max_iterations
+      ),
+      reviewer_max_tokens: num(
+        l.reviewer_max_tokens,
+        DEFAULT_FERRY_CONFIG.limits.reviewer_max_tokens
+      ),
+      reconciler_stale_window_minutes: num(
+        l.reconciler_stale_window_minutes,
+        DEFAULT_FERRY_CONFIG.limits.reconciler_stale_window_minutes
       )
     },
     ticket_types: {
@@ -11125,18 +11384,81 @@ function mergeWithDefaults(raw) {
       ),
       dev_allowlist: strArr(t.dev_allowlist, DEFAULT_FERRY_CONFIG.ticket_types.dev_allowlist)
     },
-    ...labels !== void 0 ? { labels } : {}
+    git: {
+      base_branch: "base_branch" in g ? nullableStr(g.base_branch, null) : DEFAULT_FERRY_CONFIG.git.base_branch,
+      target_branch: "target_branch" in g ? nullableStr(g.target_branch, null) : DEFAULT_FERRY_CONFIG.git.target_branch,
+      working_branch_prefix: typeof g.working_branch_prefix === "string" ? g.working_branch_prefix : DEFAULT_FERRY_CONFIG.git.working_branch_prefix
+    },
+    ...labels !== void 0 ? { labels } : {},
+    workflow: mergeWorkflow(raw.workflow)
+  };
+}
+function mergeWorkflow(rawWorkflow) {
+  const def = DEFAULT_FERRY_CONFIG.workflow;
+  if (!rawWorkflow || typeof rawWorkflow !== "object") return def;
+  const w = rawWorkflow;
+  if (!w.agents || typeof w.agents !== "object") return def;
+  const agents = w.agents;
+  const str = (val, def2) => typeof val === "string" ? val : def2;
+  const strOrNull = (obj, key, def2) => key in obj ? obj[key] === null ? null : typeof obj[key] === "string" ? obj[key] : def2 : def2;
+  const refinerRaw = agents.refiner && typeof agents.refiner === "object" ? agents.refiner : {};
+  const devRaw = agents.developer && typeof agents.developer === "object" ? agents.developer : {};
+  const revRaw = agents.reviewer && typeof agents.reviewer === "object" ? agents.reviewer : {};
+  const iterRaw = agents.iterator && typeof agents.iterator === "object" ? agents.iterator : {};
+  return {
+    agents: {
+      refiner: {
+        trigger_column: str(refinerRaw.trigger_column, def.agents.refiner.trigger_column),
+        auto_transition: null
+      },
+      developer: {
+        trigger_column: str(devRaw.trigger_column, def.agents.developer.trigger_column),
+        auto_transition: strOrNull(devRaw, "auto_transition", def.agents.developer.auto_transition)
+      },
+      reviewer: {
+        trigger_column: str(revRaw.trigger_column, def.agents.reviewer.trigger_column),
+        auto_transition_approve: strOrNull(
+          revRaw,
+          "auto_transition_approve",
+          def.agents.reviewer.auto_transition_approve
+        ),
+        auto_transition_changes: strOrNull(
+          revRaw,
+          "auto_transition_changes",
+          def.agents.reviewer.auto_transition_changes
+        )
+      },
+      iterator: {
+        trigger_column: str(iterRaw.trigger_column, def.agents.iterator.trigger_column),
+        auto_transition: strOrNull(iterRaw, "auto_transition", def.agents.iterator.auto_transition)
+      }
+    }
   };
 }
 function applyEnvOverrides(cfg) {
   const models = { ...cfg.models };
   const limits = { ...cfg.limits };
+  const providerFromEnv = (val) => {
+    if (val === "anthropic" || val === "openai" || val === "google") return val;
+    return void 0;
+  };
+  const refinerProvider = providerFromEnv(process.env.FERRY_REFINER_PROVIDER);
+  if (refinerProvider) models.refiner = { ...models.refiner, provider: refinerProvider };
+  if (process.env.FERRY_REFINER_MODEL) {
+    models.refiner = { ...models.refiner, model: process.env.FERRY_REFINER_MODEL };
+  }
+  const devProvider = providerFromEnv(process.env.FERRY_DEV_PROVIDER);
+  if (devProvider) models.dev = { ...models.dev, provider: devProvider };
   if (process.env.FERRY_DEV_MODEL) {
     models.dev = { ...models.dev, model: process.env.FERRY_DEV_MODEL };
   }
+  const reviewProvider = providerFromEnv(process.env.FERRY_REVIEW_PROVIDER);
+  if (reviewProvider) models.review = { ...models.review, provider: reviewProvider };
   if (process.env.FERRY_REVIEW_MODEL) {
     models.review = { ...models.review, model: process.env.FERRY_REVIEW_MODEL };
   }
+  const iterProvider = providerFromEnv(process.env.FERRY_ITER_PROVIDER);
+  if (iterProvider) models.iterate = { ...models.iterate, provider: iterProvider };
   if (process.env.FERRY_ITER_MODEL) {
     models.iterate = { ...models.iterate, model: process.env.FERRY_ITER_MODEL };
   }
@@ -11148,6 +11470,66 @@ function applyEnvOverrides(cfg) {
   if (Number.isFinite(maxTok)) limits.max_tokens_per_message = maxTok;
   const maxCost = parseFloat(process.env.FERRY_MAX_COST_EUR_PER_RUN ?? "");
   if (Number.isFinite(maxCost)) limits.max_cost_eur_per_run = maxCost;
+  const envInt = (key) => {
+    const v = parseInt(process.env[key] ?? "", 10);
+    return Number.isFinite(v) ? v : void 0;
+  };
+  const bashTimeoutMs = envInt("FERRY_BASH_TIMEOUT_MS");
+  if (bashTimeoutMs !== void 0) limits.bash_timeout_ms = bashTimeoutMs;
+  const bashTimeoutMaxMs = envInt("FERRY_BASH_TIMEOUT_MAX_MS");
+  if (bashTimeoutMaxMs !== void 0) limits.bash_timeout_max_ms = bashTimeoutMaxMs;
+  const grepTimeoutMs = envInt("FERRY_GREP_TIMEOUT_MS");
+  if (grepTimeoutMs !== void 0) limits.grep_timeout_ms = grepTimeoutMs;
+  const anthropicVerifyTimeoutMs = envInt("FERRY_ANTHROPIC_VERIFY_TIMEOUT_MS");
+  if (anthropicVerifyTimeoutMs !== void 0)
+    limits.anthropic_verify_timeout_ms = anthropicVerifyTimeoutMs;
+  const jiraRetryBaseDelayMs = envInt("FERRY_JIRA_RETRY_BASE_DELAY_MS");
+  if (jiraRetryBaseDelayMs !== void 0) limits.jira_retry_base_delay_ms = jiraRetryBaseDelayMs;
+  const jiraRetryMaxAttempts = envInt("FERRY_JIRA_RETRY_MAX_ATTEMPTS");
+  if (jiraRetryMaxAttempts !== void 0) limits.jira_retry_max_attempts = jiraRetryMaxAttempts;
+  const envelopeInstructionsChars = envInt("FERRY_ENVELOPE_INSTRUCTIONS_CHARS");
+  if (envelopeInstructionsChars !== void 0)
+    limits.envelope_instructions_chars = envelopeInstructionsChars;
+  const projectSnippetBytes = envInt("FERRY_PROJECT_SNIPPET_BYTES");
+  if (projectSnippetBytes !== void 0) limits.project_snippet_bytes = projectSnippetBytes;
+  const agentExtensionBytes = envInt("FERRY_AGENT_EXTENSION_BYTES");
+  if (agentExtensionBytes !== void 0) limits.agent_extension_bytes = agentExtensionBytes;
+  const tldrTotalChars = envInt("FERRY_TLDR_TOTAL_CHARS");
+  if (tldrTotalChars !== void 0) limits.tldr_total_chars = tldrTotalChars;
+  const tldrVerdictChars = envInt("FERRY_TLDR_VERDICT_CHARS");
+  if (tldrVerdictChars !== void 0) limits.tldr_verdict_chars = tldrVerdictChars;
+  const fileDisplayChars = envInt("FERRY_FILE_DISPLAY_CHARS");
+  if (fileDisplayChars !== void 0) limits.file_display_chars = fileDisplayChars;
+  const refinerSubtaskCap = envInt("FERRY_REFINER_SUBTASK_CAP");
+  if (refinerSubtaskCap !== void 0) limits.refiner_subtask_cap = refinerSubtaskCap;
+  const refinerTouchPathsCap = envInt("FERRY_REFINER_TOUCH_PATHS_CAP");
+  if (refinerTouchPathsCap !== void 0) limits.refiner_touch_paths_cap = refinerTouchPathsCap;
+  const reviewerMaxIterations = envInt("FERRY_REVIEWER_MAX_ITERATIONS");
+  if (reviewerMaxIterations !== void 0) limits.reviewer_max_iterations = reviewerMaxIterations;
+  const reviewerMaxTokens = envInt("FERRY_REVIEWER_MAX_TOKENS");
+  if (reviewerMaxTokens !== void 0) limits.reviewer_max_tokens = reviewerMaxTokens;
+  const reconcilerStaleWindowMinutes = envInt("FERRY_RECONCILER_STALE_WINDOW_MINUTES");
+  if (reconcilerStaleWindowMinutes !== void 0)
+    limits.reconciler_stale_window_minutes = reconcilerStaleWindowMinutes;
+  process.env.FERRY_BASH_TIMEOUT_MS = String(limits.bash_timeout_ms);
+  process.env.FERRY_BASH_TIMEOUT_MAX_MS = String(limits.bash_timeout_max_ms);
+  process.env.FERRY_GREP_TIMEOUT_MS = String(limits.grep_timeout_ms);
+  process.env.FERRY_ANTHROPIC_VERIFY_TIMEOUT_MS = String(limits.anthropic_verify_timeout_ms);
+  process.env.FERRY_JIRA_RETRY_BASE_DELAY_MS = String(limits.jira_retry_base_delay_ms);
+  process.env.FERRY_JIRA_RETRY_MAX_ATTEMPTS = String(limits.jira_retry_max_attempts);
+  process.env.FERRY_ENVELOPE_INSTRUCTIONS_CHARS = String(limits.envelope_instructions_chars);
+  process.env.FERRY_PROJECT_SNIPPET_BYTES = String(limits.project_snippet_bytes);
+  process.env.FERRY_AGENT_EXTENSION_BYTES = String(limits.agent_extension_bytes);
+  process.env.FERRY_TLDR_TOTAL_CHARS = String(limits.tldr_total_chars);
+  process.env.FERRY_TLDR_VERDICT_CHARS = String(limits.tldr_verdict_chars);
+  process.env.FERRY_FILE_DISPLAY_CHARS = String(limits.file_display_chars);
+  process.env.FERRY_REFINER_SUBTASK_CAP = String(limits.refiner_subtask_cap);
+  process.env.FERRY_REFINER_TOUCH_PATHS_CAP = String(limits.refiner_touch_paths_cap);
+  process.env.FERRY_REVIEWER_MAX_ITERATIONS = String(limits.reviewer_max_iterations);
+  process.env.FERRY_REVIEWER_MAX_TOKENS = String(limits.reviewer_max_tokens);
+  process.env.FERRY_RECONCILER_STALE_WINDOW_MINUTES = String(
+    limits.reconciler_stale_window_minutes
+  );
   return { ...cfg, models, limits };
 }
 function loadFerryConfig(repoRoot) {
@@ -11184,9 +11566,21 @@ function createGitHubContext(repoRoot) {
 var REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
 async function main(envelope, logger) {
   const { ticket_key: ticketKey, event_id: eventId } = envelope;
-  const iterTransitionId = requireEnv("FERRY_ITER_TRANSITION_ID");
   const { owner, repo, runner, tracker, ferryCfg } = createGitHubContext(REPO_ROOT);
-  const model = ferryCfg.models.review.model;
+  const { provider, model } = ferryCfg.models.review;
+  if (provider !== "anthropic") {
+    throw new FerryError("state-invariant", {
+      reason: "unsupported-provider",
+      provider,
+      phase: "reviewer",
+      detail: "The reviewer phase requires provider 'anthropic'. OpenAI and Google support for agentic phases is planned for a future release."
+    });
+  }
+  const reviewerWorkflow = ferryCfg.workflow.agents.reviewer;
+  const shouldTransitionChanges = reviewerWorkflow.auto_transition_changes !== null;
+  const shouldTransitionApprove = reviewerWorkflow.auto_transition_approve !== null;
+  const iterTransitionId = shouldTransitionChanges ? requireEnv("FERRY_ITER_TRANSITION_ID") : "";
+  const approveTransitionId = shouldTransitionApprove ? requireEnv("FERRY_APPROVE_TRANSITION_ID") : "";
   const issue = await tracker.getIssue(ticketKey);
   const existingComments = issue.comments;
   const capabilities = resolveCapabilities(issue.labels, ferryCfg.labels, logger);
@@ -11202,7 +11596,7 @@ async function main(envelope, logger) {
         `${errorMarker} No open PR found for branch ${branchName}. Cannot review.`
       );
     }
-    appendOutput({ input_tokens: 0, output_tokens: 0, model });
+    appendOutput({ input_tokens: 0, output_tokens: 0, model, provider });
     return;
   }
   const prNumber = prs[0].number;
@@ -11213,7 +11607,7 @@ async function main(envelope, logger) {
   const { skipped } = checkIdempotencyMarker(idempotencyMarker, existingComments);
   if (skipped) {
     logger.info("already processed, skipping", { sha: headSha.slice(0, 7) });
-    appendOutput({ input_tokens: 0, output_tokens: 0, model });
+    appendOutput({ input_tokens: 0, output_tokens: 0, model, provider });
     return;
   }
   const ciStatus = await runner.getCommitStatus(owner, repo, headSha);
@@ -11224,13 +11618,14 @@ async function main(envelope, logger) {
         ticketKey,
         `${idempotencyMarker} CI checks are still pending on ${headSha.slice(0, 7)}. Will retry when CI completes.`
       );
-      appendOutput({ input_tokens: 0, output_tokens: 0, model });
+      appendOutput({ input_tokens: 0, output_tokens: 0, model, provider });
       return;
     }
     const ciMessage = ciOutcome.findings[0]?.message ?? "CI checks failed. See the Actions run for details.";
+    const ciTransitionNote = shouldTransitionChanges ? " Moved to Dev Iteration." : "";
     await tracker.postComment(
       ticketKey,
-      `${idempotencyMarker} CI checks failed. Moved to Dev Iteration.`
+      `${idempotencyMarker} CI checks failed.${ciTransitionNote}`
     );
     await runner.commentOnPR(
       { owner, repo, prNumber },
@@ -11238,8 +11633,10 @@ async function main(envelope, logger) {
 
 **CI failed:** ${ciMessage}`
     );
-    await tracker.postTransition(ticketKey, iterTransitionId);
-    appendOutput({ input_tokens: 0, output_tokens: 0, model });
+    if (shouldTransitionChanges) {
+      await tracker.postTransition(ticketKey, iterTransitionId);
+    }
+    appendOutput({ input_tokens: 0, output_tokens: 0, model, provider });
     return;
   }
   const files = await runner.listPRFiles({ owner, repo, prNumber });
@@ -11289,8 +11686,8 @@ async function main(envelope, logger) {
     owner,
     repo,
     headSha,
-    maxIterations: ferryCfg.limits.max_agent_iterations,
-    maxTokens: ferryCfg.limits.max_tokens_per_message,
+    maxIterations: ferryCfg.limits.reviewer_max_iterations,
+    maxTokens: ferryCfg.limits.reviewer_max_tokens,
     logger
   });
   logger.info("reviewed", {
@@ -11308,16 +11705,23 @@ async function main(envelope, logger) {
     await runner.addLabelsToPR({ owner, repo, prNumber }, ["ferry:approved"]);
     await runner.removeLabelFromPR({ owner, repo, prNumber }, "ferry:reviewing").catch(() => {
     });
+    await runner.markPRReadyForReview(owner, repo, prNumber);
     await runner.commentOnPR({ owner, repo, prNumber }, review.comment);
+    if (shouldTransitionApprove) {
+      await tracker.postTransition(ticketKey, approveTransitionId);
+    }
   } else {
     const hasIteratorMarker = existingComments.some((c) => c.includes("[ferry:iterator:"));
     await runner.commentOnPR({ owner, repo, prNumber }, review.comment);
     if (!hasIteratorMarker) {
+      const changesNote = shouldTransitionChanges ? " Moved to Dev Iteration." : "";
       await tracker.postComment(
         ticketKey,
-        `${idempotencyMarker} Changes requested. Moved to Dev Iteration. See PR#${prNumber} for details.`
+        `${idempotencyMarker} Changes requested.${changesNote} See PR#${prNumber} for details.`
       );
-      await tracker.postTransition(ticketKey, iterTransitionId);
+      if (shouldTransitionChanges) {
+        await tracker.postTransition(ticketKey, iterTransitionId);
+      }
     } else {
       await tracker.postComment(
         ticketKey,
@@ -11325,7 +11729,7 @@ async function main(envelope, logger) {
       );
     }
   }
-  appendOutput({ input_tokens: inputTokens, output_tokens: outputTokens, model });
+  appendOutput({ input_tokens: inputTokens, output_tokens: outputTokens, model, provider });
 }
 void runAgent("reviewer", main);
 /*! Bundled license information:
