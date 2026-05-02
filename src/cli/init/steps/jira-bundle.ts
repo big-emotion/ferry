@@ -153,7 +153,7 @@ export function buildJiraBundle(
   return { cloud: true, rules };
 }
 
-function buildManualSetupDoc(
+export function buildManualSetupDoc(
   owner: string,
   repo: string,
   statusNames: StatusNames = DEFAULT_STATUS_NAMES,

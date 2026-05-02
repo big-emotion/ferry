@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ferry.dev/schemas/event.v1.json",
+  "type": "object",
+  "required": ["version", "event_id", "ticket_key", "phase", "source", "ts"],
+  "properties": {
+    "version": { "const": "v1" },
+    "event_id": { "type": "string", "minLength": 4, "maxLength": 100, "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$" },
+    "ticket_key": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]+-\\d+$" },
+    "phase": { "enum": ["refine", "dev", "review", "iterate", "reconcile"] },
+    "source": {
+      "enum": ["jira-column", "jira-label", "jira-mention", "reconciler"]
+    },
+    "instructions": { "type": "string" },
+    "ticket_type": { "enum": ["Story", "Task", "Bug", "Spike"] },
+    "issue_type": { "type": "string" },
+    "ts": { "type": "string", "minLength": 1 }
+  },
+  "additionalProperties": false
+}

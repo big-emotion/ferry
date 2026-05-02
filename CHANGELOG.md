@@ -7,6 +7,15 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.5.1] — 2026-05-02
+
+### Fixed
+
+- **Jira Automation custom body JSON format corrected** — The `{{now.format(...)}}` smart value was invalid Jira syntax and caused empty timestamp fields. Now uses `{{now.jiraDate}}`. The `actor` field (which failed to resolve in column triggers) has been removed. Added `version: "v1"` and `event_id` fields to match the working format.
+- **`ferry-update` now regenerates Jira automation setup file** — When upgrading Ferry, the `ferry-jira-automation-setup.md` file is automatically regenerated with corrected JSON format, ensuring consumers get the fix without manual intervention.
+
+---
+
 ## [0.5.0] — 2026-05-02
 
 ### Added
