@@ -139,8 +139,10 @@ async function main(): Promise<void> {
   print('');
   print('Next steps:');
   print('  1. Commit .github/workflows/ferry-*.yml and .github/CODEOWNERS');
-  print('  2. Import ferry-jira-automation-rules.json into Jira Automation');
-  print('     (Project settings → Automation → Import rules)');
+  print('  2. Set up Jira Automation rules (choose one):');
+  print('     a) Manual (recommended): follow ferry-jira-automation-setup.md');
+  print('     b) Import (beta): Jira → Project settings → Automation → Import rules');
+  print('        Upload ferry-jira-automation-rules.beta.json');
   print('  3. Set spend caps on provider billing pages (see links above)');
   print('  4. Set FERRY_AUDIT_ISSUE repository variable to a GitHub Issue number');
   print('     for the audit log (create a blank issue and use its number)');
