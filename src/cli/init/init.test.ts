@@ -112,7 +112,7 @@ describe('buildJiraBundle', () => {
     expect(statuses).toContain('Refinement');
     expect(statuses).toContain('In Development');
     expect(statuses).toContain('In Review');
-    expect(statuses).toContain('Iteration');
+    expect(statuses).toContain('Changes Requested');
   });
 });
 

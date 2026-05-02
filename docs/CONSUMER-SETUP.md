@@ -43,9 +43,9 @@ Four agents chain automatically:
 
 ### 1.2 — Verify Jira columns
 
-Ferry expects the Jira board to use these exact column names for each phase:
+Ferry's Jira Automation rules trigger on status names that you supply to `ferry-init`. The wizard prompts for each name with sensible defaults:
 
-| Column name (exact)   | Phase triggered                          |
+| Default column name   | Phase triggered                          |
 | --------------------- | ---------------------------------------- |
 | **Refinement**        | Refiner agent                            |
 | **In Development**    | Developer agent                          |
@@ -53,7 +53,9 @@ Ferry expects the Jira board to use these exact column names for each phase:
 | **Changes Requested** | Iterator agent (auto-set by FR24)        |
 | **Ready to Merge**    | Human review + merge                     |
 
-✅ **Verification:** Open your board → confirm these 5 columns exist. If not, add them via **Project Settings → Board → Columns**. Column names are case-sensitive — use the exact names above.
+If your Jira project already uses different status names, enter them when the wizard asks — the generated automation rules will use whatever names you provide. Column names are case-sensitive and must match exactly what appears in your Jira board.
+
+✅ **Verification:** Open your board → confirm the 5 columns exist (using either the default names or your custom names). If any are missing, add them via **Project Settings → Board → Columns**.
 
 ---
 
@@ -455,7 +457,7 @@ Phase 7 — Operations setup  [ ] ferry-reconcile.yml copied and pushed (§7.5 �
 | "Action not found: `./.github/actions/ferry-*`" | You copied Ferry's internal workflows. Use the consumer stubs from `examples/consumer-setup/workflows/`                                     |
 | "Resource not accessible by integration"        | Repo workflow permissions ceiling too low — enable **Read and write permissions** under Settings → Actions → General                        |
 | Review workflow hangs (never starts jobs)       | Remove any `concurrency:` block in your consumer `ferry-review.yml` — it causes a deadlock; concurrency is managed by the reusable workflow |
-| Preflight fails: "Jira column mismatch"         | Your board column names don't match exactly — see Phase 1.2 for the required names                                                          |
+| Preflight fails: "Jira column mismatch"         | Your board column names don't match what you gave `ferry-init` — see Phase 1.2; re-run `ferry-init` with the correct names if needed        |
 
 ---
 

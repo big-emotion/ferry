@@ -11,7 +11,7 @@ vi.mock('../prompt.js', () => ({
   printError: vi.fn(),
 }));
 
-import { buildJiraBundle, stepJiraBundle } from './jira-bundle.js';
+import { buildJiraBundle, stepJiraBundle, DEFAULT_STATUS_NAMES } from './jira-bundle.js';
 
 const WORKSPACE_ID = '75eb33f5-5dd0-4328-b0e6-8bb3f4e0af91';
 const PROJECT_ID = '10033';
@@ -52,7 +52,32 @@ describe('buildJiraBundle', () => {
     const bundle = buildJiraBundle('owner', 'repo', WORKSPACE_ID, PROJECT_ID);
     const firstRule = bundle.rules[0]!;
     expect(Array.isArray(firstRule.trigger.value.toStatus)).toBe(true);
-    expect(firstRule.trigger.value.toStatus[0]).toEqual({ type: 'NAME', value: 'Refinement' });
+    expect(firstRule.trigger.value.toStatus[0]).toEqual({
+      type: 'NAME',
+      value: DEFAULT_STATUS_NAMES.refine,
+    });
+  });
+
+  it('uses custom status names when provided', () => {
+    const custom = {
+      refine: 'Ready for Refine',
+      dev: 'Ready for Dev',
+      review: 'Awaiting Review',
+      iterate: 'Needs Changes',
+    };
+    const bundle = buildJiraBundle('owner', 'repo', WORKSPACE_ID, PROJECT_ID, custom);
+    const statuses = bundle.rules.map((r) => r.trigger.value.toStatus[0]?.value);
+    expect(statuses).toContain('Ready for Refine');
+    expect(statuses).toContain('Ready for Dev');
+    expect(statuses).toContain('Awaiting Review');
+    expect(statuses).toContain('Needs Changes');
+  });
+
+  it('default iterate status is Changes Requested not Iteration', () => {
+    const bundle = buildJiraBundle('owner', 'repo', WORKSPACE_ID, PROJECT_ID);
+    const statuses = bundle.rules.map((r) => r.trigger.value.toStatus[0]?.value);
+    expect(statuses).toContain('Changes Requested');
+    expect(statuses).not.toContain('Iteration');
   });
 
   it('trigger value has required event fields', () => {
@@ -172,14 +197,30 @@ describe('stepJiraBundle', () => {
     expect(content.endsWith('\n')).toBe(true);
   });
 
-  it('markdown includes all 4 phase names', () => {
+  it('markdown includes all 4 default phase status names', () => {
     tmpDir = mkdtempSync(join(tmpdir(), 'ferry-jb-phases-'));
     stepJiraBundle(tmpDir, 'acme-corp', 'acme-app', WORKSPACE_ID, PROJECT_ID);
     const content = readFileSync(join(tmpDir, 'ferry-jira-automation-setup.md'), 'utf8');
     expect(content).toContain('Refinement');
     expect(content).toContain('In Development');
     expect(content).toContain('In Review');
-    expect(content).toContain('Iteration');
+    expect(content).toContain('Changes Requested');
+  });
+
+  it('markdown uses custom status names when provided', () => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'ferry-jb-custom-'));
+    const custom = {
+      refine: 'Backlog Refine',
+      dev: 'Ready for Dev',
+      review: 'Awaiting Review',
+      iterate: 'Needs Rework',
+    };
+    stepJiraBundle(tmpDir, 'acme-corp', 'acme-app', WORKSPACE_ID, PROJECT_ID, custom);
+    const content = readFileSync(join(tmpDir, 'ferry-jira-automation-setup.md'), 'utf8');
+    expect(content).toContain('Backlog Refine');
+    expect(content).toContain('Ready for Dev');
+    expect(content).toContain('Awaiting Review');
+    expect(content).toContain('Needs Rework');
   });
 
   it('markdown does not contain a real Authorization token', () => {
