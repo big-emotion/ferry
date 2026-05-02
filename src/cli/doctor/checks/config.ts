@@ -8,10 +8,9 @@ export function checkConfigLimits(opts: { repoRoot: string }): CheckResult {
   const { repoRoot } = opts;
 
   const jsonPath = join(repoRoot, 'ferry.config.json');
-  const yamlPath =
-    existsSync(join(repoRoot, 'ferry.config.yaml'))
-      ? join(repoRoot, 'ferry.config.yaml')
-      : join(repoRoot, 'ferry.config.yml');
+  const yamlPath = existsSync(join(repoRoot, 'ferry.config.yaml'))
+    ? join(repoRoot, 'ferry.config.yaml')
+    : join(repoRoot, 'ferry.config.yml');
 
   const hasJson = existsSync(jsonPath);
   const hasYaml = !hasJson && existsSync(yamlPath);
