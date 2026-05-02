@@ -13,7 +13,7 @@ Two broad distribution strategies exist:
 
 2. **Build at workflow runtime** — ship only TypeScript source and have each consumer workflow run a build step (e.g., `npm ci && npm run build:ferry`) before invoking Ferry's composite actions.
 
-Ferry is intended to be installed into consumer repositories via `uses: big-emotion/ferry/.github/actions/ferry-run-developer@v0.5.0`. Composite actions resolve their `runs.steps` at the time the workflow executes, not at install time. This creates the constraint: whatever path is referenced in `action.yml` must exist on the repository's default branch (or the pinned tag) at the moment GitHub checks out the action.
+Ferry is intended to be installed into consumer repositories via `uses: big-emotion/ferry/.github/actions/ferry-run-developer@v0.5.3`. Composite actions resolve their `runs.steps` at the time the workflow executes, not at install time. This creates the constraint: whatever path is referenced in `action.yml` must exist on the repository's default branch (or the pinned tag) at the moment GitHub checks out the action.
 
 ## Decision
 
@@ -31,8 +31,8 @@ The `.ferry/` path appears in `.gitignore` to prevent developers from accidental
 
 **Positive:**
 
-- Consumers can use `uses: big-emotion/ferry/.github/actions/ferry-run-developer@v0.5.0` with no build step in their own workflows. The action is ready to execute immediately on checkout.
-- Version pinning works as expected: tagging a release freezes both the TypeScript source and its compiled output, so `@v0.5.0` is reproducible.
+- Consumers can use `uses: big-emotion/ferry/.github/actions/ferry-run-developer@v0.5.3` with no build step in their own workflows. The action is ready to execute immediately on checkout.
+- Version pinning works as expected: tagging a release freezes both the TypeScript source and its compiled output, so `@v0.5.3` is reproducible.
 - The composite actions are self-contained: each action directory carries its own agent bundle, schema, and prompts, so actions do not cross-reference each other.
 
 **Negative:**

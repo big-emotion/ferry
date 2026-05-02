@@ -19,6 +19,12 @@ If there are no consumer-visible changes, omit the section (or note `(none — i
 
 ---
 
+## v0.5.2 → v0.5.3
+
+- **(info)** Refiner state-invariant errors now include a sample of the raw LLM text. No consumer action required — `ferry-update` re-pins workflows to `@v0.5.3` automatically.
+
+---
+
 ## v0.5.1 → v0.5.2
 
 - **(action)** v0.5.1 ships a broken refiner action (crashes with `Dynamic require of "child_process" is not supported` on every run because the bundled `@google/genai` SDK pulls `google-auth-library`'s CJS dynamic requires). Upgrade your pinned tag from `@v0.5.1` to `@v0.5.2` in every Ferry workflow stub (`.github/workflows/ferry-*.yml`) and in the `FERRY_REF` env value of `ferry-reconcile.yml` / `ferry-cost-daily.yml`. `ferry-update` does this automatically. No other consumer-visible changes.

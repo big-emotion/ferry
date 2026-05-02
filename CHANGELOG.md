@@ -7,6 +7,14 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.5.3] — 2026-05-03
+
+### Fixed
+
+- **Refiner state-invariant errors now surface a sample of the raw LLM text** — when the Refiner's JSON parse fails (`refiner-output-invalid`), the thrown error includes a trimmed snippet of the LLM response so operators can diagnose preamble / fence drift from logs without reproducing the run. Helps triage cases where the model wraps the JSON plan in prose. Hardening of the parser itself is tracked separately.
+
+---
+
 ## [0.5.2] — 2026-05-02
 
 ### Fixed
