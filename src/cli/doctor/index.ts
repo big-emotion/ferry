@@ -11,6 +11,7 @@ import { checkWorkflowDrift } from './checks/workflows.js';
 import { checkPromptOverrides } from './checks/prompts.js';
 import { checkUpdateAvailable } from './checks/update-available.js';
 import { checkConfigLimits } from './checks/config.js';
+import { checkWorkflowColumns } from './checks/workflow-columns.js';
 import { renderTable } from './table.js';
 import type { DoctorConfig } from './types.js';
 
@@ -105,15 +106,16 @@ Options:
   -h, --help                   Show this help
 
 Checks run in order:
-  1. Secrets present        — all 8 required repo secrets exist
-  2. GitHub App             — mint installation token, verify permissions
-  3. Jira reachable         — /myself + project key resolution
-  4. LLM keys valid         — 1-token Anthropic sanity call
-  5. Synthetic dispatch     — trigger ferry-refine + poll for run start
-  6. Workflow files         — compare .github/workflows/ferry-*.yml vs current release
-  7. Prompt overrides       — warn on full prompts/<agent>.md overrides; suggest .extra.md
-  8. Update available       — compare pinned ref in workflows to latest npm release
-  9. Config limits          — warn if limits.max_iterations is outside the recommended range (1–10)
+  1.  Secrets present        — all 8 required repo secrets exist
+  2.  GitHub App             — mint installation token, verify permissions
+  3.  Jira reachable         — /myself + project key resolution
+  4.  LLM keys valid         — 1-token Anthropic sanity call
+  5.  Synthetic dispatch     — trigger ferry-refine + poll for run start
+  6.  Workflow files         — compare .github/workflows/ferry-*.yml vs current release
+  7.  Prompt overrides       — warn on full prompts/<agent>.md overrides; suggest .extra.md
+  8.  Update available       — compare pinned ref in workflows to latest npm release
+  9.  Config limits          — warn if limits.max_iterations is outside the recommended range (1–10)
+  10. Workflow columns       — validate workflow.agents column names exist in Jira project
 
 Exit code: 0 if all checks green/yellow, 1 if any check red.
 `);
@@ -155,6 +157,13 @@ Exit code: 0 if all checks green/yellow, 1 if any check red.
     checkPromptOverrides({ repoRoot: config.repoRoot }),
     checkUpdateAvailable({ repoRoot: config.repoRoot }),
     checkConfigLimits({ repoRoot: config.repoRoot }),
+    checkWorkflowColumns({
+      repoRoot: config.repoRoot,
+      jiraBaseUrl: config.jiraBaseUrl,
+      jiraEmail: config.jiraEmail,
+      jiraApiToken: config.jiraApiToken,
+      jiraProjectKey: config.jiraProjectKey,
+    }),
   ]);
 
   process.stdout.write(renderTable(results));

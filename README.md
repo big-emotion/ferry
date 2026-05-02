@@ -37,11 +37,11 @@ Ferry connects your Jira board to a fully autonomous dev loop — Refiner, Devel
 
 ## Agent phases at a glance
 
-| Phase         | Jira column    | What the agent does                                            |
-| ------------- | -------------- | -------------------------------------------------------------- |
-| **Refiner**   | Refinement     | Reads the ticket, creates sub-tasks, awaits human approval     |
-| **Developer** | In Development | Reads approved sub-tasks, opens a draft PR on `ferry/<TICKET-KEY>` (e.g. `ferry/PROJ-42`) |
-| **Reviewer**  | In Review      | Reads PR diff (green CI only), posts fingerprinted findings    |
+| Phase         | Jira column    | What the agent does                                                                                        |
+| ------------- | -------------- | ---------------------------------------------------------------------------------------------------------- |
+| **Refiner**   | Refinement     | Reads the ticket, creates sub-tasks, awaits human approval                                                 |
+| **Developer** | In Development | Reads approved sub-tasks, opens a draft PR on `ferry/<TICKET-KEY>` (e.g. `ferry/PROJ-42`)                  |
+| **Reviewer**  | In Review      | Reads PR diff (green CI only), posts fingerprinted findings                                                |
 | **Iterator**  | Iteration      | Applies findings, re-triggers Reviewer (max 3 rounds by default; configurable via `limits.max_iterations`) |
 
 ---
@@ -65,11 +65,13 @@ Jira column move / label / @mention
   Human merges PR
 ```
 
-Ferry **never merges** and **never moves Jira columns** autonomously except for three explicit transitions:
+Ferry **never merges** and **rarely moves Jira columns** autonomously. By default, three auto-transitions are enabled:
 
 1. Developer → In Review (FR18)
-2. Reviewer → Ready to Merge or Changes Requested (FR24)
+2. Reviewer → Changes Requested (FR24, on review findings)
 3. Iterator → In Review (FR28)
+
+All auto-transitions are configurable via `workflow.agents` in `ferry.config.yaml` — set any to `null` to hand control back to humans, or set custom column names to match your board. See [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md#workflowagents) for details.
 
 ---
 
@@ -163,12 +165,12 @@ Create 4 Jira automation rules manually — one per Ferry column. For each rule:
    - **Web request body:** Custom data
    - **Headers** — add all four; toggle the lock icon on `Authorization` to mark it secret:
 
-   | Name | Value | Secret? |
-   |------|-------|---------|
-   | `Accept` | `application/vnd.github+json` | No |
-   | `Authorization` | `Bearer YOUR_GITHUB_PAT` | **Yes** |
-   | `X-GitHub-Api-Version` | `2022-11-28` | No |
-   | `Content-Type` | `application/json` | No |
+   | Name                   | Value                         | Secret? |
+   | ---------------------- | ----------------------------- | ------- |
+   | `Accept`               | `application/vnd.github+json` | No      |
+   | `Authorization`        | `Bearer YOUR_GITHUB_PAT`      | **Yes** |
+   | `X-GitHub-Api-Version` | `2022-11-28`                  | No      |
+   | `Content-Type`         | `application/json`            | No      |
 
 4. **Custom body** (example for the Refiner column):
 
