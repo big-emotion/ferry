@@ -121,9 +121,7 @@ describe('GitHubActionsRunner', () => {
       });
       const url = await runner.createPR(OWNER, REPO, 'feature-branch', 'main', 'title', 'body');
       expect(url).toBe('https://github.com/acme/ferry/pull/99');
-      expect(mock.pulls.create).toHaveBeenCalledWith(
-        expect.objectContaining({ draft: true }),
-      );
+      expect(mock.pulls.create).toHaveBeenCalledWith(expect.objectContaining({ draft: true }));
     });
 
     it('returns existing PR url when creation fails (PR already exists)', async () => {
