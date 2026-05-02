@@ -83,6 +83,13 @@ describe('askSecret', () => {
       configurable: true,
     });
 
+    if (!('setRawMode' in process.stdin)) {
+      Object.defineProperty(process.stdin, 'setRawMode', {
+        value: vi.fn(),
+        writable: true,
+        configurable: true,
+      });
+    }
     const setRawModeSpy = vi.spyOn(process.stdin, 'setRawMode').mockReturnThis();
     vi.spyOn(process.stdin, 'resume').mockReturnThis();
     vi.spyOn(process.stdin, 'pause').mockReturnThis();
@@ -90,12 +97,10 @@ describe('askSecret', () => {
     vi.spyOn(process.stdin, 'removeListener').mockReturnThis();
 
     let capturedHandler: ((char: string) => void) | undefined;
-    vi.spyOn(process.stdin, 'on').mockImplementation(
-      ((event: string, handler: unknown) => {
-        if (event === 'data') capturedHandler = handler as (char: string) => void;
-        return process.stdin;
-      }) as typeof process.stdin.on,
-    );
+    vi.spyOn(process.stdin, 'on').mockImplementation(((event: string, handler: unknown) => {
+      if (event === 'data') capturedHandler = handler as (char: string) => void;
+      return process.stdin;
+    }) as typeof process.stdin.on);
 
     const promise = askSecret('Secret key');
 
@@ -122,6 +127,13 @@ describe('askSecret', () => {
       configurable: true,
     });
 
+    if (!('setRawMode' in process.stdin)) {
+      Object.defineProperty(process.stdin, 'setRawMode', {
+        value: vi.fn(),
+        writable: true,
+        configurable: true,
+      });
+    }
     vi.spyOn(process.stdin, 'setRawMode').mockReturnThis();
     vi.spyOn(process.stdin, 'resume').mockReturnThis();
     vi.spyOn(process.stdin, 'pause').mockReturnThis();
@@ -129,12 +141,10 @@ describe('askSecret', () => {
     vi.spyOn(process.stdin, 'removeListener').mockReturnThis();
 
     let capturedHandler: ((char: string) => void) | undefined;
-    vi.spyOn(process.stdin, 'on').mockImplementation(
-      ((event: string, handler: unknown) => {
-        if (event === 'data') capturedHandler = handler as (char: string) => void;
-        return process.stdin;
-      }) as typeof process.stdin.on,
-    );
+    vi.spyOn(process.stdin, 'on').mockImplementation(((event: string, handler: unknown) => {
+      if (event === 'data') capturedHandler = handler as (char: string) => void;
+      return process.stdin;
+    }) as typeof process.stdin.on);
 
     const promise = askSecret('Secret key');
 

@@ -137,6 +137,8 @@ gh secret set FERRY_JIRA_BASE_URL         --body "https://YOUR-ORG.atlassian.net
 gh secret set FERRY_JIRA_EMAIL            --body "you@example.com"
 gh secret set FERRY_JIRA_API_TOKEN        --body "<atlassian-api-token>"
 gh secret set ANTHROPIC_API_KEY           --body "<sk-ant-...>"
+gh secret set FERRY_REVIEW_TRANSITION_ID  --body "<jira-transition-id-to-in-review>"
+gh secret set FERRY_ITER_TRANSITION_ID    --body "<jira-transition-id-to-changes-requested>"
 ```
 
 ### Step 3 — Enable workflow permissions
