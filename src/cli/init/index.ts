@@ -196,6 +196,7 @@ async function main(): Promise<void> {
   print('');
   print('Next steps:');
   print('  1. Commit .github/workflows/ferry-*.yml and .github/CODEOWNERS');
+  print('     (No ferry.config.* needed unless overriding defaults — see docs/CONFIGURATION.md)');
   print('  2. Set up Jira Automation rules (choose one):');
   print('     a) Manual (recommended): follow ferry-jira-automation-setup.md');
   print('     b) Import (beta): Jira → Project settings → Automation → Import rules');
