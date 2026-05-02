@@ -7,6 +7,7 @@ import { stepGitHubApp } from './steps/github-app.js';
 import { buildSecrets, stepSecrets } from './steps/secrets.js';
 import { installWorkflows, scaffoldCodeowners } from './steps/workflows.js';
 import { stepJiraBundle } from './steps/jira-bundle.js';
+import { resolveJiraWorkspaceId, resolveJiraProjectId } from './steps/jira-resolve.js';
 import { stepVerify } from './steps/verify.js';
 import type { FerryConfig } from './types.js';
 
@@ -88,6 +89,35 @@ async function main(): Promise<void> {
   const jiraApiToken = await ask(
     'Jira API token (from https://id.atlassian.com/manage-profile/security/api-tokens)',
   );
+  const jiraProjectKey = await ask('Jira project key (e.g. CHAN, PROJ)');
+
+  print('  Resolving Jira workspace and project IDs from the API...');
+  const [resolvedWorkspaceId, resolvedProjectId] = await Promise.all([
+    resolveJiraWorkspaceId(jiraBaseUrl, jiraEmail, jiraApiToken),
+    resolveJiraProjectId(jiraBaseUrl, jiraEmail, jiraApiToken, jiraProjectKey),
+  ]);
+
+  let workspaceId: string;
+  if (resolvedWorkspaceId) {
+    printSuccess(`Workspace ID resolved: ${resolvedWorkspaceId}`);
+    workspaceId = resolvedWorkspaceId;
+  } else {
+    print('  Could not auto-detect workspace ID.');
+    print('  Find it at: https://admin.atlassian.com → select your org → UUID in the URL');
+    const entered = await ask('Jira workspace ID (cloudId UUID, leave blank for placeholder)');
+    workspaceId = entered || 'YOUR_WORKSPACE_ID';
+  }
+
+  let projectId: string;
+  if (resolvedProjectId) {
+    printSuccess(`Project ID resolved: ${resolvedProjectId}`);
+    projectId = resolvedProjectId;
+  } else {
+    print('  Could not auto-detect project ID.');
+    print('  Find it at: Jira → Project settings → Details → numeric ID (not the key)');
+    const entered = await ask('Jira project numeric ID (leave blank for placeholder)');
+    projectId = entered || 'YOUR_PROJECT_ID';
+  }
 
   print('');
   print('LLM provider:');
@@ -104,6 +134,9 @@ async function main(): Promise<void> {
     jiraBaseUrl,
     jiraEmail,
     jiraApiToken,
+    jiraProjectKey,
+    jiraWorkspaceId: workspaceId,
+    jiraProjectId: projectId,
     anthropicApiKey,
   };
 
@@ -125,7 +158,7 @@ async function main(): Promise<void> {
 
   // ── Step 4: Jira automation bundle ────────────────────────────────────────
   printStep(4, TOTAL_STEPS, 'Generating Jira Automation import bundle');
-  stepJiraBundle(repoRoot, owner, repo);
+  stepJiraBundle(repoRoot, owner, repo, config.jiraWorkspaceId, config.jiraProjectId);
 
   // ── Step 5: Verify ────────────────────────────────────────────────────────
   printStep(5, TOTAL_STEPS, 'Verifying provider API key');

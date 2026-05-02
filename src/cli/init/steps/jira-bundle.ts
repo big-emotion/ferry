@@ -21,12 +21,14 @@ interface JiraTransitionTrigger {
   value: {
     fromStatusCategory?: string;
     toStatus: { name: string };
+    eventFilters: string[];
   };
 }
 
 interface JiraRule {
   name: string;
   state: 'DISABLED';
+  ruleScope: { resources: string[] };
   trigger: JiraTransitionTrigger;
   actions: JiraWebRequestAction[];
 }
@@ -45,8 +47,14 @@ const PHASES = [
   { eventType: 'ferry-iterate', statusName: 'Iteration', label: 'Iterate' },
 ] as const;
 
-export function buildJiraBundle(owner: string, repo: string): JiraAutomationBundle {
+export function buildJiraBundle(
+  owner: string,
+  repo: string,
+  workspaceId: string,
+  projectId: string,
+): JiraAutomationBundle {
   const dispatchUrl = `https://api.github.com/repos/${owner}/${repo}/dispatches`;
+  const ari = `ari:cloud:jira:${workspaceId}:project/${projectId}`;
 
   const rules: JiraRule[] = PHASES.map((phase) => {
     const body = JSON.stringify({
@@ -64,10 +72,12 @@ export function buildJiraBundle(owner: string, repo: string): JiraAutomationBund
     return {
       name: `Ferry — ${phase.label} (column trigger)`,
       state: 'DISABLED',
+      ruleScope: { resources: [ari] },
       trigger: {
         type: 'ISSUE_TRANSITIONED',
         value: {
           toStatus: { name: phase.statusName },
+          eventFilters: [ari],
         },
       },
       actions: [
@@ -98,8 +108,14 @@ export function buildJiraBundle(owner: string, repo: string): JiraAutomationBund
   return { cloud: true, version: 1, type: 'AUTOMATION', rules };
 }
 
-export function stepJiraBundle(repoRoot: string, owner: string, repo: string): StepResult {
-  const bundle = buildJiraBundle(owner, repo);
+export function stepJiraBundle(
+  repoRoot: string,
+  owner: string,
+  repo: string,
+  workspaceId: string,
+  projectId: string,
+): StepResult {
+  const bundle = buildJiraBundle(owner, repo, workspaceId, projectId);
   const outPath = join(repoRoot, 'ferry-jira-automation-rules.json');
   writeFileSync(outPath, JSON.stringify(bundle, null, 2) + '\n', 'utf8');
 
