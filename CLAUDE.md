@@ -22,7 +22,7 @@ Ferry is a **GitHub Actions-native agent pipeline** for Jira-driven autonomous d
 
 **Key constraint:** Ferry never merges code and rarely moves Jira columns autonomously — it only auto-transitions on three explicit FR (Ferry Requirement) numbers: FR18 (Dev → In Review), FR24 (Reviewer → Ready or Changes), FR28 (Iterator → In Review).
 
-The canonical consumer-facing install guide is **`docs/CONSUMER-SETUP.md`**. Contributor guidelines live in **`CONTRIBUTING.md`**.
+The canonical consumer-facing install guide is the **`## Quick install`** section in `README.md` (with full configuration reference in **`docs/CONFIGURATION.md`**). Contributor guidelines live in **`CONTRIBUTING.md`**.
 
 ## Architecture Layers
 
@@ -55,7 +55,7 @@ Each agent is a separate implementation. Key patterns:
 
 ### 4. **Scheduled Work** (`src/reconciler/`, `src/cost-governance/`)
 
-CLI entrypoints live in `src/reconciler/run.ts` and `src/cost-governance/run.ts`. Consumer workflow stubs in `examples/consumer-setup/workflows/` show how to wire these up — see `docs/CONSUMER-SETUP.md` §7.5 and §7.6. The ferry repo does not ship `.github/workflows/reconcile.yml` or `cost-daily.yml`; consumers add those to their own repos.
+CLI entrypoints live in `src/reconciler/run.ts` and `src/cost-governance/run.ts`. Consumer workflow stubs in `examples/consumer-setup/workflows/` show how to wire these up — see the `## Operations setup (required)` section in `README.md`. The ferry repo does not ship `.github/workflows/reconcile.yml` or `cost-daily.yml`; consumers add those to their own repos.
 
 - **Reconciler** (`src/reconciler/reconcile.ts` + `run.ts`): Sweeps for missed work, re-triggers stalled tickets
 - **Daily audit** (`src/cost-governance/daily-check.ts` + `run.ts`): Checks provider spend against caps, auto-pauses tickets via `ferry:paused` label when spend reaches 50% of monthly limit
@@ -122,7 +122,7 @@ External writes use standardized prefixes for idempotency:
 3. Test with Vitest: `npx vitest run src/agents/<agent>/<agent>.test.ts`
 4. Run full suite: `npm test`
 
-> Consumers should NOT edit `prompts/<agent>.md` directly — that breaks Ferry's contract. They use `prompts/<agent>.extra.md` to enrich the bundled prompt without replacing it. See the "Customizing agent prompts" section of `docs/CONSUMER-SETUP.md`. The resolver lives in `src/lib/prompts/resolve.ts`; composition happens in `src/lib/agent-runtime/prompt.ts`.
+> Consumers should NOT edit `prompts/<agent>.md` directly — that breaks Ferry's contract. They use `prompts/<agent>.extra.md` to enrich the bundled prompt without replacing it. See `docs/CONFIGURATION.md` for full customization options. The resolver lives in `src/lib/prompts/resolve.ts`; composition happens in `src/lib/agent-runtime/prompt.ts`.
 
 ## Requirements & Constraints
 

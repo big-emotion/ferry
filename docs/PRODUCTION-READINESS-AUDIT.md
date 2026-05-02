@@ -13,14 +13,14 @@ Read-only audit covering:
 
 - **Code & tests:** `src/`, `vitest run` (878 tests passing), `npm run lint`, `npm run typecheck`, `npm audit`.
 - **CI/CD:** `.github/workflows/`, `.github/actions/`, `.github/dependabot.yml`, `.github/CODEOWNERS`, `.gitleaks.toml`, `.github/workflows/codeql.yml`.
-- **Docs:** `docs/CONSUMER-SETUP.md`, `docs/CONFIGURATION.md`, `docs/REQUIREMENTS.md`, `docs/adr/`, `CLAUDE.md`, `CONTRIBUTING.md`, `README.md`.
+- **Docs:** `README.md` (Quick install), `docs/CONFIGURATION.md`, `docs/REQUIREMENTS.md`, `docs/adr/`, `CLAUDE.md`, `CONTRIBUTING.md`.
 - **Schemas & contracts:** `src/schemas/event.v1.schema.json`, `src/install-guide.test.ts`, `src/e2e/pipeline.test.ts`.
 
 No runtime traffic, no GitHub/Jira/LLM API calls.
 
 ### Top-line answers (the four canonical questions)
 
-1. **Is the project production-ready?** **Conditional.** All quality gates are green and security posture is strong, but two release-engineering blockers remain: (a) tag `v0.1.0` does not exist, (b) `package.json` is still `private: true` and there is no `CHANGELOG.md`. The internal composite-action `@main` pins have been replaced with `@v0.1.0`, but the tag itself has not yet been cut. Until these land, `docs/CONSUMER-SETUP.md` Phase 3.2 (`gh api .../tags/v0.1.0`) cannot run and consumers cannot pin a stable cut.
+1. **Is the project production-ready?** **Conditional.** All quality gates are green and security posture is strong, but two release-engineering blockers remain: (a) tag `v0.1.0` does not exist, (b) `package.json` is still `private: true` and there is no `CHANGELOG.md`. The internal composite-action `@main` pins have been replaced with `@v0.1.0`, but the tag itself has not yet been cut. Until these land, the README quick-install SHA-pinning step (`gh api .../tags/v0.1.0`) cannot run and consumers cannot pin a stable cut.
 2. **Can a consumer install and reach the full Jira → PR-approved cycle?** **Almost — blocked on the `v0.1.0` tag.** `ferry-init` and `ferry-doctor` are wired; six consumer workflow stubs exist (`examples/consumer-setup/workflows/ferry-{refine,dev,review,iterate,reconcile,cost-daily}.yml`); the three auto-transitions (FR18, FR24, FR28) are unit-tested and now exercised by the mocked end-to-end pipeline test (`src/e2e/pipeline.test.ts`, 437 lines, 11 describe blocks). Every stub pins `FERRY_REF: v0.1.0` — so the install procedure is correct on paper but cannot be executed today because no such ref is published.
 3. **Security posture?** Strong. Strict AJV schema validation, `execFileSync`-only shell calls, CodeQL + npm audit + gitleaks in CI, explicit per-job `permissions:` blocks across every workflow, secret-scan before every dev commit, no `@octokit/rest` or Jira imports under `src/agents/**` (lint-enforced + tested). Internal composite actions are now pinned to `@v0.1.0` (no longer `@main`); the supply-chain self-replication risk is closed once the tag is cut.
 4. **Is the score close to 8–9/10?** Computed score is **7.2** (up from 5.6). Three actions close most of the distance: cut and pin `v0.1.0`, replace `@main` with `@v0.1.0`/SHA in the four agent workflows, and add a `CHANGELOG.md` + release workflow. Reaching 8.5+ also requires audit-issue rotation and `harden-runner` egress allowlisting.
@@ -200,7 +200,7 @@ Mean = **7.21 / 10**.
 
 **Strengths**
 
-- `docs/CONSUMER-SETUP.md`: 7 phases, screenshot-ready, troubleshooting, quick checklist.
+- `README.md` quick-install block: end-to-end install in ≤ 10 minutes, with SHA pinning, smoke test, and operations setup sections.
 - `docs/CONFIGURATION.md`: full reference of secrets + variables.
 - **`docs/REQUIREMENTS.md` FR registry** with explicit `FR\d+` → source/test mapping; CI drift detector enforces consistency.
 - **`docs/adr/`** present (`0001-three-fr-auto-transitions.md` through `0005-no-auto-merge-invariant.md`, plus a README index) — the major foundational decisions are now recorded.
@@ -262,7 +262,7 @@ Mean = **7.21 / 10**.
 
 **Blockers** (the focal area for the next milestone):
 
-- **Tag `v0.1.0` does not exist.** Every consumer-setup stub uses `FERRY_REF: v0.1.0` and `CONSUMER-SETUP.md` Phase 3.2 calls `gh api .../tags/v0.1.0` — neither can run until the tag is cut.
+- **Tag `v0.1.0` does not exist.** Every consumer-setup stub uses `FERRY_REF: v0.1.0` and the README quick-install SHA-pinning step calls `gh api .../tags/v0.1.0` — neither can run until the tag is cut.
 - `package.json`: `"version": "0.1.0"`, `"private": true` — `private` must be lifted to publish (or to allow `git tag v0.1.0` to mean something).
 - **No `CHANGELOG.md`** at the repo root.
 - No release workflow (build + version bump + tag + GitHub release notes).

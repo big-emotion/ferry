@@ -99,13 +99,13 @@ PR title is `<TICKET-KEY> <summary>`. Consistent format makes Jira ↔ GitHub tr
 
 ### FR18 — Developer auto-transitions Jira ticket to "In Review" on PR creation
 
-|                     |                                                   |
-| ------------------- | ------------------------------------------------- |
-| **Status**          | shipped                                           |
-| **Source files**    | `src/agents/developer/dev-action.ts`              |
-| **Test files**      | `src/install-guide.test.ts`                       |
-| **Docs**            | `docs/CONSUMER-SETUP.md`, `docs/CONFIGURATION.md` |
-| **Date introduced** | 2026-05-01                                        |
+|                     |                                                      |
+| ------------------- | ---------------------------------------------------- |
+| **Status**          | shipped                                              |
+| **Source files**    | `src/agents/developer/dev-action.ts`                 |
+| **Test files**      | `src/install-guide.test.ts`                          |
+| **Docs**            | `README.md` (Quick install), `docs/CONFIGURATION.md` |
+| **Date introduced** | 2026-05-01                                           |
 
 After the Developer opens a pull request, Ferry immediately calls the Jira transition API (`FERRY_REVIEW_TRANSITION_ID`) to move the ticket from _In Development_ to _In Review_. Enables automatic Reviewer dispatch via Jira Automation without human intervention.
 
@@ -118,7 +118,7 @@ After the Developer opens a pull request, Ferry immediately calls the Jira trans
 | **Status**          | shipped                                                                      |
 | **Source files**    | `src/agents/reviewer/review-loop.ts`, `src/agents/reviewer/review-action.ts` |
 | **Test files**      | `src/install-guide.test.ts`                                                  |
-| **Docs**            | `docs/CONSUMER-SETUP.md`, `docs/CONFIGURATION.md`                            |
+| **Docs**            | `README.md` (Quick install), `docs/CONFIGURATION.md`                         |
 | **Date introduced** | 2026-05-01                                                                   |
 
 When the Reviewer verdict is `changes-requested`, Ferry calls the Jira transition API (`FERRY_ITER_TRANSITION_ID`) to move the ticket to _Changes Requested_. Triggers Jira Automation to dispatch the Iterator. On `merge-ready`, the ticket remains in _In Review_ and the PR receives the `ferry:approved` label.
@@ -132,7 +132,7 @@ When the Reviewer verdict is `changes-requested`, Ferry calls the Jira transitio
 | **Status**          | shipped                                                               |
 | **Source files**    | `src/agents/iterator/transition.ts`                                   |
 | **Test files**      | `src/agents/iterator/transition.test.ts`, `src/install-guide.test.ts` |
-| **Docs**            | `docs/CONSUMER-SETUP.md`, `docs/CONFIGURATION.md`                     |
+| **Docs**            | `README.md` (Quick install), `docs/CONFIGURATION.md`                  |
 | **Date introduced** | 2026-05-01                                                            |
 
 After a successful Iterator commit, Ferry moves the ticket back to _In Review_ (`FERRY_REVIEW_TRANSITION_ID`) and increments `state.iteration`. Ferry does not self-dispatch the Reviewer — Jira Automation handles that.
