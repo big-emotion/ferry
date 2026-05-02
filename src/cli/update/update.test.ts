@@ -126,11 +126,7 @@ describe('computeWorkflowChanges', () => {
     const templates = workflowTemplates('v0.3.1');
     // Install only the first template with matching content (unchanged)
     const first = templates[0]!;
-    writeFileSync(
-      join(dir, '.github', 'workflows', first.filename),
-      first.content,
-      'utf8',
-    );
+    writeFileSync(join(dir, '.github', 'workflows', first.filename), first.content, 'utf8');
 
     const changes = computeWorkflowChanges(dir, 'v0.3.1');
     const unchanged = changes.filter((c) => c.status === 'unchanged');

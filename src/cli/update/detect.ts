@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
@@ -61,23 +61,27 @@ export function computeWorkflowChanges(repoRoot: string, toVersion: string): Wor
 }
 
 function computeUnifiedDiff(filename: string, oldContent: string, newContent: string): string {
-  const tmp = tmpdir();
-  const oldFile = join(tmp, `ferry-old-${filename}`);
-  const newFile = join(tmp, `ferry-new-${filename}`);
+  const dir = mkdtempSync(join(tmpdir(), 'ferry-diff-'));
+  const oldFile = join(dir, `old-${filename}`);
+  const newFile = join(dir, `new-${filename}`);
 
-  writeFileSync(oldFile, oldContent, 'utf8');
-  writeFileSync(newFile, newContent, 'utf8');
+  try {
+    writeFileSync(oldFile, oldContent, 'utf8');
+    writeFileSync(newFile, newContent, 'utf8');
 
-  const result = spawnSync(
-    'diff',
-    ['-u', `--label=a/${filename}`, `--label=b/${filename}`, oldFile, newFile],
-    { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] },
-  );
+    const result = spawnSync(
+      'diff',
+      ['-u', `--label=a/${filename}`, `--label=b/${filename}`, oldFile, newFile],
+      { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] },
+    );
 
-  // diff exits 1 when files differ (normal), 2 on error
-  if (result.status === 2 || result.error) {
-    return `--- a/${filename}\n+++ b/${filename}\n(diff unavailable)\n`;
+    // diff exits 1 when files differ (normal), 2 on error
+    if (result.status === 2 || result.error) {
+      return `--- a/${filename}\n+++ b/${filename}\n(diff unavailable)\n`;
+    }
+
+    return result.stdout;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
-
-  return result.stdout;
 }

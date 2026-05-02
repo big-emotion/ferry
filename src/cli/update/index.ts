@@ -2,7 +2,16 @@
 import { createRequire } from 'node:module';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { confirm, closePrompt, print, printStep, printSuccess, printError, printWarn, printSkip } from '../init/prompt.js';
+import {
+  confirm,
+  closePrompt,
+  print,
+  printStep,
+  printSuccess,
+  printError,
+  printWarn,
+  printSkip,
+} from '../init/prompt.js';
 import { workflowTemplates } from '../init/templates.js';
 import { detectInstalledVersion, computeWorkflowChanges } from './detect.js';
 import { getRelevantMigrations } from './migrations.js';
@@ -179,9 +188,7 @@ Exit code: 0 on success, 1 on error.
     try {
       const dest = join(workflowDir, tmpl.filename);
       writeFileSync(dest, tmpl.content, 'utf8');
-      printSuccess(
-        c.status === 'added' ? `Added ${tmpl.filename}` : `Updated ${tmpl.filename}`,
-      );
+      printSuccess(c.status === 'added' ? `Added ${tmpl.filename}` : `Updated ${tmpl.filename}`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       printError(`Failed to write ${tmpl.filename}: ${msg}`);
