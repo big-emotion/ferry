@@ -65,9 +65,7 @@ describe('stepJiraBundle', () => {
     tmpDir = mkdtempSync(join(tmpdir(), 'ferry-jb-ari-'));
     stepJiraBundle(tmpDir, 'acme-corp', 'acme-app', WORKSPACE_ID, PROJECT_ID);
     const content = readFileSync(join(tmpDir, 'ferry-jira-automation-rules.json'), 'utf8');
-    expect(content).toContain(
-      `ari:cloud:jira:${WORKSPACE_ID}:project/${PROJECT_ID}`,
-    );
+    expect(content).toContain(`ari:cloud:jira:${WORKSPACE_ID}:project/${PROJECT_ID}`);
   });
 });
 
