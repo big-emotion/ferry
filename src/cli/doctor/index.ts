@@ -12,6 +12,7 @@ import { checkPromptOverrides } from './checks/prompts.js';
 import { checkUpdateAvailable } from './checks/update-available.js';
 import { checkConfigLimits } from './checks/config.js';
 import { checkWorkflowColumns } from './checks/workflow-columns.js';
+import { checkEnvVarSanity } from './checks/env-vars.js';
 import { renderTable } from './table.js';
 import type { DoctorConfig } from './types.js';
 
@@ -115,7 +116,8 @@ Checks run in order:
   7.  Prompt overrides       — warn on full prompts/<agent>.md overrides; suggest .extra.md
   8.  Update available       — compare pinned ref in workflows to latest npm release
   9.  Config limits          — warn if limits.max_iterations is outside the recommended range (1–10)
-  10. Workflow columns       — validate workflow.agents column names exist in Jira project
+  10. Env var sanity         — warn if any FERRY_* env var override is set to an obviously bad value
+  11. Workflow columns       — validate workflow.agents column names exist in Jira project
 
 Exit code: 0 if all checks green/yellow, 1 if any check red.
 `);
@@ -157,6 +159,7 @@ Exit code: 0 if all checks green/yellow, 1 if any check red.
     checkPromptOverrides({ repoRoot: config.repoRoot }),
     checkUpdateAvailable({ repoRoot: config.repoRoot }),
     checkConfigLimits({ repoRoot: config.repoRoot }),
+    checkEnvVarSanity(),
     checkWorkflowColumns({
       repoRoot: config.repoRoot,
       jiraBaseUrl: config.jiraBaseUrl,

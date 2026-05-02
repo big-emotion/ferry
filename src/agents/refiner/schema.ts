@@ -51,3 +51,7 @@ export const REFINER_OUTPUT_SCHEMA = {
 } as const;
 
 export const REFINER_TOUCH_PATHS_CAP = 20;
+
+export function getRefinerTouchPathsCap(): number {
+  return parseInt(process.env.FERRY_REFINER_TOUCH_PATHS_CAP ?? '', 10) || REFINER_TOUCH_PATHS_CAP;
+}

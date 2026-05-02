@@ -25,7 +25,9 @@ export function validateEnvelope(raw: unknown): EventEnvelopeV1 {
   }
   const envelope = raw as EventEnvelopeV1;
   if (envelope.instructions !== undefined) {
-    envelope.instructions = envelope.instructions.slice(0, 2000);
+    const cap =
+      parseInt(process.env.FERRY_ENVELOPE_INSTRUCTIONS_CHARS ?? '', 10) || 2000;
+    envelope.instructions = envelope.instructions.slice(0, cap);
   }
   return envelope;
 }

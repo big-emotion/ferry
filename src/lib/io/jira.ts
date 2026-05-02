@@ -69,6 +69,10 @@ export async function postComment(params: PostCommentParams): Promise<PostCommen
 
   const c = createJiraRestClientFromEnv();
 
+  const jiraRetryBaseDelayMs =
+    parseInt(process.env.FERRY_JIRA_RETRY_BASE_DELAY_MS ?? '', 10) || 2000;
+  const jiraRetryMaxAttempts =
+    parseInt(process.env.FERRY_JIRA_RETRY_MAX_ATTEMPTS ?? '', 10) || 3;
   const run = retry(
     async () => {
       if (directive.action === 'update') {
@@ -82,7 +86,7 @@ export async function postComment(params: PostCommentParams): Promise<PostCommen
       }
       return { skipped: false as const, body: params.body };
     },
-    { baseDelayMs: 2000, maxAttempts: 3 },
+    { baseDelayMs: jiraRetryBaseDelayMs, maxAttempts: jiraRetryMaxAttempts },
   );
 
   return run();

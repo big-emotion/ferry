@@ -35,10 +35,11 @@ const SOFT_THRESHOLD = 0.5;
 
 export function evaluateDailyCheck(input: DailyCheckInput): DailyCheckOutcome {
   const cap = Math.max(0.01, input.capEur);
+  const threshold = parseFloat(process.env.FERRY_BUDGET_ALERT_RATIO ?? '') || SOFT_THRESHOLD;
   const alerts: SpendAlert[] = [];
   for (const p of input.providers) {
     const ratio = p.monthly_eur / cap;
-    if (ratio >= SOFT_THRESHOLD) {
+    if (ratio >= threshold) {
       alerts.push({
         provider: p.name,
         percent: Math.round(ratio * 1000) / 10,

@@ -31,6 +31,13 @@ export const TLDR_CLOSE = '<!-- /ferry:tldr -->';
 export const TLDR_MAX_LEN = 500;
 export const TLDR_MAX_VERDICT_LEN = 40;
 
+function tldrMaxLen(): number {
+  return parseInt(process.env.FERRY_TLDR_TOTAL_CHARS ?? '', 10) || TLDR_MAX_LEN;
+}
+function tldrMaxVerdictLen(): number {
+  return parseInt(process.env.FERRY_TLDR_VERDICT_CHARS ?? '', 10) || TLDR_MAX_VERDICT_LEN;
+}
+
 export const TLDR_FIELD_ORDER = [
   'Ships',
   'Touches',
@@ -58,12 +65,13 @@ export function buildTldrBlock(input: TldrInput): string {
   lines.push(`| Tests | ${escCell(input.tests)} |`);
   lines.push(`| Rollback | ${escCell(input.rollback)} |`);
   lines.push(
-    `| Reviewer verdict | ${escCell(input.reviewer_verdict.slice(0, TLDR_MAX_VERDICT_LEN))} |`,
+    `| Reviewer verdict | ${escCell(input.reviewer_verdict.slice(0, tldrMaxVerdictLen()))} |`,
   );
   lines.push(TLDR_CLOSE);
   const block = lines.join('\n');
-  if (block.length > TLDR_MAX_LEN) {
-    throw new TldrError(`TL;DR block too long (${block.length} > ${TLDR_MAX_LEN} chars)`);
+  const maxLen = tldrMaxLen();
+  if (block.length > maxLen) {
+    throw new TldrError(`TL;DR block too long (${block.length} > ${maxLen} chars)`);
   }
   return block;
 }
@@ -80,7 +88,7 @@ export function upsertTldrInBody(body: string, input: TldrInput): string {
 }
 
 export function updateReviewerVerdictField(body: string, verdict: string): string {
-  const truncated = verdict.slice(0, TLDR_MAX_VERDICT_LEN);
+  const truncated = verdict.slice(0, tldrMaxVerdictLen());
   const re = /\| Reviewer verdict \| (.+?) \|/;
   if (!re.test(body)) return body;
   return body.replace(re, `| Reviewer verdict | ${escCell(truncated)} |`);

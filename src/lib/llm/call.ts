@@ -21,7 +21,9 @@ export interface LlmResult {
 
 export type LlmCall = (prompt: string) => Promise<LlmResult>;
 
-const MAX_TOKENS = 4096;
+const MAX_TOKENS = parseInt(process.env.FERRY_LLM_UTILITY_MAX_TOKENS ?? '', 10) || 4096;
+const LLM_RETRY_BASE_DELAY_MS = parseInt(process.env.FERRY_LLM_RETRY_BASE_DELAY_MS ?? '', 10) || 2000;
+const LLM_RETRY_MAX_ATTEMPTS = parseInt(process.env.FERRY_LLM_RETRY_MAX_ATTEMPTS ?? '', 10) || 3;
 
 function requireEnv(key: string): string {
   const val = process.env[key];
@@ -38,7 +40,7 @@ export function createLlmCall(route: LlmRoute): LlmCall {
     return retry(
       (prompt: string) =>
         invokeAnthropic({ client, model: route.model, prompt, maxTokens: MAX_TOKENS }),
-      { baseDelayMs: 2000, maxAttempts: 3 },
+      { baseDelayMs: LLM_RETRY_BASE_DELAY_MS, maxAttempts: LLM_RETRY_MAX_ATTEMPTS },
     );
   }
 
@@ -47,15 +49,15 @@ export function createLlmCall(route: LlmRoute): LlmCall {
     return retry(
       (prompt: string) =>
         invokeOpenAI({ apiKey, model: route.model, prompt, maxTokens: MAX_TOKENS }),
-      { baseDelayMs: 2000, maxAttempts: 3 },
+      { baseDelayMs: LLM_RETRY_BASE_DELAY_MS, maxAttempts: LLM_RETRY_MAX_ATTEMPTS },
     );
   }
 
   if (route.provider === 'google') {
     const apiKey = requireEnv('FERRY_GOOGLE_AI_KEY');
     return retry((prompt: string) => invokeGoogle({ apiKey, model: route.model, prompt }), {
-      baseDelayMs: 2000,
-      maxAttempts: 3,
+      baseDelayMs: LLM_RETRY_BASE_DELAY_MS,
+      maxAttempts: LLM_RETRY_MAX_ATTEMPTS,
     });
   }
 

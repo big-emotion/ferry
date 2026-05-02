@@ -3,8 +3,8 @@ import type { CheckResult } from '../types.js';
 
 const PROBE_TICKET = 'FERRY-DOCTOR-0';
 const PROBE_EVENT_TYPE = 'ferry-refine';
-const POLL_INTERVAL_MS = 3_000;
-const POLL_TIMEOUT_MS = 45_000;
+const POLL_INTERVAL_MS = parseInt(process.env.FERRY_DISPATCH_POLL_INTERVAL_MS ?? '', 10) || 3_000;
+const POLL_TIMEOUT_MS = parseInt(process.env.FERRY_DISPATCH_PROBE_TIMEOUT_MS ?? '', 10) || 45_000;
 
 interface WorkflowRun {
   databaseId: number;

@@ -178,8 +178,8 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
     owner,
     repo,
     headSha,
-    maxIterations: ferryCfg.limits.max_agent_iterations,
-    maxTokens: ferryCfg.limits.max_tokens_per_message,
+    maxIterations: ferryCfg.limits.reviewer_max_iterations,
+    maxTokens: ferryCfg.limits.reviewer_max_tokens,
     logger,
   });
 

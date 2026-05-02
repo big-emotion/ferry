@@ -27,7 +27,7 @@ const COLUMN_TO_PHASE: Record<string, string> = {
   'Changes Requested': 'iterate',
 };
 
-const FRESH_AUDIT_WINDOW_MIN = 20;
+const FRESH_AUDIT_WINDOW_MIN_DEFAULT = 20;
 
 export interface TicketSnapshot {
   ticket_key: string;
@@ -60,7 +60,10 @@ function isMismatch(t: TicketSnapshot): boolean {
     return expected !== t.jira_column;
   }
   // No state file: only dispatch if last audit is older than the fresh window.
-  return t.last_audit_minutes_ago >= FRESH_AUDIT_WINDOW_MIN;
+  const freshWindow =
+    parseInt(process.env.FERRY_RECONCILER_STALE_WINDOW_MINUTES ?? '', 10) ||
+    FRESH_AUDIT_WINDOW_MIN_DEFAULT;
+  return t.last_audit_minutes_ago >= freshWindow;
 }
 
 function inferPhase(column: string): string {
