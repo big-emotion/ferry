@@ -1,7 +1,16 @@
 #!/usr/bin/env node
 import { execSync } from 'node:child_process';
 import { join } from 'node:path';
-import { ask, confirm, closePrompt, print, printStep, printSuccess, printError } from './prompt.js';
+import {
+  ask,
+  askSecret,
+  confirm,
+  closePrompt,
+  print,
+  printStep,
+  printSuccess,
+  printError,
+} from './prompt.js';
 import { workflowTemplates } from './templates.js';
 import { stepGitHubApp } from './steps/github-app.js';
 import { buildSecrets, stepSecrets } from './steps/secrets.js';
@@ -89,7 +98,7 @@ async function main(): Promise<void> {
   print('Jira credentials:');
   const jiraBaseUrl = await ask('Jira base URL (e.g. https://acme.atlassian.net)');
   const jiraEmail = await ask('Jira account email');
-  const jiraApiToken = await ask(
+  const jiraApiToken = await askSecret(
     'Jira API token (from https://id.atlassian.com/manage-profile/security/api-tokens)',
   );
   const jiraProjectKey = await ask('Jira project key (e.g. CHAN, PROJ)');
@@ -131,7 +140,7 @@ async function main(): Promise<void> {
 
   print('');
   print('LLM provider:');
-  const anthropicApiKey = await ask('Anthropic API key (sk-ant-...)');
+  const anthropicApiKey = await askSecret('Anthropic API key (sk-ant-...)');
 
   closePrompt();
 
