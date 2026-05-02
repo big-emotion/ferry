@@ -7,7 +7,7 @@ import { workflowTemplates } from './templates.js';
 import { stepGitHubApp } from './steps/github-app.js';
 import { buildSecrets, stepSecrets } from './steps/secrets.js';
 import { installWorkflows, scaffoldCodeowners } from './steps/workflows.js';
-import { stepJiraBundle } from './steps/jira-bundle.js';
+import { stepJiraBundle, DEFAULT_STATUS_NAMES } from './steps/jira-bundle.js';
 import { resolveJiraWorkspaceId, resolveJiraProjectId } from './steps/jira-resolve.js';
 import { stepVerify } from './steps/verify.js';
 import type { FerryConfig } from './types.js';
@@ -126,6 +126,13 @@ async function main(): Promise<void> {
   }
 
   print('');
+  print('Jira column names (press Enter to accept defaults):');
+  const refineStatus = await ask('Refiner trigger status', DEFAULT_STATUS_NAMES.refine);
+  const devStatus = await ask('Developer trigger status', DEFAULT_STATUS_NAMES.dev);
+  const reviewStatus = await ask('Reviewer trigger status', DEFAULT_STATUS_NAMES.review);
+  const iterateStatus = await ask('Iterator trigger status', DEFAULT_STATUS_NAMES.iterate);
+
+  print('');
   print('LLM provider:');
   const anthropicApiKey = await ask('Anthropic API key (sk-ant-...)');
 
@@ -164,7 +171,12 @@ async function main(): Promise<void> {
 
   // ── Step 4: Jira automation bundle ────────────────────────────────────────
   printStep(4, TOTAL_STEPS, 'Generating Jira Automation import bundle');
-  stepJiraBundle(repoRoot, owner, repo, config.jiraWorkspaceId, config.jiraProjectId);
+  stepJiraBundle(repoRoot, owner, repo, config.jiraWorkspaceId, config.jiraProjectId, {
+    refine: refineStatus || DEFAULT_STATUS_NAMES.refine,
+    dev: devStatus || DEFAULT_STATUS_NAMES.dev,
+    review: reviewStatus || DEFAULT_STATUS_NAMES.review,
+    iterate: iterateStatus || DEFAULT_STATUS_NAMES.iterate,
+  });
 
   // ── Step 5: Verify ────────────────────────────────────────────────────────
   printStep(5, TOTAL_STEPS, 'Verifying provider API key');

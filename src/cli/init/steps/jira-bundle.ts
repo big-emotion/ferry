@@ -56,23 +56,40 @@ interface JiraAutomationBundle {
   rules: JiraRule[];
 }
 
-const PHASES = [
-  { eventType: 'ferry-refine', statusName: 'Refinement', label: 'Refine' },
-  { eventType: 'ferry-dev', statusName: 'In Development', label: 'Dev' },
-  { eventType: 'ferry-review', statusName: 'In Review', label: 'Review' },
-  { eventType: 'ferry-iterate', statusName: 'Iteration', label: 'Iterate' },
-] as const;
+export interface StatusNames {
+  refine: string;
+  dev: string;
+  review: string;
+  iterate: string;
+}
+
+export const DEFAULT_STATUS_NAMES: StatusNames = {
+  refine: 'Refinement',
+  dev: 'In Development',
+  review: 'In Review',
+  iterate: 'Changes Requested',
+};
+
+function buildPhases(statusNames: StatusNames) {
+  return [
+    { eventType: 'ferry-refine', statusName: statusNames.refine, label: 'Refine' },
+    { eventType: 'ferry-dev', statusName: statusNames.dev, label: 'Dev' },
+    { eventType: 'ferry-review', statusName: statusNames.review, label: 'Review' },
+    { eventType: 'ferry-iterate', statusName: statusNames.iterate, label: 'Iterate' },
+  ] as const;
+}
 
 export function buildJiraBundle(
   owner: string,
   repo: string,
   workspaceId: string,
   projectId: string,
+  statusNames: StatusNames = DEFAULT_STATUS_NAMES,
 ): JiraAutomationBundle {
   const dispatchUrl = `https://api.github.com/repos/${owner}/${repo}/dispatches`;
   const ari = `ari:cloud:jira:${workspaceId}:project/${projectId}`;
 
-  const rules: JiraRule[] = PHASES.map((phase) => {
+  const rules: JiraRule[] = buildPhases(statusNames).map((phase) => {
     const customBody = JSON.stringify({
       event_type: phase.eventType,
       client_payload: {
@@ -135,10 +152,14 @@ export function buildJiraBundle(
   return { cloud: true, rules };
 }
 
-function buildManualSetupDoc(owner: string, repo: string): string {
+function buildManualSetupDoc(
+  owner: string,
+  repo: string,
+  statusNames: StatusNames = DEFAULT_STATUS_NAMES,
+): string {
   const dispatchUrl = `https://api.github.com/repos/${owner}/${repo}/dispatches`;
 
-  const rules = PHASES.map((phase) => {
+  const rules = buildPhases(statusNames).map((phase) => {
     const body = JSON.stringify(
       {
         event_type: phase.eventType,
@@ -232,13 +253,14 @@ export function stepJiraBundle(
   repo: string,
   workspaceId: string,
   projectId: string,
+  statusNames: StatusNames = DEFAULT_STATUS_NAMES,
 ): StepResult {
-  const bundle = buildJiraBundle(owner, repo, workspaceId, projectId);
+  const bundle = buildJiraBundle(owner, repo, workspaceId, projectId, statusNames);
   const jsonPath = join(repoRoot, 'ferry-jira-automation-rules.beta.json');
   writeFileSync(jsonPath, JSON.stringify(bundle, null, 2) + '\n', 'utf8');
 
   const mdPath = join(repoRoot, 'ferry-jira-automation-setup.md');
-  writeFileSync(mdPath, buildManualSetupDoc(owner, repo), 'utf8');
+  writeFileSync(mdPath, buildManualSetupDoc(owner, repo, statusNames), 'utf8');
 
   printSuccess(`Generated ferry-jira-automation-rules.beta.json`);
   printSuccess(`Generated ferry-jira-automation-setup.md (manual fallback)`);
