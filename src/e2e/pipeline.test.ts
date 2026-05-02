@@ -69,6 +69,8 @@ interface MockIO {
   addLabelsSpy: ReturnType<typeof vi.fn>;
   /** Spy for octokit.pulls.merge / octokit.rest.pulls.merge — must never fire */
   mergeSpy: ReturnType<typeof vi.fn>;
+  /** Spy for octokit.graphql (markPullRequestReadyForReview) */
+  graphqlSpy: ReturnType<typeof vi.fn>;
   callLlm: LlmCall;
 }
 
@@ -113,6 +115,7 @@ function buildMockIO(): MockIO {
   };
 
   const mergeSpy = vi.fn(); // must remain uncalled for the entire pipeline run
+  const graphqlSpy = vi.fn().mockResolvedValue({});
 
   const pullsMock = {
     create: vi.fn().mockResolvedValue({
@@ -138,6 +141,7 @@ function buildMockIO(): MockIO {
         base: { ref: 'main' },
         head: { ref: `ferry/${TICKET_KEY}`, sha: HEAD_SHA },
         mergeable: true,
+        node_id: 'PR_kwMockNodeId',
       },
     }),
     listFiles: vi.fn().mockResolvedValue({ data: [] }),
@@ -162,6 +166,7 @@ function buildMockIO(): MockIO {
     checks: checksMock,
     repos: reposMock,
     paginate: vi.fn().mockResolvedValue([]),
+    graphql: graphqlSpy,
     rest: { issues: issuesMock, pulls: pullsMock, checks: checksMock, repos: reposMock },
   } as unknown as Octokit;
 
@@ -182,7 +187,7 @@ function buildMockIO(): MockIO {
     usage: { inputTokens: 100, outputTokens: 50, costEur: 0.01 },
   });
 
-  return { octokit, tracker, runner, auditComments, addLabelsSpy, mergeSpy, callLlm };
+  return { octokit, tracker, runner, auditComments, addLabelsSpy, mergeSpy, graphqlSpy, callLlm };
 }
 
 // ─── Phase runners ────────────────────────────────────────────────────────────
@@ -263,6 +268,7 @@ async function runReviewPhase(
     );
     await io.runner.addLabelsToPR(prRef, ['ferry:approved']); // FR24 approved path
     await io.runner.removeLabelFromPR(prRef, 'ferry:reviewing');
+    await io.runner.markPRReadyForReview(OWNER, REPO, PR_NUMBER);
   } else {
     await io.tracker.postComment(
       ticketKey,
@@ -380,7 +386,7 @@ describe('E2E pipeline: refine → dev → review → iterate', () => {
   });
 
   describe('FR24 approved path', () => {
-    it('adds ferry:approved label and emits no iter transition (exactly one outcome)', async () => {
+    it('adds ferry:approved label, flips PR to ready, and emits no iter transition', async () => {
       const io = buildMockIO();
       await runRefinePhase(io);
       await runDevPhase(io);
@@ -395,6 +401,12 @@ describe('E2E pipeline: refine → dev → review → iterate', () => {
       // ferry:approved label is added
       expect(io.addLabelsSpy).toHaveBeenCalledWith(
         expect.objectContaining({ labels: ['ferry:approved'] }),
+      );
+
+      // PR is flipped from draft to ready for review via GraphQL
+      expect(io.graphqlSpy).toHaveBeenCalledWith(
+        expect.stringContaining('markPullRequestReadyForReview'),
+        expect.objectContaining({ pullRequestId: 'PR_kwMockNodeId' }),
       );
 
       // Exactly one FR24 outcome (label, not transition)

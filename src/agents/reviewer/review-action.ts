@@ -179,6 +179,7 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
     );
     await runner.addLabelsToPR({ owner, repo, prNumber }, ['ferry:approved']);
     await runner.removeLabelFromPR({ owner, repo, prNumber }, 'ferry:reviewing').catch(() => {});
+    await runner.markPRReadyForReview(owner, repo, prNumber);
     await runner.commentOnPR({ owner, repo, prNumber }, review.comment);
   } else {
     const hasIteratorMarker = existingComments.some((c) => c.includes('[ferry:iterator:'));
