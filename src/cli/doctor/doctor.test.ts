@@ -6,6 +6,7 @@ import { generateKeyPairSync } from 'node:crypto';
 import { renderTable } from './table.js';
 import { checkWorkflowDrift } from './checks/workflows.js';
 import { checkPromptOverrides } from './checks/prompts.js';
+import { checkConfigLimits } from './checks/config.js';
 import { listRepoSecrets } from './checks/secrets.js';
 import { makeAppJwt } from './checks/github-app.js';
 import type { CheckResult } from './types.js';
@@ -271,5 +272,82 @@ describe('makeAppJwt', () => {
     };
     expect(payload.iss).toBe('42');
     expect(payload.exp).toBeGreaterThan(payload.iat);
+  });
+});
+
+// ── checkConfigLimits ─────────────────────────────────────────────────────────
+
+describe('checkConfigLimits', () => {
+  function makeRoot(config?: Record<string, unknown>): string {
+    const repoRoot = mkdtempSync(join(tmpdir(), 'ferry-doctor-config-'));
+    if (config !== undefined) {
+      writeFileSync(join(repoRoot, 'ferry.config.json'), JSON.stringify(config), 'utf8');
+    }
+    return repoRoot;
+  }
+
+  it('returns green when no config file exists', () => {
+    const repoRoot = mkdtempSync(join(tmpdir(), 'ferry-doctor-noconfig-'));
+    const result = checkConfigLimits({ repoRoot });
+    expect(result.status).toBe('green');
+    expect(result.detail).toContain('defaults');
+    rmSync(repoRoot, { recursive: true, force: true });
+  });
+
+  it('returns green when limits.max_iterations is not set', () => {
+    const repoRoot = makeRoot({ models: {} });
+    const result = checkConfigLimits({ repoRoot });
+    expect(result.status).toBe('green');
+    expect(result.detail).toContain('default');
+    rmSync(repoRoot, { recursive: true, force: true });
+  });
+
+  it('returns green for a value in the recommended range', () => {
+    const repoRoot = makeRoot({ limits: { max_iterations: 5 } });
+    const result = checkConfigLimits({ repoRoot });
+    expect(result.status).toBe('green');
+    expect(result.detail).toContain('5');
+    rmSync(repoRoot, { recursive: true, force: true });
+  });
+
+  it('returns yellow when max_iterations exceeds the soft ceiling', () => {
+    const repoRoot = makeRoot({ limits: { max_iterations: 15 } });
+    const result = checkConfigLimits({ repoRoot });
+    expect(result.status).toBe('yellow');
+    expect(result.detail).toContain('15');
+    expect(result.remedy).toBeTruthy();
+    rmSync(repoRoot, { recursive: true, force: true });
+  });
+
+  it('returns red when max_iterations is less than 1', () => {
+    const repoRoot = makeRoot({ limits: { max_iterations: 0 } });
+    const result = checkConfigLimits({ repoRoot });
+    expect(result.status).toBe('red');
+    expect(result.detail).toContain('0');
+    expect(result.remedy).toBeTruthy();
+    rmSync(repoRoot, { recursive: true, force: true });
+  });
+
+  it('returns red when max_iterations is not an integer', () => {
+    const repoRoot = makeRoot({ limits: { max_iterations: 2.5 } });
+    const result = checkConfigLimits({ repoRoot });
+    expect(result.status).toBe('red');
+    rmSync(repoRoot, { recursive: true, force: true });
+  });
+
+  it('returns yellow when config JSON is malformed', () => {
+    const repoRoot = mkdtempSync(join(tmpdir(), 'ferry-doctor-badjson-'));
+    writeFileSync(join(repoRoot, 'ferry.config.json'), '{ not valid json', 'utf8');
+    const result = checkConfigLimits({ repoRoot });
+    expect(result.status).toBe('yellow');
+    rmSync(repoRoot, { recursive: true, force: true });
+  });
+
+  it('returns skip for a YAML config file', () => {
+    const repoRoot = mkdtempSync(join(tmpdir(), 'ferry-doctor-yaml-'));
+    writeFileSync(join(repoRoot, 'ferry.config.yaml'), 'limits:\n  max_iterations: 3\n', 'utf8');
+    const result = checkConfigLimits({ repoRoot });
+    expect(result.status).toBe('skip');
+    rmSync(repoRoot, { recursive: true, force: true });
   });
 });
