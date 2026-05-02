@@ -16,6 +16,8 @@ export interface DoctorConfig {
   jiraApiToken: string;
   jiraProjectKey: string;
   anthropicApiKey: string;
+  openaiApiKey: string;
+  googleApiKey: string;
   ferryVersion: string;
   repoRoot: string;
   noDispatch: boolean;

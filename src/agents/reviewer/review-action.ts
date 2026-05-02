@@ -5,6 +5,7 @@ import { checkIdempotencyMarker } from '../../lib/io/idempotency.js';
 import { gateCi } from './ci-gate.js';
 import { detectMergeConflicts, buildFileList, runReviewLoop } from './review-loop.js';
 import { resolveCapabilities } from '../../lib/labels/capabilities.js';
+import { FerryError } from '../../lib/errors/index.js';
 import {
   requireEnv,
   appendOutput,
@@ -27,7 +28,16 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
 
   const iterTransitionId = requireEnv('FERRY_ITER_TRANSITION_ID');
   const { owner, repo, runner, tracker, ferryCfg } = createGitHubContext(REPO_ROOT);
-  const model = ferryCfg.models.review.model;
+  const { provider, model } = ferryCfg.models.review;
+  if (provider !== 'anthropic') {
+    throw new FerryError('state-invariant', {
+      reason: 'unsupported-provider',
+      provider,
+      phase: 'reviewer',
+      detail:
+        "The reviewer phase requires provider 'anthropic'. OpenAI and Google support for agentic phases is planned for a future release.",
+    });
+  }
 
   const issue = await tracker.getIssue(ticketKey);
   const existingComments = issue.comments;
@@ -48,7 +58,7 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
         `${errorMarker} No open PR found for branch ${branchName}. Cannot review.`,
       );
     }
-    appendOutput({ input_tokens: 0, output_tokens: 0, model });
+    appendOutput({ input_tokens: 0, output_tokens: 0, model, provider });
     return;
   }
 
@@ -64,7 +74,7 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
   const { skipped } = checkIdempotencyMarker(idempotencyMarker, existingComments);
   if (skipped) {
     logger.info('already processed, skipping', { sha: headSha.slice(0, 7) });
-    appendOutput({ input_tokens: 0, output_tokens: 0, model });
+    appendOutput({ input_tokens: 0, output_tokens: 0, model, provider });
     return;
   }
 
@@ -78,7 +88,7 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
         ticketKey,
         `${idempotencyMarker} CI checks are still pending on ${headSha.slice(0, 7)}. Will retry when CI completes.`,
       );
-      appendOutput({ input_tokens: 0, output_tokens: 0, model });
+      appendOutput({ input_tokens: 0, output_tokens: 0, model, provider });
       return;
     }
 
@@ -93,7 +103,7 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
       `${idempotencyMarker}\n\n**CI failed:** ${ciMessage}`,
     );
     await tracker.postTransition(ticketKey, iterTransitionId);
-    appendOutput({ input_tokens: 0, output_tokens: 0, model });
+    appendOutput({ input_tokens: 0, output_tokens: 0, model, provider });
     return;
   }
 
@@ -200,7 +210,7 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
     }
   }
 
-  appendOutput({ input_tokens: inputTokens, output_tokens: outputTokens, model });
+  appendOutput({ input_tokens: inputTokens, output_tokens: outputTokens, model, provider });
 }
 
 void runAgent('reviewer', main);
