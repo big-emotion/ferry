@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createRequire } from 'node:module';
 import { execSync } from 'node:child_process';
 import { join } from 'node:path';
 import { ask, confirm, closePrompt, print, printStep, printSuccess, printError } from './prompt.js';
@@ -10,6 +11,10 @@ import { stepJiraBundle } from './steps/jira-bundle.js';
 import { resolveJiraWorkspaceId, resolveJiraProjectId } from './steps/jira-resolve.js';
 import { stepVerify } from './steps/verify.js';
 import type { FerryConfig } from './types.js';
+
+const _require = createRequire(import.meta.url);
+const { version: pkgVersion } = _require('../../../package.json') as { version: string };
+const FERRY_VERSION_DEFAULT = `v${pkgVersion}`;
 
 const TOTAL_STEPS = 5;
 
@@ -29,7 +34,8 @@ function detectRepo(): string | undefined {
 function parseArgs(argv: string[]): { overwrite: boolean; version: string } {
   const overwrite = argv.includes('--overwrite');
   const versionIdx = argv.findIndex((a) => a === '--version');
-  const version = versionIdx >= 0 ? (argv[versionIdx + 1] ?? 'v1') : 'v1';
+  const version =
+    versionIdx >= 0 ? (argv[versionIdx + 1] ?? FERRY_VERSION_DEFAULT) : FERRY_VERSION_DEFAULT;
   return { overwrite, version };
 }
 
