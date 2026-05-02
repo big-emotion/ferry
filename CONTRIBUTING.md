@@ -39,10 +39,11 @@ npm run check:bundle   # builds, then fails if .ferry/ has uncommitted changes
 `npm install` automatically wires two strict Git hooks (via the `prepare` script):
 
 - **`pre-commit`** — `lint-staged` runs Prettier and ESLint (`--max-warnings=0`) on staged files only. Fast (~1s).
-- **`pre-push`** — full CI parity: `typecheck && lint && format:check && test && check:bundle`. Refuses the push if any gate is red, including stale bundles.
-- **`commit-msg`** — `feat:` and `fix:` commits must include at least one `(FRn)` reference (e.g. `feat: add cap (FR29)`). Exempt types: `chore`, `docs`, `refactor`, `test`, `perf`, `ci`, `build`, `style`.
+- **`pre-push`** — full CI parity: `typecheck && lint && format:check && test`. Refuses the push if any gate is red. The bundle-drift check (`npm run check:bundle`) is enforced in CI rather than in the local hook.
 
-`--no-verify` bypasses all three hooks and is **not** considered a normal workflow — only use it intentionally and accept that CI will catch the issue. The authoritative enforcement is server-side branch protection (see below).
+FR-tag governance (e.g. `feat:` / `fix:` commits must reference `(FRn)`) is enforced repo-wide by `npm run check:fr-drift`, wired into the CI lint job — there is no local `commit-msg` hook today.
+
+`--no-verify` bypasses both hooks and is **not** considered a normal workflow — only use it intentionally and accept that CI will catch the issue. The authoritative enforcement is server-side branch protection (see below).
 
 ### Recommended branch protection (repo admins)
 
