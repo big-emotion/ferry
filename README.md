@@ -181,7 +181,7 @@ Create 4 Jira automation rules manually — one per Ferry column. For each rule:
   "event_type": "ferry-refine",
   "client_payload": {
     "version": "v1",
-    "event_id": "{{now.toMillis}}-{{issue.key}}-{{issue.id}}",
+    "event_id": "{{issue.key}}-{{issue.id}}",
     "ticket_key": "{{issue.key}}",
     "phase": "refine",
     "source": "jira-column",

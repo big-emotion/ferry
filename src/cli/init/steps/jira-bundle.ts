@@ -93,12 +93,13 @@ export function buildJiraBundle(
     const customBody = JSON.stringify({
       event_type: phase.eventType,
       client_payload: {
-        phase: phase.label.toLowerCase(),
+        version: 'v1',
+        event_id: '{{issue.key}}-{{issue.id}}',
         ticket_key: '{{issue.key}}',
-        issue_type: '{{issue.issuetype.name}}',
-        actor: '{{initiator.displayName}}',
+        phase: phase.label.toLowerCase(),
         source: 'jira-column',
-        ts: '{{now.format("yyyy-MM-dd\'T\'HH:mm:ssXXX")}}',
+        ts: '{{now.jiraDate}}',
+        issue_type: '{{issue.issuetype.name}}',
       },
     });
 
@@ -164,12 +165,13 @@ function buildManualSetupDoc(
       {
         event_type: phase.eventType,
         client_payload: {
-          phase: phase.label.toLowerCase(),
+          version: 'v1',
+          event_id: '{{issue.key}}-{{issue.id}}',
           ticket_key: '{{issue.key}}',
-          issue_type: '{{issue.issuetype.name}}',
-          actor: '{{initiator.displayName}}',
+          phase: phase.label.toLowerCase(),
           source: 'jira-column',
-          ts: '{{now.format("yyyy-MM-dd\'T\'HH:mm:ssXXX")}}',
+          ts: '{{now.jiraDate}}',
+          issue_type: '{{issue.issuetype.name}}',
         },
       },
       null,

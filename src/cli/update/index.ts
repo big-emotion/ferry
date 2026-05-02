@@ -13,8 +13,10 @@ import {
   printSkip,
 } from '../init/prompt.js';
 import { workflowTemplates } from '../init/templates.js';
+import { buildManualSetupDoc } from '../init/steps/jira-bundle.js';
 import { detectInstalledVersion, computeWorkflowChanges } from './detect.js';
 import { getRelevantMigrations } from './migrations.js';
+import { extractJiraConfigFromSetupFile } from './extract-jira-config.js';
 import type { UpdateConfig } from './types.js';
 
 const _require = createRequire(import.meta.url);
@@ -67,11 +69,12 @@ Options:
 What is updated:
   • .github/workflows/ferry-*.yml — re-rendered from templates at the new version
   • Missing workflow files are added
+  • ferry-jira-automation-setup.md — regenerated if it exists (format fixes, etc.)
 
 What is NOT touched:
   • GitHub repo secrets (already set; ferry-update never re-prompts for creds)
   • FERRY_AUDIT_ISSUE repo variable
-  • Jira Automation rules (consumer-side, manual)
+  • Jira Automation rules themselves (consumer-side, manual)
   • GitHub App installation
 
 Exit code: 0 on success, 1 on error.
@@ -192,6 +195,21 @@ Exit code: 0 on success, 1 on error.
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       printError(`Failed to write ${tmpl.filename}: ${msg}`);
+      errors++;
+    }
+  }
+
+  // ── Regenerate Jira setup file if it exists ────────────────────────────────
+  const jiraConfig = extractJiraConfigFromSetupFile(config.repoRoot);
+  if (jiraConfig) {
+    try {
+      const setupPath = join(config.repoRoot, 'ferry-jira-automation-setup.md');
+      const setupContent = buildManualSetupDoc(jiraConfig.owner, jiraConfig.repo);
+      writeFileSync(setupPath, setupContent, 'utf8');
+      printSuccess('Regenerated ferry-jira-automation-setup.md');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      printError(`Failed to regenerate ferry-jira-automation-setup.md: ${msg}`);
       errors++;
     }
   }

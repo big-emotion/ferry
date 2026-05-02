@@ -19,6 +19,12 @@ If there are no consumer-visible changes, omit the section (or note `(none — i
 
 ---
 
+## v0.5.0 → v0.5.1
+
+- **(action)** Jira Automation custom body JSON format corrected: `{{now.format(...)}}` smart value was invalid and caused empty timestamp fields. Now uses `{{now.jiraDate}}` (valid Jira syntax). The `actor` field (which failed to resolve in column triggers) has been removed. Added `version` and `event_id` fields. If you manually created rules before v0.5.1, you must update the JSON in each rule's "Web request" action. `ferry-update` automatically regenerates `ferry-jira-automation-setup.md` with the corrected format — review and apply the new JSON to each rule before testing.
+
+---
+
 ## v0.3.x → v0.4.0
 
 - **(action)** The Anthropic API key secret has been renamed from `FERRY_ANTHROPIC_API_KEY` to `ANTHROPIC_API_KEY` to match what the reusable agent workflows actually read. After upgrading: re-run `gh secret set ANTHROPIC_API_KEY --body "<sk-ant-...>"` and then `gh secret delete FERRY_ANTHROPIC_API_KEY`. Without this step the agents will fail to authenticate with Anthropic.

@@ -1,9 +1,9 @@
 # Production-Readiness Audit — Ferry
 
 **Date:** 2026-05-02
-**Scope:** end-to-end audit of the Ferry codebase, CI, docs and operations against production-readiness criteria, post-`v0.4.0` release. **This revision adds a dedicated doc–code coherence audit (§4.15)** in response to the question "is everything in the docs backed by a reality in the codebase?".
-**Verdict:** **7.9 / 10 — production-ready for pilot consumers; the install flow runs end-to-end and the release pipeline is proven.** Coherence is high overall; the five drifts catalogued in §4.15 are cosmetic/maintenance-only and do not change the verdict.
-**Target:** **8–9 / 10**, addressed by the residual P1 items in §5.
+**Scope:** end-to-end audit of the Ferry codebase, CI, docs and operations against production-readiness criteria, post-`v0.5.0` release. **This revision is focused on doc–code coherence for a first-time installer** — can a team that runs `ferry-init` today follow the README and reach an approved PR? §4.15 surfaces two new latent drifts that were not in the previous audit.
+**Verdict:** **7.7 / 10 — production-ready for first-time pilot consumers; the install path is internally coherent and works end-to-end at v0.5.0.** Two new coherence gaps caught (ferry-update silent migrations, doctor blind to `FERRY_AUDIT_ISSUE`) — neither blocks a fresh install, but both should be closed before the next release.
+**Target:** **8–9 / 10**, addressed by the residual P0/P1 items in §5.
 
 ---
 
@@ -11,7 +11,7 @@
 
 Read-only audit covering:
 
-- **Code & tests:** `src/`, `vitest run` (962 tests passing), `npm run lint`, `npm run typecheck`, `npm audit`.
+- **Code & tests:** `src/`, `vitest run` (1020 tests passing), `npm run lint`, `npm run typecheck`, `npm audit`.
 - **CI/CD:** `.github/workflows/`, `.github/actions/`, `.github/dependabot.yml`, `.github/CODEOWNERS`, `.gitleaks.toml`, `codeql.yml`, `release.yml`. Recent run history via `gh run list`.
 - **Release artifacts:** `git ls-remote --tags origin`, `npm view @big-emotion/ferry version`.
 - **Docs:** `README.md`, `docs/CONFIGURATION.md`, `docs/RELEASING.md`, `docs/REQUIREMENTS.md`, `docs/adr/`, `CONTRIBUTING.md`, `MIGRATIONS.md`, `CHANGELOG.md`.
@@ -22,34 +22,33 @@ No runtime traffic, no GitHub/Jira/LLM API calls.
 
 ### Top-line answers (the four canonical questions)
 
-1. **Is the project production-ready?** **Yes — for pilot consumers.** All three P0 install-flow blockers from the previous audit have been closed by `cd10e8c` + the `v0.4.0` release: (i) the floating `v1` tag now exists on origin (`43749a2`, force-pushed by `retag-major.sh` as the last step of `release.yml`); (ii) `templates.ts` no longer emits the two broken stubs that referenced non-existent reusable workflows; (iii) the `ANTHROPIC_API_KEY` secret-naming drift between `ferry-init`/`ferry-doctor` and the reusable workflows is gone. `release.yml` ran end-to-end on the v0.4.0 tag push: full CI gate green, npm publish with provenance succeeded (`npm view @big-emotion/ferry version` → `0.4.0`), GitHub Release created from `CHANGELOG.md [0.4.0]`, and `retag-major.sh` retagged `v1`. Remaining gaps are all P1/P2 hardening — none block a pilot install.
-2. **Can a consumer install and reach the full Jira → PR-approved cycle?** **Yes.** A user running `npx -p @big-emotion/ferry@0.4.0 ferry-init` today gets four working stubs (`ferry-{refine,dev,review,iterate}.yml`) all pinned to `@v0.4.0` (which exists on origin and resolves cleanly). `ferry-doctor` now checks all 8 required secrets including the two transition IDs. The README's Operations setup curls `ferry-reconcile.yml` and `ferry-cost-daily.yml` from `/v0.4.0/` (no longer mutable `main`). The three FR auto-transitions (FR18 / FR24 / FR28) are exercised by `src/e2e/pipeline.test.ts` (11 describe blocks, 437 LOC). The `MIGRATIONS.md` `v0.3.x → v0.4.0` section documents the two `(action)` items existing installs need to apply.
-3. **Security posture?** Strong. Strict AJV schema validation; all shell calls use `execFileSync` with argv-as-array (no shell strings); the only `spawn` (`tools.ts:357`) also passes argv as an array. CodeQL + npm audit (clean, 0 vulns) + gitleaks (configured + run before every dev-agent commit) wired in CI. Every workflow job has an explicit `permissions:` block. All third-party actions pinned by SHA. Internal Ferry composite-action references are pinned to `@v0.4.0` (no `@main` self-references). `@octokit/rest` and Jira imports are forbidden under `src/agents/**` (lint rule + dedicated test). The "Ferry never merges" invariant is asserted by the e2e pipeline test (`pipeline.test.ts:377`). Recent CI: Release ✓, CodeQL ✓, Ferry — CI ✓ (latest 5 runs all green). Defense-in-depth gaps remain — no `harden-runner` egress allowlist, no SLSA provenance on the GitHub Release artifact (npm publish has it).
-4. **Is the score close to 8–9/10?** Computed score is **7.9** (vs. 7.4 last audit, vs. 7.2 two audits ago). All three P0s closed. Top three actions to clear 8.5: (i) audit-issue rotation when comments approach the 1000-comment cap, (ii) on-call runbook (`docs/RUNBOOK.md`) covering stalled tickets / cost spikes / agent-loop runaway, (iii) `harden-runner` egress allowlist on the dev/iterate workflows.
+1. **Is the project production-ready?** **Yes — for first-time pilot consumers.** All three previous P0 install-flow blockers stay closed at v0.5.0: floating `v1` tag exists, `templates.ts` emits four working stubs, `ANTHROPIC_API_KEY` is named consistently across init / doctor / reusable workflows. v0.5.0 release pipeline ran clean (`aeff8e6`, full CI gate ✓, npm publish ✓, GitHub Release ✓). All 1020 unit tests pass; `npm audit` clean (0 vulns / 332 deps). The two new coherence gaps surfaced in this audit (§4.15) affect upgrade and post-install diagnostics, not the fresh-install path.
+2. **Can a first-time consumer install and reach the full Jira → PR-approved cycle?** **Yes.** Walking the README at `v0.5.0`: (i) `npx -p @big-emotion/ferry ferry-init` runs the wizard, sets 6 secrets via `gh secret set` (verified: `src/cli/init/init.test.ts`), generates `ferry.config.yaml`, writes 4 stubs pinned to `@v0.5.0` (`templates.ts:26,58,90,122`), and writes `ferry-jira-automation-setup.md` + `ferry-jira-automation-rules.beta.json` (`jira-bundle.ts:260,263`). (ii) Steps 1–4 in the README are mechanically reachable: audit issue + variable, two transition-ID secrets, workflow permissions toggle, four Jira automation rules. (iii) Tag-pin consistency table is fully clean — every internal reference is `@v0.5.0` and resolves on origin. (iv) The three FR auto-transitions (FR18 / FR24 / FR28) are exercised by `src/e2e/pipeline.test.ts`. (v) `install-guide.test.ts` (71 tests) gates 18 README sections including no-`@main` self-references. **One latent trap on Step 1:** if a consumer skips audit-issue creation, the agent dispatch will throw `requireEnv('FERRY_AUDIT_ISSUE')` at runtime but `ferry-doctor` will report green (see §4.15 — D6, P1).
+3. **Security posture?** Strong. Strict AJV schema validation against `event.v1.schema.json`; all shell calls use `execFileSync` with argv-as-array (no shell strings); the only `spawn` (`developer/tools.ts:364`) passes argv as an array. CodeQL + `npm audit` (0 vulns, all severities) + gitleaks (configured + run before every dev-agent commit) wired in CI. Every workflow job has an explicit `permissions:` block. All third-party actions pinned by SHA. Internal Ferry composite-action references are pinned to `@v0.5.0` — no `@main` self-references (asserted by `install-guide.test.ts §15`). `@octokit/rest` and Jira imports are forbidden under `src/agents/**` (`restricted-imports.test.ts`). The "Ferry never merges" invariant is asserted by `pipeline.test.ts:377`. Defense-in-depth gaps remain — no `harden-runner` egress allowlist, no SLSA provenance on the GitHub Release artifact (npm publish has it), no audit-issue rotation tested under load.
+4. **Is the score close to 8–9/10?** Computed score is **7.7** (vs. 7.9 last audit). The 0.2 movement is **not** a regression in shipped behavior — v0.5.0 is functionally a step forward (+1 tunable axis via the externalised env-var/config refactor in `afca0ce`, +58 unit tests since v0.4.0). The decrement reflects two coherence drifts that the v0.4.0 audit missed and this audit catches (§4.15 D6, D7). Top three actions to clear 8.5: (i) **populate `src/cli/update/migrations.ts`** with the v0.3.x→v0.4.0 entries already documented in `MIGRATIONS.md` (P0 — silent upgrade for any v0.3.x consumer); (ii) **add `FERRY_AUDIT_ISSUE` variable check to `ferry-doctor`** so a missed Step 1 surfaces red instead of failing at runtime (P1); (iii) audit-issue rotation when comments approach the 1000-comment cap (P1, carried over).
 
 ---
 
-## 2. Overall score — **7.9 / 10**
+## 2. Overall score — **7.7 / 10**
 
-Movement since the previous audit (7.4): the install-flow regression is fully resolved, release pipeline proven end-to-end on a real tag push.
+Movement since the previous audit (7.9): two latent coherence drifts were unsurfaced (§4.15 D6, D7). Underlying behavior at v0.5.0 is the same or stronger; the score reflects what the audit caught, not a regression in code.
 
 Quality gates at audit time (all green):
 
-- `npm run typecheck` — clean (`@big-emotion/ferry@0.4.0`)
+- `npm run typecheck` — clean (`@big-emotion/ferry@0.5.0`)
 - `npm run lint` — clean
 - `npm run format:check` — clean
-- `npm test` — 83 files / **962 tests** / 100% passing in 1.8s
+- `npm test` — 85 files / **1020 tests** / 100% passing in 1.87s
 - `npm audit` (moderate+) — 0 vulnerabilities (332 deps total)
 - TODO/FIXME/XXX/HACK count under `src/` — 3
 - Recent CI: Release ✓, CodeQL ✓, Ferry — CI ✓
 
 Release artifacts proven:
 
-- Tags on origin: `v0.2.0`, `v0.3.0`, `v0.4.0`, **`v1`** (floating major, points at `43749a2`)
-- `@big-emotion/ferry@0.4.0` published to npm with provenance
-- GitHub Release v0.4.0 created with notes from `CHANGELOG.md`
-- `release.yml` exercised on a live tag push for the first time, all 11 steps green
-- `retag-major.sh` exercised for the first time — `v1` now exists
+- Tags on origin: `v0.2.0`, `v0.3.0`, `v0.4.0`, `v0.5.0`, **`v1`** (floating major)
+- `@big-emotion/ferry@0.5.0` published to npm with provenance (`aeff8e6`)
+- GitHub Release v0.5.0 created with notes from `CHANGELOG.md`
+- v0.5.0 release pipeline ran clean end-to-end
 
 ---
 
@@ -65,15 +64,15 @@ Release artifacts proven:
 | 6   | CI/CD gates                        | **9.0 / 10** | 0          | strong |
 | 7   | Reliability (idempotency, retries) | **8.0 / 10** | 0          | strong |
 | 8   | Observability / audit              | **7.0 / 10** | 0          | medium |
-| 9   | Consumer documentation             | **8.5 / 10** | +3.0       | strong |
+| 9   | Consumer documentation             | **7.0 / 10** | −1.5       | medium |
 | 10  | Code quality / typing              | **8.5 / 10** | 0          | strong |
 | 11  | Traceability / FR governance       | **7.5 / 10** | 0          | strong |
 | 12  | Operations / runbooks / rollback   | **5.5 / 10** | 0          | medium |
-| 13  | Release / distribution             | **9.0 / 10** | +3.0       | strong |
+| 13  | Release / distribution             | **9.0 / 10** | 0          | strong |
 | 14  | Cost governance (runtime)          | **7.0 / 10** | 0          | medium |
-| 15  | Doc–code coherence                 | **8.0 / 10** | new        | strong |
+| 15  | Doc–code coherence                 | **6.5 / 10** | −1.5       | medium |
 
-Mean = **7.90 / 10** (15 axes, including the new Doc–code coherence axis at 8.0) → reported as **7.9**.
+Mean = **7.70 / 10** (15 axes; Domains 9 and 15 each fall by 1.5 due to the two newly surfaced drifts in §4.15) → reported as **7.7**.
 
 ---
 
@@ -102,19 +101,19 @@ The supply-chain self-replication risk is fully closed.
 
 **Strengths — tag-pin consistency table is fully clean:**
 
-| Location                                                                         | Pin                                    | Status    |
-| -------------------------------------------------------------------------------- | -------------------------------------- | --------- |
-| `package.json` `.version`                                                        | `0.4.0`                                | canonical |
-| `.github/workflows/{refine,dev,review,iterate}.yml`                              | `@v0.4.0`                              | match     |
-| `.github/actions/*/action.yml` setup-node SHAs                                   | SHA                                    | pinned    |
-| `examples/consumer-setup/workflows/ferry-{refine,dev,review,iterate}.yml`        | `@v0.4.0`                              | match     |
-| `examples/consumer-setup/workflows/ferry-{reconcile,cost-daily}.yml` `FERRY_REF` | `v0.4.0`                               | match     |
-| `docs/RELEASING.md`                                                              | `@v0.4.0`                              | match     |
-| `docs/adr/0002-ferry-bundles-committed.md`                                       | `@v0.4.0`                              | match     |
-| `README.md` SHA-pinning recipe + ops curl URLs                                   | `@v0.4.0` / `/v0.4.0/`                 | match     |
-| `src/install-guide.test.ts`                                                      | `@v0.4.0`                              | match     |
-| `git ls-remote --tags origin`                                                    | `v0.2.0`, `v0.3.0`, `v0.4.0`, **`v1`** | exist     |
-| `npm @big-emotion/ferry`                                                         | `0.4.0`                                | published |
+| Location                                                                         | Pin                                              | Status    |
+| -------------------------------------------------------------------------------- | ------------------------------------------------ | --------- |
+| `package.json` `.version`                                                        | `0.5.0`                                          | canonical |
+| `.github/workflows/{refine,dev,review,iterate}.yml`                              | `@v0.5.0`                                        | match     |
+| `.github/actions/*/action.yml` setup-node SHAs                                   | SHA                                              | pinned    |
+| `examples/consumer-setup/workflows/ferry-{refine,dev,review,iterate}.yml`        | `@v0.5.0`                                        | match     |
+| `examples/consumer-setup/workflows/ferry-{reconcile,cost-daily}.yml` `FERRY_REF` | `v0.5.0`                                         | match     |
+| `docs/RELEASING.md`                                                              | `@v0.5.0`                                        | match     |
+| `docs/adr/0002-ferry-bundles-committed.md`                                       | `@v0.5.0`                                        | match     |
+| `README.md` SHA-pinning recipe + ops curl URLs                                   | `@v0.5.0` / `/v0.5.0/`                           | match     |
+| `src/install-guide.test.ts`                                                      | `@v0.5.0`                                        | match     |
+| `git ls-remote --tags origin`                                                    | `v0.2.0`, `v0.3.0`, `v0.4.0`, `v0.5.0`, **`v1`** | exist     |
+| `npm @big-emotion/ferry`                                                         | `0.5.0`                                          | published |
 
 - **CodeQL SAST wired** (`.github/workflows/codeql.yml`) — recent run green.
 - **`audit:ci` job in CI** (`scripts/npm-audit-check.mjs`).
@@ -151,11 +150,11 @@ The supply-chain self-replication risk is fully closed.
 
 ### 4.4 Tests & coverage — 8.0 (unchanged)
 
-| Metric  | Status                                          |
-| ------- | ----------------------------------------------- |
-| Suite   | 83 files / **962 tests** / all passing in 1.8 s |
-| Reports | text, text-summary, html, lcov                  |
-| Gate    | **75 / 75 / 75 / 75** in `vitest.config.ts`     |
+| Metric  | Status                                           |
+| ------- | ------------------------------------------------ |
+| Suite   | 85 files / **1020 tests** / all passing in 1.87s |
+| Reports | text, text-summary, html, lcov                   |
+| Gate    | **75 / 75 / 75 / 75** in `vitest.config.ts`      |
 
 **Strengths**
 
@@ -175,7 +174,7 @@ The supply-chain self-replication risk is fully closed.
 **Strengths**
 
 - **Mocked end-to-end pipeline test** at `src/e2e/pipeline.test.ts` replays refine→dev→review→iterate, asserts the no-auto-merge invariant (line 377), and exercises FR18/FR24/FR28.
-- **Install-guide acceptance test** at `src/install-guide.test.ts` (70 tests) covers 18 sections of the README — secret names, reusable-workflow refs, `@v0.4.0` pin, FR mentions, `event_id` schema match, audit-issue creation, smoke-test wording, no `@main` in internal workflows (issue #77 gate), ops stubs, bundle-drift CI gate, npm audit step.
+- **Install-guide acceptance test** at `src/install-guide.test.ts` (70 tests) covers 18 sections of the README — secret names, reusable-workflow refs, `@v0.5.0` pin, FR mentions, `event_id` schema match, audit-issue creation, smoke-test wording, no `@main` in internal workflows (issue #77 gate), ops stubs, bundle-drift CI gate, npm audit step.
 - FR drift detector (`scripts/check-fr-drift.sh`) wired into CI lint job.
 - The release pipeline itself (`release.yml`) is now empirically validated end-to-end by the v0.4.0 push.
 
@@ -231,26 +230,29 @@ The supply-chain self-replication risk is fully closed.
 - Some emitters still pass `correlation_id: ""` (visible in test output) — not all entry points propagate the ID.
 - 8 raw `console.log` calls remain under `src/`.
 
-### 4.9 Consumer documentation — 8.5 (+3.0)
+### 4.9 Consumer documentation — 7.0 (−1.5)
 
-The major recovery. All install-flow incoherences from the previous audit are resolved.
+The fresh-install path is internally coherent. The score drop reflects two newly surfaced gaps that affect upgrades and post-install diagnostics — see §4.15 D6 and D7.
 
 **Strengths**
 
-- `ferry-init` emits exactly 4 working stubs; all pin to `@v0.4.0`; all reusable workflows referenced exist on origin.
+- `ferry-init` emits exactly 4 working stubs; all pin to `@v0.5.0`; all reusable workflows referenced exist on origin.
 - The `ANTHROPIC_API_KEY` secret naming is consistent across README, reusable workflows, `ferry-init`, `ferry-doctor`, and `ferry-uninstall`.
 - `ferry-doctor` now checks for `FERRY_REVIEW_TRANSITION_ID` and `FERRY_ITER_TRANSITION_ID` (8 required secrets total), so a partial install is flagged rather than silently broken.
-- README's "Operations setup" curls `ferry-reconcile.yml` and `ferry-cost-daily.yml` from `/v0.4.0/` (immutable tag, not mutable `main`).
-- `MIGRATIONS.md` `v0.3.x → v0.4.0` section documents the two `(action)` items existing installs must apply (rename `FERRY_ANTHROPIC_API_KEY` → `ANTHROPIC_API_KEY`; delete stale `ferry-{reconciler,audit-daily}.yml`).
+- README's "Operations setup" curls `ferry-reconcile.yml` and `ferry-cost-daily.yml` from `/v0.5.0/` (immutable tag, not mutable `main`).
+- `MIGRATIONS.md` `v0.3.x → v0.4.0` section documents the two `(action)` items existing installs must apply (rename `FERRY_ANTHROPIC_API_KEY` → `ANTHROPIC_API_KEY`; delete stale `ferry-{reconciler,audit-daily}.yml`). **Note:** these entries exist in the markdown file but are **not** wired into `ferry-update` — see §4.15 D6.
 - `docs/CONFIGURATION.md` is internally consistent with the reusable workflows.
 - `docs/REQUIREMENTS.md` FR registry intact; CI drift detector enforces consistency.
 - `docs/adr/` (5 ADRs, README index) present.
-- `docs/RELEASING.md` up-to-date with the @v0.4.0 / @v1 dual-tag scheme.
-- `CHANGELOG.md [0.4.0]` is the source of truth for the GitHub Release notes (auto-extracted by `release.yml`).
+- `docs/RELEASING.md` up-to-date with the @v0.5.0 / @v1 dual-tag scheme.
+- `CHANGELOG.md [0.5.0]` is the source of truth for the GitHub Release notes (auto-extracted by `release.yml`).
 
 **Weaknesses**
 
+- **`ferry-update` does not actually print MIGRATIONS.md follow-ups** — the in-code `MIGRATIONS` object is empty (`src/cli/update/migrations.ts:8–14`, only commented-out example), but the README, `MIGRATIONS.md` itself, and `CLAUDE.md` all promise consumers it will. Result: a v0.3.x consumer running `npx -p @big-emotion/ferry@0.5.0 ferry-update` silently misses the critical `FERRY_ANTHROPIC_API_KEY` → `ANTHROPIC_API_KEY` rename and ends up with broken auth. **Does not affect first-time installers.** P0 for upgrade flow.
+- **`ferry-doctor` does not check the `FERRY_AUDIT_ISSUE` repo variable** — every agent run requires it (`src/lib/audit/emit-audit-action.ts:12`, `requireEnv('FERRY_AUDIT_ISSUE')`), the README dedicates Step 1 to setting it, but `src/cli/doctor/index.ts:139–172` runs 12 checks that never read it. A consumer who skips Step 1 gets a green doctor + a runtime crash on first dispatch. P1.
 - README still asks the user to manually `curl` the ops stubs — could be scaffolded by `ferry-init` instead (P2).
+- README example warning at line 268 still says `v0.4.0 → v0.4.1` (cosmetic, should be `v0.5.0 → v0.5.x`).
 - No on-call runbook (`docs/RUNBOOK.md`).
 - `templates.ts`-emitted stub headers say "Required secrets: ... ANTHROPIC_API_KEY" but the wizard does not collect or set transition IDs; the README does. Cross-checking these in the wizard would close the last hole.
 
@@ -288,7 +290,7 @@ The major recovery. All install-flow incoherences from the previous audit are re
 
 **Strengths**
 
-- Reconciler stub `ferry-reconcile.yml` and cost-daily stub `ferry-cost-daily.yml` ship in `examples/consumer-setup/workflows/`, pinned to `v0.4.0`.
+- Reconciler stub `ferry-reconcile.yml` and cost-daily stub `ferry-cost-daily.yml` ship in `examples/consumer-setup/workflows/`, pinned to `v0.5.0` (verified at `examples/consumer-setup/workflows/ferry-{reconcile,cost-daily}.yml:24`).
 - `ferry-uninstall` CLI present (#129) — first reversible-deploy path.
 - `ferry-update` CLI present (#134) — first migration path; reads `MIGRATIONS.md` and prints required actions.
 
@@ -298,16 +300,16 @@ The major recovery. All install-flow incoherences from the previous audit are re
 - No on-call runbook (`docs/RUNBOOK.md` not yet created) — **the highest-leverage P1**.
 - No proactive monitoring — audit issue pings nobody.
 
-### 4.13 Release / distribution — 9.0 (+3.0)
+### 4.13 Release / distribution — 9.0 (unchanged)
 
-The major upgrade. Release pipeline now empirically proven on a live tag push.
+Release pipeline empirically proven on the v0.4.0 and v0.5.0 tag pushes.
 
 **Strengths**
 
-- `release.yml` runs full quality gate, publishes `@big-emotion/ferry` to npm with `--provenance`, creates a GitHub Release with notes from `CHANGELOG.md`, and force-pushes the floating `v1` tag via `scripts/retag-major.sh`. **All 11 steps green on the v0.4.0 push.**
-- Tags on origin: `v0.2.0`, `v0.3.0`, **`v0.4.0`**, **`v1`** (floating). `v1` was created for the first time by `retag-major.sh` at the end of the v0.4.0 release.
-- npm: `@big-emotion/ferry@0.4.0` published with provenance.
-- `package.json`: `"version": "0.4.0"`, `"publishConfig": { "access": "public" }`.
+- `release.yml` runs full quality gate, publishes `@big-emotion/ferry` to npm with `--provenance`, creates a GitHub Release with notes from `CHANGELOG.md`, and force-pushes the floating `v1` tag via `scripts/retag-major.sh`. **All 11 steps green on both v0.4.0 and v0.5.0 pushes.**
+- Tags on origin: `v0.2.0`, `v0.3.0`, `v0.4.0`, **`v0.5.0`**, **`v1`** (floating).
+- npm: `@big-emotion/ferry@0.5.0` published with provenance.
+- `package.json`: `"version": "0.5.0"`, `"publishConfig": { "access": "public" }`.
 - `CHANGELOG.md` and `MIGRATIONS.md` present and feed the release pipeline.
 - Four CLIs (`ferry-init`, `ferry-doctor`, `ferry-uninstall`, `ferry-update`) shipped under the `bin` field.
 - `check:bundle` CI job ensures `.ferry/` matches `src/` so a tag carries a consistent payload.
@@ -330,7 +332,7 @@ The major upgrade. Release pipeline now empirically proven on a live tag push.
 - No pre-execution check — a single ticket can consume arbitrarily before the daily check runs.
 - The safety net is the consumer copying the stub; nothing validates they did.
 
-### 4.15 Doc–code coherence — 8.0 (new axis)
+### 4.15 Doc–code coherence — 6.5 (−1.5)
 
 A targeted sweep of every concrete claim in `README.md`, `CONTRIBUTING.md`, `CLAUDE.md`, `docs/CONFIGURATION.md`, `docs/RELEASING.md`, `docs/REQUIREMENTS.md`, `docs/adr/0001…0005`, `MIGRATIONS.md`, `CHANGELOG.md` against the actual filesystem and `git grep` of `src/`, `.github/`, `examples/`, `prompts/`, `scripts/`. Method: walk every file path, command, env var, secret, label, FR id, workflow name, composite-action name, default value and version pin in the docs and verify it exists in code; then reverse-walk the code surface (`bin` entries, `FERRY_*` env vars, agent file structure, husky hooks) to find anything user-visible that no doc covers.
 
@@ -343,20 +345,22 @@ A targeted sweep of every concrete claim in `README.md`, `CONTRIBUTING.md`, `CLA
 - Default Jira columns documented in the README (`Refinement` / `In Development` / `In Review` / `Changes Requested` / `Ready to Merge`) match `src/cli/init/index.ts:145–154` and `src/cli/init/steps/jira-bundle.ts:67–70`.
 - `prompts/<agent>.extra.md` mechanism exists (`src/lib/prompts/resolve.ts:63`); `ferry-doctor` warns on full-prompt overrides as the README claims (`src/cli/doctor/checks/prompts.ts:38`).
 - `ferry-init`-generated artefacts (`ferry-jira-automation-setup.md`, `ferry-jira-automation-rules.beta.json`) are written by `src/cli/init/steps/jira-bundle.ts:260,263`.
-- Tag-pin consistency table (§4.2) — every internal `@v0.4.0` reference matches `package.json` `.version`; `git tag` lists `v0.4.0` and the floating `v1`.
+- Tag-pin consistency table (§4.2) — every internal `@v0.5.0` reference matches `package.json` `.version`; `git tag` lists `v0.2.0`, `v0.3.0`, `v0.4.0`, `v0.5.0` and the floating `v1`.
 - README's draft-PR claim (PR opens as draft, flips to ready on approval) is real: `src/lib/dispatch/runner/github-actions/index.ts:139` (`draft: true`) + `:161` (`markPullRequestReadyForReview` mutation).
 - README's `AGENT_MCP_SERVERS` documentation (`url`, `authorization_token`, `allowed_tools`, `denied_tools`) is wired in `src/lib/agent-runtime/`.
 - `CHANGELOG.md` claim that `release.yml` invokes `scripts/retag-major.sh` is real (`.github/workflows/release.yml:106`).
 
-**Confirmed drift (5 items — all cosmetic/maintenance, none block install)**
+**Confirmed drift (7 items — first 5 carried from previous audit, D6 and D7 are new in this revision)**
 
-| #   | Drift                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Severity |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------- |
-| D1  | **`CLAUDE.md` "Two consumer-facing CLIs … `ferry-init` and `ferry-doctor`"** — `package.json` `bin` exposes **four** (`ferry-init`, `ferry-doctor`, `ferry-uninstall`, `ferry-update`). The CLAUDE.md "CLI Entrypoints" section pre-dates v0.4.0.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | low      |
-| D2  | **`CONTRIBUTING.md:42` claims `pre-push` runs `… && check:bundle`** — actual `.husky/pre-push` runs `typecheck && lint && format:check && test` only, no `check:bundle`. CI still enforces bundle drift, so consumers are not affected — but the contributor-facing promise is wrong.                                                                                                                                                                                                                                                                                                                                                                                                                                                      | medium   |
-| D3  | **`CONTRIBUTING.md:43` claims a `commit-msg` hook enforces `(FRn)` references** — `.husky/` contains only `pre-commit` and `pre-push`; `.husky/commit-msg` does not exist. The FR drift detector (`check-fr-drift.sh`) provides repo-wide enforcement, but the per-commit hook described in CONTRIBUTING.md is not installed by `husky install`.                                                                                                                                                                                                                                                                                                                                                                                           | medium   |
-| D4  | **`docs/RELEASING.md:154` "CLIs are exposed under their original bin names — `ferry-init` and `ferry-doctor`"** — outdated since v0.4.0 (which the same audit doc on §4.13 already lists as four CLIs). Same root cause as D1.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | low      |
-| D5  | **`src/cli/init/templates.ts` advertises four phantom "Optional variables" in the `ferry-dev.yml` stub header** — `FERRY_DEV_MAX_ITERATIONS`, `FERRY_DEV_MAX_INPUT_TOKENS`, `FERRY_ANTHROPIC_BASE_URL`, `FERRY_PROMPTS_DIR`. Investigation: `FERRY_ANTHROPIC_BASE_URL` is **not read anywhere** in `src/`; the other three are read at runtime (`config.ts:531–538`, `agent-loop/anthropic.ts:117–120`, `prompts/resolve.ts`) but **none are piped through `.github/actions/ferry-run-developer/action.yml`**. A consumer setting any of them as a repo variable per the stub header gets a silent no-op. (`FERRY_ITER_MAX_INPUT_TOKENS` IS functional — the iter composite action aliases it to `FERRY_DEV_MAX_INPUT_TOKENS` internally.) | medium   |
+| #   | Drift                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Severity |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| D1  | **`CLAUDE.md` "Two consumer-facing CLIs … `ferry-init` and `ferry-doctor`"** — `package.json` `bin` exposes **four** (`ferry-init`, `ferry-doctor`, `ferry-uninstall`, `ferry-update`). The CLAUDE.md "CLI Entrypoints" section pre-dates v0.4.0.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | low      |
+| D2  | **`CONTRIBUTING.md:42` claims `pre-push` runs `… && check:bundle`** — actual `.husky/pre-push` runs `typecheck && lint && format:check && test` only, no `check:bundle`. CI still enforces bundle drift, so consumers are not affected — but the contributor-facing promise is wrong.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | medium   |
+| D3  | **`CONTRIBUTING.md:43` claims a `commit-msg` hook enforces `(FRn)` references** — `.husky/` contains only `pre-commit` and `pre-push`; `.husky/commit-msg` does not exist. The FR drift detector (`check-fr-drift.sh`) provides repo-wide enforcement, but the per-commit hook described in CONTRIBUTING.md is not installed by `husky install`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | medium   |
+| D4  | **`docs/RELEASING.md:154` "CLIs are exposed under their original bin names — `ferry-init` and `ferry-doctor`"** — outdated since v0.4.0 (which the same audit doc on §4.13 already lists as four CLIs). Same root cause as D1.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | low      |
+| D5  | **`src/cli/init/templates.ts` advertises four phantom "Optional variables" in the `ferry-dev.yml` stub header** — `FERRY_DEV_MAX_ITERATIONS`, `FERRY_DEV_MAX_INPUT_TOKENS`, `FERRY_ANTHROPIC_BASE_URL`, `FERRY_PROMPTS_DIR`. Investigation: `FERRY_ANTHROPIC_BASE_URL` is **not read anywhere** in `src/`; the other three are read at runtime (`config.ts:531–538`, `agent-loop/anthropic.ts:117–120`, `prompts/resolve.ts`) but **none are piped through `.github/actions/ferry-run-developer/action.yml`**. A consumer setting any of them as a repo variable per the stub header gets a silent no-op. (`FERRY_ITER_MAX_INPUT_TOKENS` IS functional — the iter composite action aliases it to `FERRY_DEV_MAX_INPUT_TOKENS` internally.)                                                                                                                           | medium   |
+| D6  | **`ferry-update` does not consume `MIGRATIONS.md`** — `src/cli/update/migrations.ts:8–14` defines an in-code `MIGRATIONS: Record<string, MigrationNote[]> = {}` with only a commented-out example. `getRelevantMigrations()` returns `[]` for **every** version pair. Yet `MIGRATIONS.md:4` says "ferry-update reads the relevant section(s) and prints them as **Manual follow-ups required** after upgrading", README line 272 directs users to `MIGRATIONS.md`, and `CLAUDE.md` says ferry-update "reads `MIGRATIONS.md` and prints required follow-ups". Result: any consumer upgrading from `v0.3.x` runs `ferry-update`, sees pins re-rendered, and silently misses the critical `(action)` to rename `FERRY_ANTHROPIC_API_KEY` → `ANTHROPIC_API_KEY` — landing them in broken-auth territory on the next dispatch. **Does not affect first-time installers.** | **P0**   |
+| D7  | **`ferry-doctor` does not check the `FERRY_AUDIT_ISSUE` repo variable** — README Step 1 dedicates an entire section to creating the audit issue and running `gh variable set FERRY_AUDIT_ISSUE`. Every agent run reads it via `requireEnv('FERRY_AUDIT_ISSUE')` (`src/lib/audit/emit-audit-action.ts:12`). Doctor runs 12 checks (`src/cli/doctor/index.ts:139–172`); none check this variable. A first-time installer who skips Step 1 sees a green `ferry-doctor` and a runtime crash on the first Jira column move. The smoke-test step then surfaces the issue — but the doctor is the canonical pre-smoke-test gate and should catch it.                                                                                                                                                                                                                        | **P1**   |
 
 **Reverse-coverage gaps (code surfaces with no doc mention)**
 
@@ -365,7 +369,7 @@ A targeted sweep of every concrete claim in `README.md`, `CONTRIBUTING.md`, `CLA
 
 **Net coherence assessment**
 
-The five drifts above are all _stale_ (text outpaced by a release) rather than _wrong_ (claim never matched code). None affect the install flow, the security posture, or any FR. The two consumer-visible ones (D2, D3) only affect contributors who install husky locally — both backstops (CI bundle-drift job, FR drift detector) still enforce the underlying constraint. **Score: 8.0 / 10** — the bar is "every concrete claim matches reality"; we miss it on five spots out of dozens of high-density references audited.
+D1–D5 are _stale_ text outpaced by a release. D6 and D7 are different in kind: a docs-promised feature that **never matched code** (D6 — ferry-update was always silent on migrations, despite three docs claiming otherwise) and a doctor-coverage hole that a consumer can fall through (D7). For a **first-time installer at v0.5.0**, only D5 and D7 matter, and both are containable: D5's phantom variables are silent no-ops, not failures; D7 surfaces at smoke-test time so a careful operator catches it. For an **upgrading consumer**, D6 is the single biggest user-visible breakage in the v0.3.x → v0.5.0 path. **Score: 6.5 / 10** — D6 is a P0 (consumer-blocking) drift that the previous audit missed; D7 is a P1 hole in the doctor's promise to "verify your install before the smoke test".
 
 ---
 
@@ -375,6 +379,8 @@ The list, ordered by what closes the score gap fastest:
 
 | Order | Action                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Domain        | Score before | Priority | Effort |
 | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- | ------------ | -------- | ------ |
+| 0a    | **(D6 — P0)** Populate `src/cli/update/migrations.ts` with the `v0.3.x → v0.4.0` entries from `MIGRATIONS.md` (or rewrite `getRelevantMigrations()` to parse `MIGRATIONS.md` directly). Add a regression test that asserts a v0.3.x → v0.5.0 upgrade returns the `FERRY_ANTHROPIC_API_KEY` rename note. Without this, every v0.3.x consumer upgrading via `ferry-update` lands in broken auth.                                                                                                          | Coherence     | 6.5          | **P0**   | S      |
+| 0b    | **(D7 — P1)** Add a `checkAuditIssue()` to `src/cli/doctor/checks/` that reads `FERRY_AUDIT_ISSUE` via `gh variable list` and verifies the referenced GitHub Issue exists and is open. Wire it into `src/cli/doctor/index.ts`. Without this, a first-time installer who skips README Step 1 gets a green doctor and a runtime crash.                                                                                                                                                                    | Coherence     | 6.5          | **P1**   | S      |
 | 1     | On-call runbook (`docs/RUNBOOK.md`): stalled ticket, cost spike, agent-loop runaway, rollback procedure                                                                                                                                                                                                                                                                                                                                                                                                 | Operations    | 5.5          | **P1**   | M      |
 | 2     | Audit-issue rotation when comments approach the 1000-comment cap (instead of failing silently)                                                                                                                                                                                                                                                                                                                                                                                                          | Reliability   | 8.0          | **P1**   | M      |
 | 3     | Add `harden-runner` egress allowlist to dev/iterate workflows                                                                                                                                                                                                                                                                                                                                                                                                                                           | GH Actions    | 7.5          | **P1**   | S      |
@@ -411,11 +417,26 @@ P1 alone is sufficient to clear the 8.0 / 10 bar.
 
 ---
 
-## 6. What changed since the previous audit (7.4 → 7.9)
+## 6. What changed since the previous audit (7.9 → 7.7)
+
+| #   | Change since v0.4.0 audit                                                                                 | Effect                                                                                       |
+| --- | --------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| 1   | **v0.5.0 release shipped** (`aeff8e6`) — full release pipeline ran clean a second time on a real tag push | Confirms `release.yml` durability                                                            |
+| 2   | **`afca0ce`** externalised P0+P1 hardcoded values as env vars / `config.json` limits                      | +1 tunability axis for consumers (Domains 5, 8 — already absorbed)                           |
+| 3   | **`8d22a33`** configurable base/working/target branches via `git.*` config                                | New doctor check `checkGitConfig` (D6 of last audit fully closed for branches)               |
+| 4   | **`72c3237`** opt-in auto-transitions via `workflow.agents` column map                                    | New doctor check `checkWorkflowColumns` validates column names against the live Jira project |
+| 5   | **`4615f6e`** per-phase LLM provider selection                                                            | `FERRY_*_PROVIDER` env vars, model-config doctor check                                       |
+| 6   | **`23249fc`** PRs open as draft, flip to ready on reviewer approval                                       | install-guide test asserts the new behavior                                                  |
+| 7   | **+58 unit tests** (962 → **1020**) since the v0.4.0 audit                                                | Net +6 % coverage on CLI checks and runtime                                                  |
+| —   | **D6 / D7 surfaced** — `ferry-update` silent on migrations; `ferry-doctor` blind to `FERRY_AUDIT_ISSUE`   | −1.5 on Domain 9, −1.5 on Domain 15 → score 7.9 → 7.7                                        |
+
+---
+
+## 6.bis Closed in the v0.4.0 audit (7.4 → 7.9)
 
 | #   | Action (prev. audit P0/P1)                                                                                            | Status              | Evidence                                                                                                      |
 | --- | --------------------------------------------------------------------------------------------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------- |
-| 1   | Cut floating `v1` tag from the latest release                                                                         | **done**            | `git ls-remote --tags origin` → `v1` → `43749a2` (force-pushed by `retag-major.sh` on the v0.4.0 push)        |
+| 1   | Cut floating `v1` tag from the latest release                                                                         | **done**            | `git ls-remote --tags origin` → `v1` (force-pushed by `retag-major.sh` on the v0.4.0 + v0.5.0 pushes)         |
 | 2   | Either ship the missing `reconciler.yml` / `audit-daily.yml` reusable workflows or remove the broken scaffolded stubs | **done** (option B) | `src/cli/init/templates.ts` emits 4 stubs (down from 6); `init.test.ts` assertion updated                     |
 | 3   | Reconcile secret-naming convention                                                                                    | **done**            | `secrets.ts` sets `ANTHROPIC_API_KEY`; `doctor/checks/secrets.ts` requires it; `templates.ts` headers updated |
 | 4   | Pin README `curl` URLs to a tag instead of `main`                                                                     | **done**            | `README.md` ops curl URLs point to `/v0.4.0/`                                                                 |

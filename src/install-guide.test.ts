@@ -305,7 +305,7 @@ describe('Phase 4 — event_id format (README §Step 4)', () => {
 
   it('README documents the correct event_id format', async () => {
     const doc = await readFile('README.md');
-    expect(doc).toContain('{{now.toMillis}}-{{issue.key}}-{{issue.id}}');
+    expect(doc).toContain('{{issue.key}}-{{issue.id}}');
   });
 });
 
