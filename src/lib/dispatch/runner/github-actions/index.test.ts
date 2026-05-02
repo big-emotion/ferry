@@ -156,7 +156,9 @@ describe('GitHubActionsRunner', () => {
           node_id: 'PR_kwABCDEF',
         },
       });
-      mock.graphql.mockResolvedValue({ markPullRequestReadyForReview: { pullRequest: { id: 'PR_kwABCDEF' } } });
+      mock.graphql.mockResolvedValue({
+        markPullRequestReadyForReview: { pullRequest: { id: 'PR_kwABCDEF' } },
+      });
 
       await runner.markPRReadyForReview(OWNER, REPO, 42);
 
@@ -169,7 +171,14 @@ describe('GitHubActionsRunner', () => {
 
     it('propagates errors from GraphQL call', async () => {
       mock.pulls.get.mockResolvedValue({
-        data: { node_id: 'PR_kwABCDEF', number: 42, title: 'Fix', base: { ref: 'main' }, head: { ref: 'b', sha: 's' }, mergeable: null },
+        data: {
+          node_id: 'PR_kwABCDEF',
+          number: 42,
+          title: 'Fix',
+          base: { ref: 'main' },
+          head: { ref: 'b', sha: 's' },
+          mergeable: null,
+        },
       });
       mock.graphql.mockRejectedValue(new Error('GraphQL error'));
 
