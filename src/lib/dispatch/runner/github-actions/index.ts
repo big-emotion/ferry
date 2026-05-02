@@ -129,7 +129,15 @@ export class GitHubActionsRunner implements CIRunner {
     body: string,
   ): Promise<string> {
     try {
-      const { data } = await this.octokit.pulls.create({ owner, repo, head, base, title, body });
+      const { data } = await this.octokit.pulls.create({
+        owner,
+        repo,
+        head,
+        base,
+        title,
+        body,
+        draft: true,
+      });
       return data.html_url;
     } catch {
       // PR may already exist — find and return its URL
@@ -143,6 +151,19 @@ export class GitHubActionsRunner implements CIRunner {
       if (existing.length > 0) return existing[0].html_url;
       throw new Error(`Failed to create or find PR for head branch ${head}`);
     }
+  }
+
+  async markPRReadyForReview(owner: string, repo: string, prNumber: number): Promise<void> {
+    const { data } = await this.octokit.pulls.get({ owner, repo, pull_number: prNumber });
+    // GitHub REST does not support draft → ready; GraphQL mutation is required
+    await this.octokit.graphql(
+      `mutation($pullRequestId: ID!) {
+        markPullRequestReadyForReview(input: { pullRequestId: $pullRequestId }) {
+          pullRequest { id }
+        }
+      }`,
+      { pullRequestId: data.node_id },
+    );
   }
 
   async commentOnPR(prRef: PRRef, body: string): Promise<void> {

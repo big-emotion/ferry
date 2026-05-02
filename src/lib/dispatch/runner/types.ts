@@ -50,6 +50,7 @@ export interface CIRunner {
     title: string,
     body: string,
   ): Promise<string>;
+  markPRReadyForReview(owner: string, repo: string, prNumber: number): Promise<void>;
   commentOnPR(prRef: PRRef, body: string): Promise<void>;
   addLabelsToPR(prRef: PRRef, labels: string[]): Promise<void>;
   removeLabelFromPR(prRef: PRRef, label: string): Promise<void>;

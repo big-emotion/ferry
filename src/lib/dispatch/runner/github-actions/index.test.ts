@@ -24,6 +24,7 @@ type MockOctokit = {
     createDispatchEvent: ReturnType<typeof vi.fn>;
   };
   paginate: ReturnType<typeof vi.fn>;
+  graphql: ReturnType<typeof vi.fn>;
 };
 
 function makeMockOctokit(): MockOctokit {
@@ -49,6 +50,7 @@ function makeMockOctokit(): MockOctokit {
       createDispatchEvent: vi.fn(),
     },
     paginate: vi.fn(),
+    graphql: vi.fn(),
   };
 }
 
@@ -113,12 +115,13 @@ describe('GitHubActionsRunner', () => {
   });
 
   describe('createPR', () => {
-    it('returns html_url when PR creation succeeds', async () => {
+    it('opens PR as draft and returns html_url', async () => {
       mock.pulls.create.mockResolvedValue({
         data: { html_url: 'https://github.com/acme/ferry/pull/99' },
       });
       const url = await runner.createPR(OWNER, REPO, 'feature-branch', 'main', 'title', 'body');
       expect(url).toBe('https://github.com/acme/ferry/pull/99');
+      expect(mock.pulls.create).toHaveBeenCalledWith(expect.objectContaining({ draft: true }));
     });
 
     it('returns existing PR url when creation fails (PR already exists)', async () => {
@@ -136,6 +139,48 @@ describe('GitHubActionsRunner', () => {
       await expect(
         runner.createPR(OWNER, REPO, 'feature-branch', 'main', 'title', 'body'),
       ).rejects.toThrow('Failed to create or find PR');
+    });
+  });
+
+  describe('markPRReadyForReview', () => {
+    it('fetches node_id then calls markPullRequestReadyForReview mutation', async () => {
+      mock.pulls.get.mockResolvedValue({
+        data: {
+          number: 42,
+          title: 'Fix',
+          base: { ref: 'main' },
+          head: { ref: 'ferry/CHAN-1', sha: 'cafebabe' },
+          mergeable: true,
+          node_id: 'PR_kwABCDEF',
+        },
+      });
+      mock.graphql.mockResolvedValue({
+        markPullRequestReadyForReview: { pullRequest: { id: 'PR_kwABCDEF' } },
+      });
+
+      await runner.markPRReadyForReview(OWNER, REPO, 42);
+
+      expect(mock.pulls.get).toHaveBeenCalledWith({ owner: OWNER, repo: REPO, pull_number: 42 });
+      expect(mock.graphql).toHaveBeenCalledWith(
+        expect.stringContaining('markPullRequestReadyForReview'),
+        { pullRequestId: 'PR_kwABCDEF' },
+      );
+    });
+
+    it('propagates errors from GraphQL call', async () => {
+      mock.pulls.get.mockResolvedValue({
+        data: {
+          node_id: 'PR_kwABCDEF',
+          number: 42,
+          title: 'Fix',
+          base: { ref: 'main' },
+          head: { ref: 'b', sha: 's' },
+          mergeable: null,
+        },
+      });
+      mock.graphql.mockRejectedValue(new Error('GraphQL error'));
+
+      await expect(runner.markPRReadyForReview(OWNER, REPO, 42)).rejects.toThrow('GraphQL error');
     });
   });
 
