@@ -1,9 +1,8 @@
 import { pathToFileURL } from 'node:url';
-import Anthropic from '@anthropic-ai/sdk';
 import { createTrackerFromEnv } from '../../lib/io/tracker/factory.js';
 import { isDryRun } from '../../lib/dry-run.js';
 import { loadFerryConfig } from '../../lib/config.js';
-import { resolveAnthropicAuth } from '../../lib/llm/anthropic-auth.js';
+import { createLlmCall } from '../../lib/llm/call.js';
 import { runAgent, createLogger } from '../../lib/agent-runtime/index.js';
 import type { Logger } from '../../lib/agent-runtime/index.js';
 import { runRefiner } from './refine.js';
@@ -68,31 +67,9 @@ export async function run(envelope: EventEnvelopeV1, deps: RefinerActionDeps): P
 }
 
 async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
-  const anthropicAuth = resolveAnthropicAuth({ apiKeyEnv: 'ANTHROPIC_API_KEY' });
-  const anthropic = new Anthropic(anthropicAuth);
   const ferryCfg = loadFerryConfig(REPO_ROOT);
-  const model = ferryCfg.models.refiner.model;
-
-  const callLlm: LlmCall = async (prompt) => {
-    const msg = await anthropic.messages.create({
-      model,
-      max_tokens: ferryCfg.limits.max_tokens_per_message,
-      messages: [{ role: 'user', content: prompt }],
-    });
-    const text = msg.content
-      .filter((c): c is Anthropic.TextBlock => c.type === 'text')
-      .map((c) => c.text)
-      .join('');
-    return {
-      text,
-      usage: {
-        inputTokens: msg.usage.input_tokens,
-        outputTokens: msg.usage.output_tokens,
-        costEur: 0,
-      },
-    };
-  };
-
+  const route = ferryCfg.models.refiner;
+  const callLlm: LlmCall = createLlmCall(route);
   const tracker = createTrackerFromEnv();
   await run(envelope, { tracker, callLlm, logger });
 }

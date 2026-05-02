@@ -305,12 +305,31 @@ function applyEnvOverrides(cfg: FerryConfig): FerryConfig {
   const models = { ...cfg.models };
   const limits = { ...cfg.limits };
 
+  const providerFromEnv = (val: string | undefined): LlmRoute['provider'] | undefined => {
+    if (val === 'anthropic' || val === 'openai' || val === 'google') return val;
+    return undefined;
+  };
+
+  const refinerProvider = providerFromEnv(process.env.FERRY_REFINER_PROVIDER);
+  if (refinerProvider) models.refiner = { ...models.refiner, provider: refinerProvider };
+  if (process.env.FERRY_REFINER_MODEL) {
+    models.refiner = { ...models.refiner, model: process.env.FERRY_REFINER_MODEL };
+  }
+
+  const devProvider = providerFromEnv(process.env.FERRY_DEV_PROVIDER);
+  if (devProvider) models.dev = { ...models.dev, provider: devProvider };
   if (process.env.FERRY_DEV_MODEL) {
     models.dev = { ...models.dev, model: process.env.FERRY_DEV_MODEL };
   }
+
+  const reviewProvider = providerFromEnv(process.env.FERRY_REVIEW_PROVIDER);
+  if (reviewProvider) models.review = { ...models.review, provider: reviewProvider };
   if (process.env.FERRY_REVIEW_MODEL) {
     models.review = { ...models.review, model: process.env.FERRY_REVIEW_MODEL };
   }
+
+  const iterProvider = providerFromEnv(process.env.FERRY_ITER_PROVIDER);
+  if (iterProvider) models.iterate = { ...models.iterate, provider: iterProvider };
   if (process.env.FERRY_ITER_MODEL) {
     models.iterate = { ...models.iterate, model: process.env.FERRY_ITER_MODEL };
   }
