@@ -53,6 +53,7 @@
     "format:check": "prettier --check 'src/**/*.ts'",
     "audit:ci": "node scripts/npm-audit-check.mjs",
     "check:bundle": "npm run build:ferry && git diff --exit-code .ferry/",
+    "smoke:bundle": "bash scripts/smoke-bundle.sh",
     "check:fr-drift": "bash scripts/check-fr-drift.sh",
     "prepare": "husky",
     "version": "npm run build:ferry && git add .ferry/"
