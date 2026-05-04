@@ -7,6 +7,14 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [Unreleased]
+
+### Fixed
+
+- **`ferry-update` now prints manual follow-ups from `MIGRATIONS.md`** — `getRelevantMigrations()` previously returned an empty array for every upgrade because `MIGRATIONS` was a stub object. It now parses `MIGRATIONS.md` at runtime, collecting all entries whose target version falls between `fromVersion` and `toVersion` (multi-hop upgrades are handled in a single pass). Consumers upgrading from v0.3.x will now see the critical `FERRY_ANTHROPIC_API_KEY → ANTHROPIC_API_KEY` rename action they previously missed silently. Closes #161 (D6).
+
+---
+
 ## [0.5.3] — 2026-05-03
 
 ### Fixed
