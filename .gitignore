@@ -44,7 +44,8 @@ _bmad/
 _bmad-output/
 
 # Claude Code
-.claude/
+.claude/*
+!.claude/settings.json
 
 # Docs (drafts)
 docs/prd.md
