@@ -251,6 +251,8 @@ Quick install checklist:
 [ ] ferry-doctor reports green (npx -p @big-emotion/ferry ferry-doctor)
 ```
 
+For on-call playbooks (stalled ticket, cost spike, agent-loop runaway, rollback), see [`docs/RUNBOOK.md`](docs/RUNBOOK.md).
+
 ---
 
 ## Lifecycle commands
