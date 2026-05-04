@@ -153,7 +153,8 @@ describe('computeWorkflowChanges', () => {
 // ── getRelevantMigrations ─────────────────────────────────────────────────────
 
 describe('getRelevantMigrations', () => {
-  it('returns empty array when no migrations are registered for the version pair', () => {
+  it('returns empty array when the target version is below all migration targets', () => {
+    // v0.3.1 is below every keyTo in MIGRATIONS.md, so nothing applies.
     expect(getRelevantMigrations('v0.3.0', 'v0.3.1')).toEqual([]);
   });
 
@@ -161,7 +162,25 @@ describe('getRelevantMigrations', () => {
     expect(getRelevantMigrations('0.3.0', '0.3.1')).toEqual([]);
   });
 
-  it('returns empty array for versions with no notes', () => {
-    expect(getRelevantMigrations('v0.1.0', 'v9.9.9')).toEqual([]);
+  it('returns no notes when already at the target version (same from/to)', () => {
+    expect(getRelevantMigrations('v0.5.3', 'v0.5.3')).toEqual([]);
+  });
+
+  // Regression: v0.3.0 → v0.5.4 must surface the FERRY_ANTHROPIC_API_KEY rename action.
+  it('includes the ANTHROPIC_API_KEY rename action for v0.3.0 → v0.5.4', () => {
+    const notes = getRelevantMigrations('v0.3.0', 'v0.5.4');
+    const actions = notes.filter((n) => n.kind === 'action');
+    expect(actions.some((n) => n.message.includes('ANTHROPIC_API_KEY'))).toBe(true);
+  });
+
+  // Regression: v0.5.2 → v0.5.3 is a patch; no consumer actions required.
+  it('returns no action notes for the v0.5.2 → v0.5.3 patch upgrade', () => {
+    const notes = getRelevantMigrations('v0.5.2', 'v0.5.3');
+    expect(notes.filter((n) => n.kind === 'action')).toHaveLength(0);
+  });
+
+  it('includes info notes for v0.5.2 → v0.5.3', () => {
+    const notes = getRelevantMigrations('v0.5.2', 'v0.5.3');
+    expect(notes.filter((n) => n.kind === 'info').length).toBeGreaterThan(0);
   });
 });
