@@ -32,6 +32,42 @@ describe('read_file', () => {
       'Path traversal denied',
     );
   });
+
+  it('returns small files unchanged', async () => {
+    const content = 'a'.repeat(100);
+    await fsp.writeFile(path.join(tmpDir, 'small.txt'), content);
+    const result = await executeTool(tmpDir, 'read_file', { path: 'small.txt' });
+    expect(result).toBe(content);
+  });
+
+  it('truncates large files with head+tail and elision marker', async () => {
+    const big = 'a'.repeat(40_000) + 'b'.repeat(40_000);
+    await fsp.writeFile(path.join(tmpDir, 'big.txt'), big);
+    const result = await executeTool(tmpDir, 'read_file', { path: 'big.txt' });
+    expect(result).toContain('[truncated:');
+    expect(result).toContain('bytes elided]');
+    expect(result.length).toBeLessThan(big.length);
+    expect(result.startsWith('a')).toBe(true);
+    expect(result.endsWith('b')).toBe(true);
+  });
+
+  it('respects FERRY_READ_FILE_MAX_BYTES env override', async () => {
+    const original = process.env.FERRY_READ_FILE_MAX_BYTES;
+    try {
+      process.env.FERRY_READ_FILE_MAX_BYTES = '10';
+      const content = 'hello world, this is longer than ten bytes';
+      await fsp.writeFile(path.join(tmpDir, 'capped.txt'), content);
+      const result = await executeTool(tmpDir, 'read_file', { path: 'capped.txt' });
+      expect(result).toContain('[truncated:');
+      expect(result.length).toBeLessThan(content.length);
+    } finally {
+      if (original === undefined) {
+        delete process.env.FERRY_READ_FILE_MAX_BYTES;
+      } else {
+        process.env.FERRY_READ_FILE_MAX_BYTES = original;
+      }
+    }
+  });
 });
 
 describe('write_file', () => {

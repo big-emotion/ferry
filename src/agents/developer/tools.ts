@@ -17,6 +17,7 @@ export type ToolName =
   | 'done';
 
 const MAX_BASH_OUTPUT_DEFAULT = 64 * 1024;
+const MAX_READ_FILE_BYTES_DEFAULT = 64 * 1024;
 const DEFAULT_BASH_TIMEOUT_MS_DEFAULT = 60_000;
 const MAX_BASH_TIMEOUT_MS_DEFAULT = 300_000;
 const MAX_SEARCH_MATCHES = 200;
@@ -242,11 +243,21 @@ export async function executeTool(
   switch (name as ToolName) {
     case 'read_file': {
       const resolved = assertPathUnderRoot(repoRoot, input.path as string);
+      let content: string;
       try {
-        return await fsp.readFile(resolved, 'utf8');
+        content = await fsp.readFile(resolved, 'utf8');
       } catch (e) {
         throw new Error(`read_file failed: ${(e as NodeJS.ErrnoException).message}`);
       }
+      const maxBytes =
+        parseInt(process.env.FERRY_READ_FILE_MAX_BYTES ?? '', 10) || MAX_READ_FILE_BYTES_DEFAULT;
+      if (content.length <= maxBytes) return content;
+      const headSize = Math.floor(maxBytes / 2);
+      const tailSize = maxBytes - headSize;
+      const head = content.slice(0, headSize);
+      const tail = content.slice(content.length - tailSize);
+      const elided = content.length - headSize - tailSize;
+      return `${head}\n[truncated: ${elided} bytes elided]\n${tail}`;
     }
 
     case 'write_file': {
