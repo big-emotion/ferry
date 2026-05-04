@@ -45,6 +45,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
+      - name: Install gitleaks
+        shell: bash
+        run: |
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz" \
+            | tar -xz -C /usr/local/bin gitleaks
+
       - name: Run Refiner agent
         uses: big-emotion/ferry/.github/actions/ferry-run-refiner@v0.5.3
         with:
