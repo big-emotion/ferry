@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import type { CheckResult } from '../types.js';
 
 const LABEL = 'Audit issue';
@@ -8,7 +8,7 @@ const REMEDY =
 export function checkAuditIssue(repo: string): CheckResult {
   let rawValue: string;
   try {
-    rawValue = execSync(`gh variable get FERRY_AUDIT_ISSUE --repo ${repo}`, {
+    rawValue = execFileSync('gh', ['variable', 'get', 'FERRY_AUDIT_ISSUE', '--repo', repo], {
       encoding: 'utf8',
       stdio: ['pipe', 'pipe', 'pipe'],
     }).trim();
@@ -47,10 +47,14 @@ export function checkAuditIssue(repo: string): CheckResult {
 
   let issue: IssueState;
   try {
-    const out = execSync(`gh issue view ${issueNumber} --repo ${repo} --json state`, {
-      encoding: 'utf8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    const out = execFileSync(
+      'gh',
+      ['issue', 'view', String(issueNumber), '--repo', repo, '--json', 'state'],
+      {
+        encoding: 'utf8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      },
+    );
     issue = JSON.parse(out) as IssueState;
   } catch {
     return {
