@@ -11,6 +11,7 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`ferry-doctor` check D7: audit issue (FERRY_AUDIT_ISSUE)** — new check verifies the `FERRY_AUDIT_ISSUE` repo variable is set, holds a positive integer, and that the referenced GitHub issue exists and is open. Previously a first-time installer who skipped README Step 1 would see a green doctor output and hit a runtime crash on the first Jira column move. All four failure modes (variable missing, non-numeric, issue not found, issue closed) produce an actionable error pointing to README Step 1 (#159).
 - **Bundle-runtime smoke gate** (`scripts/smoke-bundle.sh`, `npm run smoke:bundle`) — boots each compiled `.ferry/<role>-action.js` under Node 20 with stub credentials and asserts stderr contains none of the v0.5.1 DOA failure signatures (`Dynamic require of`, `Cannot find module`, `is not a function`). Bridges the gap between the bundle drift check (verifies the bundle is current) and real execution (verifies the bundle actually runs). Wired into `release.yml` after bundle drift check and before `npm publish`; runs in parallel in `ferry-ci.yml`. Surfaced by the v0.5.1 incident (#162).
 
 ### Fixed
