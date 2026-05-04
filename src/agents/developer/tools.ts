@@ -17,6 +17,7 @@ export type ToolName =
   | 'done';
 
 const MAX_BASH_OUTPUT_DEFAULT = 64 * 1024;
+const MAX_READ_FILE_BYTES_DEFAULT = 256 * 1024;
 const DEFAULT_BASH_TIMEOUT_MS_DEFAULT = 60_000;
 const MAX_BASH_TIMEOUT_MS_DEFAULT = 300_000;
 const MAX_SEARCH_MATCHES = 200;
@@ -24,7 +25,8 @@ const MAX_SEARCH_MATCHES = 200;
 export const TOOL_SCHEMAS: AgentTool[] = [
   {
     name: 'read_file',
-    description: 'Read the contents of a file under the repository root.',
+    description:
+      'Read the contents of a file under the repository root. Files larger than ~256 KB are truncated; use bash sed/grep to read specific ranges.',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -242,10 +244,33 @@ export async function executeTool(
   switch (name as ToolName) {
     case 'read_file': {
       const resolved = assertPathUnderRoot(repoRoot, input.path as string);
+      const maxBytes =
+        parseInt(process.env.FERRY_READ_FILE_MAX_BYTES ?? '', 10) || MAX_READ_FILE_BYTES_DEFAULT;
+      let stat: fs.Stats;
       try {
-        return await fsp.readFile(resolved, 'utf8');
+        stat = await fsp.stat(resolved);
       } catch (e) {
         throw new Error(`read_file failed: ${(e as NodeJS.ErrnoException).message}`);
+      }
+      if (stat.size <= maxBytes) {
+        try {
+          return await fsp.readFile(resolved, 'utf8');
+        } catch (e) {
+          throw new Error(`read_file failed: ${(e as NodeJS.ErrnoException).message}`);
+        }
+      }
+      const fh = await fsp.open(resolved, 'r');
+      try {
+        const buf = Buffer.alloc(maxBytes);
+        await fh.read(buf, 0, maxBytes, 0);
+        const remaining = stat.size - maxBytes;
+        return (
+          buf.toString('utf8') +
+          `\n[truncated: ${remaining} more bytes — file is ${stat.size} bytes total. ` +
+          `Use bash 'sed -n "N,Mp" <path>' or 'grep -n <pattern> <path>' to read specific ranges.]`
+        );
+      } finally {
+        await fh.close();
       }
     }
 
@@ -340,7 +365,11 @@ export async function executeTool(
       const maxBashOutput =
         parseInt(process.env.FERRY_BASH_OUTPUT_MAX_BYTES ?? '', 10) || MAX_BASH_OUTPUT_DEFAULT;
       const combined = `exit_code: ${result.exitCode}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`;
-      return combined.slice(0, maxBashOutput);
+      if (combined.length <= maxBashOutput) return combined;
+      return (
+        combined.slice(0, maxBashOutput) +
+        `\n[truncated: ${combined.length - maxBashOutput} more bytes — pipe through head/grep/awk to narrow output.]`
+      );
     }
 
     default:
