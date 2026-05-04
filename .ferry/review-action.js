@@ -11735,7 +11735,7 @@ async function main(envelope, logger) {
     } else {
       await tracker.postComment(
         ticketKey,
-        `${idempotencyMarker} Changes requested (re-review). Iteration cap (${cap}) reached — see PR#${prNumber} and move ticket manually.`
+        `${idempotencyMarker} Changes requested (re-review). Iteration cap (${cap}) reached; see PR#${prNumber} and move ticket manually.`
       );
     }
   }

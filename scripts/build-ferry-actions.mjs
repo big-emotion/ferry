@@ -14,7 +14,6 @@ const shared = {
   target: 'node20',
   format: 'esm',
   minify: false,
-  charset: 'utf8',
   // Expose a real `require` at the top of each ESM bundle so transitive CJS
   // deps (e.g. google-auth-library) can resolve dynamic require('child_process')
   // calls instead of hitting esbuild's "Dynamic require of X is not supported" shim.

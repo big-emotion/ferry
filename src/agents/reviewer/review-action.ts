@@ -223,7 +223,7 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
     } else {
       await tracker.postComment(
         ticketKey,
-        `${idempotencyMarker} Changes requested (re-review). Iteration cap (${cap}) reached — see PR#${prNumber} and move ticket manually.`,
+        `${idempotencyMarker} Changes requested (re-review). Iteration cap (${cap}) reached; see PR#${prNumber} and move ticket manually.`,
       );
     }
   }
