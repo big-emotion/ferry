@@ -11,10 +11,10 @@ import {
 describe('PHASE_TO_WORKFLOW table', () => {
   it('maps every supported phase to its workflow filename and dispatch type', () => {
     expect(PHASE_TO_WORKFLOW).toEqual({
-      refine: { workflow: 'refine.yml', dispatchType: 'ferry-refine' },
-      dev: { workflow: 'dev.yml', dispatchType: 'ferry-dev' },
-      review: { workflow: 'review.yml', dispatchType: 'ferry-review' },
-      iterate: { workflow: 'iterate.yml', dispatchType: 'ferry-iterate' },
+      refine: { workflow: 'ferry-refine.yml', dispatchType: 'ferry-refine' },
+      dev: { workflow: 'ferry-dev.yml', dispatchType: 'ferry-dev' },
+      review: { workflow: 'ferry-review.yml', dispatchType: 'ferry-review' },
+      iterate: { workflow: 'ferry-iterate.yml', dispatchType: 'ferry-iterate' },
     });
   });
 
@@ -25,10 +25,10 @@ describe('PHASE_TO_WORKFLOW table', () => {
 
 describe('phaseToWorkflow / phaseToDispatchType', () => {
   it.each([
-    ['refine', 'refine.yml', 'ferry-refine'],
-    ['dev', 'dev.yml', 'ferry-dev'],
-    ['review', 'review.yml', 'ferry-review'],
-    ['iterate', 'iterate.yml', 'ferry-iterate'],
+    ['refine', 'ferry-refine.yml', 'ferry-refine'],
+    ['dev', 'ferry-dev.yml', 'ferry-dev'],
+    ['review', 'ferry-review.yml', 'ferry-review'],
+    ['iterate', 'ferry-iterate.yml', 'ferry-iterate'],
   ] as const)('phase %s → %s / %s', (phase, workflow, dispatchType) => {
     expect(phaseToWorkflow(phase)).toBe(workflow);
     expect(phaseToDispatchType(phase)).toBe(dispatchType);

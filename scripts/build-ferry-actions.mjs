@@ -97,6 +97,7 @@ writeFileSync(
         'ajv-formats': '^3.0.1',
         '@octokit/rest': '^22.0.1',
         '@anthropic-ai/sdk': '^0.91.1',
+        yaml: '^2.6.0',
       },
     },
     null,
@@ -224,6 +225,7 @@ for (const agent of agentActions) {
         dependencies: {
           ajv: '^8.0.0',
           'ajv-formats': '^3.0.1',
+          yaml: '^2.6.0',
         },
       },
       null,

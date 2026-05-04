@@ -4127,10 +4127,10 @@ var Octokit2 = Octokit.plugin(requestLog, legacyRestEndpointMethods, paginateRes
 
 // src/lib/dispatch/routing.ts
 var PHASE_TO_WORKFLOW = Object.freeze({
-  refine: Object.freeze({ workflow: "refine.yml", dispatchType: "ferry-refine" }),
-  dev: Object.freeze({ workflow: "dev.yml", dispatchType: "ferry-dev" }),
-  review: Object.freeze({ workflow: "review.yml", dispatchType: "ferry-review" }),
-  iterate: Object.freeze({ workflow: "iterate.yml", dispatchType: "ferry-iterate" })
+  refine: Object.freeze({ workflow: "ferry-refine.yml", dispatchType: "ferry-refine" }),
+  dev: Object.freeze({ workflow: "ferry-dev.yml", dispatchType: "ferry-dev" }),
+  review: Object.freeze({ workflow: "ferry-review.yml", dispatchType: "ferry-review" }),
+  iterate: Object.freeze({ workflow: "ferry-iterate.yml", dispatchType: "ferry-iterate" })
 });
 
 // src/lib/dispatch/runner/github-actions/index.ts

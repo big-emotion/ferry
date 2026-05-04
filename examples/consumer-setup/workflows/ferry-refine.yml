@@ -1,5 +1,5 @@
 # Copy this file to .github/workflows/ferry-refine.yml in your repository.
-# Replace @v0.6.0 with the Ferry release tag you want to pin (e.g. @v0.7.0).
+# Replace @v0.7.0 with the Ferry release tag you want to pin.
 # Required secrets: FERRY_JIRA_BASE_URL, FERRY_JIRA_EMAIL, FERRY_JIRA_API_TOKEN, ANTHROPIC_API_KEY
 # Required variables: FERRY_AUDIT_ISSUE (GitHub Issue number for the audit log)
 
@@ -9,19 +9,71 @@ on:
   repository_dispatch:
     types: [ferry-refine]
 
-permissions:
-  contents: read
-  issues: write
-
-# Concurrency is managed by the reusable workflow (refine.yml). Adding a concurrency block here
-# would deadlock: github.workflow resolves to the caller's name in both contexts, making the
-# group keys identical. The caller would hold the lock while the reusable waits for it.
+# cancel-in-progress: true — Refiner is pure read + audit comment; latest human edit wins
+concurrency:
+  group: ferry-${{ github.workflow }}-${{ github.event.client_payload.ticket_key || 'ferry-invalid-payload-sinkhole' }}
+  cancel-in-progress: true
 
 jobs:
-  refine:
-    uses: big-emotion/ferry/.github/workflows/refine.yml@v0.6.0
-    with:
-      ticket_key: ${{ github.event.client_payload.ticket_key }}
-      event_id: ${{ github.event.client_payload.event_id }}
-      payload: ${{ toJson(github.event.client_payload) }}
-    secrets: inherit
+  gate-envelope:
+    name: Validate event envelope
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Validate event envelope
+        uses: big-emotion/ferry/.github/actions/ferry-envelope-validate@v0.7.0
+        with:
+          payload: ${{ toJson(github.event.client_payload) }}
+
+  run-agent:
+    name: Run Refiner agent
+    needs: [gate-envelope]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install gitleaks
+        shell: bash
+        run: |
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz" \
+            | tar -xz -C /usr/local/bin gitleaks
+
+      - name: Run Refiner agent
+        uses: big-emotion/ferry/.github/actions/ferry-run-refiner@v0.7.0
+        with:
+          payload: ${{ toJson(github.event.client_payload) }}
+          jira_base_url: ${{ secrets.FERRY_JIRA_BASE_URL }}
+          jira_email: ${{ secrets.FERRY_JIRA_EMAIL }}
+          jira_api_token: ${{ secrets.FERRY_JIRA_API_TOKEN }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          ferry_model: claude-sonnet-4-6
+
+  emit-audit:
+    name: Emit audit line
+    needs: [run-agent]
+    if: needs.run-agent.result != 'skipped'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Emit audit line
+        uses: big-emotion/ferry/.github/actions/ferry-emit-audit@v0.7.0
+        with:
+          ticket: ${{ github.event.client_payload.ticket_key }}
+          phase: refine
+          run_id: ${{ github.event.client_payload.event_id }}
+          model: claude-sonnet-4-6
+          outcome: ${{ needs.run-agent.result }}
+          start_ms: ${{ github.run_id }}
+          audit_issue: ${{ vars.FERRY_AUDIT_ISSUE }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}

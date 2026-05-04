@@ -98,7 +98,7 @@ gh run list --workflow ferry-reconcile.yml --repo YOUR_ORG/YOUR_REPO --limit 5
 If no runs appear in the last 30 minutes, the reconciler is not wired. Add it:
 
 ```bash
-curl -fsSL "https://raw.githubusercontent.com/big-emotion/ferry/v0.6.0/examples/consumer-setup/workflows/ferry-reconcile.yml" \
+curl -fsSL "https://raw.githubusercontent.com/big-emotion/ferry/v0.7.0/examples/consumer-setup/workflows/ferry-reconcile.yml" \
   -o ".github/workflows/ferry-reconcile.yml"
 git add .github/workflows/ferry-reconcile.yml
 git commit -m "chore(ferry): add reconciler workflow"
@@ -368,13 +368,13 @@ gh api repos/big-emotion/ferry/git/refs/tags --jq '.[].ref' | grep 'refs/tags/v'
 
 Stable releases to consider rolling back to, in descending order:
 
-| Tag      | Notes                                              |
-| -------- | -------------------------------------------------- |
-| `v0.6.0` | Current recommended pin                            |
-| `v0.5.2` | Safe install path; known Refiner parser bug (D9)   |
-| `v0.5.1` | **Do not use** — Refiner CJS dynamic-require crash |
-| `v0.5.0` | Stable; missing v0.5.1+ Jira automation JSON fixes |
-| `v0.4.0` | Last stable before multi-provider refiner          |
+| Tag      | Notes                                                                  |
+| -------- | ---------------------------------------------------------------------- |
+| `v0.7.0` | Current recommended pin; expanded inline workflows (cross-org secrets) |
+| `v0.6.0` | Previous stable; reusable-workflow form (breaks cross-org secrets)     |
+| `v0.5.2` | Safe install path; known Refiner parser bug (D9)                       |
+| `v0.5.1` | **Do not use** — Refiner CJS dynamic-require crash                     |
+| `v0.5.0` | Stable; missing v0.5.1+ Jira automation JSON fixes                     |
 
 ### 5.3 Re-pin consumer workflows
 
@@ -382,8 +382,8 @@ The consumer repo has four Ferry workflow stubs. Re-pin them all:
 
 ```bash
 # Replace the current pin with the target version
-CURRENT=v0.6.0    # what your workflows currently pin
-TARGET=v0.5.2     # the version you want to roll back to
+CURRENT=v0.7.0    # what your workflows currently pin
+TARGET=v0.6.0     # the version you want to roll back to
 
 sed -i.bak "s|@${CURRENT}|@${TARGET}|g" .github/workflows/ferry-*.yml
 rm .github/workflows/ferry-*.yml.bak

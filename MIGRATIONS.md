@@ -19,6 +19,14 @@ If there are no consumer-visible changes, omit the section (or note `(none — i
 
 ---
 
+## v0.6.x → v0.7.0
+
+- **(action)** Run `npx -p @big-emotion/ferry@v0.7.0 ferry-update` to migrate consumer workflows from reusable-workflow form to expanded form. Required for any consumer in a GitHub org other than `big-emotion` (cross-org `secrets: inherit` is unsupported by GitHub).
+- **(info)** Workflow file count and names are unchanged (`ferry-refine.yml`, `ferry-dev.yml`, `ferry-review.yml`, `ferry-iterate.yml`). Each grows from ~25 lines to ~90 lines as the 3 jobs (`gate-envelope`, `run-agent`, `emit-audit`) move from the reusable workflow into the consumer file.
+- **(info)** `ferry.config.yaml` config files now load correctly. If you converted to `ferry.config.json` as a workaround, both formats are supported; `ferry.config.json` takes precedence when both exist in the repo root.
+
+---
+
 ## v0.5.3 → v0.6.0
 
 - **(info)** Refiner and Reviewer reusable workflows now install `gitleaks` v8.21.2 on the runner before invoking the agent. Fixes `Error: spawn gitleaks ENOENT` crashes that affected every Refiner run and any Reviewer run that posted a Jira comment under `@v0.5.3` (and earlier). No consumer action required — `ferry-update` re-pins workflows to `@v0.6.0` automatically.

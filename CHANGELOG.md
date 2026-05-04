@@ -11,6 +11,22 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.7.0] — 2026-05-04
+
+### Changed
+
+- **Consumer workflows now call composite actions directly** — `ferry-init` generates expanded three-job workflows (`gate-envelope`, `run-agent`, `emit-audit`) that call Ferry's composite actions via `with:` inputs instead of delegating to a reusable workflow with `secrets: inherit`. This fixes cross-org secret propagation: GitHub does not forward `secrets: inherit` when the caller and the reusable workflow belong to different organisations.
+
+### Fixed
+
+- **`ferry.config.yaml` config now loads correctly in composite actions** — the `yaml` package was missing from the runtime dependencies of all four `ferry-run-*` composite actions (`scripts/build-ferry-actions.mjs`), causing every agent to crash with `'YAML config requires the "yaml" package'` when the consumer used a YAML config file. The `yaml` package is now included in all composite action bundles. Consumers using `ferry.config.json` are unaffected.
+
+### Removed
+
+- **Reusable workflows deleted** — `.github/workflows/refine.yml`, `dev.yml`, `review.yml`, and `iterate.yml` are removed from the Ferry repository. Consumers pinned to `@v0.6.0` continue to work; run `ferry-update` to migrate to the v0.7.0 expanded form.
+
+---
+
 ## [0.6.0] — 2026-05-04
 
 ### Added
