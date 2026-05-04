@@ -8,7 +8,11 @@
 
 import type { EventPhase } from '../envelope/types.js';
 
-export type WorkflowFile = 'refine.yml' | 'dev.yml' | 'review.yml' | 'iterate.yml';
+export type WorkflowFile =
+  | 'ferry-refine.yml'
+  | 'ferry-dev.yml'
+  | 'ferry-review.yml'
+  | 'ferry-iterate.yml';
 export type DispatchType = 'ferry-refine' | 'ferry-dev' | 'ferry-review' | 'ferry-iterate';
 
 export type PhaseRoute = Readonly<{
@@ -19,10 +23,10 @@ export type PhaseRoute = Readonly<{
 type RoutingTable = Readonly<Record<Exclude<EventPhase, 'reconcile'>, PhaseRoute>>;
 
 export const PHASE_TO_WORKFLOW: RoutingTable = Object.freeze({
-  refine: Object.freeze({ workflow: 'refine.yml', dispatchType: 'ferry-refine' }),
-  dev: Object.freeze({ workflow: 'dev.yml', dispatchType: 'ferry-dev' }),
-  review: Object.freeze({ workflow: 'review.yml', dispatchType: 'ferry-review' }),
-  iterate: Object.freeze({ workflow: 'iterate.yml', dispatchType: 'ferry-iterate' }),
+  refine: Object.freeze({ workflow: 'ferry-refine.yml', dispatchType: 'ferry-refine' }),
+  dev: Object.freeze({ workflow: 'ferry-dev.yml', dispatchType: 'ferry-dev' }),
+  review: Object.freeze({ workflow: 'ferry-review.yml', dispatchType: 'ferry-review' }),
+  iterate: Object.freeze({ workflow: 'ferry-iterate.yml', dispatchType: 'ferry-iterate' }),
 }) as RoutingTable;
 
 export function phaseToWorkflow(phase: keyof RoutingTable): WorkflowFile {

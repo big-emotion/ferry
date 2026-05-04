@@ -10,6 +10,7 @@ import { createRequire } from 'module';
 import type { ValidateFunction } from 'ajv';
 import { FerryError } from '../../lib/errors/index.js';
 import { delimitUntrusted } from '../../lib/llm/delimit-untrusted.js';
+import { extractFirstJsonObject } from './parse.js';
 import { REFINER_OUTPUT_SCHEMA, getRefinerTouchPathsCap, type RefinerOutput } from './schema.js';
 
 const _require = createRequire(import.meta.url);
@@ -91,13 +92,6 @@ function buildPrompt(input: RefinerInput): string {
   ].join('\n\n');
 }
 
-function stripMarkdownFences(text: string): string {
-  return text
-    .replace(/^```(?:json)?\s*\n?/, '')
-    .replace(/\n?```\s*$/, '')
-    .trim();
-}
-
 const SAMPLE_MAX = 512;
 
 function sampleOf(text: string): string {
@@ -105,16 +99,20 @@ function sampleOf(text: string): string {
 }
 
 function parseJsonOrThrow(text: string): unknown {
-  try {
-    return JSON.parse(stripMarkdownFences(text));
-  } catch {
-    throw new FerryError('state-invariant', {
-      reason: 'refiner-output-invalid',
-      stage: 'parse',
-      sample: sampleOf(text),
-      text_length: text.length,
-    });
+  const candidate = extractFirstJsonObject(text);
+  if (candidate !== null) {
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      // fall through to throw below
+    }
   }
+  throw new FerryError('state-invariant', {
+    reason: 'refiner-output-invalid',
+    stage: 'parse',
+    sample: sampleOf(text),
+    text_length: text.length,
+  });
 }
 
 function ensureSchemaValid(plan: unknown, rawText: string): asserts plan is RefinerOutput {

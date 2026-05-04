@@ -46,10 +46,10 @@ describe('Phase 3 — consumer workflow stubs (install-guide §3.1)', () => {
   }
 
   for (const stub of coreStubs) {
-    it(`${stub}.yml references @v0.5.3 (not @main)`, async () => {
+    it(`${stub}.yml references @v0.7.0 (not @main)`, async () => {
       const content = await readFile(`examples/consumer-setup/workflows/${stub}.yml`);
-      expect(content, `${stub}.yml must pin to @v0.5.3 — @main is mutable and insecure`).toMatch(
-        /@v0\.5\.3\b/,
+      expect(content, `${stub}.yml must pin to @v0.7.0 — @main is mutable and insecure`).toMatch(
+        /@v0\.7\.0\b/,
       );
       expect(content, `${stub}.yml must not use @main (use a release tag or a SHA)`).not.toMatch(
         /@main/,
@@ -58,9 +58,13 @@ describe('Phase 3 — consumer workflow stubs (install-guide §3.1)', () => {
   }
 
   for (const stub of coreStubs) {
-    it(`${stub}.yml uses secrets: inherit`, async () => {
+    it(`${stub}.yml calls composite actions directly (no secrets: inherit)`, async () => {
       const content = await readFile(`examples/consumer-setup/workflows/${stub}.yml`);
-      expect(content, `${stub}.yml must pass secrets: inherit to the reusable workflow`).toContain(
+      expect(
+        content,
+        `${stub}.yml must call composite actions directly — secrets: inherit does not work cross-org`,
+      ).toContain('big-emotion/ferry/.github/actions/');
+      expect(content, `${stub}.yml must not use secrets: inherit`).not.toContain(
         'secrets: inherit',
       );
     });
@@ -88,21 +92,21 @@ describe('Phase 3 — consumer workflow stubs (install-guide §3.1)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 2. Workflow stubs call the correct reusable workflows — Phase 3
+// 2. Workflow stubs call the correct composite actions — Phase 3
 // ---------------------------------------------------------------------------
 
-describe('Phase 3 — reusable workflow references in stubs', () => {
+describe('Phase 3 — composite action references in stubs', () => {
   const mapping: Record<string, string> = {
-    'ferry-refine': 'big-emotion/ferry/.github/workflows/refine.yml',
-    'ferry-dev': 'big-emotion/ferry/.github/workflows/dev.yml',
-    'ferry-review': 'big-emotion/ferry/.github/workflows/review.yml',
-    'ferry-iterate': 'big-emotion/ferry/.github/workflows/iterate.yml',
+    'ferry-refine': 'big-emotion/ferry/.github/actions/ferry-run-refiner',
+    'ferry-dev': 'big-emotion/ferry/.github/actions/ferry-run-developer',
+    'ferry-review': 'big-emotion/ferry/.github/actions/ferry-run-reviewer',
+    'ferry-iterate': 'big-emotion/ferry/.github/actions/ferry-run-iterator',
   };
 
   for (const [stub, target] of Object.entries(mapping)) {
     it(`${stub}.yml references ${target}`, async () => {
       const content = await readFile(`examples/consumer-setup/workflows/${stub}.yml`);
-      expect(content, `${stub}.yml must call the correct reusable workflow at ${target}`).toContain(
+      expect(content, `${stub}.yml must call the correct composite action at ${target}`).toContain(
         target,
       );
     });
@@ -213,15 +217,15 @@ describe('Quick install — secret names match agent code (README §Step 2)', ()
 // 6. FERRY_AUDIT_ISSUE is wired through all 4 reusable workflows — Phase 6
 // ---------------------------------------------------------------------------
 
-describe('Phase 6 — FERRY_AUDIT_ISSUE wired through reusable workflows (install-guide §6)', () => {
-  const workflows = ['refine', 'dev', 'review', 'iterate'];
+describe('Phase 6 — FERRY_AUDIT_ISSUE wired through consumer workflow templates (install-guide §6)', () => {
+  const stubs = ['ferry-refine', 'ferry-dev', 'ferry-review', 'ferry-iterate'];
 
-  for (const wf of workflows) {
-    it(`.github/workflows/${wf}.yml passes FERRY_AUDIT_ISSUE to emit-audit`, async () => {
-      const content = await readFile(`.github/workflows/${wf}.yml`);
+  for (const stub of stubs) {
+    it(`examples/consumer-setup/workflows/${stub}.yml passes FERRY_AUDIT_ISSUE to emit-audit`, async () => {
+      const content = await readFile(`examples/consumer-setup/workflows/${stub}.yml`);
       expect(
         content,
-        `${wf}.yml must reference FERRY_AUDIT_ISSUE (needed for 4-line audit accumulation)`,
+        `${stub}.yml must reference FERRY_AUDIT_ISSUE (needed for 4-line audit accumulation)`,
       ).toContain('FERRY_AUDIT_ISSUE');
     });
   }
@@ -334,7 +338,7 @@ describe('Quick install — audit issue creation (README §Step 1)', () => {
 describe('Quick install — no @main in workflow refs (README)', () => {
   it('README does not tell users to use @main workflow refs', async () => {
     const doc = await readFile('README.md');
-    // The doc must not say stubs use @main (they use @v0.5.3)
+    // The doc must not say stubs use @main (they use @v0.6.0)
     expect(doc).not.toMatch(/uses.*@main/);
     expect(doc).not.toContain('always use the latest version automatically');
   });
@@ -380,18 +384,18 @@ describe('Quick install — Ferry never merges (README)', () => {
 //     CI gate for supply-chain security (issue #77)
 // ---------------------------------------------------------------------------
 
-describe('Supply-chain — no @main refs in internal workflows (issue #77)', () => {
-  const agentWorkflows = ['refine', 'dev', 'review', 'iterate'];
+describe('Supply-chain — no @main refs in consumer workflow templates (issue #77)', () => {
+  const agentStubs = ['ferry-refine', 'ferry-dev', 'ferry-review', 'ferry-iterate'];
 
-  for (const wf of agentWorkflows) {
-    it(`.github/workflows/${wf}.yml has no ferry-*@main composite action references`, async () => {
-      const content = await readFile(`.github/workflows/${wf}.yml`);
+  for (const stub of agentStubs) {
+    it(`examples/consumer-setup/workflows/${stub}.yml has no ferry-*@main composite action references`, async () => {
+      const content = await readFile(`examples/consumer-setup/workflows/${stub}.yml`);
       const mainRefs = [...content.matchAll(/uses:\s+big-emotion\/ferry\/.+@main/g)].map(
         (m) => m[0],
       );
       expect(
         mainRefs,
-        `${wf}.yml must not reference ferry-* composite actions at @main — pin to a release tag (e.g. @v0.5.3) instead`,
+        `${stub}.yml must not reference ferry-* composite actions at @main — pin to a release tag instead`,
       ).toHaveLength(0);
     });
   }

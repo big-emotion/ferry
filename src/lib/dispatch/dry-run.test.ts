@@ -9,7 +9,7 @@ import { validateEnvelope } from '../envelope/validate.js';
 const FIXTURES = [
   {
     phase: 'refine' as const,
-    expectedWorkflow: 'refine.yml',
+    expectedWorkflow: 'ferry-refine.yml',
     expectedType: 'ferry-refine',
     envelope: {
       version: 'v1',
@@ -22,7 +22,7 @@ const FIXTURES = [
   },
   {
     phase: 'dev' as const,
-    expectedWorkflow: 'dev.yml',
+    expectedWorkflow: 'ferry-dev.yml',
     expectedType: 'ferry-dev',
     envelope: {
       version: 'v1',
@@ -35,7 +35,7 @@ const FIXTURES = [
   },
   {
     phase: 'review' as const,
-    expectedWorkflow: 'review.yml',
+    expectedWorkflow: 'ferry-review.yml',
     expectedType: 'ferry-review',
     envelope: {
       version: 'v1',
@@ -48,7 +48,7 @@ const FIXTURES = [
   },
   {
     phase: 'iterate' as const,
-    expectedWorkflow: 'iterate.yml',
+    expectedWorkflow: 'ferry-iterate.yml',
     expectedType: 'ferry-iterate',
     envelope: {
       version: 'v1',

@@ -43,12 +43,12 @@ Each audit line is a JSON object appended as a comment. Look for the most recent
 
 ### 1.2 Identify the last successful phase
 
-| Jira column        | Expected phase in audit | Workflow to re-trigger    |
-| ------------------ | ----------------------- | ------------------------- |
-| Refinement         | `refine`                | `ferry-refine`            |
-| In Development     | `dev`                   | `ferry-dev`               |
-| In Review          | `review`                | `ferry-review`            |
-| Changes Requested  | `iterate`               | `ferry-iterate`           |
+| Jira column       | Expected phase in audit | Workflow to re-trigger |
+| ----------------- | ----------------------- | ---------------------- |
+| Refinement        | `refine`                | `ferry-refine`         |
+| In Development    | `dev`                   | `ferry-dev`            |
+| In Review         | `review`                | `ferry-review`         |
+| Changes Requested | `iterate`               | `ferry-iterate`        |
 
 If the last audit line shows `"outcome":"error"`, check `reason` and `code` — common codes: `state-invariant` (bad LLM output, see §4), `spend-cap` (see §2), `oscillation` (see §3), `transient` (network blip, safe to retry).
 
@@ -98,7 +98,7 @@ gh run list --workflow ferry-reconcile.yml --repo YOUR_ORG/YOUR_REPO --limit 5
 If no runs appear in the last 30 minutes, the reconciler is not wired. Add it:
 
 ```bash
-curl -fsSL "https://raw.githubusercontent.com/big-emotion/ferry/v0.5.3/examples/consumer-setup/workflows/ferry-reconcile.yml" \
+curl -fsSL "https://raw.githubusercontent.com/big-emotion/ferry/v0.7.0/examples/consumer-setup/workflows/ferry-reconcile.yml" \
   -o ".github/workflows/ferry-reconcile.yml"
 git add .github/workflows/ferry-reconcile.yml
 git commit -m "chore(ferry): add reconciler workflow"
@@ -108,6 +108,7 @@ git push
 ### 1.5 When to escalate
 
 Escalate to the Ferry maintainer (`big-emotion/ferry` issues) if:
+
 - The agent fails repeatedly with `state-invariant` on the same ticket (see §4).
 - The workflow exits 0 but no audit comment is written (audit-issue append failure).
 - The ticket has exceeded the 1000-comment audit-issue cap (silent failure — rotate the audit issue and update `FERRY_AUDIT_ISSUE`).
@@ -179,6 +180,7 @@ The next daily check run will use the updated cap. For an immediate effect, also
 ### 2.6 Escalation path
 
 If spend is anomalously high (e.g. 10× the per-story average):
+
 1. Pause all active tickets immediately (§2.3).
 2. Check for runaway iteration loops (§3).
 3. Check the LLM provider dashboard for unexpected usage outside Ferry (the `cost_eur` in audit comments is computed from token counts, not from the provider bill directly).
@@ -205,7 +207,7 @@ gh issue view $AUDIT_ISSUE --repo YOUR_ORG/YOUR_REPO --comments --json comments 
 The Iterator agent cap (default 3, configurable via `limits.max_iterations` in `ferry.config.yaml`) throws an `oscillation` error when `iteration >= cap` and findings remain. You will see:
 
 ```json
-{"code":"oscillation","reason":"iteration-cap-exceeded","cap":3,"iteration":3}
+{ "code": "oscillation", "reason": "iteration-cap-exceeded", "cap": 3, "iteration": 3 }
 ```
 
 The Reviewer agent has an internal LLM tool-use loop capped at 40 iterations (overridable via `FERRY_REVIEWER_MAX_ITERATIONS`). A runaway in the Reviewer loop logs `review-iteration-cap-exceeded`.
@@ -230,12 +232,12 @@ After cancellation, apply `ferry:paused` to the ticket (§2.3) to prevent the Ji
 
 Common causes:
 
-| Symptom in audit log | Likely cause | Action |
-| --- | --- | --- |
-| `"reason":"iteration-cap-exceeded"` | Reviewer keeps finding issues Iterator can't fix | Increase cap (§3.4) or manually review the PR diff for a structural blocker |
+| Symptom in audit log                       | Likely cause                                        | Action                                                                      |
+| ------------------------------------------ | --------------------------------------------------- | --------------------------------------------------------------------------- |
+| `"reason":"iteration-cap-exceeded"`        | Reviewer keeps finding issues Iterator can't fix    | Increase cap (§3.4) or manually review the PR diff for a structural blocker |
 | `"reason":"review-iteration-cap-exceeded"` | Reviewer's internal tool-use loop exceeded 40 steps | Set `FERRY_REVIEWER_MAX_ITERATIONS` lower; check for adversarial PR content |
-| `"reason":"spec-too-broad"` | Refiner `touch_paths` exceeded cap (too many files) | Break the ticket into smaller stories in Jira |
-| Repeated `transient` errors | Network or LLM API instability | Wait 10 min; re-trigger manually (§1.3) |
+| `"reason":"spec-too-broad"`                | Refiner `touch_paths` exceeded cap (too many files) | Break the ticket into smaller stories in Jira                               |
+| Repeated `transient` errors                | Network or LLM API instability                      | Wait 10 min; re-trigger manually (§1.3)                                     |
 
 ### 3.4 Bump `limits.max_iterations` if needed
 
@@ -243,7 +245,7 @@ In `ferry.config.yaml` in the consumer repo:
 
 ```yaml
 limits:
-  max_iterations: 5   # default is 3; increase only after investigating why 3 isn't enough
+  max_iterations: 5 # default is 3; increase only after investigating why 3 isn't enough
 ```
 
 Commit and push. The change takes effect on the next dispatch — no workflow restart needed.
@@ -268,7 +270,7 @@ When `oscillation` is thrown, the Iterator agent exits with a non-zero code, app
 
 The structured log line from a failing Refiner looks like:
 
-```json
+````json
 {
   "code": "state-invariant",
   "reason": "refiner-output-invalid",
@@ -276,9 +278,10 @@ The structured log line from a failing Refiner looks like:
   "sample": "Here is the JSON you asked for:\n\n```json\n{...",
   "text_length": 1847
 }
-```
+````
 
 Key fields:
+
 - `stage: "parse"` — the raw LLM text could not be `JSON.parse`d (prose preamble or trailing prose).
 - `stage: "schema"` — the JSON parsed but failed AJV schema validation; `paths` lists the failing fields.
 - `sample` — first 512 chars of the LLM response (useful for diagnosing the preamble pattern).
@@ -322,10 +325,11 @@ curl -s -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
 The Refiner prompt explicitly says "Reply with JSON only — no prose, no code fences". If the LLM you have configured for the Refiner ignores this instruction, you can switch to a different provider temporarily:
 
 In `ferry.config.yaml`:
+
 ```yaml
 agents:
   refiner:
-    provider: openai   # or google; anthropic is the default
+    provider: openai # or google; anthropic is the default
     model: gpt-4o
 ```
 
@@ -334,7 +338,7 @@ Or, if you want to keep Anthropic, try a different model that more reliably foll
 ```yaml
 agents:
   refiner:
-    model: claude-haiku-4-5-20251001   # smaller models sometimes follow format better
+    model: claude-haiku-4-5-20251001 # smaller models sometimes follow format better
 ```
 
 After changing the config, remove `ferry:paused`, commit, push, and re-trigger (§1.3).
@@ -350,6 +354,7 @@ If the error persists after provider/model switch, file an issue at `big-emotion
 ### 5.1 When to roll back
 
 Roll back if:
+
 - A Ferry upgrade introduced a confirmed regression in production (failed agent runs, broken audit writes).
 - The `ferry-doctor` fails after an upgrade in a way that only appeared in the new version.
 - You need to unblock production while a hotfix is prepared upstream.
@@ -363,13 +368,13 @@ gh api repos/big-emotion/ferry/git/refs/tags --jq '.[].ref' | grep 'refs/tags/v'
 
 Stable releases to consider rolling back to, in descending order:
 
-| Tag       | Notes                                              |
-| --------- | -------------------------------------------------- |
-| `v0.5.3`  | Current recommended pin                            |
-| `v0.5.2`  | Safe install path; known Refiner parser bug (D9)   |
-| `v0.5.1`  | **Do not use** — Refiner CJS dynamic-require crash |
-| `v0.5.0`  | Stable; missing v0.5.1+ Jira automation JSON fixes |
-| `v0.4.0`  | Last stable before multi-provider refiner          |
+| Tag      | Notes                                                                  |
+| -------- | ---------------------------------------------------------------------- |
+| `v0.7.0` | Current recommended pin; expanded inline workflows (cross-org secrets) |
+| `v0.6.0` | Previous stable; reusable-workflow form (breaks cross-org secrets)     |
+| `v0.5.2` | Safe install path; known Refiner parser bug (D9)                       |
+| `v0.5.1` | **Do not use** — Refiner CJS dynamic-require crash                     |
+| `v0.5.0` | Stable; missing v0.5.1+ Jira automation JSON fixes                     |
 
 ### 5.3 Re-pin consumer workflows
 
@@ -377,8 +382,8 @@ The consumer repo has four Ferry workflow stubs. Re-pin them all:
 
 ```bash
 # Replace the current pin with the target version
-CURRENT=v0.5.3    # what your workflows currently pin
-TARGET=v0.5.2     # the version you want to roll back to
+CURRENT=v0.7.0    # what your workflows currently pin
+TARGET=v0.6.0     # the version you want to roll back to
 
 sed -i.bak "s|@${CURRENT}|@${TARGET}|g" .github/workflows/ferry-*.yml
 rm .github/workflows/ferry-*.yml.bak
@@ -433,6 +438,7 @@ gh run watch --repo YOUR_ORG/YOUR_REPO
 ### 5.6 When to file an issue upstream
 
 File a bug at `big-emotion/ferry` if:
+
 - The regression is reproducible with a specific `v0.x.y` tag.
 - `ferry-doctor` passes but the agent fails in a way not covered by known issues.
 - The rollback itself causes new failures (e.g. a schema incompatibility between the old Ferry version and state files written by the new version).
@@ -447,15 +453,15 @@ Include in the upstream issue: the failing run URL, the audit log excerpt, and t
 
 A Ferry release runs the full quality gate before `npm publish`. The following checks must all be green before a tag can publish:
 
-| Check name (in GitHub Actions)    | What it validates                                  | Failure impact       |
-| --------------------------------- | -------------------------------------------------- | -------------------- |
-| `Typecheck`                       | TypeScript compilation (`tsc --noEmit`)            | Blocks publish       |
-| `Lint & Format`                   | ESLint + Prettier + FR drift                       | Blocks publish       |
-| `Tests (vitest)`                  | 1025+ unit tests with 75% coverage threshold       | Blocks publish       |
-| `Bundle Drift (check:bundle)`     | `.ferry/` matches `src/` byte-for-byte             | Blocks publish       |
-| `npm Audit (supply-chain)`        | `npm audit --audit-level=moderate`                 | Blocks publish       |
-| `Secret Scan (gitleaks)`          | gitleaks scan on all committed files               | Blocks publish       |
-| `Analyze (javascript-typescript)` | CodeQL SAST (high/critical severity = error)       | Blocks publish       |
+| Check name (in GitHub Actions)    | What it validates                            | Failure impact |
+| --------------------------------- | -------------------------------------------- | -------------- |
+| `Typecheck`                       | TypeScript compilation (`tsc --noEmit`)      | Blocks publish |
+| `Lint & Format`                   | ESLint + Prettier + FR drift                 | Blocks publish |
+| `Tests (vitest)`                  | 1025+ unit tests with 75% coverage threshold | Blocks publish |
+| `Bundle Drift (check:bundle)`     | `.ferry/` matches `src/` byte-for-byte       | Blocks publish |
+| `npm Audit (supply-chain)`        | `npm audit --audit-level=moderate`           | Blocks publish |
+| `Secret Scan (gitleaks)`          | gitleaks scan on all committed files         | Blocks publish |
+| `Analyze (javascript-typescript)` | CodeQL SAST (high/critical severity = error) | Blocks publish |
 
 The release workflow (`.github/workflows/release.yml`) re-runs all gates before publishing. A green CI on `main` does **not** mean a tag will publish cleanly — the release workflow re-gates.
 
@@ -528,6 +534,7 @@ Prefer `git revert` over `git reset --hard` — the latter rewrites history and 
 ### 6.5 When a release tag is already published with red CI
 
 If a tag was pushed and the release workflow started before CI went red:
+
 1. Let the release workflow finish or cancel it via `gh run cancel`.
 2. If `npm publish` already ran: the package is live. Cut a patch release with the fix as soon as possible. Document the bad version in `MIGRATIONS.md`.
 3. If `npm publish` did not run: delete the GitHub Release (do not delete the git tag — deletions break consumers who may have SHA-pinned to it). Fix the issue, then push a new tag.

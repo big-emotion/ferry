@@ -10547,10 +10547,10 @@ var Octokit2 = Octokit.plugin(requestLog, legacyRestEndpointMethods, paginateRes
 
 // src/lib/dispatch/routing.ts
 var PHASE_TO_WORKFLOW = Object.freeze({
-  refine: Object.freeze({ workflow: "refine.yml", dispatchType: "ferry-refine" }),
-  dev: Object.freeze({ workflow: "dev.yml", dispatchType: "ferry-dev" }),
-  review: Object.freeze({ workflow: "review.yml", dispatchType: "ferry-review" }),
-  iterate: Object.freeze({ workflow: "iterate.yml", dispatchType: "ferry-iterate" })
+  refine: Object.freeze({ workflow: "ferry-refine.yml", dispatchType: "ferry-refine" }),
+  dev: Object.freeze({ workflow: "ferry-dev.yml", dispatchType: "ferry-dev" }),
+  review: Object.freeze({ workflow: "ferry-review.yml", dispatchType: "ferry-review" }),
+  iterate: Object.freeze({ workflow: "ferry-iterate.yml", dispatchType: "ferry-iterate" })
 });
 
 // src/lib/dispatch/runner/github-actions/index.ts
@@ -11563,6 +11563,13 @@ function createGitHubContext(repoRoot) {
   return { owner, repo, runner, tracker, ferryCfg };
 }
 
+// src/agents/reviewer/changes-guard.ts
+function countPriorIterations(existingComments) {
+  return existingComments.filter(
+    (c) => c.includes("[ferry:iterator:") && c.includes("complete. Pushed fixes to PR#")
+  ).length;
+}
+
 // src/agents/reviewer/review-action.ts
 var REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
 async function main(envelope, logger) {
@@ -11712,13 +11719,15 @@ async function main(envelope, logger) {
       await tracker.postTransition(ticketKey, approveTransitionId);
     }
   } else {
-    const hasIteratorMarker = existingComments.some((c) => c.includes("[ferry:iterator:"));
+    const priorIterations = countPriorIterations(existingComments);
+    const cap = ferryCfg.limits.max_iterations;
+    const capReached = priorIterations >= cap;
     await runner.commentOnPR({ owner, repo, prNumber }, review.comment);
-    if (!hasIteratorMarker) {
+    if (!capReached) {
       const changesNote = shouldTransitionChanges ? " Moved to Dev Iteration." : "";
       await tracker.postComment(
         ticketKey,
-        `${idempotencyMarker} Changes requested.${changesNote} See PR#${prNumber} for details.`
+        `${idempotencyMarker} Changes requested (iteration ${priorIterations + 1}/${cap}).${changesNote} See PR#${prNumber} for details.`
       );
       if (shouldTransitionChanges) {
         await tracker.postTransition(ticketKey, iterTransitionId);
@@ -11726,7 +11735,7 @@ async function main(envelope, logger) {
     } else {
       await tracker.postComment(
         ticketKey,
-        `${idempotencyMarker} Changes requested (re-review). See PR#${prNumber} comments and move ticket manually.`
+        `${idempotencyMarker} Changes requested (re-review). Iteration cap (${cap}) reached; see PR#${prNumber} and move ticket manually.`
       );
     }
   }

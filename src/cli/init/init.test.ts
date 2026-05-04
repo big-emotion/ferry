@@ -146,7 +146,7 @@ describe('workflowTemplates', () => {
     }
   });
 
-  it('each agent workflow calls the Ferry reusable workflow', () => {
+  it('each agent workflow calls Ferry composite actions directly (no reusable workflow, no secrets: inherit)', () => {
     const agentFiles = [
       'ferry-refine.yml',
       'ferry-dev.yml',
@@ -155,8 +155,9 @@ describe('workflowTemplates', () => {
     ];
     for (const tmpl of workflowTemplates('v1')) {
       if (agentFiles.includes(tmpl.filename)) {
-        expect(tmpl.content).toContain('big-emotion/ferry/.github/workflows/');
-        expect(tmpl.content).toContain('secrets: inherit');
+        expect(tmpl.content).toContain('big-emotion/ferry/.github/actions/');
+        expect(tmpl.content).not.toContain('big-emotion/ferry/.github/workflows/');
+        expect(tmpl.content).not.toContain('secrets: inherit');
       }
     }
   });
