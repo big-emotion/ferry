@@ -7,6 +7,14 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **Bundle-runtime smoke gate** (`scripts/smoke-bundle.sh`, `npm run smoke:bundle`) — boots each compiled `.ferry/<role>-action.js` under Node 20 with stub credentials and asserts stderr contains none of the v0.5.1 DOA failure signatures (`Dynamic require of`, `Cannot find module`, `is not a function`). Bridges the gap between the bundle drift check (verifies the bundle is current) and real execution (verifies the bundle actually runs). Wired into `release.yml` after bundle drift check and before `npm publish`; runs in parallel in `ferry-ci.yml`. Surfaced by the v0.5.1 incident (#162).
+
+---
+
 ## [0.5.3] — 2026-05-03
 
 ### Fixed

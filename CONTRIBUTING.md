@@ -109,6 +109,16 @@ The `src/agents/__lint-fixtures__/` directory contains intentionally broken code
 
 Plain imperative summary line, no emoji, no `Co-Authored-By` trailers. Reference story IDs in the body when relevant (e.g. `Story 3-1`).
 
+## Bundle smoke test
+
+After rebuilding `.ferry/` bundles (`npm run build:ferry`), verify the bundles actually boot under Node 20:
+
+```bash
+npm run smoke:bundle
+```
+
+This is `scripts/smoke-bundle.sh`. It boots each `.ferry/<role>-action.js` with stub credentials and asserts stderr is free of the v0.5.1 DOA failure class: `Dynamic require of`, `Cannot find module`, and `is not a function`. The bundles exit non-zero because real API credentials are not provided — that is expected and intentional. The only assertion is that no module-loading error appeared. The drift check (`npm run check:bundle`) verifies the bundle is current; the smoke test verifies it actually runs. Both gates run in CI.
+
 ## Releasing
 
 When preparing a release, add a `## <prev> → <this>` section to [`MIGRATIONS.md`](../MIGRATIONS.md) listing any consumer-visible changes (new secrets, new Jira-rule fields, status-name changes). See `docs/RELEASING.md` for the full pre-release checklist.

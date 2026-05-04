@@ -72,9 +72,10 @@ Releases are cut by a maintainer using the `ferry-release` skill (recommended) o
 The `.github/workflows/release.yml` workflow is triggered by any `v*.*.*` tag push and **automatically**:
 
 1. Runs the full CI gate (typecheck, lint, format, tests, npm audit, `.ferry/` bundle drift check)
-2. Builds CLI bundles (`npm run build:cli`)
-3. Publishes the `@big-emotion/ferry` package to npm with provenance (requires the `NPM_TOKEN` repo secret)
-4. Extracts the matching `## [X.Y.Z]` section from `CHANGELOG.md` and creates a GitHub Release with those notes (falls back to GitHub's auto-generated notes if the section is missing)
+2. **Runs `npm run smoke:bundle`** — boots each compiled `.ferry/<role>-action.js` under Node 20 with stub credentials and asserts stderr contains none of the v0.5.1 DOA failure signatures (`Dynamic require of`, `Cannot find module`, `is not a function`). This gate catches the class of esbuild bundling regressions that the drift check misses: the drift check verifies the bundle is current, the smoke test verifies it actually runs. A failed smoke gate blocks the publish step. See `scripts/smoke-bundle.sh` for full details.
+3. Builds CLI bundles (`npm run build:cli`)
+4. Publishes the `@big-emotion/ferry` package to npm with provenance (requires the `NPM_TOKEN` repo secret)
+5. Extracts the matching `## [X.Y.Z]` section from `CHANGELOG.md` and creates a GitHub Release with those notes (falls back to GitHub's auto-generated notes if the section is missing)
 
 The maintainer's only manual responsibilities are bumping the version, updating the CHANGELOG, and pushing the tag.
 
@@ -145,6 +146,7 @@ Before tagging any release:
 - [ ] `npm run format:check` passes
 - [ ] `npm test` passes
 - [ ] `npm run build:ferry` succeeds and `.ferry/` is committed
+- [ ] `npm run smoke:bundle` passes — confirms no DOA bundle regression (see `scripts/smoke-bundle.sh`)
 - [ ] `CHANGELOG.md` updated with the new version section
 - [ ] `package.json` `version` bumped
 - [ ] `MIGRATIONS.md` updated with a `## <prev> → <this>` section listing any consumer-visible changes (new secrets, new Jira-rule fields, status-name changes). If there are none, add `(none — internal changes only)`. **Incomplete entries cause silent breakage for consumers running `ferry-update`.**
