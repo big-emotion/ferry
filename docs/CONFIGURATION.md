@@ -144,7 +144,7 @@ Ferry supports three LLM providers: **`anthropic`**, **`openai`**, and **`google
 | `review`  | `anthropic`                     | Uses an agentic tool-use loop; OpenAI/Google support is planned |
 | `iterate` | `anthropic`                     | Uses an agentic tool-use loop; OpenAI/Google support is planned |
 
-> **MCP:** Model Context Protocol (MCP) server integration is Anthropic-only and is not available when using other providers.
+> **MCP:** Model Context Protocol (MCP) server integration is Anthropic-only and is not available when using other providers. MCP availability is also independent of the provider support table above — even with `provider: anthropic`, **only the Developer and Iterator agents consume `AGENT_MCP_SERVERS`**. The Refiner and Reviewer do not load MCP servers regardless of provider or configuration.
 
 | Field                     | Default               | Description                                                                                                                                |
 | ------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -218,6 +218,21 @@ git:
 #### `labels`
 
 Maps Jira ticket labels to MCP server capabilities. If this section is omitted, the full MCP server pool is used unchanged. If the section is present, only MCP servers enabled by the ticket's labels are activated.
+
+> **MCP configuration is split across two locations:**
+> - **Pool of servers** (name, URL, token) — declared in the `AGENT_MCP_SERVERS` GitHub Actions repo **variable** (`gh variable set AGENT_MCP_SERVERS '...'`). This is where all known MCP servers are registered.
+> - **Per-ticket activation** — declared here in `ferry.config.yaml` § `labels:`. A `ferry:*` label on the Jira ticket selects which servers from the pool are active for that ticket.
+>
+> A label entry that names a server not present in `AGENT_MCP_SERVERS` is silently ignored at runtime. The pool variable is not part of `ferry.config.yaml`.
+
+**Adding a new MCP server — 3 steps:**
+
+1. **Declare in the pool** — add an entry to the `AGENT_MCP_SERVERS` repo variable:
+   ```bash
+   gh variable set AGENT_MCP_SERVERS '[{"name":"figma","url":"https://mcp.figma.com/mcp","authorization_token":"<pat>"}]'
+   ```
+2. **Map a `ferry:*` label** — add an entry under `labels:` in `ferry.config.yaml` referencing the server name.
+3. **Activate per ticket** — add the matching `ferry:*` label to your Jira ticket before triggering the Developer or Iterator.
 
 ```json
 "labels": {
