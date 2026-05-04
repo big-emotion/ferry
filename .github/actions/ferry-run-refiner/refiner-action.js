@@ -54673,6 +54673,47 @@ ${escaped}
 ${CLOSE}`;
 }
 
+// src/agents/refiner/parse.ts
+function extractFirstJsonObject(text) {
+  let start = -1;
+  let depth = 0;
+  let inString = false;
+  let escape2 = false;
+  for (let i2 = 0; i2 < text.length; i2++) {
+    const ch = text[i2];
+    if (escape2) {
+      escape2 = false;
+      continue;
+    }
+    if (inString) {
+      if (ch === "\\") {
+        escape2 = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === "{") {
+      if (depth === 0) {
+        start = i2;
+      }
+      depth++;
+    } else if (ch === "}") {
+      if (depth > 0) {
+        depth--;
+        if (depth === 0) {
+          return text.slice(start, i2 + 1);
+        }
+      }
+    }
+  }
+  return null;
+}
+
 // src/agents/refiner/schema.ts
 var REFINER_OUTPUT_SCHEMA = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
@@ -54744,24 +54785,24 @@ ${input.ticket.comments.join("\n---\n")}`
     delimitUntrusted(block)
   ].join("\n\n");
 }
-function stripMarkdownFences(text) {
-  return text.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "").trim();
-}
 var SAMPLE_MAX = 512;
 function sampleOf(text) {
   return text.length <= SAMPLE_MAX ? text : text.slice(0, SAMPLE_MAX);
 }
 function parseJsonOrThrow(text) {
-  try {
-    return JSON.parse(stripMarkdownFences(text));
-  } catch {
-    throw new FerryError("state-invariant", {
-      reason: "refiner-output-invalid",
-      stage: "parse",
-      sample: sampleOf(text),
-      text_length: text.length
-    });
+  const candidate = extractFirstJsonObject(text);
+  if (candidate !== null) {
+    try {
+      return JSON.parse(candidate);
+    } catch {
+    }
   }
+  throw new FerryError("state-invariant", {
+    reason: "refiner-output-invalid",
+    stage: "parse",
+    sample: sampleOf(text),
+    text_length: text.length
+  });
 }
 function ensureSchemaValid(plan, rawText) {
   if (!validatePlan(plan)) {
