@@ -9,6 +9,10 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **`ferry-doctor` check D7: audit issue (FERRY_AUDIT_ISSUE)** — new check verifies the `FERRY_AUDIT_ISSUE` repo variable is set, holds a positive integer, and that the referenced GitHub issue exists and is open. Previously a first-time installer who skipped README Step 1 would see a green doctor output and hit a runtime crash on the first Jira column move. All four failure modes (variable missing, non-numeric, issue not found, issue closed) produce an actionable error pointing to README Step 1 (#159).
+
 ### Fixed
 
 - **Refiner JSON parser hardened against LLM prose preamble and trailing prose (D9)** — replaced the previous fence-strip-then-parse approach with a bracket-counting extractor (`src/agents/refiner/parse.ts`) that finds the first balanced `{...}` substring in the raw LLM output. Any preamble ("Here is the plan:"), trailing prose, or code-fenced wrapping is now transparent to the parser. Resolves the confirmed prod failure from run `25262368292` (`big-emotion/ethniafrica`, 2026-05-02, `ferry-run-refiner@v0.5.2`).
