@@ -7,6 +7,14 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **`ferry-doctor` check D7: audit issue (FERRY_AUDIT_ISSUE)** — new check verifies the `FERRY_AUDIT_ISSUE` repo variable is set, holds a positive integer, and that the referenced GitHub issue exists and is open. Previously a first-time installer who skipped README Step 1 would see a green doctor output and hit a runtime crash on the first Jira column move. All four failure modes (variable missing, non-numeric, issue not found, issue closed) produce an actionable error pointing to README Step 1 (#159).
+
+---
+
 ## [0.5.3] — 2026-05-03
 
 ### Fixed
