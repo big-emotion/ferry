@@ -23,6 +23,7 @@ import {
   checkoutExistingBranch,
   createGitHubContext,
   resolveGitConfig,
+  loadFerryConfigFromBaseBranch,
   byEventId,
   byReviewCommentId,
   runAgent,
@@ -36,7 +37,19 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
   const { ticket_key: ticketKey, event_id: eventId } = envelope;
 
   const anthropicAuth = resolveAnthropicAuth({ apiKeyEnv: 'ANTHROPIC_API_KEY' });
-  const { owner, repo, runner, tracker, ferryCfg } = createGitHubContext(REPO_ROOT);
+  const { owner, repo, runner, tracker, ferryCfg: initialCfg } = createGitHubContext(REPO_ROOT);
+
+  // Resolve baseBranch before using any config values, then reload config from that branch.
+  // On repository_dispatch, actions/checkout resolves to the default branch, not base_branch,
+  // so the workspace may contain a stale ferry.config.json.
+  const { baseBranch, workingBranchPrefix } = await resolveGitConfig(
+    initialCfg,
+    runner,
+    owner,
+    repo,
+  );
+  const ferryCfg = loadFerryConfigFromBaseBranch(baseBranch, REPO_ROOT, initialCfg);
+
   const { provider: iterProvider, model } = ferryCfg.models.iterate;
   if (iterProvider !== 'anthropic') {
     throw new FerryError('state-invariant', {
@@ -70,8 +83,6 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
     { iteration: priorIterations, hasFindings: true },
     ferryCfg.limits.max_iterations,
   );
-
-  const { baseBranch, workingBranchPrefix } = await resolveGitConfig(ferryCfg, runner, owner, repo);
   const branchName = `${workingBranchPrefix}${ticketKey}`;
   const prs = await runner.listPRsForBranch(owner, repo, branchName);
 

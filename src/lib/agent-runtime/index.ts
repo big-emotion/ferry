@@ -7,10 +7,12 @@ export { appendOutput } from './output.js';
 export {
   configureFerryGitUser,
   makeCommitProgress,
+  fetchOriginBranch,
   fetchAndMergeBase,
   checkoutExistingBranch,
 } from './git.js';
 export type { CommitProgressFn } from './git.js';
+export { loadFerryConfigFromBaseBranch } from './config-reload.js';
 export { makeSecretScan } from './secret-scan.js';
 export { logCapabilities } from './labels.js';
 export { createGitHubContext } from './context.js';

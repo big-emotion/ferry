@@ -54,6 +54,10 @@ export function checkoutExistingBranch(branchName: string, repoRoot: string): 'o
   }
 }
 
+export function fetchOriginBranch(branchName: string, repoRoot: string): void {
+  execFileSync('git', ['fetch', 'origin', branchName], { cwd: repoRoot });
+}
+
 export function fetchAndMergeBase(baseBranch: string, repoRoot: string): string[] {
   execFileSync('git', ['fetch', 'origin', baseBranch], { cwd: repoRoot });
   try {

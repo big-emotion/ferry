@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';
-import { loadFerryConfig, DEFAULT_FERRY_CONFIG } from './config.js';
+import { loadFerryConfig, parseFerryConfigJson, DEFAULT_FERRY_CONFIG } from './config.js';
 import { FerryError } from './errors/index.js';
 
 const { mockExistsSync, mockReadFileSync } = vi.hoisted(() => ({
@@ -670,5 +670,46 @@ describe('loadFerryConfig', () => {
       mockConfigFile('ferry.config.json', JSON.stringify({ git: { base_branch: '' } }));
       expect(() => loadFerryConfig('/repo')).toThrow(FerryError);
     });
+  });
+});
+
+describe('parseFerryConfigJson', () => {
+  beforeEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('parses a valid JSON string and returns merged config', () => {
+    const cfg = parseFerryConfigJson(
+      JSON.stringify({ limits: { max_tokens_per_run: 5_000_000 } }),
+    );
+    expect(cfg.limits.max_tokens_per_run).toBe(5_000_000);
+    expect(cfg.limits.max_iterations).toBe(DEFAULT_FERRY_CONFIG.limits.max_iterations);
+  });
+
+  it('parses an empty object and returns defaults', () => {
+    const cfg = parseFerryConfigJson('{}');
+    expect(cfg).toEqual(DEFAULT_FERRY_CONFIG);
+  });
+
+  it('throws FerryError on invalid JSON syntax', () => {
+    expect(() => parseFerryConfigJson('{ bad json }')).toThrow(FerryError);
+  });
+
+  it('throws FerryError on invalid config shape', () => {
+    expect(() =>
+      parseFerryConfigJson(
+        JSON.stringify({ models: { dev: { provider: 'unknown-provider', model: 'x' } } }),
+      ),
+    ).toThrow(FerryError);
+  });
+
+  it('applies env var overrides on top of the parsed config', () => {
+    vi.stubEnv('FERRY_DEV_MODEL', 'claude-haiku-4-5-20251001');
+    const cfg = parseFerryConfigJson(JSON.stringify({}));
+    expect(cfg.models.dev.model).toBe('claude-haiku-4-5-20251001');
   });
 });
