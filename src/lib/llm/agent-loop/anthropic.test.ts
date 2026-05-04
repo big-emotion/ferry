@@ -541,6 +541,87 @@ describe('createAnthropicAgentLoop — stdio MCP tools', () => {
   });
 });
 
+describe('createAnthropicAgentLoop — input-token budget cap', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    restorePoolDefaults();
+  });
+
+  // The cap check fires at the TOP of each iteration, checking usage accumulated
+  // from prior iterations. iter 1 always starts with zeros, so a two-turn setup
+  // (tool call + done) is needed to exercise the cap on iter 2.
+
+  it('does not trip cap when large cache_read_input_tokens stay under weighted limit', async () => {
+    // iter 1: API returns 100 input + 5000 cache_read. billable-equiv = 100 + 500 = 600 < 1000 cap.
+    // iter 2 check: 600 < 1000 → passes → done is called.
+    const toolResponse: FakeResponse = {
+      stop_reason: 'tool_use',
+      content: [{ type: 'tool_use', id: 'tu_r', name: 'read_file', input: { path: 'x.ts' } }],
+      usage: { input_tokens: 100, output_tokens: 10, cache_read_input_tokens: 5000 },
+    };
+    const execTool = vi
+      .fn<(r: string, n: string, i: Record<string, unknown>) => Promise<string>>()
+      .mockResolvedValueOnce('content');
+    const mock = makeMock([toolResponse, doneResponse]);
+    const loop = createAnthropicAgentLoop({
+      model: 'm',
+      client: mock as unknown as Anthropic,
+      executeTool: execTool,
+      maxInputTokens: 1000,
+    });
+
+    await expect(loop.run(baseInput)).resolves.toBeDefined();
+  });
+
+  it('throws spend-cap when billable-equivalent tokens exceed the cap', async () => {
+    // iter 1: 600 input + 9000 cache_read → billable-equiv = 600 + 900 = 1500 > 999 cap.
+    // iter 2 check: 1500 > 999 → throws spend-cap.
+    const toolResponse: FakeResponse = {
+      stop_reason: 'tool_use',
+      content: [{ type: 'tool_use', id: 'tu_r', name: 'read_file', input: { path: 'x.ts' } }],
+      usage: { input_tokens: 600, output_tokens: 10, cache_read_input_tokens: 9000 },
+    };
+    const execTool = vi
+      .fn<(r: string, n: string, i: Record<string, unknown>) => Promise<string>>()
+      .mockResolvedValueOnce('content');
+    const mock = makeMock([toolResponse, doneResponse]);
+    const loop = createAnthropicAgentLoop({
+      model: 'm',
+      client: mock as unknown as Anthropic,
+      executeTool: execTool,
+      maxInputTokens: 999,
+    });
+
+    const err = await loop.run(baseInput).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(FerryError);
+    expect((err as FerryError).code).toBe('spend-cap');
+  });
+
+  it('reports billable-equivalent consumed value (not raw token sum) in error', async () => {
+    // iter 1: 100 input + 10000 cache_read → billable-equiv = 100 + 1000 = 1100.
+    // iter 2 check: 1100 > 999 → consumed is 1100, not 10100 (raw sum).
+    const toolResponse: FakeResponse = {
+      stop_reason: 'tool_use',
+      content: [{ type: 'tool_use', id: 'tu_r', name: 'read_file', input: { path: 'x.ts' } }],
+      usage: { input_tokens: 100, output_tokens: 10, cache_read_input_tokens: 10000 },
+    };
+    const execTool = vi
+      .fn<(r: string, n: string, i: Record<string, unknown>) => Promise<string>>()
+      .mockResolvedValueOnce('content');
+    const mock = makeMock([toolResponse, doneResponse]);
+    const loop = createAnthropicAgentLoop({
+      model: 'm',
+      client: mock as unknown as Anthropic,
+      executeTool: execTool,
+      maxInputTokens: 999,
+    });
+
+    const err = await loop.run(baseInput).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(FerryError);
+    expect((err as FerryError).context).toMatchObject({ consumed: 1100 });
+  });
+});
+
 describe('createAnthropicAgentLoop — LOG_VERBOSITY=debug structured events', () => {
   beforeEach(() => {
     vi.resetAllMocks();
