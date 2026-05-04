@@ -11563,6 +11563,13 @@ function createGitHubContext(repoRoot) {
   return { owner, repo, runner, tracker, ferryCfg };
 }
 
+// src/agents/reviewer/changes-guard.ts
+function countPriorIterations(existingComments) {
+  return existingComments.filter(
+    (c) => c.includes("[ferry:iterator:") && c.includes("complete. Pushed fixes to PR#")
+  ).length;
+}
+
 // src/agents/reviewer/review-action.ts
 var REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
 async function main(envelope, logger) {
@@ -11712,13 +11719,15 @@ async function main(envelope, logger) {
       await tracker.postTransition(ticketKey, approveTransitionId);
     }
   } else {
-    const hasIteratorMarker = existingComments.some((c) => c.includes("[ferry:iterator:"));
+    const priorIterations = countPriorIterations(existingComments);
+    const cap = ferryCfg.limits.max_iterations;
+    const capReached = priorIterations >= cap;
     await runner.commentOnPR({ owner, repo, prNumber }, review.comment);
-    if (!hasIteratorMarker) {
+    if (!capReached) {
       const changesNote = shouldTransitionChanges ? " Moved to Dev Iteration." : "";
       await tracker.postComment(
         ticketKey,
-        `${idempotencyMarker} Changes requested.${changesNote} See PR#${prNumber} for details.`
+        `${idempotencyMarker} Changes requested (iteration ${priorIterations + 1}/${cap}).${changesNote} See PR#${prNumber} for details.`
       );
       if (shouldTransitionChanges) {
         await tracker.postTransition(ticketKey, iterTransitionId);
@@ -11726,7 +11735,7 @@ async function main(envelope, logger) {
     } else {
       await tracker.postComment(
         ticketKey,
-        `${idempotencyMarker} Changes requested (re-review). See PR#${prNumber} comments and move ticket manually.`
+        `${idempotencyMarker} Changes requested (re-review). Iteration cap (${cap}) reached — see PR#${prNumber} and move ticket manually.`
       );
     }
   }
