@@ -9,12 +9,18 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+---
+
+## [0.6.0] — 2026-05-04
+
 ### Added
 
 - **`ferry-doctor` check D7: audit issue (FERRY_AUDIT_ISSUE)** — new check verifies the `FERRY_AUDIT_ISSUE` repo variable is set, holds a positive integer, and that the referenced GitHub issue exists and is open. Previously a first-time installer who skipped README Step 1 would see a green doctor output and hit a runtime crash on the first Jira column move. All four failure modes (variable missing, non-numeric, issue not found, issue closed) produce an actionable error pointing to README Step 1 (#159).
 
 ### Fixed
 
+- **Refiner and Reviewer workflows now install `gitleaks` on the runner** — `refine.yml` and `review.yml` were missing the install step that `dev.yml` and `iterate.yml` already had, so every Refiner run and any Reviewer run that posted a Jira comment crashed with `Error: spawn gitleaks ENOENT`. Both workflows now install `gitleaks` v8.21.2 from the official release tarball before invoking the agent, matching the dev/iterate pattern. Affected consumers pinned to `@v0.5.3` (or earlier) — upgrade to `@v0.6.0`.
+- **Reviewer Review↔Iterate auto-loop now uses count-based cap check** — the previous implementation stopped after the first reviewer→iterator cycle because it short-circuited on a single iterator marker. The reviewer now counts prior completed iterator cycles via `countPriorIterations` (`changes-guard.ts`) and compares against `limits.max_iterations` (default 3), auto-transitioning until the cap is reached. Reviewer comments now also include an "iteration N/M" hint. Closes #168 (PR #175).
 - **Refiner JSON parser hardened against LLM prose preamble and trailing prose (D9)** — replaced the previous fence-strip-then-parse approach with a bracket-counting extractor (`src/agents/refiner/parse.ts`) that finds the first balanced `{...}` substring in the raw LLM output. Any preamble ("Here is the plan:"), trailing prose, or code-fenced wrapping is now transparent to the parser. Resolves the confirmed prod failure from run `25262368292` (`big-emotion/ethniafrica`, 2026-05-02, `ferry-run-refiner@v0.5.2`).
 - **`ferry-update` now prints manual follow-ups from `MIGRATIONS.md`** — `getRelevantMigrations()` previously returned an empty array for every upgrade because `MIGRATIONS` was a stub object. It now parses `MIGRATIONS.md` at runtime, collecting all entries whose target version falls between `fromVersion` and `toVersion` (multi-hop upgrades are handled in a single pass). Consumers upgrading from v0.3.x will now see the critical `FERRY_ANTHROPIC_API_KEY → ANTHROPIC_API_KEY` rename action they previously missed silently. Closes #161 (D6).
 
@@ -170,6 +176,8 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+[Unreleased]: https://github.com/big-emotion/ferry/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/big-emotion/ferry/releases/tag/v0.6.0
 [0.4.0]: https://github.com/big-emotion/ferry/releases/tag/v0.4.0
 [0.3.0]: https://github.com/big-emotion/ferry/releases/tag/v0.3.0
 [0.2.0]: https://github.com/big-emotion/ferry/releases/tag/v0.2.0

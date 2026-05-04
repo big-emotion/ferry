@@ -1,5 +1,5 @@
 # Copy this file to .github/workflows/ferry-dev.yml in your repository.
-# Replace @v0.5.3 with the Ferry release tag you want to pin (e.g. @v0.6.0).
+# Replace @v0.6.0 with the Ferry release tag you want to pin (e.g. @v0.7.0).
 # Required secrets: FERRY_JIRA_BASE_URL, FERRY_JIRA_EMAIL, FERRY_JIRA_API_TOKEN,
 #                   FERRY_REVIEW_TRANSITION_ID, ANTHROPIC_API_KEY
 # Required variables: FERRY_AUDIT_ISSUE (GitHub Issue number for the audit log)
@@ -23,7 +23,7 @@ permissions:
 
 jobs:
   dev:
-    uses: big-emotion/ferry/.github/workflows/dev.yml@v0.5.3
+    uses: big-emotion/ferry/.github/workflows/dev.yml@v0.6.0
     with:
       ticket_key: ${{ github.event.client_payload.ticket_key }}
       event_id: ${{ github.event.client_payload.event_id }}
