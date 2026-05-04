@@ -341,9 +341,20 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) to contribute.
 
 ## MCP remote servers (HTTP/SSE)
 
-The developer agent can call **remote MCP servers** directly through the Anthropic Messages API (beta connector `mcp-client-2025-11-20`). The API proxies all MCP tool calls server-side — Ferry does not run any local MCP client.
+The Developer and Iterator agents can call **remote MCP servers** directly through the Anthropic Messages API (beta connector `mcp-client-2025-11-20`). The API proxies all MCP tool calls server-side — Ferry does not run any local MCP client.
 
-### Enabling MCP for the developer agent
+**Agent coverage:**
+
+| Agent     | MCP support |
+| --------- | ----------- |
+| Refiner   | No          |
+| Developer | Yes         |
+| Reviewer  | No          |
+| Iterator  | Yes         |
+
+The Refiner runs a single-turn LLM call and the Reviewer uses its own agentic tool loop — neither reads `AGENT_MCP_SERVERS`.
+
+### Enabling MCP for the developer & iterator agents
 
 Set the `AGENT_MCP_SERVERS` environment variable (repository variable or secret) to a JSON array:
 
@@ -386,6 +397,47 @@ Each entry accepts:
 ```json
 AGENT_MCP_SERVERS=[{"name":"context7","url":"https://mcp.context7.com/mcp"}]
 ```
+
+**End-to-end example — Figma for UI refactors**
+
+This walkthrough shows how to wire Figma's MCP server so the Developer consults the linked design frame before editing UI code.
+
+**Step 1 — Declare the server in the pool** (`AGENT_MCP_SERVERS` repo variable):
+
+```json
+[
+  {
+    "name": "figma",
+    "url": "https://mcp.figma.com/mcp",
+    "authorization_token": "<your-figma-pat>",
+    "allowed_tools": ["get_node", "get_file"]
+  }
+]
+```
+
+**Step 2 — Map a `ferry:*` label** in `ferry.config.yaml`:
+
+```yaml
+labels:
+  ferry:mcp/figma:
+    mcp_servers: [figma]
+```
+
+**Step 3 — Tell the agent to use it** in `prompts/dev.extra.md`:
+
+```markdown
+## Figma design reference
+
+When the ticket description or a comment references a Figma frame URL or node ID,
+call `figma.get_node` with that node ID **before** editing any UI component.
+Use the returned layout and style properties to guide your implementation.
+
+If no Figma link is present, skip the tool call entirely.
+```
+
+**Step 4 — Label the Jira ticket** with `ferry:mcp/figma` before moving it to _In Development_.
+
+**Failure mode to avoid.** If `prompts/dev.extra.md` does not explicitly instruct the agent to call `figma.get_node`, the Developer may refactor the UI component without ever consulting the Figma frame — even though the tool is available. MCP tools are passive; the agent must be told when to invoke them.
 
 **Audit logs**
 

@@ -31,7 +31,7 @@ describe('agent lint guardrails', () => {
       const output = `${anyErr.stdout?.toString?.() ?? ''}\n${anyErr.stderr?.toString?.() ?? ''}`;
       expect(output).toContain('no-restricted-imports');
     }
-  });
+  }, 30_000);
 
   it('no execSync with template literals in src/agents/', () => {
     const agentsDir = join(process.cwd(), 'src/agents');

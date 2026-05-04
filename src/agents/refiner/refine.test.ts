@@ -74,7 +74,7 @@ describe('runRefiner happy path (Story 3-1)', () => {
   });
 });
 
-describe('runRefiner markdown fence stripping', () => {
+describe('runRefiner markdown fence stripping (regression guard)', () => {
   it('parses JSON wrapped in ```json fences', async () => {
     const fencedLlm: LlmCall = async () => ({
       text: '```json\n' + JSON.stringify(validPlan) + '\n```',
@@ -91,6 +91,63 @@ describe('runRefiner markdown fence stripping', () => {
     });
     const result = await runRefiner({ ticket, callLlm: fencedLlm, runLink: 'r' });
     expect(result.plan).toEqual(validPlan);
+  });
+});
+
+describe('runRefiner prose preamble / trailing prose (D9)', () => {
+  it('parses JSON preceded by prose preamble', async () => {
+    const preambleLlm: LlmCall = async () => ({
+      text: 'Here is the plan:\n\n' + JSON.stringify(validPlan),
+      usage: null,
+    });
+    const result = await runRefiner({ ticket, callLlm: preambleLlm, runLink: 'r' });
+    expect(result.plan).toEqual(validPlan);
+  });
+
+  it('parses JSON followed by trailing prose', async () => {
+    const trailingLlm: LlmCall = async () => ({
+      text: JSON.stringify(validPlan) + '\n\nLet me know if you need changes.',
+      usage: null,
+    });
+    const result = await runRefiner({ ticket, callLlm: trailingLlm, runLink: 'r' });
+    expect(result.plan).toEqual(validPlan);
+  });
+
+  it('parses JSON without any code fences', async () => {
+    const noFenceLlm: LlmCall = async () => ({
+      text: JSON.stringify(validPlan),
+      usage: null,
+    });
+    const result = await runRefiner({ ticket, callLlm: noFenceLlm, runLink: 'r' });
+    expect(result.plan).toEqual(validPlan);
+  });
+
+  it('parses JSON with nested code fences inside string fields', async () => {
+    const planWithFences = {
+      ...validPlan,
+      subtasks: [
+        {
+          title: 'Add code block',
+          description: '```ts\nconsole.log("hello")\n```',
+        },
+      ],
+    };
+    const nestedFenceLlm: LlmCall = async () => ({
+      text: 'Sure thing:\n\n' + JSON.stringify(planWithFences),
+      usage: null,
+    });
+    const result = await runRefiner({ ticket, callLlm: nestedFenceLlm, runLink: 'r' });
+    expect(result.plan).toEqual(planWithFences);
+  });
+
+  it('throws state-invariant when LLM returns only prose with no JSON object', async () => {
+    const proseLlm: LlmCall = async () => ({
+      text: 'I cannot help with that request.',
+      usage: null,
+    });
+    await expect(runRefiner({ ticket, callLlm: proseLlm, runLink: 'r' })).rejects.toBeInstanceOf(
+      FerryError,
+    );
   });
 });
 
