@@ -123,6 +123,10 @@ This is `scripts/smoke-bundle.sh`. It boots each `.ferry/<role>-action.js` with 
 
 When preparing a release, add a `## <prev> → <this>` section to [`MIGRATIONS.md`](../MIGRATIONS.md) listing any consumer-visible changes (new secrets, new Jira-rule fields, status-name changes). See `docs/RELEASING.md` for the full pre-release checklist.
 
+## Operations
+
+On-call playbooks for stalled tickets, cost spikes, agent-loop runaways, and rollback procedures are in [`docs/RUNBOOK.md`](docs/RUNBOOK.md).
+
 ## Inspiration
 
 Ferry was inspired by [OpenAI Symphony](https://github.com/openai/symphony). It adapts the same agentic pipeline concept to be GitHub Actions–native, Jira-driven, and multi-provider (Anthropic + Google AI + OpenAI).
