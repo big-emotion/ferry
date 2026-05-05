@@ -17,7 +17,7 @@ export type ToolName =
   | 'done';
 
 const MAX_BASH_OUTPUT_DEFAULT = 64 * 1024;
-const MAX_READ_FILE_BYTES_DEFAULT = 256 * 1024;
+const MAX_READ_FILE_BYTES_DEFAULT = 64 * 1024;
 const DEFAULT_BASH_TIMEOUT_MS_DEFAULT = 60_000;
 const MAX_BASH_TIMEOUT_MS_DEFAULT = 300_000;
 const MAX_SEARCH_MATCHES = 200;
@@ -26,7 +26,7 @@ export const TOOL_SCHEMAS: AgentTool[] = [
   {
     name: 'read_file',
     description:
-      'Read the contents of a file under the repository root. Files larger than ~256 KB are truncated; use bash sed/grep to read specific ranges.',
+      'Read the contents of a file under the repository root. Files larger than ~64 KB are truncated head+tail; use bash sed/grep to read specific ranges.',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -257,14 +257,14 @@ export async function executeTool(
         if (stat.size <= maxBytes) {
           return await fh.readFile('utf8');
         }
-        const buf = Buffer.alloc(maxBytes);
-        await fh.read(buf, 0, maxBytes, 0);
-        const remaining = stat.size - maxBytes;
-        return (
-          buf.toString('utf8') +
-          `\n[truncated: ${remaining} more bytes — file is ${stat.size} bytes total. ` +
-          `Use bash 'sed -n "N,Mp" <path>' or 'grep -n <pattern> <path>' to read specific ranges.]`
-        );
+        const headSize = Math.floor(maxBytes / 2);
+        const tailSize = maxBytes - headSize;
+        const headBuf = Buffer.alloc(headSize);
+        const tailBuf = Buffer.alloc(tailSize);
+        await fh.read(headBuf, 0, headSize, 0);
+        await fh.read(tailBuf, 0, tailSize, stat.size - tailSize);
+        const elided = stat.size - maxBytes;
+        return `${headBuf.toString('utf8')}\n[truncated: ${elided} bytes elided]\n${tailBuf.toString('utf8')}`;
       } finally {
         await fh.close();
       }
