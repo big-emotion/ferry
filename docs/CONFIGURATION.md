@@ -103,6 +103,57 @@ All variables marked **wired** below are read directly by the standard consumer 
 
 ---
 
+## Pre/Post-Agent Command Hooks
+
+Each composite action (`ferry-run-developer`, `ferry-run-iterator`, `ferry-run-reviewer`, `ferry-run-refiner`) exposes three optional inputs that let consumers inject shell commands around the agent run without modifying Ferry's source.
+
+These inputs are passed in the `with:` block of your consumer workflow when you call the composite action.
+
+| Input                    | Default | Description                                                                                                                                                  |
+| ------------------------ | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `pre_agent_command`      | `''`    | Shell command to run **after** checkout + Ferry setup but **before** the agent starts. Skipped when empty. Typical use: `npm ci`, dependency caching, env setup. |
+| `pre_agent_timeout_minutes` | `'3'`| Timeout in minutes for the pre-agent step. Ignored when `pre_agent_command` is empty.                                                                       |
+| `post_agent_command`     | `''`    | Shell command to run **after** the agent finishes. **Always executes** (`if: always()`) — runs on agent success, failure, and cancellation. Typical use: cleanup, artifact upload, notifications. |
+
+The pre-agent step runs in `GITHUB_WORKSPACE` (your checked-out repo root), after Ferry's own `npm ci` has completed. Use multi-line commands with `|` for scripts longer than one command.
+
+**Example — install consumer dependencies before the Developer agent:**
+
+```yaml
+      - name: Run Developer agent
+        id: run-developer
+        uses: big-emotion/ferry/.github/actions/ferry-run-developer@v0.8.0
+        with:
+          payload: ${{ toJson(github.event.client_payload) }}
+          # ... required inputs ...
+          pre_agent_command: |
+            npm ci --prefer-offline
+          pre_agent_timeout_minutes: '5'
+```
+
+**Example — combined with `actions/cache@v4` (cache set up in a prior step, populated here):**
+
+```yaml
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@...
+
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('package-lock.json') }}
+
+      - name: Run Developer agent
+        uses: big-emotion/ferry/.github/actions/ferry-run-developer@v0.8.0
+        with:
+          payload: ${{ toJson(github.event.client_payload) }}
+          # ... required inputs ...
+          pre_agent_command: npm ci --prefer-offline
+```
+
+---
+
 ## `ferry.config.json`
 
 Create `ferry.config.json`, `ferry.config.yaml`, or `ferry.config.yml` at the **root of your repository**. All fields are optional — omit any section to use the defaults.
