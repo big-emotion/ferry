@@ -545,18 +545,21 @@ export function createAnthropicAgentLoop(opts: {
 
       // Move the cache breakpoint to the new tool results: strip it from the
       // previous tool-result turn first (keeps us within Anthropic's 4-block limit).
+      // Scan every block — injectBudgetWarning may have appended a text block
+      // after the cache-controlled tool_result, so it isn't always last.
       for (let i = messages.length - 1; i >= 0; i--) {
         const msg = messages[i];
         if (msg.role === 'user' && Array.isArray(msg.content)) {
           const content = msg.content as ToolResultBlockParam[];
           if (content.some((b) => b.type === 'tool_result')) {
-            const lastIdx = content.length - 1;
-            if ('cache_control' in content[lastIdx]) {
-              const entry = { ...content[lastIdx] } as ToolResultBlockParam & {
-                cache_control?: unknown;
-              };
-              delete entry.cache_control;
-              content[lastIdx] = entry as ToolResultBlockParam;
+            for (let j = 0; j < content.length; j++) {
+              if ('cache_control' in content[j]) {
+                const entry = { ...content[j] } as ToolResultBlockParam & {
+                  cache_control?: unknown;
+                };
+                delete entry.cache_control;
+                content[j] = entry as ToolResultBlockParam;
+              }
             }
             break;
           }

@@ -851,6 +851,66 @@ describe('createAnthropicAgentLoop — soft budget warnings', () => {
     // iter 3: 85% fires → 1 warning in last user message (70% already fired).
     expect(lastUserWarnings(calls[2])).toBe(1);
   });
+
+  it('keeps cache_control breakpoints ≤ 4 after a budget warning (regression)', async () => {
+    // Reproduces the iter:32 fatal: a budget warning appended a text block to the
+    // last tool_results message, hiding the cache_control'd tool_result from the
+    // strip step. The next turn then carried 5 breakpoints and tripped the
+    // Anthropic 4-block limit.
+    const toolResp1: FakeResponse = {
+      stop_reason: 'tool_use',
+      content: [{ type: 'tool_use', id: 'tu_1', name: 'read_file', input: { path: 'a.ts' } }],
+      usage: { input_tokens: 750, output_tokens: 10 }, // crosses 70%
+    };
+    const toolResp2: FakeResponse = {
+      stop_reason: 'tool_use',
+      content: [{ type: 'tool_use', id: 'tu_2', name: 'read_file', input: { path: 'b.ts' } }],
+      usage: { input_tokens: 50, output_tokens: 10 },
+    };
+    const execTool = vi
+      .fn<(r: string, n: string, i: Record<string, unknown>) => Promise<string>>()
+      .mockResolvedValue('content');
+
+    // A non-empty tools array is required: in production the loop pins
+    // cache_control on the last tool definition, which is the 4th breakpoint
+    // (system + tools + initial prompt + tool_result). The 5th breakpoint
+    // appears only when a stale tool_result keeps its cache_control.
+    const nativeTool = {
+      name: 'read_file',
+      description: 'Read',
+      input_schema: { type: 'object' as const, properties: {}, required: [] },
+    };
+
+    const { calls, client } = makeCapturingMock([toolResp1, toolResp2, doneResponse]);
+    const loop = createAnthropicAgentLoop({
+      model: 'm',
+      client,
+      executeTool: execTool,
+      maxInputTokens: 1000,
+    });
+
+    await loop.run({ ...baseInput, tools: [nativeTool] });
+
+    function countBreakpoints(call: { messages: unknown[]; tools: unknown[] }): number {
+      let count = 0;
+      // System block: always cache-controlled.
+      count += 1;
+      const tools = call.tools as Array<Record<string, unknown>>;
+      if (tools.some((t) => 'cache_control' in t)) count += 1;
+      const msgs = call.messages as Array<{ role: string; content: unknown }>;
+      for (const m of msgs) {
+        if (!Array.isArray(m.content)) continue;
+        for (const block of m.content as Array<Record<string, unknown>>) {
+          if ('cache_control' in block) count += 1;
+        }
+      }
+      return count;
+    }
+
+    // iter 3 is the call after the warning was appended to iter 2's tool_results.
+    // Pre-fix this was 5 (system + tools + initial prompt + stale tool_result + new tool_result).
+    expect(countBreakpoints(calls[2])).toBeLessThanOrEqual(4);
+  });
 });
 
 describe('createAnthropicAgentLoop — LOG_VERBOSITY=debug structured events', () => {
