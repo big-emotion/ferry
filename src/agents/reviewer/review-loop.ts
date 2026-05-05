@@ -1,15 +1,8 @@
-import Anthropic from '@anthropic-ai/sdk';
-import type {
-  MessageParam,
-  ToolResultBlockParam,
-  ContentBlock,
-} from '@anthropic-ai/sdk/resources/messages.js';
 import type { CIRunner, PRFile } from '../../lib/dispatch/runner/types.js';
-import { FerryError } from '../../lib/errors/index.js';
-import { emitDebug } from '../../lib/llm/debug-log.js';
 import { createLogger } from '../../lib/logger/index.js';
 import type { Logger } from '../../lib/logger/index.js';
 import type { CiStatus } from './ci-gate.js';
+import type { ToolCallLoop, ToolDef } from '../../lib/llm/tool-loop/index.js';
 
 export const MAX_PATCH_CHARS = 20_000;
 export const MAX_CONTENT_CHARS = 40_000;
@@ -17,7 +10,7 @@ const MAX_ITERATIONS = 40;
 
 export type { CiStatus, PRFile as PrFile };
 
-export const REVIEW_TOOLS: Anthropic.Tool[] = [
+export const REVIEW_TOOL_DEFS: ToolDef[] = [
   {
     name: 'get_file_patch',
     description:
@@ -88,8 +81,7 @@ export function buildFileList(files: PRFile[]): string {
 }
 
 export async function runReviewLoop(opts: {
-  anthropic: Anthropic;
-  model: string;
+  loop: ToolCallLoop;
   system: string;
   initialPrompt: string;
   fileMap: Map<string, string | undefined>;
@@ -108,7 +100,7 @@ export async function runReviewLoop(opts: {
   toolCounts: Record<string, number>;
   toolCallRecords: Array<{ name: string; outputSize: number }>;
 }> {
-  const { anthropic, model, system, initialPrompt, fileMap, runner, owner, repo, headSha } = opts;
+  const { loop, system, initialPrompt, fileMap, runner, owner, repo, headSha } = opts;
   const logger = opts.logger ?? createLogger('', 'ferry:review-loop');
   const maxIterations =
     opts.maxIterations ??
@@ -116,179 +108,54 @@ export async function runReviewLoop(opts: {
   const maxTokens =
     opts.maxTokens ?? (parseInt(process.env.FERRY_REVIEWER_MAX_TOKENS ?? '', 10) || 16384);
 
-  const tools = REVIEW_TOOLS.map((t, i) =>
-    i === REVIEW_TOOLS.length - 1 ? { ...t, cache_control: { type: 'ephemeral' as const } } : t,
-  );
-
-  const messages: MessageParam[] = [
-    {
-      role: 'user',
-      content: [{ type: 'text', text: initialPrompt, cache_control: { type: 'ephemeral' } }],
-    },
-  ];
-
-  let inputTokens = 0;
-  let outputTokens = 0;
-  let result: ReviewResult | null = null;
-  const toolCounts: Record<string, number> = {};
-  const toolCallRecords: Array<{ name: string; outputSize: number }> = [];
-  function trackTool(name: string, outputSize: number): void {
-    toolCounts[name] = (toolCounts[name] ?? 0) + 1;
-    toolCallRecords.push({ name, outputSize });
-  }
-  const loopStart = Date.now();
-
-  for (let iter = 0; iter < maxIterations; iter++) {
-    const iterStart = Date.now();
-    const response = await anthropic.messages.create({
-      model,
-      max_tokens: maxTokens,
-      system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
-      tools,
-      messages,
-    });
-
-    inputTokens += response.usage.input_tokens;
-    outputTokens += response.usage.output_tokens;
-    messages.push({ role: 'assistant', content: response.content as ContentBlock[] });
-
-    const toolCount = response.content.filter((b) => b.type === 'tool_use').length;
-    logger.info('turn', {
-      iter: iter + 1,
-      stop: response.stop_reason,
-      tools: toolCount,
-      in: response.usage.input_tokens,
-      out: response.usage.output_tokens,
-    });
-    emitDebug(
-      {
-        type: 'turn',
-        iter: iter + 1,
-        depth: 0,
-        stop_reason: response.stop_reason ?? 'unknown',
-        tools: toolCount,
-        mcp_tools: 0,
-        in: response.usage.input_tokens,
-        cache_w: 0,
-        cache_r: 0,
-        out: response.usage.output_tokens,
-        elapsed_ms: Date.now() - iterStart,
-      },
-      logger,
-    );
-
-    if (response.stop_reason !== 'tool_use') {
-      throw new FerryError('state-invariant', {
-        reason: 'reviewer-stopped-without-finish',
-        stop_reason: response.stop_reason,
-      });
-    }
-
-    const toolResults: ToolResultBlockParam[] = [];
-
-    for (const block of response.content) {
-      if (block.type !== 'tool_use') continue;
-      const input = block.input as Record<string, unknown>;
-
-      if (block.name === 'finish_review') {
-        result = {
-          approved: input.approved as boolean,
-          comment: input.comment as string,
-        };
-        toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: 'ok' });
-        continue;
-      }
-
-      if (block.name === 'get_file_patch') {
+  const {
+    done: result,
+    usage,
+    iterations,
+    toolCounts,
+    toolCallRecords,
+  } = await loop.run<ReviewResult>({
+    system,
+    initialPrompt,
+    tools: REVIEW_TOOL_DEFS,
+    finishTool: 'finish_review',
+    extractDone: (input) => ({
+      approved: input.approved as boolean,
+      comment: input.comment as string,
+    }),
+    handlers: {
+      get_file_patch: (input) => {
         const filename = input.filename as string;
-        logger.info('tool', { iter: iter + 1, tool: 'get_file_patch', file: filename });
+        logger.info('tool', { tool: 'get_file_patch', file: filename });
         const patch = fileMap.get(filename);
-        let content: string;
-        if (patch === undefined) {
-          content = `(file not found in PR: ${filename})`;
-        } else if (!patch) {
-          content = '(no patch — binary, empty, or content unchanged)';
-        } else {
-          const patchLimit =
-            parseInt(process.env.FERRY_REVIEW_PATCH_TRUNCATE_CHARS ?? '', 10) || MAX_PATCH_CHARS;
-          content =
-            patch.length > patchLimit ? patch.slice(0, patchLimit) + '\n... (truncated)' : patch;
-        }
-        trackTool('get_file_patch', content.length);
-        toolResults.push({ type: 'tool_result', tool_use_id: block.id, content });
-        continue;
-      }
-
-      if (block.name === 'get_file_content') {
+        if (patch === undefined) return `(file not found in PR: ${filename})`;
+        if (!patch) return '(no patch — binary, empty, or content unchanged)';
+        const patchLimit =
+          parseInt(process.env.FERRY_REVIEW_PATCH_TRUNCATE_CHARS ?? '', 10) || MAX_PATCH_CHARS;
+        return patch.length > patchLimit ? patch.slice(0, patchLimit) + '\n... (truncated)' : patch;
+      },
+      get_file_content: async (input) => {
         const filename = input.filename as string;
-        logger.info('tool', { iter: iter + 1, tool: 'get_file_content', file: filename });
+        logger.info('tool', { tool: 'get_file_content', file: filename });
         const fileLimit =
           parseInt(process.env.FERRY_REVIEW_FILE_TRUNCATE_CHARS ?? '', 10) || MAX_CONTENT_CHARS;
         const rawContent = await runner.getFileContent(owner, repo, filename, headSha);
-        const content =
-          rawContent.length > fileLimit
-            ? rawContent.slice(0, fileLimit) + '\n... (truncated)'
-            : rawContent;
-        trackTool('get_file_content', content.length);
-        toolResults.push({ type: 'tool_result', tool_use_id: block.id, content });
-        continue;
-      }
-
-      toolResults.push({
-        type: 'tool_result',
-        tool_use_id: block.id,
-        content: `unknown tool: ${block.name}`,
-        is_error: true,
-      });
-    }
-
-    // Roll cache breakpoint forward to the latest tool results
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const msg = messages[i];
-      if (msg.role === 'user' && Array.isArray(msg.content)) {
-        const content = msg.content as ToolResultBlockParam[];
-        if (content.some((b) => b.type === 'tool_result')) {
-          const entry = { ...content[content.length - 1] } as ToolResultBlockParam & {
-            cache_control?: unknown;
-          };
-          delete entry.cache_control;
-          content[content.length - 1] = entry as ToolResultBlockParam;
-          break;
-        }
-      }
-    }
-    if (toolResults.length > 0) {
-      const last = toolResults[toolResults.length - 1];
-      toolResults[toolResults.length - 1] = { ...last, cache_control: { type: 'ephemeral' } };
-    }
-
-    messages.push({ role: 'user', content: toolResults });
-
-    if (result) {
-      emitDebug(
-        {
-          type: 'result',
-          subtype: 'success',
-          iterations: iter + 1,
-          total_in: inputTokens,
-          total_out: outputTokens,
-          elapsed_ms: Date.now() - loopStart,
-        },
-        logger,
-      );
-      return {
-        result,
-        inputTokens,
-        outputTokens,
-        iterations: iter + 1,
-        toolCounts,
-        toolCallRecords,
-      };
-    }
-  }
-
-  throw new FerryError('state-invariant', {
-    reason: 'review-iteration-cap-exceeded',
-    cap: MAX_ITERATIONS,
+        return rawContent.length > fileLimit
+          ? rawContent.slice(0, fileLimit) + '\n... (truncated)'
+          : rawContent;
+      },
+    },
+    maxIterations,
+    maxTokens,
+    logger,
   });
+
+  return {
+    result,
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
+    iterations,
+    toolCounts,
+    toolCallRecords,
+  };
 }

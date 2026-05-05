@@ -1,5 +1,4 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import Anthropic from '@anthropic-ai/sdk';
 import {
   runReviewLoop,
   detectMergeConflicts,
@@ -7,47 +6,60 @@ import {
   MAX_PATCH_CHARS,
 } from './review-loop.js';
 import type { PrFile } from './review-loop.js';
-import { createTestLogger } from '../../lib/logger/index.js';
 import type { CIRunner } from '../../lib/dispatch/runner/types.js';
-import { FerryError } from '../../lib/errors/index.js';
+import type {
+  ToolCallLoop,
+  ToolLoopRunOpts,
+  ToolLoopResult,
+} from '../../lib/llm/tool-loop/index.js';
 
-type FakeMessage = {
-  stop_reason: string;
-  content: Array<{ type: string; id?: string; name?: string; input?: unknown; text?: string }>;
-  usage: { input_tokens: number; output_tokens: number };
-};
-
-function makeAnthropicMock(responses: FakeMessage[]) {
-  let idx = 0;
-  const create = vi.fn().mockImplementation(async () => {
-    const r = responses[idx++];
-    return {
-      stop_reason: r.stop_reason,
-      content: r.content,
-      usage: r.usage,
-    };
-  });
+/** Creates a mock ToolCallLoop that invokes handlers to simulate an LLM run. */
+function makeMockLoop(
+  scenario: (
+    opts: ToolLoopRunOpts<unknown>,
+  ) => Promise<ToolLoopResult<unknown>> | ToolLoopResult<unknown>,
+): ToolCallLoop {
   return {
-    messages: { create },
-    create,
+    run: vi.fn().mockImplementation(scenario),
   };
 }
 
-const finishReviewResponse: FakeMessage = {
-  stop_reason: 'tool_use',
-  content: [
-    {
-      type: 'tool_use',
-      id: 'tu_finish',
-      name: 'finish_review',
-      input: { approved: true, comment: 'LGTM' },
-    },
-  ],
-  usage: { input_tokens: 100, output_tokens: 50 },
-};
+/** Simulates a single-turn finish_review call. */
+function makeFinishLoop(approved: boolean, comment: string): ToolCallLoop {
+  return makeMockLoop(async (opts) => {
+    const done = opts.extractDone({ approved, comment });
+    return {
+      done,
+      usage: { inputTokens: 100, outputTokens: 50 },
+      iterations: 1,
+      toolCounts: {},
+      toolCallRecords: [],
+    };
+  });
+}
+
+/** Simulates: call handler once → finish_review. */
+function makeToolThenFinishLoop(
+  toolName: string,
+  toolInput: Record<string, unknown>,
+  approved: boolean,
+  comment: string,
+): ToolCallLoop {
+  return makeMockLoop(async (opts) => {
+    const handler = opts.handlers[toolName];
+    if (handler) await handler(toolInput);
+    const done = opts.extractDone({ approved, comment });
+    return {
+      done,
+      usage: { inputTokens: 200, outputTokens: 80 },
+      iterations: 2,
+      toolCounts: { [toolName]: 1 },
+      toolCallRecords: [{ name: toolName, outputSize: 10 }],
+    };
+  });
+}
 
 const baseOpts = {
-  model: 'm',
   system: 'sys',
   initialPrompt: 'review this',
   fileMap: new Map<string, string | undefined>(),
@@ -64,436 +76,127 @@ describe('runReviewLoop', () => {
   });
 
   it('completes when finish_review is called', async () => {
-    const mock = makeAnthropicMock([finishReviewResponse]);
-    const result = await runReviewLoop({
-      ...baseOpts,
-      anthropic: mock as unknown as Anthropic,
-    });
+    const loop = makeFinishLoop(true, 'LGTM');
+    const result = await runReviewLoop({ ...baseOpts, loop });
     expect(result.result.approved).toBe(true);
     expect(result.result.comment).toBe('LGTM');
     expect(result.inputTokens).toBe(100);
     expect(result.outputTokens).toBe(50);
   });
 
-  it('throws FerryError on unexpected stop_reason', async () => {
-    const mock = makeAnthropicMock([
-      {
-        stop_reason: 'end_turn',
-        content: [{ type: 'text', text: 'done' }],
-        usage: { input_tokens: 10, output_tokens: 5 },
-      },
-    ]);
-    await expect(
-      runReviewLoop({ ...baseOpts, anthropic: mock as unknown as Anthropic }),
-    ).rejects.toThrow(FerryError);
+  it('returns correct iteration count', async () => {
+    const loop = makeFinishLoop(false, 'needs work');
+    const result = await runReviewLoop({ ...baseOpts, loop });
+    expect(result.iterations).toBe(1);
   });
 
-  it('emits debug "turn" record when LOG_VERBOSITY=debug', async () => {
-    vi.stubEnv('LOG_VERBOSITY', 'debug');
-    const { logger, records } = createTestLogger('evt-review', 'ferry:review-loop');
-    const mock = makeAnthropicMock([finishReviewResponse]);
-
-    await runReviewLoop({ ...baseOpts, anthropic: mock as unknown as Anthropic, logger });
-
-    const turnRecord = records.find((r) => r.level === 'debug' && r.message === 'turn');
-    expect(turnRecord).toBeDefined();
-    expect(turnRecord).toMatchObject({
-      type: 'turn',
-      iter: 1,
-      depth: 0,
-      stop_reason: 'tool_use',
-    });
-    expect(typeof turnRecord?.['elapsed_ms']).toBe('number');
-  });
-
-  it('emits debug "result" record on success when LOG_VERBOSITY=debug', async () => {
-    vi.stubEnv('LOG_VERBOSITY', 'debug');
-    const { logger, records } = createTestLogger('evt-review', 'ferry:review-loop');
-    const mock = makeAnthropicMock([finishReviewResponse]);
-
-    await runReviewLoop({ ...baseOpts, anthropic: mock as unknown as Anthropic, logger });
-
-    const resultRecord = records.find((r) => r.level === 'debug' && r.message === 'result');
-    expect(resultRecord).toBeDefined();
-    expect(resultRecord).toMatchObject({
-      type: 'result',
-      subtype: 'success',
-      iterations: 1,
-    });
-    expect(typeof resultRecord?.['elapsed_ms']).toBe('number');
-  });
-
-  it('does not emit debug records when LOG_VERBOSITY is unset', async () => {
-    vi.stubEnv('LOG_VERBOSITY', '');
-    const { logger, records } = createTestLogger('evt-review', 'ferry:review-loop');
-    const mock = makeAnthropicMock([finishReviewResponse]);
-
-    await runReviewLoop({ ...baseOpts, anthropic: mock as unknown as Anthropic, logger });
-
-    expect(records.filter((r) => r.level === 'debug')).toHaveLength(0);
-  });
-
-  it('emits structured "turn" info records per iteration', async () => {
-    const { logger, records } = createTestLogger('evt-review', 'ferry:review-loop');
-    const mock = makeAnthropicMock([finishReviewResponse]);
-
-    await runReviewLoop({ ...baseOpts, anthropic: mock as unknown as Anthropic, logger });
-
-    const turnInfoRecords = records.filter((r) => r.level === 'info' && r.message === 'turn');
-    expect(turnInfoRecords.length).toBeGreaterThanOrEqual(1);
-    expect(turnInfoRecords[0]).toMatchObject({
-      level: 'info',
-      correlation_id: 'evt-review',
-      iter: 1,
-    });
-  });
-
-  it('handles get_file_patch for a file in the fileMap', async () => {
+  it('passes get_file_patch handler that returns patch from fileMap', async () => {
     const fileMap = new Map<string, string | undefined>([
       ['src/auth.ts', '+export function login() {}'],
     ]);
-    const mock = makeAnthropicMock([
-      {
-        stop_reason: 'tool_use',
-        content: [
-          {
-            type: 'tool_use',
-            id: 'tu_gfp',
-            name: 'get_file_patch',
-            input: { filename: 'src/auth.ts' },
-          },
-        ],
-        usage: { input_tokens: 20, output_tokens: 10 },
-      },
-      finishReviewResponse,
-    ]);
+    let capturedContent: string | undefined;
 
-    const result = await runReviewLoop({
-      ...baseOpts,
-      fileMap,
-      anthropic: mock as unknown as Anthropic,
+    const loop = makeMockLoop(async (opts) => {
+      const handler = opts.handlers['get_file_patch'];
+      capturedContent = await handler!({ filename: 'src/auth.ts' });
+      const done = opts.extractDone({ approved: true, comment: 'ok' });
+      return {
+        done,
+        usage: { inputTokens: 20, outputTokens: 10 },
+        iterations: 2,
+        toolCounts: {},
+        toolCallRecords: [],
+      };
     });
 
-    expect(result.result.approved).toBe(true);
-    expect(mock.create).toHaveBeenCalledTimes(2);
+    await runReviewLoop({ ...baseOpts, fileMap, loop });
+    expect(capturedContent).toBe('+export function login() {}');
   });
 
-  it('returns not-found message for get_file_patch when file is absent from fileMap', async () => {
-    const fileMap = new Map<string, string | undefined>();
-    let capturedToolContent: string | undefined;
-
-    const captureCreate = vi
-      .fn()
-      .mockImplementation(
-        async (params: { messages: Array<{ role: string; content: unknown }> }) => {
-          if (params.messages.length >= 3) {
-            const lastMsg = params.messages[params.messages.length - 1];
-            if (Array.isArray(lastMsg.content)) {
-              const toolResult = (lastMsg.content as Array<{ content?: string }>)[0];
-              capturedToolContent = toolResult?.content;
-            }
-          }
-          if (params.messages.length <= 2) {
-            return {
-              stop_reason: 'tool_use',
-              content: [
-                {
-                  type: 'tool_use',
-                  id: 'tu_gfp',
-                  name: 'get_file_patch',
-                  input: { filename: 'missing.ts' },
-                },
-              ],
-              usage: { input_tokens: 10, output_tokens: 5 },
-            };
-          }
-          return {
-            stop_reason: 'tool_use',
-            content: [
-              {
-                type: 'tool_use',
-                id: 'tu_finish',
-                name: 'finish_review',
-                input: { approved: false, comment: 'cannot find file' },
-              },
-            ],
-            usage: { input_tokens: 10, output_tokens: 5 },
-          };
-        },
-      );
-
-    await runReviewLoop({
-      ...baseOpts,
-      fileMap,
-      anthropic: { messages: { create: captureCreate } } as unknown as Anthropic,
+  it('get_file_patch returns not-found message for missing file', async () => {
+    let capturedContent: string | undefined;
+    const loop = makeMockLoop(async (opts) => {
+      capturedContent = await opts.handlers['get_file_patch']!({ filename: 'missing.ts' });
+      const done = opts.extractDone({ approved: false, comment: 'cannot find file' });
+      return {
+        done,
+        usage: { inputTokens: 10, outputTokens: 5 },
+        iterations: 2,
+        toolCounts: {},
+        toolCallRecords: [],
+      };
     });
 
-    expect(capturedToolContent).toContain('(file not found in PR: missing.ts)');
+    await runReviewLoop({ ...baseOpts, loop });
+    expect(capturedContent).toContain('(file not found in PR: missing.ts)');
   });
 
-  it('returns no-patch message for get_file_patch when patch is empty string', async () => {
+  it('get_file_patch returns no-patch message for empty string', async () => {
     const fileMap = new Map<string, string | undefined>([['binary.png', '']]);
-    let capturedToolContent: string | undefined;
-
-    const captureCreate = vi
-      .fn()
-      .mockImplementation(
-        async (params: { messages: Array<{ role: string; content: unknown }> }) => {
-          if (params.messages.length >= 3) {
-            const lastMsg = params.messages[params.messages.length - 1];
-            if (Array.isArray(lastMsg.content)) {
-              const toolResult = (lastMsg.content as Array<{ content?: string }>)[0];
-              capturedToolContent = toolResult?.content;
-            }
-          }
-          if (params.messages.length <= 2) {
-            return {
-              stop_reason: 'tool_use',
-              content: [
-                {
-                  type: 'tool_use',
-                  id: 'tu_gfp',
-                  name: 'get_file_patch',
-                  input: { filename: 'binary.png' },
-                },
-              ],
-              usage: { input_tokens: 10, output_tokens: 5 },
-            };
-          }
-          return {
-            stop_reason: 'tool_use',
-            content: [
-              {
-                type: 'tool_use',
-                id: 'tu_finish',
-                name: 'finish_review',
-                input: { approved: true, comment: 'ok' },
-              },
-            ],
-            usage: { input_tokens: 10, output_tokens: 5 },
-          };
-        },
-      );
-
-    await runReviewLoop({
-      ...baseOpts,
-      fileMap,
-      anthropic: { messages: { create: captureCreate } } as unknown as Anthropic,
+    let capturedContent: string | undefined;
+    const loop = makeMockLoop(async (opts) => {
+      capturedContent = await opts.handlers['get_file_patch']!({ filename: 'binary.png' });
+      const done = opts.extractDone({ approved: true, comment: 'ok' });
+      return {
+        done,
+        usage: { inputTokens: 10, outputTokens: 5 },
+        iterations: 2,
+        toolCounts: {},
+        toolCallRecords: [],
+      };
     });
 
-    expect(capturedToolContent).toBe('(no patch — binary, empty, or content unchanged)');
+    await runReviewLoop({ ...baseOpts, fileMap, loop });
+    expect(capturedContent).toBe('(no patch — binary, empty, or content unchanged)');
   });
 
-  it('truncates get_file_patch content when patch exceeds MAX_PATCH_CHARS', async () => {
+  it('truncates patch when it exceeds MAX_PATCH_CHARS', async () => {
     const longPatch = '+' + 'x'.repeat(MAX_PATCH_CHARS + 100);
     const fileMap = new Map<string, string | undefined>([['big.ts', longPatch]]);
-    let capturedToolContent: string | undefined;
-
-    const captureCreate = vi
-      .fn()
-      .mockImplementation(
-        async (params: { messages: Array<{ role: string; content: unknown }> }) => {
-          if (params.messages.length >= 3) {
-            const lastMsg = params.messages[params.messages.length - 1];
-            if (Array.isArray(lastMsg.content)) {
-              const toolResult = (lastMsg.content as Array<{ content?: string }>)[0];
-              capturedToolContent = toolResult?.content;
-            }
-          }
-          if (params.messages.length <= 2) {
-            return {
-              stop_reason: 'tool_use',
-              content: [
-                {
-                  type: 'tool_use',
-                  id: 'tu_gfp',
-                  name: 'get_file_patch',
-                  input: { filename: 'big.ts' },
-                },
-              ],
-              usage: { input_tokens: 10, output_tokens: 5 },
-            };
-          }
-          return {
-            stop_reason: 'tool_use',
-            content: [
-              {
-                type: 'tool_use',
-                id: 'tu_finish',
-                name: 'finish_review',
-                input: { approved: true, comment: 'truncated' },
-              },
-            ],
-            usage: { input_tokens: 10, output_tokens: 5 },
-          };
-        },
-      );
-
-    await runReviewLoop({
-      ...baseOpts,
-      fileMap,
-      anthropic: { messages: { create: captureCreate } } as unknown as Anthropic,
+    let capturedContent: string | undefined;
+    const loop = makeMockLoop(async (opts) => {
+      capturedContent = await opts.handlers['get_file_patch']!({ filename: 'big.ts' });
+      const done = opts.extractDone({ approved: true, comment: 'truncated' });
+      return {
+        done,
+        usage: { inputTokens: 10, outputTokens: 5 },
+        iterations: 2,
+        toolCounts: {},
+        toolCallRecords: [],
+      };
     });
 
-    expect(capturedToolContent).toContain('... (truncated)');
-    expect(capturedToolContent!.length).toBeLessThan(longPatch.length);
+    await runReviewLoop({ ...baseOpts, fileMap, loop });
+    expect(capturedContent).toContain('... (truncated)');
+    expect(capturedContent!.length).toBeLessThan(longPatch.length);
   });
 
-  it('handles get_file_content by calling runner.getFileContent', async () => {
+  it('get_file_content calls runner.getFileContent', async () => {
     const getFileContent = vi.fn().mockResolvedValue('function foo() { return 42; }');
     const runner = { getFileContent } as unknown as CIRunner;
-
-    const mock = makeAnthropicMock([
-      {
-        stop_reason: 'tool_use',
-        content: [
-          {
-            type: 'tool_use',
-            id: 'tu_gfc',
-            name: 'get_file_content',
-            input: { filename: 'src/foo.ts' },
-          },
-        ],
-        usage: { input_tokens: 15, output_tokens: 8 },
-      },
-      finishReviewResponse,
-    ]);
-
-    const result = await runReviewLoop({
-      ...baseOpts,
-      runner,
-      anthropic: mock as unknown as Anthropic,
+    let capturedContent: string | undefined;
+    const loop = makeMockLoop(async (opts) => {
+      capturedContent = await opts.handlers['get_file_content']!({ filename: 'src/foo.ts' });
+      const done = opts.extractDone({ approved: true, comment: 'ok' });
+      return {
+        done,
+        usage: { inputTokens: 15, outputTokens: 8 },
+        iterations: 2,
+        toolCounts: {},
+        toolCallRecords: [],
+      };
     });
 
-    expect(result.result.approved).toBe(true);
-    expect(getFileContent).toHaveBeenCalledWith(
-      baseOpts.owner,
-      baseOpts.repo,
-      'src/foo.ts',
-      baseOpts.headSha,
-    );
+    await runReviewLoop({ ...baseOpts, runner, loop });
+    expect(capturedContent).toBe('function foo() { return 42; }');
+    expect(getFileContent).toHaveBeenCalledWith('org', 'repo', 'src/foo.ts', 'abc123');
   });
 
-  it('returns is_error tool result for unknown tool names', async () => {
-    let capturedToolResult: Array<{ is_error?: boolean; content?: string }> | undefined;
-
-    const captureCreate = vi
-      .fn()
-      .mockImplementation(
-        async (params: { messages: Array<{ role: string; content: unknown }> }) => {
-          if (params.messages.length >= 3) {
-            const lastMsg = params.messages[params.messages.length - 1];
-            if (Array.isArray(lastMsg.content)) {
-              capturedToolResult = lastMsg.content as Array<{
-                is_error?: boolean;
-                content?: string;
-              }>;
-            }
-          }
-          if (params.messages.length <= 2) {
-            return {
-              stop_reason: 'tool_use',
-              content: [
-                {
-                  type: 'tool_use',
-                  id: 'tu_bad',
-                  name: 'totally_unknown_tool',
-                  input: {},
-                },
-              ],
-              usage: { input_tokens: 10, output_tokens: 5 },
-            };
-          }
-          return {
-            stop_reason: 'tool_use',
-            content: [
-              {
-                type: 'tool_use',
-                id: 'tu_finish',
-                name: 'finish_review',
-                input: { approved: true, comment: 'done' },
-              },
-            ],
-            usage: { input_tokens: 10, output_tokens: 5 },
-          };
-        },
-      );
-
-    await runReviewLoop({
-      ...baseOpts,
-      anthropic: { messages: { create: captureCreate } } as unknown as Anthropic,
-    });
-
-    expect(capturedToolResult).toBeDefined();
-    expect(capturedToolResult).toContainEqual(
-      expect.objectContaining({
-        is_error: true,
-        content: expect.stringContaining('unknown tool: totally_unknown_tool'),
-      }),
-    );
-  });
-
-  it('throws FerryError when maxIterations is reached without finish_review', async () => {
-    const create = vi.fn().mockResolvedValue({
-      stop_reason: 'tool_use',
-      content: [
-        {
-          type: 'tool_use',
-          id: 'tu_gfp',
-          name: 'get_file_patch',
-          input: { filename: 'x.ts' },
-        },
-      ],
-      usage: { input_tokens: 5, output_tokens: 3 },
-    });
-
-    await expect(
-      runReviewLoop({
-        ...baseOpts,
-        anthropic: { messages: { create } } as unknown as Anthropic,
-        maxIterations: 1,
-      }),
-    ).rejects.toMatchObject({ code: 'state-invariant' });
-  });
-
-  it('accumulates token counts across multiple iterations', async () => {
-    const mock = makeAnthropicMock([
-      {
-        stop_reason: 'tool_use',
-        content: [
-          {
-            type: 'tool_use',
-            id: 'tu_gfp',
-            name: 'get_file_patch',
-            input: { filename: 'src/a.ts' },
-          },
-        ],
-        usage: { input_tokens: 100, output_tokens: 40 },
-      },
-      {
-        stop_reason: 'tool_use',
-        content: [
-          {
-            type: 'tool_use',
-            id: 'tu_finish',
-            name: 'finish_review',
-            input: { approved: false, comment: 'needs work' },
-          },
-        ],
-        usage: { input_tokens: 200, output_tokens: 60 },
-      },
-    ]);
-
-    const fileMap = new Map<string, string | undefined>([['src/a.ts', '+code']]);
-    const result = await runReviewLoop({
-      ...baseOpts,
-      fileMap,
-      anthropic: mock as unknown as Anthropic,
-    });
-
-    expect(result.inputTokens).toBe(300);
-    expect(result.outputTokens).toBe(100);
-    expect(result.result.approved).toBe(false);
+  it('passes through toolCounts and toolCallRecords from the loop', async () => {
+    const loop = makeToolThenFinishLoop('get_file_patch', { filename: 'x.ts' }, true, 'ok');
+    const result = await runReviewLoop({ ...baseOpts, loop });
+    expect(result.toolCounts).toEqual({ get_file_patch: 1 });
+    expect(result.toolCallRecords).toEqual([{ name: 'get_file_patch', outputSize: 10 }]);
   });
 });
 
