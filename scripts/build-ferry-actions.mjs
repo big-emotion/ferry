@@ -171,10 +171,15 @@ const agentBaseDeps = {
   yaml: '^2.6.0',
 };
 
-// Refiner routes through call.ts which statically imports all three providers,
-// so it needs all three SDKs installed at runtime.
-// Developer/reviewer/iterator use the Anthropic agent loop directly and throw
-// at startup when configured with a non-Anthropic provider — only need SDK.
+// Every agent bundle statically imports all three provider SDKs (the agent-loop
+// modules are evaluated at import time, not lazily), so each action needs all
+// three installed at runtime.
+const allProviderDeps = {
+  '@anthropic-ai/sdk': rootDeps['@anthropic-ai/sdk'],
+  '@google/genai': rootDeps['@google/genai'],
+  openai: rootDeps['openai'],
+};
+
 const agentActions = [
   {
     actionDir: '.github/actions/ferry-run-refiner',
@@ -182,11 +187,7 @@ const agentActions = [
     bundle: '.ferry/refiner-action.js',
     bundleOut: 'refiner-action.js',
     prompts: ['refiner'],
-    sdkDeps: {
-      '@anthropic-ai/sdk': rootDeps['@anthropic-ai/sdk'],
-      '@google/genai': rootDeps['@google/genai'],
-      openai: rootDeps['openai'],
-    },
+    sdkDeps: allProviderDeps,
   },
   {
     actionDir: '.github/actions/ferry-run-developer',
@@ -194,7 +195,7 @@ const agentActions = [
     bundle: '.ferry/dev-action.js',
     bundleOut: 'dev-action.js',
     prompts: ['dev'],
-    sdkDeps: { '@anthropic-ai/sdk': rootDeps['@anthropic-ai/sdk'] },
+    sdkDeps: allProviderDeps,
   },
   {
     actionDir: '.github/actions/ferry-run-reviewer',
@@ -202,7 +203,7 @@ const agentActions = [
     bundle: '.ferry/review-action.js',
     bundleOut: 'review-action.js',
     prompts: ['review', 'review-comment'],
-    sdkDeps: { '@anthropic-ai/sdk': rootDeps['@anthropic-ai/sdk'] },
+    sdkDeps: allProviderDeps,
   },
   {
     actionDir: '.github/actions/ferry-run-iterator',
@@ -210,7 +211,7 @@ const agentActions = [
     bundle: '.ferry/iterate-action.js',
     bundleOut: 'iterate-action.js',
     prompts: ['iterate'],
-    sdkDeps: { '@anthropic-ai/sdk': rootDeps['@anthropic-ai/sdk'] },
+    sdkDeps: allProviderDeps,
   },
 ];
 
