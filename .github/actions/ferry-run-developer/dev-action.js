@@ -263,11 +263,6 @@ async function runAgent(role, handler2) {
   }
 }
 
-// src/lib/agent-runtime/idempotency.ts
-function byEventId(role, eventId) {
-  return `[ferry:${role}:${eventId}]`;
-}
-
 // src/lib/agent-runtime/prompt.ts
 import { existsSync as existsSync2, readFileSync as readFileSync2 } from "node:fs";
 
@@ -5084,6 +5079,21 @@ var JiraRestClient = class {
     const data = await response.json();
     return (data.issues ?? []).map((i) => `- [${i.key}] ${i.fields.summary}`);
   }
+  async getSubtaskDetails(parentKey) {
+    const jql = encodeURIComponent(`parent=${parentKey} ORDER BY created ASC`);
+    const response = await fetch(
+      `${this.baseUrl}/rest/api/3/search?jql=${jql}&fields=summary,description,status&maxResults=50`,
+      { method: "GET", headers: this.baseHeaders }
+    );
+    if (!response.ok) return [];
+    const data = await response.json();
+    return (data.issues ?? []).map((i) => ({
+      key: i.key,
+      title: i.fields.summary,
+      descriptionAdf: i.fields.description,
+      status: i.fields.status.name
+    }));
+  }
 };
 function createJiraRestClientFromEnv() {
   const baseUrl = process.env.FERRY_JIRA_BASE_URL;
@@ -5155,6 +5165,15 @@ var JiraTracker = class {
   }
   async getSubtasks(key) {
     return this.client.getSubtasks(key);
+  }
+  async getSubtaskDetails(key) {
+    const raw = await this.client.getSubtaskDetails(key);
+    return raw.map((r) => ({
+      key: r.key,
+      title: r.title,
+      description: adfToText(r.descriptionAdf),
+      status: r.status
+    }));
   }
   async createSubtask(parentKey, title, description) {
     const result = await this.client.createSubtask(parentKey, title, textToAdf(description));
@@ -6335,6 +6354,7 @@ function packageJsonPath(repoRoot) {
 
 // src/agents/developer/dev-action.ts
 var REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
+var ALREADY_IMPLEMENTED_REASON = "already implemented";
 async function main(envelope, logger) {
   const { ticket_key: ticketKey, event_id: eventId } = envelope;
   const dryRun = isDryRun();
@@ -6370,24 +6390,12 @@ async function main(envelope, logger) {
   const subtasks = await tracker.getSubtasks(ticketKey);
   const testRunner = detectTestRunner(packageJsonPath(REPO_ROOT));
   const tree = repoTree(REPO_ROOT);
-  const initialPrompt = [
-    delimitUntrusted(ticketBlock),
-    "",
-    subtasks.length > 0 ? `SUBTASKS:
-${subtasks.join("\n")}` : "SUBTASKS: (none)",
-    "",
-    `TEST_RUNNER: ${testRunner}`,
-    "",
-    `REPO TREE (depth 2):
-${tree}`,
-    "",
-    "When you have finished implementing, call the `done` tool."
-  ].join("\n");
   const system = buildSystem("dev", REPO_ROOT);
   const model = ferryCfg.models.dev.model;
   const branchName = `${workingBranchPrefix}${ticketKey}`;
   configureFerryGitUser(REPO_ROOT);
   let resumeContext = "";
+  let branchHeadSha = "";
   try {
     execFileSync4("git", ["ls-remote", "--exit-code", "--heads", "origin", branchName], {
       cwd: REPO_ROOT,
@@ -6408,10 +6416,52 @@ ${existingLog}`;
         prior_commits: existingLog.split("\n").length
       });
     }
+    branchHeadSha = execFileSync4("git", ["rev-parse", "HEAD"], {
+      cwd: REPO_ROOT,
+      encoding: "utf8"
+    }).trim();
   } catch {
     execFileSync4("git", ["checkout", "-B", branchName], { cwd: REPO_ROOT });
     logger.info("created branch", { branch: branchName });
   }
+  let existingPrUrl = "";
+  let existingPrContext = "";
+  if (branchHeadSha && !dryRun) {
+    try {
+      const openPrs = await runner.listPRsForBranch(owner, repo, branchName);
+      if (openPrs.length > 0) {
+        const pr = openPrs[0];
+        existingPrUrl = `https://github.com/${owner}/${repo}/pull/${pr.number}`;
+        const prRef = { owner, repo, prNumber: pr.number };
+        const prFiles = await runner.listPRFiles(prRef);
+        const fileList = prFiles.map((f) => `${f.status}: ${f.filename}`).join("\n");
+        existingPrContext = [
+          `
+EXISTING_IMPLEMENTATION:`,
+          `Open PR: ${existingPrUrl} (head: ${branchHeadSha.slice(0, 7)})`,
+          `Changed files:
+${fileList}`,
+          `If the implementation is already complete for this ticket, call \`done\` with actionable=false and reason="${ALREADY_IMPLEMENTED_REASON}".`
+        ].join("\n");
+        logger.info("existing PR found", { pr: existingPrUrl, files: prFiles.length });
+      }
+    } catch {
+    }
+  }
+  const idempotencyMarker = branchHeadSha ? `[ferry:dev:${branchHeadSha.slice(0, 7)}]` : `[ferry:dev:${eventId}]`;
+  const initialPrompt = [
+    delimitUntrusted(ticketBlock),
+    "",
+    subtasks.length > 0 ? `SUBTASKS:
+${subtasks.join("\n")}` : "SUBTASKS: (none)",
+    "",
+    `TEST_RUNNER: ${testRunner}`,
+    "",
+    `REPO TREE (depth 2):
+${tree}`,
+    "",
+    "When you have finished implementing, call the `done` tool."
+  ].join("\n");
   const secretScan = makeSecretScan(REPO_ROOT);
   const mcpPool = loadMcpServers();
   const capabilities = resolveCapabilities(issue.labels, ferryCfg.labels);
@@ -6444,7 +6494,7 @@ ${existingLog}`;
   });
   const { done, usage, iterations } = await loop.run({
     system,
-    initialPrompt: initialPrompt + resumeContext,
+    initialPrompt: initialPrompt + resumeContext + existingPrContext,
     tools: allToolSchemas,
     repoRoot: REPO_ROOT,
     branchName,
@@ -6459,17 +6509,20 @@ ${existingLog}`;
     cache_r: usage.cache_read_input_tokens,
     out: usage.output_tokens
   });
-  const idempotencyMarker = byEventId("dev", eventId);
   if (!done.actionable) {
+    const reason = done.reason_if_not_actionable ?? "no reason given";
+    const isAlreadyImplemented = reason.startsWith(ALREADY_IMPLEMENTED_REASON);
     if (!dryRun) {
-      await tracker.postComment(
-        ticketKey,
-        `${idempotencyMarker} Cannot implement \u2014 ${done.reason_if_not_actionable ?? "no reason given"}`
-      );
+      if (isAlreadyImplemented && existingPrUrl) {
+        await tracker.postComment(
+          ticketKey,
+          `${idempotencyMarker} No changes needed \u2014 implementation already at ${existingPrUrl}.`
+        );
+      } else {
+        await tracker.postComment(ticketKey, `${idempotencyMarker} Cannot implement \u2014 ${reason}`);
+      }
     } else {
-      logger.info("DRY_RUN \u2014 not actionable", {
-        reason: done.reason_if_not_actionable ?? "no reason given"
-      });
+      logger.info("DRY_RUN \u2014 not actionable", { reason });
     }
     appendOutput({ ...usage, model, provider: devProvider });
     process.exit(0);

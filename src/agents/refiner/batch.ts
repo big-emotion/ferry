@@ -1,34 +1,43 @@
 /**
- * Story 3-2: atomic batch sub-task creation (FR10).
+ * Atomic batch sub-task creation (FR10).
+ *
+ * Idempotency markers use a SHA-256 content hash of (title + description) so
+ * that identical sub-tasks across different event runs collapse naturally.
  */
 
+import { createHash } from 'node:crypto';
 import { FerryError } from '../../lib/errors/index.js';
-import type { RefinerOutput, RefinerSubtask } from './schema.js';
 
 export const SUBTASK_CAP = 12;
 
-export interface BatchPrepared {
-  subtasks: RefinerSubtask[];
-  truncated: boolean;
-  originalCount: number;
-  planId: string;
+export interface SubtaskDraft {
+  title: string;
+  description: string;
 }
 
-export function prepareBatch(plan: RefinerOutput, planId: string, cap?: number): BatchPrepared {
+export interface BatchPrepared {
+  subtasks: SubtaskDraft[];
+  truncated: boolean;
+  originalCount: number;
+}
+
+export function subtaskContentHash(title: string, description: string): string {
+  return createHash('sha256').update(`${title}\n${description}`).digest('hex').slice(0, 12);
+}
+
+export function prepareBatch(createActions: SubtaskDraft[], cap?: number): BatchPrepared {
   const subtaskCap =
     cap ?? (parseInt(process.env.FERRY_REFINER_SUBTASK_CAP ?? '', 10) || SUBTASK_CAP);
-  const original = plan.subtasks;
-  const truncated = original.length > subtaskCap;
-  const slice = truncated ? original.slice(0, subtaskCap) : original;
-  const subtasks = slice.map((s, i) => ({
+  const truncated = createActions.length > subtaskCap;
+  const slice = truncated ? createActions.slice(0, subtaskCap) : createActions;
+  const subtasks = slice.map((s) => ({
     title: s.title,
-    description: `${s.description}\n\n[ferry:refiner-subtask:${planId}:${i}]`,
+    description: `${s.description}\n\n[ferry:refiner-subtask:${subtaskContentHash(s.title, s.description)}]`,
   }));
   return {
     subtasks,
     truncated,
-    originalCount: original.length,
-    planId,
+    originalCount: createActions.length,
   };
 }
 
@@ -36,7 +45,7 @@ export interface CreatedSubtaskRef {
   id: string;
 }
 
-export type CreateBatchFn = (items: RefinerSubtask[]) => Promise<CreatedSubtaskRef[]>;
+export type CreateBatchFn = (items: SubtaskDraft[]) => Promise<CreatedSubtaskRef[]>;
 
 export interface BatchApplied {
   createdCount: number;

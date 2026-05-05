@@ -1,4 +1,4 @@
-import type { IssueTracker, TrackerIssue } from './types.js';
+import type { IssueTracker, TrackerIssue, TrackerSubtask } from './types.js';
 
 export class InMemoryTracker implements IssueTracker {
   readonly issues = new Map<string, TrackerIssue>();
@@ -6,6 +6,7 @@ export class InMemoryTracker implements IssueTracker {
   readonly postedTransitions: Array<{ key: string; transitionId: string }> = [];
   readonly createdSubtasks: Array<{ parentKey: string; title: string; description: string }> = [];
   private readonly subtaskMap = new Map<string, string[]>();
+  private readonly subtaskDetailMap = new Map<string, TrackerSubtask[]>();
 
   seed(issue: TrackerIssue): void {
     this.issues.set(issue.key, { ...issue, comments: [...issue.comments] });
@@ -13,6 +14,13 @@ export class InMemoryTracker implements IssueTracker {
 
   seedSubtasks(parentKey: string, summaries: string[]): void {
     this.subtaskMap.set(parentKey, [...summaries]);
+  }
+
+  seedSubtaskDetails(parentKey: string, subtasks: TrackerSubtask[]): void {
+    this.subtaskDetailMap.set(
+      parentKey,
+      subtasks.map((s) => ({ ...s })),
+    );
   }
 
   async getIssue(key: string): Promise<TrackerIssue> {
@@ -36,6 +44,10 @@ export class InMemoryTracker implements IssueTracker {
     return this.subtaskMap.get(key) ?? [];
   }
 
+  async getSubtaskDetails(key: string): Promise<TrackerSubtask[]> {
+    return (this.subtaskDetailMap.get(key) ?? []).map((s) => ({ ...s }));
+  }
+
   async createSubtask(
     parentKey: string,
     title: string,
@@ -43,6 +55,9 @@ export class InMemoryTracker implements IssueTracker {
   ): Promise<{ id: string }> {
     const id = `subtask-${this.createdSubtasks.length + 1}`;
     this.createdSubtasks.push({ parentKey, title, description });
+    const existing = this.subtaskDetailMap.get(parentKey) ?? [];
+    existing.push({ key: id, title, description, status: 'To Do' });
+    this.subtaskDetailMap.set(parentKey, existing);
     return { id };
   }
 }

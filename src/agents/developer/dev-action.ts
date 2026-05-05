@@ -13,7 +13,6 @@ import {
   createGitHubContext,
   resolveGitConfig,
   loadFerryConfigFromBaseBranch,
-  byEventId,
   runAgent,
 } from '../../lib/agent-runtime/index.js';
 import type { EventEnvelopeV1 } from '../../lib/envelope/types.js';
@@ -35,6 +34,8 @@ import { resolveAnthropicAuth } from '../../lib/llm/anthropic-auth.js';
 import { detectTestRunner, repoTree, packageJsonPath } from './workspace.js';
 
 const REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
+
+const ALREADY_IMPLEMENTED_REASON = 'already implemented';
 
 async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
   const { ticket_key: ticketKey, event_id: eventId } = envelope;
@@ -85,18 +86,6 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
   const testRunner = detectTestRunner(packageJsonPath(REPO_ROOT));
   const tree = repoTree(REPO_ROOT);
 
-  const initialPrompt = [
-    delimitUntrusted(ticketBlock),
-    '',
-    subtasks.length > 0 ? `SUBTASKS:\n${subtasks.join('\n')}` : 'SUBTASKS: (none)',
-    '',
-    `TEST_RUNNER: ${testRunner}`,
-    '',
-    `REPO TREE (depth 2):\n${tree}`,
-    '',
-    'When you have finished implementing, call the `done` tool.',
-  ].join('\n');
-
   const system = buildSystem('dev', REPO_ROOT);
   const model = ferryCfg.models.dev.model;
 
@@ -106,6 +95,7 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
   configureFerryGitUser(REPO_ROOT);
 
   let resumeContext = '';
+  let branchHeadSha = '';
   try {
     execFileSync('git', ['ls-remote', '--exit-code', '--heads', 'origin', branchName], {
       cwd: REPO_ROOT,
@@ -124,10 +114,56 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
         prior_commits: existingLog.split('\n').length,
       });
     }
+    branchHeadSha = execFileSync('git', ['rev-parse', 'HEAD'], {
+      cwd: REPO_ROOT,
+      encoding: 'utf8',
+    }).trim();
   } catch {
     execFileSync('git', ['checkout', '-B', branchName], { cwd: REPO_ROOT });
     logger.info('created branch', { branch: branchName });
   }
+
+  // Pre-flight: check for an open Ferry PR on this branch and inject context.
+  let existingPrUrl = '';
+  let existingPrContext = '';
+  if (branchHeadSha && !dryRun) {
+    try {
+      const openPrs = await runner.listPRsForBranch(owner, repo, branchName);
+      if (openPrs.length > 0) {
+        const pr = openPrs[0];
+        existingPrUrl = `https://github.com/${owner}/${repo}/pull/${pr.number}`;
+        const prRef = { owner, repo, prNumber: pr.number };
+        const prFiles = await runner.listPRFiles(prRef);
+        const fileList = prFiles.map((f) => `${f.status}: ${f.filename}`).join('\n');
+        existingPrContext = [
+          `\nEXISTING_IMPLEMENTATION:`,
+          `Open PR: ${existingPrUrl} (head: ${branchHeadSha.slice(0, 7)})`,
+          `Changed files:\n${fileList}`,
+          `If the implementation is already complete for this ticket, call \`done\` with actionable=false and reason="${ALREADY_IMPLEMENTED_REASON}".`,
+        ].join('\n');
+        logger.info('existing PR found', { pr: existingPrUrl, files: prFiles.length });
+      }
+    } catch {
+      // best-effort: if PR check fails, proceed without context
+    }
+  }
+
+  // Idempotency marker: keyed on branch head SHA so re-runs on the same state collapse.
+  const idempotencyMarker = branchHeadSha
+    ? `[ferry:dev:${branchHeadSha.slice(0, 7)}]`
+    : `[ferry:dev:${eventId}]`;
+
+  const initialPrompt = [
+    delimitUntrusted(ticketBlock),
+    '',
+    subtasks.length > 0 ? `SUBTASKS:\n${subtasks.join('\n')}` : 'SUBTASKS: (none)',
+    '',
+    `TEST_RUNNER: ${testRunner}`,
+    '',
+    `REPO TREE (depth 2):\n${tree}`,
+    '',
+    'When you have finished implementing, call the `done` tool.',
+  ].join('\n');
 
   const secretScan = makeSecretScan(REPO_ROOT);
   const mcpPool = loadMcpServers();
@@ -166,7 +202,7 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
 
   const { done, usage, iterations } = await loop.run({
     system,
-    initialPrompt: initialPrompt + resumeContext,
+    initialPrompt: initialPrompt + resumeContext + existingPrContext,
     tools: allToolSchemas,
     repoRoot: REPO_ROOT,
     branchName,
@@ -183,18 +219,21 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
     out: usage.output_tokens,
   });
 
-  const idempotencyMarker = byEventId('dev', eventId);
-
   if (!done.actionable) {
+    const reason = done.reason_if_not_actionable ?? 'no reason given';
+    const isAlreadyImplemented = reason.startsWith(ALREADY_IMPLEMENTED_REASON);
+
     if (!dryRun) {
-      await tracker.postComment(
-        ticketKey,
-        `${idempotencyMarker} Cannot implement — ${done.reason_if_not_actionable ?? 'no reason given'}`,
-      );
+      if (isAlreadyImplemented && existingPrUrl) {
+        await tracker.postComment(
+          ticketKey,
+          `${idempotencyMarker} No changes needed — implementation already at ${existingPrUrl}.`,
+        );
+      } else {
+        await tracker.postComment(ticketKey, `${idempotencyMarker} Cannot implement — ${reason}`);
+      }
     } else {
-      logger.info('DRY_RUN — not actionable', {
-        reason: done.reason_if_not_actionable ?? 'no reason given',
-      });
+      logger.info('DRY_RUN — not actionable', { reason });
     }
     appendOutput({ ...usage, model, provider: devProvider });
     process.exit(0);

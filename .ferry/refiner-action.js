@@ -5051,6 +5051,21 @@ var JiraRestClient = class {
     const data = await response.json();
     return (data.issues ?? []).map((i) => `- [${i.key}] ${i.fields.summary}`);
   }
+  async getSubtaskDetails(parentKey) {
+    const jql = encodeURIComponent(`parent=${parentKey} ORDER BY created ASC`);
+    const response = await fetch(
+      `${this.baseUrl}/rest/api/3/search?jql=${jql}&fields=summary,description,status&maxResults=50`,
+      { method: "GET", headers: this.baseHeaders }
+    );
+    if (!response.ok) return [];
+    const data = await response.json();
+    return (data.issues ?? []).map((i) => ({
+      key: i.key,
+      title: i.fields.summary,
+      descriptionAdf: i.fields.description,
+      status: i.fields.status.name
+    }));
+  }
 };
 function createJiraRestClientFromEnv() {
   const baseUrl = process.env.FERRY_JIRA_BASE_URL;
@@ -5122,6 +5137,15 @@ var JiraTracker = class {
   }
   async getSubtasks(key) {
     return this.client.getSubtasks(key);
+  }
+  async getSubtaskDetails(key) {
+    const raw = await this.client.getSubtaskDetails(key);
+    return raw.map((r) => ({
+      key: r.key,
+      title: r.title,
+      description: adfToText(r.descriptionAdf),
+      status: r.status
+    }));
   }
   async createSubtask(parentKey, title, description) {
     const result = await this.client.createSubtask(parentKey, title, textToAdf(description));
@@ -5215,21 +5239,56 @@ function extractFirstJsonObject(text) {
 // src/agents/refiner/schema.ts
 var REFINER_OUTPUT_SCHEMA = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
-  $id: "https://ferry.dev/schemas/refiner-output.v1.json",
+  $id: "https://ferry.dev/schemas/refiner-output.v2.json",
   type: "object",
-  required: ["subtasks", "touch_paths", "output_locale", "audit_summary"],
+  required: ["actions", "touch_paths", "output_locale", "audit_summary"],
   additionalProperties: false,
   properties: {
-    subtasks: {
+    actions: {
       type: "array",
+      minItems: 1,
       items: {
-        type: "object",
-        required: ["title", "description"],
-        additionalProperties: false,
-        properties: {
-          title: { type: "string", minLength: 1, maxLength: 200 },
-          description: { type: "string", minLength: 1, maxLength: 4e3 }
-        }
+        anyOf: [
+          {
+            type: "object",
+            required: ["type", "title", "description"],
+            additionalProperties: false,
+            properties: {
+              type: { const: "create" },
+              title: { type: "string", minLength: 1, maxLength: 200 },
+              description: { type: "string", minLength: 1, maxLength: 4e3 }
+            }
+          },
+          {
+            type: "object",
+            required: ["type", "existing_key", "reason"],
+            additionalProperties: false,
+            properties: {
+              type: { const: "keep" },
+              existing_key: { type: "string", minLength: 1 },
+              reason: { type: "string", minLength: 1 }
+            }
+          },
+          {
+            type: "object",
+            required: ["type", "existing_key", "reason"],
+            additionalProperties: false,
+            properties: {
+              type: { const: "mark_stale" },
+              existing_key: { type: "string", minLength: 1 },
+              reason: { type: "string", minLength: 1 }
+            }
+          },
+          {
+            type: "object",
+            required: ["type", "reason"],
+            additionalProperties: false,
+            properties: {
+              type: { const: "noop" },
+              reason: { type: "string", minLength: 1 }
+            }
+          }
+        ]
       }
     },
     touch_paths: {
@@ -5255,18 +5314,22 @@ var ajvModule2 = _require3("ajv/dist/2020");
 var ajvInstance2 = new ajvModule2.Ajv2020({ strict: true });
 var validatePlan = ajvInstance2.compile(REFINER_OUTPUT_SCHEMA);
 var SCHEMA_EXAMPLE = `{
-  "subtasks": [
-    {
-      "title": "imperative verb, specific, max 200 chars",
-      "description": "concrete acceptance criteria, file paths, done criteria; max 4000 chars"
-    }
+  "actions": [
+    { "type": "create", "title": "imperative verb, specific, max 200 chars", "description": "concrete acceptance criteria; max 4000 chars" },
+    { "type": "keep", "existing_key": "PROJ-91", "reason": "still valid" },
+    { "type": "mark_stale", "existing_key": "PROJ-92", "reason": "superseded by ticket edit" },
+    { "type": "noop", "reason": "ticket and existing sub-tasks unchanged" }
   ],
   "touch_paths": ["src/path/to/file.ts"],
   "output_locale": "en",
   "audit_summary": "one sentence summarising the plan"
 }`;
+function formatExistingSubtasks(subtasks) {
+  if (subtasks.length === 0) return "(none)";
+  return subtasks.map((s) => `- [${s.key}] ${s.title} (status: ${s.status})`).join("\n");
+}
 function buildPrompt(input) {
-  const block = [
+  const ticketBlock = [
     `TICKET ${input.ticket.key}`,
     `TITLE: ${input.ticket.title}`,
     `LABELS: ${input.ticket.labels.join(", ")}`,
@@ -5275,12 +5338,27 @@ ${input.ticket.description}`,
     `COMMENTS:
 ${input.ticket.comments.join("\n---\n")}`
   ].join("\n\n");
+  const existingBlock = [
+    `EXISTING_SUBTASKS (do NOT re-create these unless the ticket has materially changed):`,
+    formatExistingSubtasks(input.existingSubtasks ?? [])
+  ].join("\n");
+  const priorRunsBlock = (input.priorRefinerRuns ?? []).length > 0 ? `PRIOR_REFINER_RUNS:
+${input.priorRefinerRuns.join("\n---\n")}` : "PRIOR_REFINER_RUNS: (none)";
   return [
-    "You are the Ferry Refiner. Decompose the ticket into concrete sub-tasks.",
+    "You are the Ferry Refiner. Analyse the ticket and its existing sub-tasks, then return a reconciliation plan.",
     "Reply with JSON only \u2014 no prose, no code fences \u2014 matching this exact schema:",
     SCHEMA_EXAMPLE,
-    'Rules: max 12 subtasks (prefer 3\u20137). output_locale must be "en" or "fr" matching the ticket language. touch_paths lists every file the subtasks will touch (max 20).',
-    delimitUntrusted(block)
+    [
+      "Rules:",
+      '- Use "noop" when the ticket and existing sub-tasks are already aligned.',
+      '- Use "keep" for existing sub-tasks that are still valid.',
+      '- Use "mark_stale" for existing sub-tasks superseded by a ticket edit.',
+      '- Use "create" only for genuinely missing sub-tasks (max 12 total; prefer 3\u20137).',
+      '- Sub-tasks with status "In Progress" or "Done" must always be "keep".',
+      '- output_locale must be "en" or "fr" matching the ticket language.',
+      "- touch_paths lists every file the new sub-tasks will touch (max 20)."
+    ].join("\n"),
+    delimitUntrusted([ticketBlock, existingBlock, priorRunsBlock].join("\n\n"))
   ].join("\n\n");
 }
 var SAMPLE_MAX = 512;
@@ -5326,10 +5404,11 @@ async function runRefiner(input) {
       cap: touchPathsCap
     });
   }
+  const createCount = parsed.actions.filter((a) => a.type === "create").length;
   return {
     plan: parsed,
     auditSummary: {
-      subtaskCount: parsed.subtasks.length,
+      subtaskCount: createCount,
       costEur: llm.usage?.costEur ?? 0,
       runLink: input.runLink,
       attachmentNames: input.ticket.attachments ?? []
@@ -5338,23 +5417,26 @@ async function runRefiner(input) {
 }
 
 // src/agents/refiner/batch.ts
+import { createHash } from "node:crypto";
 var SUBTASK_CAP = 12;
-function prepareBatch(plan, planId, cap) {
+function subtaskContentHash(title, description) {
+  return createHash("sha256").update(`${title}
+${description}`).digest("hex").slice(0, 12);
+}
+function prepareBatch(createActions, cap) {
   const subtaskCap = cap ?? (parseInt(process.env.FERRY_REFINER_SUBTASK_CAP ?? "", 10) || SUBTASK_CAP);
-  const original = plan.subtasks;
-  const truncated = original.length > subtaskCap;
-  const slice = truncated ? original.slice(0, subtaskCap) : original;
-  const subtasks = slice.map((s, i) => ({
+  const truncated = createActions.length > subtaskCap;
+  const slice = truncated ? createActions.slice(0, subtaskCap) : createActions;
+  const subtasks = slice.map((s) => ({
     title: s.title,
     description: `${s.description}
 
-[ferry:refiner-subtask:${planId}:${i}]`
+[ferry:refiner-subtask:${subtaskContentHash(s.title, s.description)}]`
   }));
   return {
     subtasks,
     truncated,
-    originalCount: original.length,
-    planId
+    originalCount: createActions.length
   };
 }
 async function applyBatch(prepared, create) {
@@ -5386,14 +5468,70 @@ function filterExistingSubtasks(prepared, existingDescriptions) {
   return { ...prepared, subtasks };
 }
 
+// src/agents/refiner/reconcile.ts
+var LOCKED_STATUSES = /* @__PURE__ */ new Set(["In Progress", "Done"]);
+async function applyActions(actions, ctx) {
+  const noopAction = actions.find((a) => a.type === "noop");
+  if (noopAction) {
+    return {
+      createdCount: 0,
+      keptCount: 0,
+      staledCount: 0,
+      noop: true,
+      noopReason: noopAction.reason
+    };
+  }
+  const existingByKey = new Map(ctx.existingSubtasks.map((s) => [s.key, s]));
+  const existingDescriptions = ctx.existingSubtasks.map((s) => s.description);
+  const staleMarkerPrefix = `[ferry:refiner-stale:${ctx.eventId}]`;
+  let keptCount = 0;
+  let staledCount = 0;
+  for (const action of actions) {
+    if (action.type === "keep") {
+      keptCount++;
+      continue;
+    }
+    if (action.type === "mark_stale") {
+      const existing = existingByKey.get(action.existing_key);
+      if (existing && LOCKED_STATUSES.has(existing.status)) {
+        await ctx.tracker.postComment(
+          ctx.ticketKey,
+          `${staleMarkerPrefix} Would mark ${action.existing_key} stale but it is ${existing.status} \u2014 ${action.reason}`
+        );
+      } else {
+        await ctx.tracker.postComment(action.existing_key, `${staleMarkerPrefix} ${action.reason}`);
+      }
+      staledCount++;
+    }
+  }
+  const createActions = actions.filter(
+    (a) => a.type === "create"
+  );
+  let createdCount = 0;
+  if (createActions.length > 0) {
+    const batch = filterExistingSubtasks(prepareBatch(createActions), existingDescriptions);
+    const applied = await applyBatch(
+      batch,
+      (items) => Promise.all(
+        items.map((item) => ctx.tracker.createSubtask(ctx.ticketKey, item.title, item.description))
+      )
+    );
+    createdCount = applied.createdCount;
+  }
+  return { createdCount, keptCount, staledCount, noop: false };
+}
+
 // src/agents/refiner/refiner-action.ts
 var REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
+var PRIOR_RUN_MARKER = /\[ferry:refiner:[^\]]+\]/;
 async function run(envelope, deps) {
   const { ticket_key: ticketKey, event_id: eventId } = envelope;
   const logger = deps.logger ?? createLogger(eventId, "ferry:refiner-action");
   const dryRun = isDryRun();
   const issue = await deps.tracker.getIssue(ticketKey);
   const runLink = `https://github.com/${process.env.GITHUB_REPO ?? "unknown"}/actions/runs/${process.env.GITHUB_RUN_ID ?? "0"}`;
+  const existingSubtasks = await deps.tracker.getSubtaskDetails(ticketKey);
+  const priorRefinerRuns = issue.comments.filter((c) => PRIOR_RUN_MARKER.test(c));
   const { plan, auditSummary } = await runRefiner({
     ticket: {
       key: issue.key,
@@ -5402,30 +5540,43 @@ async function run(envelope, deps) {
       comments: issue.comments,
       labels: issue.labels
     },
+    existingSubtasks,
+    priorRefinerRuns,
     callLlm: deps.callLlm,
     runLink
   });
   if (dryRun) {
     logger.info("DRY_RUN \u2014 plan (no Jira writes)", {
       ticket: ticketKey,
-      subtasks: auditSummary.subtaskCount,
-      plan
+      subtaskCount: auditSummary.subtaskCount,
+      actions: plan.actions.map((a) => a.type)
     });
     return;
   }
+  const result = await applyActions(plan.actions, {
+    ticketKey,
+    eventId,
+    existingSubtasks,
+    tracker: deps.tracker
+  });
   const idempotencyMarker = `[ferry:refiner:${eventId}]`;
-  const existingSubtasks = await deps.tracker.getSubtasks(ticketKey);
-  const batch = filterExistingSubtasks(prepareBatch(plan, eventId), existingSubtasks);
-  const applied = await applyBatch(
-    batch,
-    (items) => Promise.all(
-      items.map((item) => deps.tracker.createSubtask(ticketKey, item.title, item.description))
-    )
-  );
-  logger.info("subtasks created", { ticket: ticketKey, count: applied.createdCount });
+  if (result.noop) {
+    logger.info("noop \u2014 existing sub-tasks still valid", { ticket: ticketKey });
+    await deps.tracker.postComment(
+      ticketKey,
+      `${idempotencyMarker} No changes needed \u2014 existing ${existingSubtasks.length} sub-task(s) still valid. ${result.noopReason ?? ""}`.trimEnd()
+    );
+    return;
+  }
+  logger.info("reconcile complete", {
+    ticket: ticketKey,
+    created: result.createdCount,
+    kept: result.keptCount,
+    staled: result.staledCount
+  });
   await deps.tracker.postComment(
     ticketKey,
-    `${idempotencyMarker} Refined. Created ${applied.createdCount} sub-task(s). See run: ${runLink}`
+    `${idempotencyMarker} Refined. Created ${result.createdCount}, kept ${result.keptCount}, staled ${result.staledCount} sub-task(s). See run: ${runLink}`
   );
 }
 async function main(envelope, logger) {

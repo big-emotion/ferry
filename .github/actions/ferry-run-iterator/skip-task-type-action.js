@@ -190,6 +190,21 @@ var JiraRestClient = class {
     const data = await response.json();
     return (data.issues ?? []).map((i) => `- [${i.key}] ${i.fields.summary}`);
   }
+  async getSubtaskDetails(parentKey) {
+    const jql = encodeURIComponent(`parent=${parentKey} ORDER BY created ASC`);
+    const response = await fetch(
+      `${this.baseUrl}/rest/api/3/search?jql=${jql}&fields=summary,description,status&maxResults=50`,
+      { method: "GET", headers: this.baseHeaders }
+    );
+    if (!response.ok) return [];
+    const data = await response.json();
+    return (data.issues ?? []).map((i) => ({
+      key: i.key,
+      title: i.fields.summary,
+      descriptionAdf: i.fields.description,
+      status: i.fields.status.name
+    }));
+  }
 };
 function createJiraRestClientFromEnv() {
   const baseUrl = process.env.FERRY_JIRA_BASE_URL;
