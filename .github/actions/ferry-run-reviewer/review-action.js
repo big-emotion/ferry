@@ -120,7 +120,7 @@ var require_fast_content_type_parse = __commonJS({
   }
 });
 
-// src/agents/reviewer/review-action.ts
+// src/lib/llm/tool-loop/index.ts
 import Anthropic from "@anthropic-ai/sdk";
 
 // src/lib/errors/index.ts
@@ -147,58 +147,6 @@ function resolveAnthropicAuth(input) {
     return { apiKey };
   }
   throw new FerryError("state-invariant", { reason: "missing-env", key: input.apiKeyEnv });
-}
-
-// src/lib/llm/delimit-untrusted.ts
-var OPEN = "<<<UNTRUSTED>>>";
-var CLOSE = "<<<END UNTRUSTED>>>";
-var OPEN_ESCAPE = "<<<UNTRUSTED-LITERAL>>>";
-var CLOSE_ESCAPE = "<<<END UNTRUSTED-LITERAL>>>";
-function delimitUntrusted(value) {
-  const escaped = value.split(OPEN).join(OPEN_ESCAPE).split(CLOSE).join(CLOSE_ESCAPE);
-  return `${OPEN}
-${escaped}
-${CLOSE}`;
-}
-
-// src/lib/io/idempotency.ts
-function checkIdempotencyMarker(marker, items) {
-  for (const item of items) {
-    if (item.includes(marker)) return { skipped: true };
-  }
-  return { skipped: false };
-}
-
-// src/agents/reviewer/ci-gate.ts
-var DEFAULT_RED_MESSAGE = "CI checks failed for this PR. See the failed Actions run for details.";
-function gateCi(input) {
-  if (input.status === "pending") {
-    return {
-      outcome: "pending-ci",
-      proceed: false,
-      findings: [],
-      tokens: { input: 0, output: 0 },
-      cost_eur: 0
-    };
-  }
-  if (input.status === "red") {
-    const message = (input.failure_summary ?? "").trim() || DEFAULT_RED_MESSAGE;
-    return {
-      outcome: "ci-red",
-      proceed: false,
-      findings: [{ rule_id: "ci-failure", message }],
-      next_state: "changes-requested",
-      tokens: { input: 0, output: 0 },
-      cost_eur: 0
-    };
-  }
-  return {
-    outcome: "ci-green",
-    proceed: true,
-    findings: [],
-    tokens: { input: 0, output: 0 },
-    cost_eur: 0
-  };
 }
 
 // src/lib/llm/debug-log.ts
@@ -257,11 +205,523 @@ function createLogger(correlationId, component = "ferry") {
   return makeLogger(correlationId, component);
 }
 
+// src/lib/llm/tool-loop/anthropic.ts
+function createAnthropicToolCallLoop(opts) {
+  return {
+    async run(runOpts) {
+      const {
+        system,
+        initialPrompt,
+        tools,
+        handlers,
+        finishTool,
+        extractDone,
+        maxIterations,
+        maxTokens
+      } = runOpts;
+      const logger = runOpts.logger ?? createLogger("", "ferry:tool-loop");
+      const anthropicTools = tools.map(
+        (t, i) => i === tools.length - 1 ? { ...t, cache_control: { type: "ephemeral" } } : t
+      );
+      const messages = [
+        {
+          role: "user",
+          content: [{ type: "text", text: initialPrompt, cache_control: { type: "ephemeral" } }]
+        }
+      ];
+      let inputTokens = 0;
+      let outputTokens = 0;
+      let done = null;
+      const toolCounts = {};
+      const toolCallRecords = [];
+      function trackTool(name, outputSize) {
+        toolCounts[name] = (toolCounts[name] ?? 0) + 1;
+        toolCallRecords.push({ name, outputSize });
+      }
+      const loopStart = Date.now();
+      for (let iter = 0; iter < maxIterations; iter++) {
+        const iterStart = Date.now();
+        const response = await opts.client.messages.create({
+          model: opts.model,
+          max_tokens: maxTokens,
+          system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
+          tools: anthropicTools,
+          messages
+        });
+        inputTokens += response.usage.input_tokens;
+        outputTokens += response.usage.output_tokens;
+        messages.push({ role: "assistant", content: response.content });
+        const toolCount = response.content.filter((b) => b.type === "tool_use").length;
+        logger.info("turn", {
+          iter: iter + 1,
+          stop: response.stop_reason,
+          tools: toolCount,
+          in: response.usage.input_tokens,
+          out: response.usage.output_tokens
+        });
+        emitDebug(
+          {
+            type: "turn",
+            iter: iter + 1,
+            depth: 0,
+            stop_reason: response.stop_reason ?? "unknown",
+            tools: toolCount,
+            mcp_tools: 0,
+            in: response.usage.input_tokens,
+            cache_w: 0,
+            cache_r: 0,
+            out: response.usage.output_tokens,
+            elapsed_ms: Date.now() - iterStart
+          },
+          logger
+        );
+        if (response.stop_reason !== "tool_use") {
+          throw new FerryError("state-invariant", {
+            reason: "tool-loop-stopped-without-finish",
+            stop_reason: response.stop_reason
+          });
+        }
+        const toolResults = [];
+        for (const block of response.content) {
+          if (block.type !== "tool_use") continue;
+          const input = block.input;
+          if (block.name === finishTool) {
+            done = extractDone(input);
+            toolResults.push({ type: "tool_result", tool_use_id: block.id, content: "ok" });
+            continue;
+          }
+          const handler2 = handlers[block.name];
+          if (handler2) {
+            const result = await handler2(input);
+            trackTool(block.name, result.length);
+            toolResults.push({ type: "tool_result", tool_use_id: block.id, content: result });
+          } else {
+            toolResults.push({
+              type: "tool_result",
+              tool_use_id: block.id,
+              content: `unknown tool: ${block.name}`,
+              is_error: true
+            });
+          }
+        }
+        for (let i = messages.length - 1; i >= 0; i--) {
+          const msg = messages[i];
+          if (msg.role === "user" && Array.isArray(msg.content)) {
+            const content = msg.content;
+            if (content.some((b) => b.type === "tool_result")) {
+              const entry = { ...content[content.length - 1] };
+              delete entry.cache_control;
+              content[content.length - 1] = entry;
+              break;
+            }
+          }
+        }
+        if (toolResults.length > 0) {
+          const last = toolResults[toolResults.length - 1];
+          toolResults[toolResults.length - 1] = { ...last, cache_control: { type: "ephemeral" } };
+        }
+        messages.push({ role: "user", content: toolResults });
+        if (done !== null) {
+          emitDebug(
+            {
+              type: "result",
+              subtype: "success",
+              iterations: iter + 1,
+              total_in: inputTokens,
+              total_out: outputTokens,
+              elapsed_ms: Date.now() - loopStart
+            },
+            logger
+          );
+          return {
+            done,
+            usage: { inputTokens, outputTokens },
+            iterations: iter + 1,
+            toolCounts,
+            toolCallRecords
+          };
+        }
+      }
+      throw new FerryError("state-invariant", {
+        reason: "tool-loop-iteration-cap-exceeded",
+        cap: maxIterations
+      });
+    }
+  };
+}
+
+// src/lib/llm/tool-loop/openai.ts
+import OpenAI from "openai";
+function createOpenAIToolCallLoop(opts) {
+  const client = new OpenAI({ apiKey: opts.apiKey });
+  return {
+    async run(runOpts) {
+      const {
+        system,
+        initialPrompt,
+        tools,
+        handlers,
+        finishTool,
+        extractDone,
+        maxIterations,
+        maxTokens
+      } = runOpts;
+      const logger = runOpts.logger ?? createLogger("", "ferry:tool-loop");
+      const openaiTools = tools.map((t) => ({
+        type: "function",
+        function: {
+          name: t.name,
+          description: t.description,
+          parameters: t.input_schema
+        }
+      }));
+      const messages = [
+        { role: "system", content: system },
+        { role: "user", content: initialPrompt }
+      ];
+      let inputTokens = 0;
+      let outputTokens = 0;
+      let done = null;
+      const toolCounts = {};
+      const toolCallRecords = [];
+      function trackTool(name, outputSize) {
+        toolCounts[name] = (toolCounts[name] ?? 0) + 1;
+        toolCallRecords.push({ name, outputSize });
+      }
+      const loopStart = Date.now();
+      for (let iter = 0; iter < maxIterations; iter++) {
+        const iterStart = Date.now();
+        const response = await client.chat.completions.create({
+          model: opts.model,
+          max_tokens: maxTokens,
+          messages,
+          tools: openaiTools,
+          tool_choice: "required"
+        });
+        const choice = response.choices[0];
+        if (!choice) {
+          throw new FerryError("state-invariant", { reason: "tool-loop-no-response" });
+        }
+        inputTokens += response.usage?.prompt_tokens ?? 0;
+        outputTokens += response.usage?.completion_tokens ?? 0;
+        const assistantMsg = {
+          role: "assistant",
+          content: choice.message.content ?? null,
+          tool_calls: choice.message.tool_calls
+        };
+        messages.push(assistantMsg);
+        const toolCalls = choice.message.tool_calls ?? [];
+        logger.info("turn", {
+          iter: iter + 1,
+          stop: choice.finish_reason,
+          tools: toolCalls.length,
+          in: response.usage?.prompt_tokens ?? 0,
+          out: response.usage?.completion_tokens ?? 0
+        });
+        emitDebug(
+          {
+            type: "turn",
+            iter: iter + 1,
+            depth: 0,
+            stop_reason: choice.finish_reason ?? "unknown",
+            tools: toolCalls.length,
+            mcp_tools: 0,
+            in: response.usage?.prompt_tokens ?? 0,
+            cache_w: 0,
+            cache_r: 0,
+            out: response.usage?.completion_tokens ?? 0,
+            elapsed_ms: Date.now() - iterStart
+          },
+          logger
+        );
+        if (choice.finish_reason !== "tool_calls") {
+          throw new FerryError("state-invariant", {
+            reason: "tool-loop-stopped-without-finish",
+            stop_reason: choice.finish_reason
+          });
+        }
+        for (const toolCall of toolCalls) {
+          if (toolCall.type !== "function") continue;
+          let input;
+          try {
+            input = JSON.parse(toolCall.function.arguments);
+          } catch {
+            messages.push({
+              role: "tool",
+              tool_call_id: toolCall.id,
+              content: "invalid JSON arguments"
+            });
+            continue;
+          }
+          if (toolCall.function.name === finishTool) {
+            done = extractDone(input);
+            messages.push({ role: "tool", tool_call_id: toolCall.id, content: "ok" });
+            continue;
+          }
+          const handler2 = handlers[toolCall.function.name];
+          if (handler2) {
+            const result = await handler2(input);
+            trackTool(toolCall.function.name, result.length);
+            messages.push({ role: "tool", tool_call_id: toolCall.id, content: result });
+          } else {
+            messages.push({
+              role: "tool",
+              tool_call_id: toolCall.id,
+              content: `unknown tool: ${toolCall.function.name}`
+            });
+          }
+        }
+        if (done !== null) {
+          emitDebug(
+            {
+              type: "result",
+              subtype: "success",
+              iterations: iter + 1,
+              total_in: inputTokens,
+              total_out: outputTokens,
+              elapsed_ms: Date.now() - loopStart
+            },
+            logger
+          );
+          return {
+            done,
+            usage: { inputTokens, outputTokens },
+            iterations: iter + 1,
+            toolCounts,
+            toolCallRecords
+          };
+        }
+      }
+      throw new FerryError("state-invariant", {
+        reason: "tool-loop-iteration-cap-exceeded",
+        cap: maxIterations
+      });
+    }
+  };
+}
+
+// src/lib/llm/tool-loop/google.ts
+import { GoogleGenAI } from "@google/genai";
+function toGoogleTools(tools) {
+  return [
+    {
+      functionDeclarations: tools.map((t) => ({
+        name: t.name,
+        description: t.description,
+        parametersJsonSchema: t.input_schema
+      }))
+    }
+  ];
+}
+function createGoogleToolCallLoop(opts) {
+  const ai = new GoogleGenAI({ apiKey: opts.apiKey });
+  return {
+    async run(runOpts) {
+      const {
+        system,
+        initialPrompt,
+        tools,
+        handlers,
+        finishTool,
+        extractDone,
+        maxIterations,
+        maxTokens
+      } = runOpts;
+      const logger = runOpts.logger ?? createLogger("", "ferry:tool-loop");
+      const googleTools = toGoogleTools(tools);
+      const contents = [{ role: "user", parts: [{ text: initialPrompt }] }];
+      let inputTokens = 0;
+      let outputTokens = 0;
+      let done = null;
+      const toolCounts = {};
+      const toolCallRecords = [];
+      function trackTool(name, outputSize) {
+        toolCounts[name] = (toolCounts[name] ?? 0) + 1;
+        toolCallRecords.push({ name, outputSize });
+      }
+      const loopStart = Date.now();
+      for (let iter = 0; iter < maxIterations; iter++) {
+        const iterStart = Date.now();
+        const response = await ai.models.generateContent({
+          model: opts.model,
+          contents,
+          config: {
+            systemInstruction: system,
+            tools: googleTools,
+            maxOutputTokens: maxTokens
+          }
+        });
+        inputTokens += response.usageMetadata?.promptTokenCount ?? 0;
+        outputTokens += response.usageMetadata?.candidatesTokenCount ?? 0;
+        const fnCalls = response.functionCalls ?? [];
+        const modelParts = response.candidates?.[0]?.content?.parts ?? [];
+        if (modelParts.length > 0) {
+          contents.push({ role: "model", parts: modelParts });
+        }
+        logger.info("turn", {
+          iter: iter + 1,
+          tools: fnCalls.length,
+          in: response.usageMetadata?.promptTokenCount ?? 0,
+          out: response.usageMetadata?.candidatesTokenCount ?? 0
+        });
+        emitDebug(
+          {
+            type: "turn",
+            iter: iter + 1,
+            depth: 0,
+            stop_reason: fnCalls.length > 0 ? "tool_use" : "end_turn",
+            tools: fnCalls.length,
+            mcp_tools: 0,
+            in: response.usageMetadata?.promptTokenCount ?? 0,
+            cache_w: 0,
+            cache_r: 0,
+            out: response.usageMetadata?.candidatesTokenCount ?? 0,
+            elapsed_ms: Date.now() - iterStart
+          },
+          logger
+        );
+        if (fnCalls.length === 0) {
+          throw new FerryError("state-invariant", {
+            reason: "tool-loop-stopped-without-finish",
+            stop_reason: "end_turn"
+          });
+        }
+        const responseParts = [];
+        for (const fc of fnCalls) {
+          const name = fc.name ?? "";
+          const input = fc.args ?? {};
+          if (name === finishTool) {
+            done = extractDone(input);
+            responseParts.push({
+              functionResponse: { name, response: { result: "ok" } }
+            });
+            continue;
+          }
+          const handler2 = handlers[name];
+          if (handler2) {
+            const result = await handler2(input);
+            trackTool(name, result.length);
+            responseParts.push({
+              functionResponse: { name, response: { result } }
+            });
+          } else {
+            responseParts.push({
+              functionResponse: { name, response: { error: `unknown tool: ${name}` } }
+            });
+          }
+        }
+        contents.push({ role: "user", parts: responseParts });
+        if (done !== null) {
+          emitDebug(
+            {
+              type: "result",
+              subtype: "success",
+              iterations: iter + 1,
+              total_in: inputTokens,
+              total_out: outputTokens,
+              elapsed_ms: Date.now() - loopStart
+            },
+            logger
+          );
+          return {
+            done,
+            usage: { inputTokens, outputTokens },
+            iterations: iter + 1,
+            toolCounts,
+            toolCallRecords
+          };
+        }
+      }
+      throw new FerryError("state-invariant", {
+        reason: "tool-loop-iteration-cap-exceeded",
+        cap: maxIterations
+      });
+    }
+  };
+}
+
+// src/lib/llm/tool-loop/index.ts
+function requireEnv(key) {
+  const val = process.env[key];
+  if (!val) {
+    throw new FerryError("state-invariant", { reason: "missing-env", key });
+  }
+  return val;
+}
+function createToolCallLoop(opts) {
+  if (opts.provider === "anthropic") {
+    const auth2 = resolveAnthropicAuth({ apiKeyEnv: "ANTHROPIC_API_KEY" });
+    const client = new Anthropic(auth2);
+    return createAnthropicToolCallLoop({ client, model: opts.model });
+  }
+  if (opts.provider === "openai") {
+    const apiKey = requireEnv("FERRY_OPENAI_KEY");
+    return createOpenAIToolCallLoop({ apiKey, model: opts.model });
+  }
+  if (opts.provider === "google") {
+    const apiKey = requireEnv("FERRY_GOOGLE_AI_KEY");
+    return createGoogleToolCallLoop({ apiKey, model: opts.model });
+  }
+  throw new FerryError("state-invariant", { reason: "unknown-provider", provider: opts.provider });
+}
+
+// src/lib/llm/delimit-untrusted.ts
+var OPEN = "<<<UNTRUSTED>>>";
+var CLOSE = "<<<END UNTRUSTED>>>";
+var OPEN_ESCAPE = "<<<UNTRUSTED-LITERAL>>>";
+var CLOSE_ESCAPE = "<<<END UNTRUSTED-LITERAL>>>";
+function delimitUntrusted(value) {
+  const escaped = value.split(OPEN).join(OPEN_ESCAPE).split(CLOSE).join(CLOSE_ESCAPE);
+  return `${OPEN}
+${escaped}
+${CLOSE}`;
+}
+
+// src/lib/io/idempotency.ts
+function checkIdempotencyMarker(marker, items) {
+  for (const item of items) {
+    if (item.includes(marker)) return { skipped: true };
+  }
+  return { skipped: false };
+}
+
+// src/agents/reviewer/ci-gate.ts
+var DEFAULT_RED_MESSAGE = "CI checks failed for this PR. See the failed Actions run for details.";
+function gateCi(input) {
+  if (input.status === "pending") {
+    return {
+      outcome: "pending-ci",
+      proceed: false,
+      findings: [],
+      tokens: { input: 0, output: 0 },
+      cost_eur: 0
+    };
+  }
+  if (input.status === "red") {
+    const message = (input.failure_summary ?? "").trim() || DEFAULT_RED_MESSAGE;
+    return {
+      outcome: "ci-red",
+      proceed: false,
+      findings: [{ rule_id: "ci-failure", message }],
+      next_state: "changes-requested",
+      tokens: { input: 0, output: 0 },
+      cost_eur: 0
+    };
+  }
+  return {
+    outcome: "ci-green",
+    proceed: true,
+    findings: [],
+    tokens: { input: 0, output: 0 },
+    cost_eur: 0
+  };
+}
+
 // src/agents/reviewer/review-loop.ts
 var MAX_PATCH_CHARS = 2e4;
 var MAX_CONTENT_CHARS = 4e4;
 var MAX_ITERATIONS = 40;
-var REVIEW_TOOLS = [
+var REVIEW_TOOL_DEFS = [
   {
     name: "get_file_patch",
     description: "Get the unified diff patch for a specific file in this PR. Use this to inspect what changed in a file before making a finding.",
@@ -316,160 +776,55 @@ function buildFileList(files) {
   return files.map((f) => `${f.status.padEnd(8)} +${f.additions} -${f.deletions}  ${f.filename}`).join("\n");
 }
 async function runReviewLoop(opts) {
-  const { anthropic, model, system, initialPrompt, fileMap, runner, owner, repo, headSha } = opts;
+  const { loop, system, initialPrompt, fileMap, runner, owner, repo, headSha } = opts;
   const logger = opts.logger ?? createLogger("", "ferry:review-loop");
   const maxIterations = opts.maxIterations ?? (parseInt(process.env.FERRY_REVIEWER_MAX_ITERATIONS ?? "", 10) || MAX_ITERATIONS);
   const maxTokens = opts.maxTokens ?? (parseInt(process.env.FERRY_REVIEWER_MAX_TOKENS ?? "", 10) || 16384);
-  const tools = REVIEW_TOOLS.map(
-    (t, i) => i === REVIEW_TOOLS.length - 1 ? { ...t, cache_control: { type: "ephemeral" } } : t
-  );
-  const messages = [
-    {
-      role: "user",
-      content: [{ type: "text", text: initialPrompt, cache_control: { type: "ephemeral" } }]
-    }
-  ];
-  let inputTokens = 0;
-  let outputTokens = 0;
-  let result = null;
-  const toolCounts = {};
-  const toolCallRecords = [];
-  function trackTool(name, outputSize) {
-    toolCounts[name] = (toolCounts[name] ?? 0) + 1;
-    toolCallRecords.push({ name, outputSize });
-  }
-  const loopStart = Date.now();
-  for (let iter = 0; iter < maxIterations; iter++) {
-    const iterStart = Date.now();
-    const response = await anthropic.messages.create({
-      model,
-      max_tokens: maxTokens,
-      system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
-      tools,
-      messages
-    });
-    inputTokens += response.usage.input_tokens;
-    outputTokens += response.usage.output_tokens;
-    messages.push({ role: "assistant", content: response.content });
-    const toolCount = response.content.filter((b) => b.type === "tool_use").length;
-    logger.info("turn", {
-      iter: iter + 1,
-      stop: response.stop_reason,
-      tools: toolCount,
-      in: response.usage.input_tokens,
-      out: response.usage.output_tokens
-    });
-    emitDebug(
-      {
-        type: "turn",
-        iter: iter + 1,
-        depth: 0,
-        stop_reason: response.stop_reason ?? "unknown",
-        tools: toolCount,
-        mcp_tools: 0,
-        in: response.usage.input_tokens,
-        cache_w: 0,
-        cache_r: 0,
-        out: response.usage.output_tokens,
-        elapsed_ms: Date.now() - iterStart
-      },
-      logger
-    );
-    if (response.stop_reason !== "tool_use") {
-      throw new FerryError("state-invariant", {
-        reason: "reviewer-stopped-without-finish",
-        stop_reason: response.stop_reason
-      });
-    }
-    const toolResults = [];
-    for (const block of response.content) {
-      if (block.type !== "tool_use") continue;
-      const input = block.input;
-      if (block.name === "finish_review") {
-        result = {
-          approved: input.approved,
-          comment: input.comment
-        };
-        toolResults.push({ type: "tool_result", tool_use_id: block.id, content: "ok" });
-        continue;
-      }
-      if (block.name === "get_file_patch") {
+  const {
+    done: result,
+    usage,
+    iterations,
+    toolCounts,
+    toolCallRecords
+  } = await loop.run({
+    system,
+    initialPrompt,
+    tools: REVIEW_TOOL_DEFS,
+    finishTool: "finish_review",
+    extractDone: (input) => ({
+      approved: input.approved,
+      comment: input.comment
+    }),
+    handlers: {
+      get_file_patch: (input) => {
         const filename = input.filename;
-        logger.info("tool", { iter: iter + 1, tool: "get_file_patch", file: filename });
+        logger.info("tool", { tool: "get_file_patch", file: filename });
         const patch = fileMap.get(filename);
-        let content;
-        if (patch === void 0) {
-          content = `(file not found in PR: ${filename})`;
-        } else if (!patch) {
-          content = "(no patch \u2014 binary, empty, or content unchanged)";
-        } else {
-          const patchLimit = parseInt(process.env.FERRY_REVIEW_PATCH_TRUNCATE_CHARS ?? "", 10) || MAX_PATCH_CHARS;
-          content = patch.length > patchLimit ? patch.slice(0, patchLimit) + "\n... (truncated)" : patch;
-        }
-        trackTool("get_file_patch", content.length);
-        toolResults.push({ type: "tool_result", tool_use_id: block.id, content });
-        continue;
-      }
-      if (block.name === "get_file_content") {
+        if (patch === void 0) return `(file not found in PR: ${filename})`;
+        if (!patch) return "(no patch \u2014 binary, empty, or content unchanged)";
+        const patchLimit = parseInt(process.env.FERRY_REVIEW_PATCH_TRUNCATE_CHARS ?? "", 10) || MAX_PATCH_CHARS;
+        return patch.length > patchLimit ? patch.slice(0, patchLimit) + "\n... (truncated)" : patch;
+      },
+      get_file_content: async (input) => {
         const filename = input.filename;
-        logger.info("tool", { iter: iter + 1, tool: "get_file_content", file: filename });
+        logger.info("tool", { tool: "get_file_content", file: filename });
         const fileLimit = parseInt(process.env.FERRY_REVIEW_FILE_TRUNCATE_CHARS ?? "", 10) || MAX_CONTENT_CHARS;
         const rawContent = await runner.getFileContent(owner, repo, filename, headSha);
-        const content = rawContent.length > fileLimit ? rawContent.slice(0, fileLimit) + "\n... (truncated)" : rawContent;
-        trackTool("get_file_content", content.length);
-        toolResults.push({ type: "tool_result", tool_use_id: block.id, content });
-        continue;
+        return rawContent.length > fileLimit ? rawContent.slice(0, fileLimit) + "\n... (truncated)" : rawContent;
       }
-      toolResults.push({
-        type: "tool_result",
-        tool_use_id: block.id,
-        content: `unknown tool: ${block.name}`,
-        is_error: true
-      });
-    }
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const msg = messages[i];
-      if (msg.role === "user" && Array.isArray(msg.content)) {
-        const content = msg.content;
-        if (content.some((b) => b.type === "tool_result")) {
-          const entry = { ...content[content.length - 1] };
-          delete entry.cache_control;
-          content[content.length - 1] = entry;
-          break;
-        }
-      }
-    }
-    if (toolResults.length > 0) {
-      const last = toolResults[toolResults.length - 1];
-      toolResults[toolResults.length - 1] = { ...last, cache_control: { type: "ephemeral" } };
-    }
-    messages.push({ role: "user", content: toolResults });
-    if (result) {
-      emitDebug(
-        {
-          type: "result",
-          subtype: "success",
-          iterations: iter + 1,
-          total_in: inputTokens,
-          total_out: outputTokens,
-          elapsed_ms: Date.now() - loopStart
-        },
-        logger
-      );
-      return {
-        result,
-        inputTokens,
-        outputTokens,
-        iterations: iter + 1,
-        toolCounts,
-        toolCallRecords
-      };
-    }
-  }
-  throw new FerryError("state-invariant", {
-    reason: "review-iteration-cap-exceeded",
-    cap: MAX_ITERATIONS
+    },
+    maxIterations,
+    maxTokens,
+    logger
   });
+  return {
+    result,
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
+    iterations,
+    toolCounts,
+    toolCallRecords
+  };
 }
 
 // src/lib/labels/capabilities.ts
@@ -518,7 +873,7 @@ function resolveCapabilities(ticketLabels, configLabels, logger) {
 }
 
 // src/lib/agent-runtime/env.ts
-function requireEnv(key) {
+function requireEnv2(key) {
   const val = process.env[key];
   if (!val) throw new FerryError("state-invariant", { reason: "missing-env", key });
   return val;
@@ -556,7 +911,7 @@ async function runAgent(role, handler2) {
   const component = COMPONENT[role];
   const bootstrapLogger = createLogger("", component);
   try {
-    const rawPayload = requireEnv("FERRY_ENVELOPE_PAYLOAD");
+    const rawPayload = requireEnv2("FERRY_ENVELOPE_PAYLOAD");
     const envelope = validateEnvelope(JSON.parse(rawPayload));
     const logger = createLogger(envelope.event_id, component);
     await handler2(envelope, logger);
@@ -5498,8 +5853,8 @@ function createTrackerFromEnv() {
 
 // src/lib/agent-runtime/context.ts
 function createGitHubContext(repoRoot) {
-  const githubToken = requireEnv("GITHUB_TOKEN");
-  const githubRepo = requireEnv("GITHUB_REPO");
+  const githubToken = requireEnv2("GITHUB_TOKEN");
+  const githubRepo = requireEnv2("GITHUB_REPO");
   const [owner, repo] = githubRepo.split("/");
   if (!owner || !repo) {
     throw new FerryError("state-invariant", { reason: "invalid-github-repo", githubRepo });
@@ -5533,19 +5888,11 @@ async function main(envelope, logger) {
   const { baseBranch } = await resolveGitConfig(initialCfg, runner, owner, repo);
   const ferryCfg = loadFerryConfigFromBaseBranch(baseBranch, REPO_ROOT, initialCfg);
   const { provider, model } = ferryCfg.models.review;
-  if (provider !== "anthropic") {
-    throw new FerryError("state-invariant", {
-      reason: "unsupported-provider",
-      provider,
-      phase: "reviewer",
-      detail: "The reviewer phase requires provider 'anthropic'. OpenAI and Google support for agentic phases is planned for a future release."
-    });
-  }
   const reviewerWorkflow = ferryCfg.workflow.agents.reviewer;
   const shouldTransitionChanges = reviewerWorkflow.auto_transition_changes !== null;
   const shouldTransitionApprove = reviewerWorkflow.auto_transition_approve !== null;
-  const iterTransitionId = shouldTransitionChanges ? requireEnv("FERRY_ITER_TRANSITION_ID") : "";
-  const approveTransitionId = shouldTransitionApprove ? requireEnv("FERRY_APPROVE_TRANSITION_ID") : "";
+  const iterTransitionId = shouldTransitionChanges ? requireEnv2("FERRY_ITER_TRANSITION_ID") : "";
+  const approveTransitionId = shouldTransitionApprove ? requireEnv2("FERRY_APPROVE_TRANSITION_ID") : "";
   const issue = await tracker.getIssue(ticketKey);
   const existingComments = issue.comments;
   const capabilities = resolveCapabilities(issue.labels, ferryCfg.labels, logger);
@@ -5636,7 +5983,7 @@ async function main(envelope, logger) {
     extraParts: [loadOptionalPrompt("review-comment", REPO_ROOT)],
     separator: "\n\n---\n\n"
   });
-  const anthropic = new Anthropic(resolveAnthropicAuth({ apiKeyEnv: "ANTHROPIC_API_KEY" }));
+  const loop = createToolCallLoop({ provider, model });
   const {
     result: review,
     inputTokens,
@@ -5645,8 +5992,7 @@ async function main(envelope, logger) {
     toolCounts: reviewToolCounts,
     toolCallRecords: reviewToolCallRecords
   } = await runReviewLoop({
-    anthropic,
-    model,
+    loop,
     system,
     initialPrompt,
     fileMap,
