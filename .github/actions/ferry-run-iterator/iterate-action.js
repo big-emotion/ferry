@@ -7009,6 +7009,21 @@ function isHttpMcpServer(s) {
 }
 
 // src/lib/llm/agent-loop/anthropic.ts
+var KEEP_LAST_TURNS = 6;
+var STUB = "[truncated: tool result elided to save context]";
+function pruneMessageHistory(messages) {
+  const cutoff = messages.length - KEEP_LAST_TURNS * 2;
+  if (cutoff <= 1) return;
+  for (let i = 1; i < cutoff; i++) {
+    const msg = messages[i];
+    if (msg.role !== "user" || !Array.isArray(msg.content)) continue;
+    const content = msg.content;
+    if (!content.some((b) => b.type === "tool_result" && b.content !== STUB)) continue;
+    msg.content = content.map(
+      (b) => b.type === "tool_result" && b.content !== STUB ? { ...b, content: STUB } : b
+    );
+  }
+}
 function buildMcpParams(mcpServers) {
   const mcpServerParams = mcpServers.map((s) => ({
     type: "url",
@@ -7121,6 +7136,7 @@ function createAnthropicAgentLoop(opts) {
           consumed: usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens
         });
       }
+      pruneMessageHistory(messages);
       const baseParams = {
         model: opts.model,
         max_tokens: maxTokens,

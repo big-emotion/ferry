@@ -9,6 +9,15 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Bundle-runtime smoke gate** (`scripts/smoke-bundle.sh`, `npm run smoke:bundle`) — boots each compiled `.ferry/<role>-action.js` under Node 20 with stub credentials and asserts stderr contains none of the v0.5.1 DOA failure signatures (`Dynamic require of`, `Cannot find module`, `is not a function`). Bridges the gap between the bundle drift check (verifies the bundle is current) and real execution (verifies the bundle actually runs). Wired into `release.yml` after bundle drift check and before `npm publish`; runs in parallel in `ferry-ci.yml`. Surfaced by the v0.5.1 incident (#162).
+
+### Fixed
+
+- **Refiner JSON parser hardened against LLM prose preamble and trailing prose (D9)** — replaced the previous fence-strip-then-parse approach with a bracket-counting extractor (`src/agents/refiner/parse.ts`) that finds the first balanced `{...}` substring in the raw LLM output. Any preamble ("Here is the plan:"), trailing prose, or code-fenced wrapping is now transparent to the parser. Resolves the confirmed prod failure from run `25262368292` (`big-emotion/ethniafrica`, 2026-05-02, `ferry-run-refiner@v0.5.2`).
+- **`ferry-update` now prints manual follow-ups from `MIGRATIONS.md`** — `getRelevantMigrations()` previously returned an empty array for every upgrade because `MIGRATIONS` was a stub object. It now parses `MIGRATIONS.md` at runtime, collecting all entries whose target version falls between `fromVersion` and `toVersion` (multi-hop upgrades are handled in a single pass). Consumers upgrading from v0.3.x will now see the critical `FERRY_ANTHROPIC_API_KEY → ANTHROPIC_API_KEY` rename action they previously missed silently. Closes #161 (D6).
+
 ---
 
 ## [0.7.0] — 2026-05-04
@@ -37,8 +46,6 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **Refiner and Reviewer workflows now install `gitleaks` on the runner** — `refine.yml` and `review.yml` were missing the install step that `dev.yml` and `iterate.yml` already had, so every Refiner run and any Reviewer run that posted a Jira comment crashed with `Error: spawn gitleaks ENOENT`. Both workflows now install `gitleaks` v8.21.2 from the official release tarball before invoking the agent, matching the dev/iterate pattern. Affected consumers pinned to `@v0.5.3` (or earlier) — upgrade to `@v0.6.0`.
 - **Reviewer Review↔Iterate auto-loop now uses count-based cap check** — the previous implementation stopped after the first reviewer→iterator cycle because it short-circuited on a single iterator marker. The reviewer now counts prior completed iterator cycles via `countPriorIterations` (`changes-guard.ts`) and compares against `limits.max_iterations` (default 3), auto-transitioning until the cap is reached. Reviewer comments now also include an "iteration N/M" hint. Closes #168 (PR #175).
-- **Refiner JSON parser hardened against LLM prose preamble and trailing prose (D9)** — replaced the previous fence-strip-then-parse approach with a bracket-counting extractor (`src/agents/refiner/parse.ts`) that finds the first balanced `{...}` substring in the raw LLM output. Any preamble ("Here is the plan:"), trailing prose, or code-fenced wrapping is now transparent to the parser. Resolves the confirmed prod failure from run `25262368292` (`big-emotion/ethniafrica`, 2026-05-02, `ferry-run-refiner@v0.5.2`).
-- **`ferry-update` now prints manual follow-ups from `MIGRATIONS.md`** — `getRelevantMigrations()` previously returned an empty array for every upgrade because `MIGRATIONS` was a stub object. It now parses `MIGRATIONS.md` at runtime, collecting all entries whose target version falls between `fromVersion` and `toVersion` (multi-hop upgrades are handled in a single pass). Consumers upgrading from v0.3.x will now see the critical `FERRY_ANTHROPIC_API_KEY → ANTHROPIC_API_KEY` rename action they previously missed silently. Closes #161 (D6).
 
 ---
 
@@ -192,7 +199,8 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
-[Unreleased]: https://github.com/big-emotion/ferry/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/big-emotion/ferry/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/big-emotion/ferry/releases/tag/v0.7.0
 [0.6.0]: https://github.com/big-emotion/ferry/releases/tag/v0.6.0
 [0.4.0]: https://github.com/big-emotion/ferry/releases/tag/v0.4.0
 [0.3.0]: https://github.com/big-emotion/ferry/releases/tag/v0.3.0

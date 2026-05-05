@@ -53,24 +53,10 @@
     "format:check": "prettier --check 'src/**/*.ts'",
     "audit:ci": "node scripts/npm-audit-check.mjs",
     "check:bundle": "npm run build:ferry && git diff --exit-code .ferry/",
+    "smoke:bundle": "bash scripts/smoke-bundle.sh",
     "check:fr-drift": "bash scripts/check-fr-drift.sh",
     "prepare": "husky",
     "version": "npm run build:ferry && git add .ferry/"
-  },
-  "lint-staged": {
-    "src/**/*.ts": [
-      "prettier --write",
-      "eslint --max-warnings=0"
-    ],
-    "prompts/**/*.md": [
-      "prettier --write"
-    ],
-    "docs/**/*.md": [
-      "prettier --write"
-    ],
-    "*.{md,json,yml,yaml}": [
-      "prettier --write"
-    ]
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
@@ -88,7 +74,7 @@
     "vitest": "^4.1.5"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.91.1",
+    "@anthropic-ai/sdk": "^0.93.0",
     "@google/genai": "^1.0.0",
     "@octokit/rest": "^22.0.1",
     "ajv": "^8.0.0",

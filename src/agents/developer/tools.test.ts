@@ -40,6 +40,22 @@ describe('read_file', () => {
     expect(result).toBe(content);
   });
 
+  it('returns full content when file is exactly at cap', async () => {
+    const cap = 1024;
+    const content = 'x'.repeat(cap);
+    await fsp.writeFile(path.join(tmpDir, 'exact.txt'), content);
+    const prev = process.env.FERRY_READ_FILE_MAX_BYTES;
+    process.env.FERRY_READ_FILE_MAX_BYTES = String(cap);
+    try {
+      const result = await executeTool(tmpDir, 'read_file', { path: 'exact.txt' });
+      expect(result).toBe(content);
+      expect(result).not.toContain('[truncated:');
+    } finally {
+      if (prev === undefined) delete process.env.FERRY_READ_FILE_MAX_BYTES;
+      else process.env.FERRY_READ_FILE_MAX_BYTES = prev;
+    }
+  });
+
   it('truncates large files with head+tail and elision marker', async () => {
     const big = 'a'.repeat(40_000) + 'b'.repeat(40_000);
     await fsp.writeFile(path.join(tmpDir, 'big.txt'), big);
@@ -214,5 +230,26 @@ describe('bash', () => {
     await expect(executeTool(tmpDir, 'bash', { command: 'rm -rf /tmp/test' })).rejects.toThrow(
       'deny-list',
     );
+  });
+
+  it('appends truncation marker when bash output exceeds cap', async () => {
+    const prev = process.env.FERRY_BASH_OUTPUT_MAX_BYTES;
+    process.env.FERRY_BASH_OUTPUT_MAX_BYTES = '50';
+    try {
+      // Generate output longer than 50 bytes
+      const result = await executeTool(tmpDir, 'bash', {
+        command: 'printf "%0.s12345678901234567890" {1..10}',
+      });
+      expect(result).toContain('[truncated:');
+      expect(result).toContain('more bytes');
+    } finally {
+      if (prev === undefined) delete process.env.FERRY_BASH_OUTPUT_MAX_BYTES;
+      else process.env.FERRY_BASH_OUTPUT_MAX_BYTES = prev;
+    }
+  });
+
+  it('does not append truncation marker when bash output is within cap', async () => {
+    const result = await executeTool(tmpDir, 'bash', { command: 'echo hi' });
+    expect(result).not.toContain('[truncated:');
   });
 });
