@@ -20,6 +20,7 @@ import type {
   McpServerConfig,
   HttpMcpServerConfig,
   StdioMcpServerConfig,
+  ToolCallRecord,
 } from './types.js';
 import { isStdioMcpServer, isHttpMcpServer } from './types.js';
 import { compactOldToolResults } from './compact.js';
@@ -274,6 +275,12 @@ export function createAnthropicAgentLoop(opts: {
       cache_creation_input_tokens: 0,
       cache_read_input_tokens: 0,
     };
+    const toolCounts: Record<string, number> = {};
+    const toolCallRecords: ToolCallRecord[] = [];
+    function trackTool(name: string, outputSize: number): void {
+      toolCounts[name] = (toolCounts[name] ?? 0) + 1;
+      toolCallRecords.push({ name, outputSize });
+    }
     let done: DonePayload | null = null;
     let iter = 0;
     const loopStart = Date.now();
@@ -394,13 +401,15 @@ export function createAnthropicAgentLoop(opts: {
           logger.debug('think', { depth, iter, text: block.text.trim() });
         }
         if (block.type === 'mcp_tool_use') {
-          // Executed server-side by the Anthropic MCP connector — log only.
+          // Executed server-side by the Anthropic MCP connector — log and count only (no output size).
+          const mcpName = String(block.name ?? 'unknown');
           logger.info('mcp_tool', {
             depth,
             iter,
-            tool: String(block.name ?? 'unknown'),
+            tool: mcpName,
             server: String(block.server_name ?? 'unknown'),
           });
+          toolCounts[mcpName] = (toolCounts[mcpName] ?? 0) + 1;
         }
       }
 
@@ -434,8 +443,10 @@ export function createAnthropicAgentLoop(opts: {
           logger.info('tool', { depth, iter, tool: 'commit_progress', arg: message.slice(0, 120) });
           try {
             const result = await opts.commitProgress(repoRoot, branchName, message, secretScan);
+            trackTool('commit_progress', result.length);
             toolResults.push({ type: 'tool_result', tool_use_id: id, content: result });
           } catch (e) {
+            trackTool('commit_progress', 0);
             toolResults.push({
               type: 'tool_result',
               tool_use_id: id,
@@ -455,7 +466,13 @@ export function createAnthropicAgentLoop(opts: {
             usage.output_tokens += subResult.usage.output_tokens;
             usage.cache_creation_input_tokens += subResult.usage.cache_creation_input_tokens;
             usage.cache_read_input_tokens += subResult.usage.cache_read_input_tokens;
+            // Merge sub-agent tool data into parent's tracking.
+            for (const [tName, tCount] of Object.entries(subResult.toolCounts)) {
+              toolCounts[tName] = (toolCounts[tName] ?? 0) + tCount;
+            }
+            toolCallRecords.push(...subResult.toolCallRecords);
             if (!subResult.done.actionable) {
+              trackTool('spawn_subagent', 0);
               toolResults.push({
                 type: 'tool_result',
                 tool_use_id: id,
@@ -463,6 +480,7 @@ export function createAnthropicAgentLoop(opts: {
                 is_error: true,
               });
             } else {
+              trackTool('spawn_subagent', subResult.done.summary.length);
               toolResults.push({
                 type: 'tool_result',
                 tool_use_id: id,
@@ -470,6 +488,7 @@ export function createAnthropicAgentLoop(opts: {
               });
             }
           } catch (e) {
+            trackTool('spawn_subagent', 0);
             toolResults.push({
               type: 'tool_result',
               tool_use_id: id,
@@ -486,8 +505,10 @@ export function createAnthropicAgentLoop(opts: {
           logger.info('mcp_stdio_tool', { depth, iter, tool: name, server: serverName });
           try {
             const result = await pool.callTool(name, blockInput);
+            trackTool(name, result.length);
             toolResults.push({ type: 'tool_result', tool_use_id: id, content: result });
           } catch (e) {
+            trackTool(name, 0);
             toolResults.push({
               type: 'tool_result',
               tool_use_id: id,
@@ -509,8 +530,10 @@ export function createAnthropicAgentLoop(opts: {
 
         try {
           const result = await opts.executeTool(repoRoot, name, blockInput);
+          trackTool(name, result.length);
           toolResults.push({ type: 'tool_result', tool_use_id: id, content: result });
         } catch (e) {
+          trackTool(name, 0);
           toolResults.push({
             type: 'tool_result',
             tool_use_id: id,
@@ -562,7 +585,7 @@ export function createAnthropicAgentLoop(opts: {
           },
           logger,
         );
-        return { done, usage, iterations: iter };
+        return { done, usage, iterations: iter, toolCounts, toolCallRecords };
       }
     }
 

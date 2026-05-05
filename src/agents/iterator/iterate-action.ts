@@ -16,6 +16,7 @@ import {
   buildSystem,
   buildTicketBlock,
   appendOutput,
+  writeStepSummary,
   configureFerryGitUser,
   makeCommitProgress,
   makeSecretScan,
@@ -192,7 +193,7 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
     logger,
   });
 
-  const { done, usage, iterations } = await loop.run({
+  const loopResult = await loop.run({
     system,
     initialPrompt,
     tools: [...TOOL_SCHEMAS, COMMIT_PROGRESS_SCHEMA],
@@ -201,6 +202,7 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
     secretScan,
     mcpServers,
   });
+  const { done, usage, iterations } = loopResult;
 
   const resolvedOutcome = done.outcome ?? (done.actionable ? 'implemented' : 'blocked');
 
@@ -221,6 +223,16 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
       ticketKey,
       `${idempotencyMarker} 🚨 BLOCKED — ${reason}. Manual intervention required.`,
     );
+    writeStepSummary({
+      role: 'iterator',
+      iterations,
+      usage,
+      toolCounts: loopResult.toolCounts,
+      toolCallRecords: loopResult.toolCallRecords,
+      filesTouched: [],
+      branchPushed: '',
+      outcome: 'blocked',
+    });
     appendOutput({ ...usage, model, provider: iterProvider });
     process.exit(1);
   }
@@ -245,6 +257,17 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
   execFileSync('git', ['push', 'origin', branchName, '--force-with-lease'], { cwd: REPO_ROOT });
   const branchPushed = true;
 
+  let iterFilesTouched: string[] = [];
+  try {
+    const diff = execFileSync('git', ['diff', '--name-only', `origin/${baseBranch}...HEAD`], {
+      cwd: REPO_ROOT,
+      encoding: 'utf8',
+    });
+    iterFilesTouched = diff.trim().split('\n').filter(Boolean);
+  } catch {
+    // best-effort
+  }
+
   // Output-contract guard: verify required outputs exist before terminal comment.
   assertIterOutputContract(resolvedOutcome, { branchPushed, prNumber });
 
@@ -262,6 +285,16 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
 
   await tracker.postComment(ticketKey, terminalComment);
 
+  writeStepSummary({
+    role: 'iterator',
+    iterations,
+    usage,
+    toolCounts: loopResult.toolCounts,
+    toolCallRecords: loopResult.toolCallRecords,
+    filesTouched: iterFilesTouched,
+    branchPushed: branchName,
+    outcome: resolvedOutcome,
+  });
   appendOutput({ ...usage, model, provider: iterProvider });
   process.exit(0);
 }

@@ -100,7 +100,14 @@ export async function runReviewLoop(opts: {
   maxIterations?: number;
   maxTokens?: number;
   logger?: Logger;
-}): Promise<{ result: ReviewResult; inputTokens: number; outputTokens: number }> {
+}): Promise<{
+  result: ReviewResult;
+  inputTokens: number;
+  outputTokens: number;
+  iterations: number;
+  toolCounts: Record<string, number>;
+  toolCallRecords: Array<{ name: string; outputSize: number }>;
+}> {
   const { anthropic, model, system, initialPrompt, fileMap, runner, owner, repo, headSha } = opts;
   const logger = opts.logger ?? createLogger('', 'ferry:review-loop');
   const maxIterations =
@@ -123,6 +130,12 @@ export async function runReviewLoop(opts: {
   let inputTokens = 0;
   let outputTokens = 0;
   let result: ReviewResult | null = null;
+  const toolCounts: Record<string, number> = {};
+  const toolCallRecords: Array<{ name: string; outputSize: number }> = [];
+  function trackTool(name: string, outputSize: number): void {
+    toolCounts[name] = (toolCounts[name] ?? 0) + 1;
+    toolCallRecords.push({ name, outputSize });
+  }
   const loopStart = Date.now();
 
   for (let iter = 0; iter < maxIterations; iter++) {
@@ -201,6 +214,7 @@ export async function runReviewLoop(opts: {
           content =
             patch.length > patchLimit ? patch.slice(0, patchLimit) + '\n... (truncated)' : patch;
         }
+        trackTool('get_file_patch', content.length);
         toolResults.push({ type: 'tool_result', tool_use_id: block.id, content });
         continue;
       }
@@ -215,6 +229,7 @@ export async function runReviewLoop(opts: {
           rawContent.length > fileLimit
             ? rawContent.slice(0, fileLimit) + '\n... (truncated)'
             : rawContent;
+        trackTool('get_file_content', content.length);
         toolResults.push({ type: 'tool_result', tool_use_id: block.id, content });
         continue;
       }
@@ -261,7 +276,14 @@ export async function runReviewLoop(opts: {
         },
         logger,
       );
-      return { result, inputTokens, outputTokens };
+      return {
+        result,
+        inputTokens,
+        outputTokens,
+        iterations: iter + 1,
+        toolCounts,
+        toolCallRecords,
+      };
     }
   }
 

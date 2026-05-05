@@ -7,6 +7,7 @@ import {
   createGitHubContext,
   resolveGitConfig,
   loadFerryConfigFromBaseBranch,
+  writeStepSummary,
 } from '../../lib/agent-runtime/index.js';
 import type { Logger } from '../../lib/agent-runtime/index.js';
 import { runRefiner } from './refine.js';
@@ -50,11 +51,28 @@ export async function run(envelope: EventEnvelopeV1, deps: RefinerActionDeps): P
     runLink,
   });
 
+  const zeroUsage = {
+    input_tokens: 0,
+    output_tokens: 0,
+    cache_creation_input_tokens: 0,
+    cache_read_input_tokens: 0,
+  };
+
   if (dryRun) {
     logger.info('DRY_RUN — plan (no Jira writes)', {
       ticket: ticketKey,
       subtaskCount: auditSummary.subtaskCount,
       actions: plan.actions.map((a) => a.type),
+    });
+    writeStepSummary({
+      role: 'refiner',
+      iterations: 1,
+      usage: zeroUsage,
+      toolCounts: {},
+      toolCallRecords: [],
+      filesTouched: [],
+      branchPushed: '',
+      outcome: 'dry_run',
     });
     return;
   }
@@ -74,6 +92,16 @@ export async function run(envelope: EventEnvelopeV1, deps: RefinerActionDeps): P
       ticketKey,
       `${idempotencyMarker} No changes needed — existing ${existingSubtasks.length} sub-task(s) still valid. ${result.noopReason ?? ''}`.trimEnd(),
     );
+    writeStepSummary({
+      role: 'refiner',
+      iterations: 1,
+      usage: zeroUsage,
+      toolCounts: {},
+      toolCallRecords: [],
+      filesTouched: [],
+      branchPushed: '',
+      outcome: 'noop',
+    });
     return;
   }
 
@@ -88,6 +116,17 @@ export async function run(envelope: EventEnvelopeV1, deps: RefinerActionDeps): P
     ticketKey,
     `${idempotencyMarker} Refined. Created ${result.createdCount}, kept ${result.keptCount}, staled ${result.staledCount} sub-task(s). See run: ${runLink}`,
   );
+
+  writeStepSummary({
+    role: 'refiner',
+    iterations: 1,
+    usage: zeroUsage,
+    toolCounts: {},
+    toolCallRecords: [],
+    filesTouched: [],
+    branchPushed: '',
+    outcome: 'refined',
+  });
 }
 
 async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {

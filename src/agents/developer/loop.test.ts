@@ -224,6 +224,8 @@ describe('createAnthropicAgentLoop', () => {
         cache_read_input_tokens: 10,
       },
       iterations: 2,
+      toolCounts: {},
+      toolCallRecords: [],
     };
     const spawnHandler = vi
       .fn<(task: string) => Promise<AgentLoopResult>>()
@@ -385,6 +387,8 @@ describe('createAnthropicAgentLoop', () => {
         cache_read_input_tokens: 0,
       },
       iterations: 1,
+      toolCounts: {},
+      toolCallRecords: [],
     };
     const spawnHandler = vi
       .fn<(task: string) => Promise<AgentLoopResult>>()
