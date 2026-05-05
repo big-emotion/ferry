@@ -221,16 +221,22 @@ Maps Jira ticket labels to MCP server capabilities. If this section is omitted, 
 
 > **MCP configuration is split across two locations:**
 >
-> - **Pool of servers** (name, URL, token) — declared in the `AGENT_MCP_SERVERS` GitHub Actions repo **variable** (`gh variable set AGENT_MCP_SERVERS '...'`). This is where all known MCP servers are registered.
+> - **Pool of servers** (name, URL/command, credentials) — declared in the `AGENT_MCP_SERVERS` GitHub Actions repo **variable** (`gh variable set AGENT_MCP_SERVERS '...'`). This is where all known MCP servers are registered. Two transport types are supported:
+>   - **HTTP/SSE** — omit `type` (or set `"type": "url"`); provide a `url` field. Tool calls are proxied server-side through the Anthropic Messages API.
+>   - **Stdio** — set `"type": "stdio"`; provide a `command` field. Ferry spawns the binary on the Actions runner and dispatches tool calls client-side.
 > - **Per-ticket activation** — declared here in `ferry.config.yaml` § `labels:`. A `ferry:*` label on the Jira ticket selects which servers from the pool are active for that ticket.
 >
 > A label entry that names a server not present in `AGENT_MCP_SERVERS` is silently ignored at runtime. The pool variable is not part of `ferry.config.yaml`.
 
 **Adding a new MCP server — 3 steps:**
 
-1. **Declare in the pool** — add an entry to the `AGENT_MCP_SERVERS` repo variable:
+1. **Declare in the pool** — add an entry to the `AGENT_MCP_SERVERS` repo variable (HTTP/SSE example):
    ```bash
    gh variable set AGENT_MCP_SERVERS '[{"name":"figma","url":"https://mcp.figma.com/mcp","authorization_token":"<pat>"}]'
+   ```
+   For a stdio server, use `"type":"stdio"` and `"command"` instead of `"url"`:
+   ```bash
+   gh variable set AGENT_MCP_SERVERS '[{"type":"stdio","name":"my-tool","command":"npx","args":["-y","@my-org/mcp-server"]}]'
    ```
 2. **Map a `ferry:*` label** — add an entry under `labels:` in `ferry.config.yaml` referencing the server name.
 3. **Activate per ticket** — add the matching `ferry:*` label to your Jira ticket before triggering the Developer or Iterator.
