@@ -835,6 +835,23 @@ function applyEnvOverrides(cfg: FerryConfig): FerryConfig {
 
 // --- Public API ---
 
+export function parseFerryConfigJson(jsonContent: string): FerryConfig {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(jsonContent);
+  } catch (e) {
+    throw new FerryError('state-invariant', {
+      reason: 'invalid-ferry-config',
+      error: (e as Error).message,
+    });
+  }
+  const errors = validateConfigShape(raw);
+  if (errors.length > 0) {
+    throw new FerryError('state-invariant', { reason: 'invalid-ferry-config', errors });
+  }
+  return applyEnvOverrides(mergeWithDefaults(raw as RawConfig));
+}
+
 export function loadFerryConfig(repoRoot?: string): FerryConfig {
   const root = repoRoot ?? process.env.GITHUB_WORKSPACE ?? process.cwd();
   const raw = findAndReadConfigFile(root);

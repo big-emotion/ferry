@@ -32,6 +32,7 @@ jobs:
           # security-and-quality includes both security queries and quality/correctness queries.
           # Remove quality if scan times become excessive.
           queries: security-and-quality
+          config-file: .github/codeql-config.yml
 
       - name: Autobuild
         uses: github/codeql-action/autobuild@v4
