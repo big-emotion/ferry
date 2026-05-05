@@ -16,8 +16,17 @@ inputs:
     description: Jira API token
     required: true
   anthropic_api_key:
-    description: Anthropic API key
-    required: true
+    description: Anthropic API key (required when ferry_refiner_provider=anthropic)
+    required: false
+    default: ''
+  openai_api_key:
+    description: OpenAI API key (required when ferry_refiner_provider=openai)
+    required: false
+    default: ''
+  google_api_key:
+    description: Google AI API key (required when ferry_refiner_provider=google)
+    required: false
+    default: ''
   ferry_refiner_model:
     description: Model override (e.g. claude-sonnet-4-6)
     required: false
@@ -90,6 +99,8 @@ runs:
         FERRY_JIRA_EMAIL: ${{ inputs.jira_email }}
         FERRY_JIRA_API_TOKEN: ${{ inputs.jira_api_token }}
         ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
+        FERRY_OPENAI_KEY: ${{ inputs.openai_api_key }}
+        FERRY_GOOGLE_AI_KEY: ${{ inputs.google_api_key }}
         FERRY_REFINER_MODEL: ${{ inputs.ferry_refiner_model }}
         FERRY_REFINER_PROVIDER: ${{ inputs.ferry_refiner_provider }}
         FERRY_REFINER_SUBTASK_CAP: ${{ inputs.ferry_refiner_subtask_cap }}

@@ -19,8 +19,17 @@ inputs:
     description: Jira transition ID to move ticket to In Review
     required: true
   anthropic_api_key:
-    description: Anthropic API key
-    required: true
+    description: Anthropic API key (required when ferry_iter_provider=anthropic)
+    required: false
+    default: ''
+  openai_api_key:
+    description: OpenAI API key (required when ferry_iter_provider=openai)
+    required: false
+    default: ''
+  google_api_key:
+    description: Google AI API key (required when ferry_iter_provider=google)
+    required: false
+    default: ''
   github_token:
     description: GitHub token with contents:write, issues:write, and pull-requests:write
     required: true
@@ -123,6 +132,8 @@ runs:
         FERRY_JIRA_API_TOKEN: ${{ inputs.jira_api_token }}
         FERRY_REVIEW_TRANSITION_ID: ${{ inputs.ferry_review_transition_id }}
         ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
+        FERRY_OPENAI_KEY: ${{ inputs.openai_api_key }}
+        FERRY_GOOGLE_AI_KEY: ${{ inputs.google_api_key }}
         GITHUB_TOKEN: ${{ inputs.github_token }}
         GH_TOKEN: ${{ inputs.github_token }}
         GITHUB_REPO: ${{ inputs.github_repo }}
