@@ -31,7 +31,7 @@ import { createAnthropicAgentLoop } from '../../lib/llm/agent-loop/anthropic.js'
 import type { AgentLoop } from '../../lib/llm/agent-loop/types.js';
 import { resolveCapabilities, filterMcpServers } from '../../lib/labels/capabilities.js';
 import { resolveAnthropicAuth } from '../../lib/llm/anthropic-auth.js';
-import { detectTestRunner, repoTree, packageJsonPath } from './workspace.js';
+import { detectTestRunner, repoTree, packageJsonPath, detectPackageManager } from './workspace.js';
 
 const REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
 
@@ -84,9 +84,12 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
 
   const subtasks = await tracker.getSubtasks(ticketKey);
   const testRunner = detectTestRunner(packageJsonPath(REPO_ROOT));
+  const pkgManagerHint = detectPackageManager(REPO_ROOT);
   const tree = repoTree(REPO_ROOT);
 
-  const system = buildSystem('dev', REPO_ROOT);
+  const system = buildSystem('dev', REPO_ROOT, {
+    extraParts: pkgManagerHint ? [`## Detected package manager\n\n${pkgManagerHint}`] : [],
+  });
   const model = ferryCfg.models.dev.model;
 
   // Branch is determined upfront from the ticket key so restarts resume the same branch.
