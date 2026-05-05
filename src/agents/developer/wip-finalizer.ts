@@ -26,7 +26,7 @@ export function classifyError(err: unknown): { code: string; detail: string } {
       const consumed = err.context?.consumed;
       const detail =
         cap != null && consumed != null
-          ? `spend cap exceeded (used ${Math.round(Number(consumed)).toLocaleString()} / ${Math.round(Number(cap)).toLocaleString()} tokens)`
+          ? `spend cap exceeded (used ${Math.round(Number(consumed)).toLocaleString('en-US')} / ${Math.round(Number(cap)).toLocaleString('en-US')} tokens)`
           : 'spend cap exceeded';
       return { code: err.code, detail };
     }
