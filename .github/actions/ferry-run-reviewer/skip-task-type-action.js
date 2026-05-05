@@ -1,5 +1,3 @@
-import { createRequire as __ferryCreateRequire } from 'node:module'; const require = __ferryCreateRequire(import.meta.url);
-
 // src/lib/io/jira.ts
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -191,6 +189,21 @@ var JiraRestClient = class {
     if (!response.ok) return [];
     const data = await response.json();
     return (data.issues ?? []).map((i) => `- [${i.key}] ${i.fields.summary}`);
+  }
+  async getSubtaskDetails(parentKey) {
+    const jql = encodeURIComponent(`parent=${parentKey} ORDER BY created ASC`);
+    const response = await fetch(
+      `${this.baseUrl}/rest/api/3/search?jql=${jql}&fields=summary,description,status&maxResults=50`,
+      { method: "GET", headers: this.baseHeaders }
+    );
+    if (!response.ok) return [];
+    const data = await response.json();
+    return (data.issues ?? []).map((i) => ({
+      key: i.key,
+      title: i.fields.summary,
+      descriptionAdf: i.fields.description,
+      status: i.fields.status.name
+    }));
   }
 };
 function createJiraRestClientFromEnv() {

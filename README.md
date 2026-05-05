@@ -339,9 +339,12 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) to contribute.
 
 ---
 
-## MCP remote servers (HTTP/SSE)
+## MCP servers
 
-The Developer and Iterator agents can call **remote MCP servers** directly through the Anthropic Messages API (beta connector `mcp-client-2025-11-20`). The API proxies all MCP tool calls server-side — Ferry does not run any local MCP client.
+The Developer and Iterator agents can call **MCP servers** of two kinds, both configured via the `AGENT_MCP_SERVERS` environment variable:
+
+- **HTTP/SSE servers** — proxied through the Anthropic Messages API (beta connector `mcp-client-2025-11-20`). Tool calls execute server-side; no local process is spawned.
+- **Stdio servers** — spawned as local subprocesses on the GitHub Actions runner. Ferry manages the process lifecycle and dispatches tool calls client-side.
 
 **Agent coverage:**
 
@@ -354,9 +357,9 @@ The Developer and Iterator agents can call **remote MCP servers** directly throu
 
 The Refiner runs a single-turn LLM call and the Reviewer uses its own agentic tool loop — neither reads `AGENT_MCP_SERVERS`.
 
-### Enabling MCP for the developer & iterator agents
+### HTTP/SSE servers (Anthropic-proxied)
 
-Set the `AGENT_MCP_SERVERS` environment variable (repository variable or secret) to a JSON array:
+Set the `AGENT_MCP_SERVERS` environment variable (repository variable or secret) to a JSON array with one entry per server:
 
 ```json
 [
@@ -373,7 +376,7 @@ Set the `AGENT_MCP_SERVERS` environment variable (repository variable or secret)
 ]
 ```
 
-Each entry accepts:
+Each HTTP/SSE entry accepts:
 
 | Field                 | Required | Description                                  |
 | --------------------- | -------- | -------------------------------------------- |
@@ -383,12 +386,49 @@ Each entry accepts:
 | `allowed_tools`       | no       | Allowlist — only these MCP tools are exposed |
 | `denied_tools`        | no       | Denylist — these MCP tools are hidden        |
 
-**Constraints**
+**Constraints (HTTP/SSE)**
 
-- HTTP/SSE transport only — stdio MCP servers are not supported via this path.
 - Tool calls only — MCP prompts and resources are not in scope.
 - Only available when the developer agent uses the Anthropic provider; not supported on Bedrock or Vertex.
 - Not eligible for Anthropic Zero Data Retention.
+
+### Stdio servers (client-side)
+
+Stdio MCP servers run as local subprocesses on the GitHub Actions runner. Ferry spawns the process, performs the MCP handshake, and proxies tool calls through it during the agent loop.
+
+```json
+[
+  {
+    "type": "stdio",
+    "name": "my-tool",
+    "command": "npx",
+    "args": ["-y", "@my-org/mcp-server"],
+    "env": {
+      "MY_API_KEY": "<your-key>"
+    },
+    "allowed_tools": ["tool_a", "tool_b"]
+  }
+]
+```
+
+Each stdio entry accepts:
+
+| Field           | Required | Description                                                   |
+| --------------- | -------- | ------------------------------------------------------------- |
+| `type`          | yes      | Must be `"stdio"`                                             |
+| `name`          | yes      | Logical name used in prompts and audit logs                   |
+| `command`       | yes      | Executable to spawn (must be on `PATH` in the runner)         |
+| `args`          | no       | Array of command-line arguments passed to the process         |
+| `env`           | no       | Additional environment variables injected into the subprocess |
+| `allowed_tools` | no       | Allowlist — only these MCP tools are exposed to the agent     |
+| `denied_tools`  | no       | Denylist — these MCP tools are hidden from the agent          |
+
+**Constraints (stdio)**
+
+- The binary named in `command` must be pre-installed (or installable via a `run:` step) in the GitHub Actions runner image.
+- Runs entirely client-side — not proxied through the Anthropic API, so Zero Data Retention and Bedrock/Vertex restrictions do not apply.
+- Tool calls only — MCP prompts and resources are not in scope.
+- Only available when the developer agent uses the Anthropic provider.
 
 **First-party example — context7**
 

@@ -1,9 +1,13 @@
 import { pathToFileURL } from 'node:url';
-import { createTrackerFromEnv } from '../../lib/io/tracker/factory.js';
 import { isDryRun } from '../../lib/dry-run.js';
-import { loadFerryConfig } from '../../lib/config.js';
 import { createLlmCall } from '../../lib/llm/call.js';
-import { runAgent, createLogger } from '../../lib/agent-runtime/index.js';
+import {
+  runAgent,
+  createLogger,
+  createGitHubContext,
+  resolveGitConfig,
+  loadFerryConfigFromBaseBranch,
+} from '../../lib/agent-runtime/index.js';
 import type { Logger } from '../../lib/agent-runtime/index.js';
 import { runRefiner } from './refine.js';
 import { applyActions } from './reconcile.js';
@@ -87,10 +91,12 @@ export async function run(envelope: EventEnvelopeV1, deps: RefinerActionDeps): P
 }
 
 async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
-  const ferryCfg = loadFerryConfig(REPO_ROOT);
+  const { owner, repo, runner, tracker, ferryCfg: initialCfg } = createGitHubContext(REPO_ROOT);
+  // Reload config from base_branch — the workspace may contain the default branch's config.
+  const { baseBranch } = await resolveGitConfig(initialCfg, runner, owner, repo);
+  const ferryCfg = loadFerryConfigFromBaseBranch(baseBranch, REPO_ROOT, initialCfg);
   const route = ferryCfg.models.refiner;
   const callLlm: LlmCall = createLlmCall(route);
-  const tracker = createTrackerFromEnv();
   await run(envelope, { tracker, callLlm, logger });
 }
 
