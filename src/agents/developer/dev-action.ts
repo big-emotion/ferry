@@ -12,6 +12,7 @@ import {
   logCapabilities,
   createGitHubContext,
   resolveGitConfig,
+  loadFerryConfigFromBaseBranch,
   byEventId,
   runAgent,
 } from '../../lib/agent-runtime/index.js';
@@ -44,7 +45,21 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
   }
 
   const anthropicAuth = resolveAnthropicAuth({ apiKeyEnv: 'ANTHROPIC_API_KEY' });
-  const { owner, repo, runner, tracker, ferryCfg } = createGitHubContext(REPO_ROOT);
+  const { owner, repo, runner, tracker, ferryCfg: initialCfg } = createGitHubContext(REPO_ROOT);
+
+  // Resolve baseBranch before using any config values, then reload config from that branch.
+  // On repository_dispatch, actions/checkout resolves to the default branch, not base_branch,
+  // so the workspace may contain a stale ferry.config.json.
+  const { baseBranch, targetBranch, workingBranchPrefix } = await resolveGitConfig(
+    initialCfg,
+    runner,
+    owner,
+    repo,
+  );
+  // loadFerryConfigFromBaseBranch also fetches origin/<baseBranch>, which makes
+  // `git log origin/<base>..HEAD` work correctly later in this function.
+  const ferryCfg = loadFerryConfigFromBaseBranch(baseBranch, REPO_ROOT, initialCfg);
+
   const { provider: devProvider } = ferryCfg.models.dev;
   if (devProvider !== 'anthropic') {
     throw new FerryError('state-invariant', {
@@ -84,13 +99,6 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
 
   const system = buildSystem('dev', REPO_ROOT);
   const model = ferryCfg.models.dev.model;
-
-  const { baseBranch, targetBranch, workingBranchPrefix } = await resolveGitConfig(
-    ferryCfg,
-    runner,
-    owner,
-    repo,
-  );
 
   // Branch is determined upfront from the ticket key so restarts resume the same branch.
   const branchName = `${workingBranchPrefix}${ticketKey}`;
