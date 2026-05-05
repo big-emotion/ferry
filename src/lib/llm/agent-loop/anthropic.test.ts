@@ -670,7 +670,12 @@ function makeMultiTurnMock(totalToolCalls: number) {
     return {
       stop_reason: 'tool_use',
       content: [
-        { type: 'tool_use', id: 'tu_done', name: 'done', input: { actionable: true, summary: 'ok' } },
+        {
+          type: 'tool_use',
+          id: 'tu_done',
+          name: 'done',
+          input: { actionable: true, summary: 'ok' },
+        },
       ],
       usage: { input_tokens: 10, output_tokens: 5 },
     };
