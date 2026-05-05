@@ -1,6 +1,6 @@
 import { JiraRestClient } from '../../jira-rest.js';
 import { adfToText, textToAdf } from '../../jira-adf.js';
-import type { IssueTracker, TrackerIssue } from '../types.js';
+import type { IssueTracker, TrackerIssue, TrackerSubtask } from '../types.js';
 
 export class JiraTracker implements IssueTracker {
   constructor(private readonly client: JiraRestClient) {}
@@ -27,6 +27,16 @@ export class JiraTracker implements IssueTracker {
 
   async getSubtasks(key: string): Promise<string[]> {
     return this.client.getSubtasks(key);
+  }
+
+  async getSubtaskDetails(key: string): Promise<TrackerSubtask[]> {
+    const raw = await this.client.getSubtaskDetails(key);
+    return raw.map((r) => ({
+      key: r.key,
+      title: r.title,
+      description: adfToText(r.descriptionAdf),
+      status: r.status,
+    }));
   }
 
   async createSubtask(

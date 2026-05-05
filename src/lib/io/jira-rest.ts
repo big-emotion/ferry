@@ -38,6 +38,13 @@ export interface JiraCreatedIssue {
   self: string;
 }
 
+export interface JiraSubtaskDetail {
+  key: string;
+  title: string;
+  descriptionAdf: AdfDoc | null;
+  status: string;
+}
+
 interface JiraIssueType {
   id: string;
   name: string;
@@ -176,6 +183,27 @@ export class JiraRestClient {
       issues?: Array<{ key: string; fields: { summary: string } }>;
     };
     return (data.issues ?? []).map((i) => `- [${i.key}] ${i.fields.summary}`);
+  }
+
+  async getSubtaskDetails(parentKey: string): Promise<JiraSubtaskDetail[]> {
+    const jql = encodeURIComponent(`parent=${parentKey} ORDER BY created ASC`);
+    const response = await fetch(
+      `${this.baseUrl}/rest/api/3/search?jql=${jql}&fields=summary,description,status&maxResults=50`,
+      { method: 'GET', headers: this.baseHeaders },
+    );
+    if (!response.ok) return [];
+    const data = (await response.json()) as {
+      issues?: Array<{
+        key: string;
+        fields: { summary: string; description: AdfDoc | null; status: { name: string } };
+      }>;
+    };
+    return (data.issues ?? []).map((i) => ({
+      key: i.key,
+      title: i.fields.summary,
+      descriptionAdf: i.fields.description,
+      status: i.fields.status.name,
+    }));
   }
 }
 

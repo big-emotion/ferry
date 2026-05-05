@@ -77,4 +77,28 @@ describe('IssueTracker contract — InMemoryTracker', () => {
     const subtasks = await tracker.getSubtasks('PROJ-1');
     expect(subtasks).toEqual(['- [PROJ-2] First subtask', '- [PROJ-3] Second subtask']);
   });
+
+  it('getSubtaskDetails returns empty array when none are seeded', async () => {
+    const details = await tracker.getSubtaskDetails('PROJ-1');
+    expect(details).toEqual([]);
+  });
+
+  it('getSubtaskDetails returns seeded subtask details', async () => {
+    tracker.seedSubtaskDetails('PROJ-1', [
+      { key: 'PROJ-2', title: 'First subtask', description: 'do first', status: 'To Do' },
+      { key: 'PROJ-3', title: 'Second subtask', description: 'do second', status: 'In Progress' },
+    ]);
+    const details = await tracker.getSubtaskDetails('PROJ-1');
+    expect(details).toHaveLength(2);
+    expect(details[0].key).toBe('PROJ-2');
+    expect(details[1].status).toBe('In Progress');
+  });
+
+  it('createSubtask records the new subtask in getSubtaskDetails', async () => {
+    await tracker.createSubtask('PROJ-1', 'New task', 'do new');
+    const details = await tracker.getSubtaskDetails('PROJ-1');
+    expect(details).toHaveLength(1);
+    expect(details[0].title).toBe('New task');
+    expect(details[0].status).toBe('To Do');
+  });
 });

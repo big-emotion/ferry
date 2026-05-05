@@ -49,9 +49,17 @@ const ENVELOPE: EventEnvelopeV1 = {
 };
 
 const MOCK_PLAN = {
-  subtasks: [
-    { title: 'Implement feature A', description: 'Add feature A to src/feature.ts' },
-    { title: 'Add tests for A', description: 'Test coverage in src/feature.test.ts' },
+  actions: [
+    {
+      type: 'create' as const,
+      title: 'Implement feature A',
+      description: 'Add feature A to src/feature.ts',
+    },
+    {
+      type: 'create' as const,
+      title: 'Add tests for A',
+      description: 'Test coverage in src/feature.test.ts',
+    },
   ],
   touch_paths: ['src/feature.ts', 'src/feature.test.ts'],
   output_locale: 'en' as const,
@@ -428,9 +436,14 @@ describe('E2E pipeline: refine → dev → review → iterate', () => {
       const auditLinesAfterFirst = io.auditComments.length;
       const labelAddsAfterFirst = io.addLabelsSpy.mock.calls.length;
 
-      // Seed the subtask map so refiner's filterExistingSubtasks skips re-creation
-      const createdDescs = io.tracker.createdSubtasks.map((s) => s.description);
-      io.tracker.seedSubtasks(TICKET_KEY, createdDescs);
+      // Seed subtask details so the content-hash guard skips re-creation on replay
+      const createdDetails = io.tracker.createdSubtasks.map((s, i) => ({
+        key: `ACME-subtask-${i + 1}`,
+        title: s.title,
+        description: s.description,
+        status: 'To Do' as const,
+      }));
+      io.tracker.seedSubtaskDetails(TICKET_KEY, createdDetails);
 
       // Replay with the same event_id
       await runRefinePhase(io);

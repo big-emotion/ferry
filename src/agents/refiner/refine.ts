@@ -1,9 +1,9 @@
 /**
- * Story 3-1: Refiner core.
+ * Refiner core.
  *
- * Pure logic: receives a ticket payload + an injected LLM-call function and
+ * Pure logic: receives a ticket payload + injected LLM-call function and
  * returns a validated plan plus an audit summary. No Jira IO, no provider
- * SDK calls. The production agent shim wires the real LLM in `index.ts`.
+ * SDK calls. The production agent shim wires the real LLM in `refiner-action.ts`.
  */
 
 import { createRequire } from 'module';
@@ -12,6 +12,7 @@ import { FerryError } from '../../lib/errors/index.js';
 import { delimitUntrusted } from '../../lib/llm/delimit-untrusted.js';
 import { extractFirstJsonObject } from './parse.js';
 import { REFINER_OUTPUT_SCHEMA, getRefinerTouchPathsCap, type RefinerOutput } from './schema.js';
+import type { TrackerSubtask } from '../../lib/io/tracker/types.js';
 
 const _require = createRequire(import.meta.url);
 
@@ -33,6 +34,8 @@ export interface RefinerInput {
     labels: string[];
     attachments?: string[];
   };
+  existingSubtasks?: TrackerSubtask[];
+  priorRefinerRuns?: string[];
   callLlm: LlmCall;
   runLink: string;
 }
@@ -64,31 +67,56 @@ export interface RefinerResult {
 }
 
 const SCHEMA_EXAMPLE = `{
-  "subtasks": [
-    {
-      "title": "imperative verb, specific, max 200 chars",
-      "description": "concrete acceptance criteria, file paths, done criteria; max 4000 chars"
-    }
+  "actions": [
+    { "type": "create", "title": "imperative verb, specific, max 200 chars", "description": "concrete acceptance criteria; max 4000 chars" },
+    { "type": "keep", "existing_key": "PROJ-91", "reason": "still valid" },
+    { "type": "mark_stale", "existing_key": "PROJ-92", "reason": "superseded by ticket edit" },
+    { "type": "noop", "reason": "ticket and existing sub-tasks unchanged" }
   ],
   "touch_paths": ["src/path/to/file.ts"],
   "output_locale": "en",
   "audit_summary": "one sentence summarising the plan"
 }`;
 
+function formatExistingSubtasks(subtasks: TrackerSubtask[]): string {
+  if (subtasks.length === 0) return '(none)';
+  return subtasks.map((s) => `- [${s.key}] ${s.title} (status: ${s.status})`).join('\n');
+}
+
 function buildPrompt(input: RefinerInput): string {
-  const block = [
+  const ticketBlock = [
     `TICKET ${input.ticket.key}`,
     `TITLE: ${input.ticket.title}`,
     `LABELS: ${input.ticket.labels.join(', ')}`,
     `DESCRIPTION:\n${input.ticket.description}`,
     `COMMENTS:\n${input.ticket.comments.join('\n---\n')}`,
   ].join('\n\n');
+
+  const existingBlock = [
+    `EXISTING_SUBTASKS (do NOT re-create these unless the ticket has materially changed):`,
+    formatExistingSubtasks(input.existingSubtasks ?? []),
+  ].join('\n');
+
+  const priorRunsBlock =
+    (input.priorRefinerRuns ?? []).length > 0
+      ? `PRIOR_REFINER_RUNS:\n${input.priorRefinerRuns!.join('\n---\n')}`
+      : 'PRIOR_REFINER_RUNS: (none)';
+
   return [
-    'You are the Ferry Refiner. Decompose the ticket into concrete sub-tasks.',
+    'You are the Ferry Refiner. Analyse the ticket and its existing sub-tasks, then return a reconciliation plan.',
     'Reply with JSON only — no prose, no code fences — matching this exact schema:',
     SCHEMA_EXAMPLE,
-    'Rules: max 12 subtasks (prefer 3–7). output_locale must be "en" or "fr" matching the ticket language. touch_paths lists every file the subtasks will touch (max 20).',
-    delimitUntrusted(block),
+    [
+      'Rules:',
+      '- Use "noop" when the ticket and existing sub-tasks are already aligned.',
+      '- Use "keep" for existing sub-tasks that are still valid.',
+      '- Use "mark_stale" for existing sub-tasks superseded by a ticket edit.',
+      '- Use "create" only for genuinely missing sub-tasks (max 12 total; prefer 3–7).',
+      '- Sub-tasks with status "In Progress" or "Done" must always be "keep".',
+      '- output_locale must be "en" or "fr" matching the ticket language.',
+      '- touch_paths lists every file the new sub-tasks will touch (max 20).',
+    ].join('\n'),
+    delimitUntrusted([ticketBlock, existingBlock, priorRunsBlock].join('\n\n')),
   ].join('\n\n');
 }
 
@@ -140,10 +168,11 @@ export async function runRefiner(input: RefinerInput): Promise<RefinerResult> {
       cap: touchPathsCap,
     });
   }
+  const createCount = parsed.actions.filter((a) => a.type === 'create').length;
   return {
     plan: parsed,
     auditSummary: {
-      subtaskCount: parsed.subtasks.length,
+      subtaskCount: createCount,
       costEur: llm.usage?.costEur ?? 0,
       runLink: input.runLink,
       attachmentNames: input.ticket.attachments ?? [],
