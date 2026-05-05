@@ -622,6 +622,237 @@ describe('createAnthropicAgentLoop — input-token budget cap', () => {
   });
 });
 
+describe('createAnthropicAgentLoop — soft budget warnings', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    restorePoolDefaults();
+  });
+
+  // Helper: builds a mock that captures a deep-clone of parameters on every call.
+  function makeCapturingMock(responses: FakeResponse[]) {
+    let idx = 0;
+    const calls: Array<{ messages: unknown[]; tools: unknown[] }> = [];
+    const createFn = vi
+      .fn()
+      .mockImplementation(async (params: { messages: unknown[]; tools: unknown[] }) => {
+        // Deep-clone so mutations after the call don't alter captured state.
+        calls.push({
+          messages: JSON.parse(JSON.stringify(params.messages)) as unknown[],
+          tools: JSON.parse(JSON.stringify(params.tools)) as unknown[],
+        });
+        const r = responses[idx++];
+        return {
+          stop_reason: r.stop_reason,
+          content: r.content,
+          usage: r.usage ?? { input_tokens: 10, output_tokens: 5 },
+        };
+      });
+    return {
+      calls,
+      client: {
+        messages: { create: createFn },
+        beta: { messages: { create: vi.fn() } },
+      } as unknown as Anthropic,
+    };
+  }
+
+  it('injects 70% warning into the last user message when budget crosses 70%', async () => {
+    // cap = 1000, iter 1 returns 750 input → billable-equiv = 750 = 75% → fires 70% warning.
+    const toolResponse: FakeResponse = {
+      stop_reason: 'tool_use',
+      content: [{ type: 'tool_use', id: 'tu_r', name: 'read_file', input: { path: 'x.ts' } }],
+      usage: { input_tokens: 750, output_tokens: 10 },
+    };
+    const execTool = vi
+      .fn<(r: string, n: string, i: Record<string, unknown>) => Promise<string>>()
+      .mockResolvedValueOnce('content');
+
+    const { calls, client } = makeCapturingMock([toolResponse, doneResponse]);
+    const loop = createAnthropicAgentLoop({
+      model: 'm',
+      client,
+      executeTool: execTool,
+      maxInputTokens: 1000,
+    });
+
+    await loop.run(baseInput);
+
+    // iter 2 is the call that sees the warning — its messages array's last user entry
+    // should contain the injected [ferry] text block.
+    expect(calls.length).toBe(2);
+    const iter2Messages = calls[1].messages as Array<{ role: string; content: unknown }>;
+    const lastUser = iter2Messages.filter((m) => m.role === 'user').at(-1);
+    const content = lastUser?.content as Array<{ type: string; text?: string }>;
+    const warningBlock = content?.find(
+      (b) => b.type === 'text' && typeof b.text === 'string' && b.text.includes('[ferry]'),
+    );
+    expect(warningBlock).toBeDefined();
+    expect(warningBlock?.text).toMatch(/70%|Wrap up/);
+  });
+
+  it('does NOT inject 70% warning when budget stays below 70%', async () => {
+    // cap = 1000, iter 1 returns 600 input → 60% → no warning.
+    const toolResponse: FakeResponse = {
+      stop_reason: 'tool_use',
+      content: [{ type: 'tool_use', id: 'tu_r', name: 'read_file', input: { path: 'x.ts' } }],
+      usage: { input_tokens: 600, output_tokens: 10 },
+    };
+    const execTool = vi
+      .fn<(r: string, n: string, i: Record<string, unknown>) => Promise<string>>()
+      .mockResolvedValueOnce('content');
+
+    const { calls, client } = makeCapturingMock([toolResponse, doneResponse]);
+    const loop = createAnthropicAgentLoop({
+      model: 'm',
+      client,
+      executeTool: execTool,
+      maxInputTokens: 1000,
+    });
+
+    await loop.run(baseInput);
+
+    const iter2Messages = calls[1].messages as Array<{ role: string; content: unknown }>;
+    const lastUser = iter2Messages.filter((m) => m.role === 'user').at(-1);
+    const content = lastUser?.content as Array<{ type: string; text?: string }>;
+    const warningBlock = content?.find(
+      (b) => b.type === 'text' && typeof b.text === 'string' && b.text.includes('[ferry]'),
+    );
+    expect(warningBlock).toBeUndefined();
+  });
+
+  it('injects 85% warning and restricts tools when budget crosses 85%', async () => {
+    // cap = 1000, iter 1 returns 900 input → 90% → fires both 70% and 85% warnings.
+    const toolResponse: FakeResponse = {
+      stop_reason: 'tool_use',
+      content: [{ type: 'tool_use', id: 'tu_r', name: 'read_file', input: { path: 'x.ts' } }],
+      usage: { input_tokens: 900, output_tokens: 10 },
+    };
+    const execTool = vi
+      .fn<(r: string, n: string, i: Record<string, unknown>) => Promise<string>>()
+      .mockResolvedValueOnce('content');
+
+    const nativeTool = {
+      name: 'read_file',
+      description: 'Read',
+      input_schema: { type: 'object' as const, properties: {}, required: [] },
+    };
+
+    const { calls, client } = makeCapturingMock([toolResponse, doneResponse]);
+    const loop = createAnthropicAgentLoop({
+      model: 'm',
+      client,
+      executeTool: execTool,
+      maxInputTokens: 1000,
+    });
+
+    await loop.run({ ...baseInput, tools: [nativeTool] });
+
+    // iter 2 should have commit-and-stop tools only (read_file excluded).
+    const iter2Tools = calls[1].tools as Array<{ name?: string }>;
+    const toolNames = iter2Tools.map((t) => t.name).filter(Boolean);
+    expect(toolNames).not.toContain('read_file');
+    // done tool must still be present (it was injected implicitly or passed by baseInput).
+    // Here we just confirm read_file is gone, since baseInput.tools = [] → no extra tools anyway.
+    // The 85% message must appear:
+    const iter2Messages = calls[1].messages as Array<{ role: string; content: unknown }>;
+    const lastUser = iter2Messages.filter((m) => m.role === 'user').at(-1);
+    const content = lastUser?.content as Array<{ type: string; text?: string }>;
+    const criticalBlock = content?.find(
+      (b) => b.type === 'text' && typeof b.text === 'string' && b.text.includes('commit-and-stop'),
+    );
+    expect(criticalBlock).toBeDefined();
+  });
+
+  it('restricts tools to commit-and-stop set at 85% and allows done through', async () => {
+    // cap = 1000, iter 1 = 900 input → 90% → commit-and-stop mode.
+    // Provide a mix of tools — only the allowed ones should survive.
+    const toolResponse: FakeResponse = {
+      stop_reason: 'tool_use',
+      content: [{ type: 'tool_use', id: 'tu_r', name: 'read_file', input: { path: 'x.ts' } }],
+      usage: { input_tokens: 900, output_tokens: 10 },
+    };
+    const execTool = vi
+      .fn<(r: string, n: string, i: Record<string, unknown>) => Promise<string>>()
+      .mockResolvedValueOnce('content');
+
+    const toolDefs = ['read_file', 'bash', 'write_file', 'str_replace', 'done', 'list_dir'].map(
+      (n) => ({
+        name: n,
+        description: n,
+        input_schema: { type: 'object' as const, properties: {} },
+      }),
+    );
+
+    const { calls, client } = makeCapturingMock([toolResponse, doneResponse]);
+    const loop = createAnthropicAgentLoop({
+      model: 'm',
+      client,
+      executeTool: execTool,
+      maxInputTokens: 1000,
+    });
+
+    await loop.run({ ...baseInput, tools: toolDefs });
+
+    const iter2Tools = calls[1].tools as Array<{ name?: string }>;
+    const toolNames = new Set(iter2Tools.map((t) => t.name).filter(Boolean));
+    expect(toolNames.has('bash')).toBe(true);
+    expect(toolNames.has('write_file')).toBe(true);
+    expect(toolNames.has('str_replace')).toBe(true);
+    expect(toolNames.has('done')).toBe(true);
+    expect(toolNames.has('read_file')).toBe(false);
+    expect(toolNames.has('list_dir')).toBe(false);
+  });
+
+  it('only fires each threshold warning once (not on every subsequent iteration)', async () => {
+    // 3 iterations: iter1=750tok→70% warning, iter2=200tok→still warned (total 950→85%), iter3=done.
+    const toolResp1: FakeResponse = {
+      stop_reason: 'tool_use',
+      content: [{ type: 'tool_use', id: 'tu_1', name: 'read_file', input: { path: 'a.ts' } }],
+      usage: { input_tokens: 750, output_tokens: 10 },
+    };
+    const toolResp2: FakeResponse = {
+      stop_reason: 'tool_use',
+      content: [{ type: 'tool_use', id: 'tu_2', name: 'read_file', input: { path: 'b.ts' } }],
+      usage: { input_tokens: 200, output_tokens: 10 },
+    };
+    const execTool = vi
+      .fn<(r: string, n: string, i: Record<string, unknown>) => Promise<string>>()
+      .mockResolvedValue('content');
+
+    const { calls, client } = makeCapturingMock([toolResp1, toolResp2, doneResponse]);
+    const loop = createAnthropicAgentLoop({
+      model: 'm',
+      client,
+      executeTool: execTool,
+      maxInputTokens: 1000,
+    });
+
+    await loop.run(baseInput);
+
+    expect(calls.length).toBe(3);
+
+    // Count [ferry] warnings injected into each call's LAST user message only.
+    // Each threshold injects exactly once into the last user message before that iteration's
+    // API call; subsequent calls carry the warning in earlier history but not the last turn.
+    function lastUserWarnings(call: { messages: unknown[] }): number {
+      const msgs = call.messages as Array<{ role: string; content: unknown }>;
+      const lastUser = msgs.filter((m) => m.role === 'user').at(-1);
+      if (!lastUser || !Array.isArray(lastUser.content)) return 0;
+      const content = lastUser.content as Array<{ type: string; text?: string }>;
+      return content.filter(
+        (b) => b.type === 'text' && typeof b.text === 'string' && b.text.includes('[ferry]'),
+      ).length;
+    }
+
+    // iter 1: no warnings yet (billable starts at 0).
+    expect(lastUserWarnings(calls[0])).toBe(0);
+    // iter 2: 70% fires → 1 warning in last user message.
+    expect(lastUserWarnings(calls[1])).toBe(1);
+    // iter 3: 85% fires → 1 warning in last user message (70% already fired).
+    expect(lastUserWarnings(calls[2])).toBe(1);
+  });
+});
+
 describe('createAnthropicAgentLoop — LOG_VERBOSITY=debug structured events', () => {
   beforeEach(() => {
     vi.resetAllMocks();
