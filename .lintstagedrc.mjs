@@ -3,7 +3,9 @@ export default {
   'prompts/**/*.md': ['prettier --write'],
   'docs/**/*.md': ['prettier --write'],
   '*.{md,json,yml,yaml}': (files) => {
-    const filtered = files.filter((f) => !f.includes('/.ferry/'));
+    const filtered = files.filter(
+      (f) => !f.includes('/.ferry/') && !f.includes('/.github/actions/'),
+    );
     if (filtered.length === 0) return [];
     return [`prettier --write ${filtered.map((f) => `"${f}"`).join(' ')}`];
   },

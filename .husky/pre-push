@@ -17,4 +17,7 @@ npm run format:check
 echo "[husky] pre-push: tests"
 npm test
 
+echo "[husky] pre-push: check:bundle"
+npm run check:bundle
+
 echo "[husky] pre-push: all gates green"

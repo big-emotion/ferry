@@ -1,5 +1,3 @@
-import { createRequire as __ferryCreateRequire } from 'node:module'; const require = __ferryCreateRequire(import.meta.url);
-
 // src/lib/io/jira.ts
 import { tmpdir } from "node:os";
 import { join } from "node:path";
