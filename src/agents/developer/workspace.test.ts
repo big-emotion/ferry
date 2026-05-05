@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { detectTestRunner, repoTree, packageJsonPath } from './workspace.js';
+import { detectTestRunner, repoTree, packageJsonPath, detectPackageManager } from './workspace.js';
 
 let tmpDir: string;
 
@@ -133,5 +133,135 @@ describe('packageJsonPath', () => {
 
   it('returns a path ending in package.json', () => {
     expect(packageJsonPath('/any/path')).toMatch(/package\.json$/);
+  });
+});
+
+describe('detectPackageManager', () => {
+  const readFile = (files: Record<string, string>) => (p: string) => {
+    if (p in files) return files[p];
+    throw new Error(`ENOENT: ${p}`);
+  };
+
+  const checkExists = (present: string[]) => (p: string) => present.includes(p);
+
+  it('detects pnpm via pnpm-lock.yaml', () => {
+    const check = checkExists([`${tmpDir}/pnpm-lock.yaml`]);
+    expect(detectPackageManager(tmpDir, check)).toContain('pnpm');
+  });
+
+  it('detects pnpm via packageManager field in package.json', () => {
+    const check = checkExists([`${tmpDir}/package.json`]);
+    const read = readFile({
+      [`${tmpDir}/package.json`]: JSON.stringify({ packageManager: 'pnpm@9.0.0' }),
+    });
+    expect(detectPackageManager(tmpDir, check, read)).toContain('pnpm');
+  });
+
+  it('detects yarn via packageManager field', () => {
+    const check = checkExists([`${tmpDir}/package.json`]);
+    const read = readFile({
+      [`${tmpDir}/package.json`]: JSON.stringify({ packageManager: 'yarn@4.0.0' }),
+    });
+    expect(detectPackageManager(tmpDir, check, read)).toContain('yarn');
+  });
+
+  it('detects bun via packageManager field', () => {
+    const check = checkExists([`${tmpDir}/package.json`]);
+    const read = readFile({
+      [`${tmpDir}/package.json`]: JSON.stringify({ packageManager: 'bun@1.1.0' }),
+    });
+    expect(detectPackageManager(tmpDir, check, read)).toContain('bun');
+  });
+
+  it('detects npm via packageManager field', () => {
+    const check = checkExists([`${tmpDir}/package.json`]);
+    const read = readFile({
+      [`${tmpDir}/package.json`]: JSON.stringify({ packageManager: 'npm@10.0.0' }),
+    });
+    expect(detectPackageManager(tmpDir, check, read)).toContain('npm');
+  });
+
+  it('detects yarn via yarn.lock', () => {
+    const check = checkExists([`${tmpDir}/yarn.lock`]);
+    expect(detectPackageManager(tmpDir, check)).toContain('yarn');
+  });
+
+  it('detects bun via bun.lockb', () => {
+    const check = checkExists([`${tmpDir}/bun.lockb`]);
+    expect(detectPackageManager(tmpDir, check)).toContain('bun');
+  });
+
+  it('detects npm via package-lock.json', () => {
+    const check = checkExists([`${tmpDir}/package-lock.json`]);
+    expect(detectPackageManager(tmpDir, check)).toContain('npm');
+  });
+
+  it('detects Python via pyproject.toml', () => {
+    const check = checkExists([`${tmpDir}/pyproject.toml`]);
+    expect(detectPackageManager(tmpDir, check)).toContain('Python');
+  });
+
+  it('detects Python via requirements.txt', () => {
+    const check = checkExists([`${tmpDir}/requirements.txt`]);
+    expect(detectPackageManager(tmpDir, check)).toContain('Python');
+  });
+
+  it('prefers pyproject.toml marker text when both Python markers exist', () => {
+    const check = checkExists([`${tmpDir}/pyproject.toml`, `${tmpDir}/requirements.txt`]);
+    expect(detectPackageManager(tmpDir, check)).toContain('pyproject.toml');
+  });
+
+  it('detects Ruby via Gemfile.lock', () => {
+    const check = checkExists([`${tmpDir}/Gemfile.lock`]);
+    expect(detectPackageManager(tmpDir, check)).toContain('Ruby');
+  });
+
+  it('detects Rust via Cargo.lock', () => {
+    const check = checkExists([`${tmpDir}/Cargo.lock`]);
+    expect(detectPackageManager(tmpDir, check)).toContain('Rust');
+  });
+
+  it('returns null when no marker is found', () => {
+    const check = checkExists([]);
+    expect(detectPackageManager(tmpDir, check)).toBeNull();
+  });
+
+  it('pnpm-lock.yaml takes priority over package-lock.json', () => {
+    const check = checkExists([`${tmpDir}/pnpm-lock.yaml`, `${tmpDir}/package-lock.json`]);
+    const result = detectPackageManager(tmpDir, check);
+    expect(result).toContain('pnpm-lock.yaml');
+    expect(result).not.toContain('package-lock.json');
+  });
+
+  it('pnpm-lock.yaml takes priority over packageManager field', () => {
+    const check = checkExists([`${tmpDir}/pnpm-lock.yaml`, `${tmpDir}/package.json`]);
+    const read = readFile({
+      [`${tmpDir}/package.json`]: JSON.stringify({ packageManager: 'yarn@4.0.0' }),
+    });
+    const result = detectPackageManager(tmpDir, check, read);
+    expect(result).toContain('pnpm');
+  });
+
+  it('packageManager field takes priority over yarn.lock', () => {
+    const check = checkExists([`${tmpDir}/package.json`, `${tmpDir}/yarn.lock`]);
+    const read = readFile({
+      [`${tmpDir}/package.json`]: JSON.stringify({ packageManager: 'bun@1.1.0' }),
+    });
+    const result = detectPackageManager(tmpDir, check, read);
+    expect(result).toContain('bun');
+  });
+
+  it('falls back to lockfile when package.json has no packageManager field', () => {
+    const check = checkExists([`${tmpDir}/package.json`, `${tmpDir}/yarn.lock`]);
+    const read = readFile({ [`${tmpDir}/package.json`]: JSON.stringify({ name: 'pkg' }) });
+    const result = detectPackageManager(tmpDir, check, read);
+    expect(result).toContain('yarn');
+  });
+
+  it('falls back to lockfile when package.json contains invalid JSON', () => {
+    const check = checkExists([`${tmpDir}/package.json`, `${tmpDir}/yarn.lock`]);
+    const read = readFile({ [`${tmpDir}/package.json`]: 'not { valid' });
+    const result = detectPackageManager(tmpDir, check, read);
+    expect(result).toContain('yarn');
   });
 });
