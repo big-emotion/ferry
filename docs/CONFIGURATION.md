@@ -231,14 +231,16 @@ Ferry supports three LLM providers: **`anthropic`**, **`openai`**, and **`google
 | `review`  | ✅ Full support | ✅ Supported    | ✅ Supported    | matching key below |
 | `iterate` | ✅ Full support | ✅ Supported    | ✅ Supported    | matching key below |
 
-**Provider-specific caveats:**
+#### Provider capability matrix (agentic phases)
 
-| Capability                                 | `anthropic` | `openai` | `google` |
-| ------------------------------------------ | :---------: | :------: | :------: |
-| MCP server integration (`labels:`)         |     ✅      |    ❌    |    ❌    |
-| Prompt cache breakpoints                   |     ✅      |    ❌    |    ❌    |
-| Agentic tool-use loop (dev/review/iterate) |     ✅      |    ✅    |    ✅    |
-| Single-turn LLM call (refiner)             |     ✅      |    ✅    |    ✅    |
+| Capability                    | `anthropic` | `openai`           | `google`           |
+| ----------------------------- | ----------- | ------------------ | ------------------ |
+| Multi-turn tool use           | ✅          | ✅                 | ✅                 |
+| HTTP MCP servers              | ✅          | ❌ (stdio only)    | ❌ (stdio only)    |
+| Stdio MCP servers             | ✅          | ✅                 | ✅                 |
+| Explicit prompt cache control | ✅          | ❌ (automatic)     | ❌ (not supported) |
+| Cache-weighted token budget   | ✅          | ❌ (raw token sum) | ❌ (raw token sum) |
+| Expected cost per long run    | Baseline    | ~2–3× higher       | ~2–3× higher       |
 
 **Expected cost differential (approximate, relative to `claude-sonnet-4-6`):**
 
@@ -250,11 +252,13 @@ Ferry supports three LLM providers: **`anthropic`**, **`openai`**, and **`google
 | `google` / `gemini-2.5-pro`       |    ~0.5–1×    | Competitive for long-context refiner calls               |
 | `google` / `gemini-2.5-flash`     |    ~0.05×     | Very low cost; good for high-volume refinement           |
 
-> **MCP:** Model Context Protocol (MCP) server integration (`AGENT_MCP_SERVERS`, `labels:` in config) is **Anthropic-only**. If you set `provider: openai` or `provider: google` for the Developer or Iterator, MCP servers are not loaded even if `AGENT_MCP_SERVERS` is set.
+> **HTTP MCP:** Anthropic's HTTP MCP beta connector (`type: url` servers in `AGENT_MCP_SERVERS`) is Anthropic-only. Configuring an HTTP MCP server for an OpenAI or Google run raises a hard error at startup. Use stdio MCP servers for cross-provider compatibility.
 >
-> **Prompt caching:** Explicit cache breakpoints are an Anthropic-specific API feature. With non-Anthropic providers, Ferry omits cache control headers — costs will not be reduced by caching on long system prompts.
+> **Prompt caching:** Explicit cache breakpoints are an Anthropic-specific API feature. With OpenAI and Google, token budgets (`FERRY_DEV_MAX_INPUT_TOKENS`, `max_tokens_per_run`) are applied against the raw sum of input + output tokens. Anthropic uses a cache-weighted formula (`input + cache_read × 0.1 + cache_creation`) that better approximates actual cost.
 >
-> **Agentic phases:** Even with `provider: anthropic`, **only the Developer and Iterator agents consume `AGENT_MCP_SERVERS`**. The Refiner and Reviewer do not load MCP servers regardless of provider or configuration.
+> **Cost note:** The Developer and Iterator agents run multi-turn agentic loops with many tool calls. Without Anthropic's prompt cache, OpenAI and Google runs are typically 2–3× more expensive for long tasks.
+>
+> **MCP availability:** Even with `provider: anthropic`, only the Developer and Iterator agents load MCP servers from `AGENT_MCP_SERVERS`. The Refiner and Reviewer ignore MCP configuration regardless of provider.
 
 | Field                     | Default               | Description                                                                                                                                      |
 | ------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |

@@ -2,10 +2,8 @@ import { execFileSync } from 'node:child_process';
 import { delimitUntrusted } from '../../lib/llm/delimit-untrusted.js';
 import { checkIdempotencyMarker } from '../../lib/io/idempotency.js';
 import { TOOL_SCHEMAS, COMMIT_PROGRESS_SCHEMA, executeTool } from '../developer/tools.js';
-import { createAnthropicAgentLoop } from '../../lib/llm/agent-loop/anthropic.js';
-import { resolveAnthropicAuth } from '../../lib/llm/anthropic-auth.js';
+import { createAgentLoop } from '../../lib/llm/agent-loop/index.js';
 import { assertIterOutputContract } from './outcome-guard.js';
-import { FerryError } from '../../lib/errors/index.js';
 import { checkIterationCap } from './cap.js';
 import { decideIteratorTransition } from './transition.js';
 import { formatCommitMessage } from './prompt.js';
@@ -38,7 +36,6 @@ const REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
 async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
   const { ticket_key: ticketKey, event_id: eventId } = envelope;
 
-  const anthropicAuth = resolveAnthropicAuth({ apiKeyEnv: 'ANTHROPIC_API_KEY' });
   const { owner, repo, runner, tracker, ferryCfg: initialCfg } = createGitHubContext(REPO_ROOT);
 
   // Resolve baseBranch before using any config values, then reload config from that branch.
@@ -53,15 +50,6 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
   const ferryCfg = loadFerryConfigFromBaseBranch(baseBranch, REPO_ROOT, initialCfg);
 
   const { provider: iterProvider, model } = ferryCfg.models.iterate;
-  if (iterProvider !== 'anthropic') {
-    throw new FerryError('state-invariant', {
-      reason: 'unsupported-provider',
-      provider: iterProvider,
-      phase: 'iterator',
-      detail:
-        "The iterator phase requires provider 'anthropic'. OpenAI and Google support for agentic phases is planned for a future release.",
-    });
-  }
   const iteratorWorkflow = ferryCfg.workflow.agents.iterator;
   const shouldAutoTransition = iteratorWorkflow.auto_transition !== null;
   const reviewTransitionId = shouldAutoTransition ? requireEnv('FERRY_REVIEW_TRANSITION_ID') : '';
@@ -182,8 +170,8 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
 
   const secretScan = makeSecretScan(REPO_ROOT);
 
-  const loop = createAnthropicAgentLoop({
-    ...anthropicAuth,
+  const loop = createAgentLoop({
+    provider: iterProvider,
     model,
     maxIterations: ferryCfg.limits.max_agent_iterations,
     maxInputTokens: ferryCfg.limits.max_tokens_per_run,

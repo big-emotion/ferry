@@ -21,7 +21,6 @@ import {
 import type { EventEnvelopeV1 } from '../../lib/envelope/types.js';
 import type { Logger } from '../../lib/agent-runtime/index.js';
 import { isDryRun } from '../../lib/dry-run.js';
-import { FerryError } from '../../lib/errors/index.js';
 import { formatDeveloperCommit } from './commit.js';
 import { formatPullRequestTitle, formatPullRequestBody } from './pr.js';
 import {
@@ -30,10 +29,9 @@ import {
   SPAWN_SUBAGENT_SCHEMA,
   executeTool,
 } from './tools.js';
-import { createAnthropicAgentLoop } from '../../lib/llm/agent-loop/anthropic.js';
+import { createAgentLoop } from '../../lib/llm/agent-loop/index.js';
 import type { AgentLoop } from '../../lib/llm/agent-loop/types.js';
 import { resolveCapabilities, filterMcpServers } from '../../lib/labels/capabilities.js';
-import { resolveAnthropicAuth } from '../../lib/llm/anthropic-auth.js';
 import { detectTestRunner, repoTree, packageJsonPath, detectPackageManager } from './workspace.js';
 import { assertDevOutputContract } from './outcome-guard.js';
 import { runWipFinalizer } from './wip-finalizer.js';
@@ -48,7 +46,6 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
     logger.info('DRY_RUN mode — no branch push, no PR, no Jira writes');
   }
 
-  const anthropicAuth = resolveAnthropicAuth({ apiKeyEnv: 'ANTHROPIC_API_KEY' });
   const { owner, repo, runner, tracker, ferryCfg: initialCfg } = createGitHubContext(REPO_ROOT);
 
   // Resolve baseBranch before using any config values, then reload config from that branch.
@@ -65,15 +62,6 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
   const ferryCfg = loadFerryConfigFromBaseBranch(baseBranch, REPO_ROOT, initialCfg);
 
   const { provider: devProvider } = ferryCfg.models.dev;
-  if (devProvider !== 'anthropic') {
-    throw new FerryError('state-invariant', {
-      reason: 'unsupported-provider',
-      provider: devProvider,
-      phase: 'developer',
-      detail:
-        "The developer phase requires provider 'anthropic'. OpenAI and Google support for agentic phases is planned for a future release.",
-    });
-  }
   const devWorkflow = ferryCfg.workflow.agents.developer;
   const shouldAutoTransition = devWorkflow.auto_transition !== null;
   const reviewTransitionId =
@@ -185,8 +173,8 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
   const allToolSchemas = [...TOOL_SCHEMAS, COMMIT_PROGRESS_SCHEMA, SPAWN_SUBAGENT_SCHEMA];
 
   let loop!: AgentLoop;
-  loop = createAnthropicAgentLoop({
-    ...anthropicAuth,
+  loop = createAgentLoop({
+    provider: devProvider,
     model,
     maxIterations: ferryCfg.limits.max_agent_iterations,
     maxInputTokens: ferryCfg.limits.max_tokens_per_run,
