@@ -27,6 +27,12 @@ inputs:
     description: Google AI API key (required when ferry_refiner_provider=google)
     required: false
     default: ''
+  github_token:
+    description: GitHub token (used for read-only repo access; pass secrets.GITHUB_TOKEN or github.token)
+    required: true
+  github_repo:
+    description: GitHub repository (owner/repo)
+    required: true
   ferry_refiner_model:
     description: Model override (e.g. claude-sonnet-4-6)
     required: false
@@ -101,6 +107,9 @@ runs:
         ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
         FERRY_OPENAI_KEY: ${{ inputs.openai_api_key }}
         FERRY_GOOGLE_AI_KEY: ${{ inputs.google_api_key }}
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+        GH_TOKEN: ${{ inputs.github_token }}
+        GITHUB_REPO: ${{ inputs.github_repo }}
         FERRY_REFINER_MODEL: ${{ inputs.ferry_refiner_model }}
         FERRY_REFINER_PROVIDER: ${{ inputs.ferry_refiner_provider }}
         FERRY_REFINER_SUBTASK_CAP: ${{ inputs.ferry_refiner_subtask_cap }}

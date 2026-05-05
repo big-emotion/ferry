@@ -67,6 +67,8 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           openai_api_key: ${{ secrets.OPENAI_API_KEY }}
           google_api_key: ${{ secrets.GOOGLE_API_KEY }}
+          github_token: ${{ github.token }}
+          github_repo: ${{ github.repository }}
           ferry_refiner_model: ${{ vars.FERRY_REFINER_MODEL || 'claude-sonnet-4-6' }}
           ferry_refiner_provider: ${{ vars.FERRY_REFINER_PROVIDER }}
           ferry_refiner_subtask_cap: ${{ vars.FERRY_REFINER_SUBTASK_CAP }}
