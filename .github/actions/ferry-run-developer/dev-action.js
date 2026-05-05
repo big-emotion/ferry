@@ -6309,7 +6309,7 @@ function resolveAnthropicAuth(input) {
 }
 
 // src/agents/developer/workspace.ts
-import { readFileSync as readFileSync4 } from "node:fs";
+import { readFileSync as readFileSync4, existsSync as existsSync4 } from "node:fs";
 import { execFileSync as execFileSync3 } from "node:child_process";
 import * as path5 from "node:path";
 function detectTestRunner(packageJsonPath2) {
@@ -6351,6 +6351,53 @@ function repoTree(repoRoot) {
 function packageJsonPath(repoRoot) {
   return path5.join(repoRoot, "package.json");
 }
+function detectPackageManager(repoRoot, _checkExists = existsSync4, _readFile = (p, enc) => readFileSync4(p, enc)) {
+  const join5 = (file) => path5.join(repoRoot, file);
+  if (_checkExists(join5("pnpm-lock.yaml"))) {
+    return "pnpm lockfile detected (`pnpm-lock.yaml`). Use pnpm for all install and script commands.";
+  }
+  if (_checkExists(join5("package.json"))) {
+    try {
+      const pkg = JSON.parse(_readFile(join5("package.json"), "utf8"));
+      const pm = typeof pkg.packageManager === "string" ? pkg.packageManager : "";
+      if (pm.startsWith("pnpm")) {
+        return "pnpm declared in `package.json` (`packageManager` field). Use pnpm for all install and script commands.";
+      }
+      if (pm.startsWith("yarn")) {
+        return "yarn declared in `package.json` (`packageManager` field). Use yarn for all install and script commands.";
+      }
+      if (pm.startsWith("bun")) {
+        return "bun declared in `package.json` (`packageManager` field). Use bun for all install and script commands.";
+      }
+      if (pm.startsWith("npm")) {
+        return "npm declared in `package.json` (`packageManager` field). Use npm for all install and script commands.";
+      }
+    } catch {
+    }
+  }
+  if (_checkExists(join5("yarn.lock"))) {
+    return "yarn lockfile detected (`yarn.lock`). Use yarn for all install and script commands.";
+  }
+  if (_checkExists(join5("bun.lockb"))) {
+    return "bun lockfile detected (`bun.lockb`). Use bun for all install and script commands.";
+  }
+  if (_checkExists(join5("package-lock.json"))) {
+    return "npm lockfile detected (`package-lock.json`). Use npm for all install and script commands.";
+  }
+  const hasPyproject = _checkExists(join5("pyproject.toml"));
+  const hasRequirements = _checkExists(join5("requirements.txt"));
+  if (hasPyproject || hasRequirements) {
+    const marker = hasPyproject ? "pyproject.toml" : "requirements.txt";
+    return `Python project detected (\`${marker}\`). Use pip or the project's configured tool for dependency management.`;
+  }
+  if (_checkExists(join5("Gemfile.lock"))) {
+    return "Ruby project detected (`Gemfile.lock`). Use bundler for dependency management.";
+  }
+  if (_checkExists(join5("Cargo.lock"))) {
+    return "Rust project detected (`Cargo.lock`). Use cargo for dependency management.";
+  }
+  return null;
+}
 
 // src/agents/developer/dev-action.ts
 var REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
@@ -6389,8 +6436,13 @@ async function main(envelope, logger) {
   const ticketBlock = buildTicketBlock(ticketKey, issue, { labels, comments });
   const subtasks = await tracker.getSubtasks(ticketKey);
   const testRunner = detectTestRunner(packageJsonPath(REPO_ROOT));
+  const pkgManagerHint = detectPackageManager(REPO_ROOT);
   const tree = repoTree(REPO_ROOT);
-  const system = buildSystem("dev", REPO_ROOT);
+  const system = buildSystem("dev", REPO_ROOT, {
+    extraParts: pkgManagerHint ? [`## Detected package manager
+
+${pkgManagerHint}`] : []
+  });
   const model = ferryCfg.models.dev.model;
   const branchName = `${workingBranchPrefix}${ticketKey}`;
   configureFerryGitUser(REPO_ROOT);
