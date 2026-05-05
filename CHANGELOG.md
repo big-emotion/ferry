@@ -11,6 +11,14 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.10.3] — 2026-05-05
+
+### Fixed
+
+- **Refiner composite action wires `GITHUB_TOKEN` and `GITHUB_REPO`** — the Refiner agent calls `createGitHubContext()` which requires both env vars (used by the agent runtime to read repo metadata and resolve the configured base branch), but `ferry-run-refiner/action.yml` was the only agent action missing the `github_token` / `github_repo` inputs and the corresponding env wiring. Every Refiner run on a v0.10.x consumer therefore failed immediately with `[ferry:state-invariant] missing-env GITHUB_TOKEN` before any LLM call. The action now matches the developer / reviewer / iterator pattern. Consumers must update `ferry-refine.yml` to pass `github_token: ${{ github.token }}` and `github_repo: ${{ github.repository }}` (or re-run `ferry-init` / `ferry-update`) when bumping to `@v0.10.3`.
+
+---
+
 ## [0.10.2] — 2026-05-05
 
 ### Fixed

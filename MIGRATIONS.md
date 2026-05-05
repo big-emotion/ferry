@@ -19,6 +19,12 @@ If there are no consumer-visible changes, omit the section (or note `(none — i
 
 ---
 
+## v0.10.2 → v0.10.3
+
+- **(action)** Update `ferry-refine.yml` to pass `github_token: ${{ github.token }}` and `github_repo: ${{ github.repository }}` to the `ferry-run-refiner` step. Without these inputs, the Refiner agent crashes immediately on startup with `[ferry:state-invariant] missing-env GITHUB_TOKEN` (the underlying `createGitHubContext()` requires both env vars). Run `npx -p @big-emotion/ferry@v0.10.3 ferry-update` to apply the updated stub automatically, or edit the file by hand — the new lines belong alongside the existing `jira_*`, `*_api_key`, and `ferry_refiner_*` inputs.
+
+---
+
 ## v0.7.x → v0.8.0
 
 - **(info)** Composite action inputs expanded: all four agent actions (`ferry-run-developer`, `ferry-run-iterator`, `ferry-run-reviewer`, `ferry-run-refiner`) now accept inputs for the B2 selective variable set (`FERRY_DEV_MAX_INPUT_TOKENS`, `FERRY_MAX_COST_EUR_PER_RUN`, `FERRY_LLM_RETRY_MAX_ATTEMPTS`, etc.). Existing consumers continue to work without changes — new inputs are all optional with safe empty-string defaults.
