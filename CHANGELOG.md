@@ -11,6 +11,19 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.10.2] — 2026-05-05
+
+### Fixed
+
+- **Iterator idempotency re-keyed on PR head SHA + recovery for stuck transitions** — the Iterator's idempotency fingerprint previously keyed on the dispatch run-id alone, which let two concurrent iterations on the same PR de-duplicate against unrelated state and miss the FR28 transition back to _In Review_. Re-keying on the PR head SHA scopes the fingerprint to the actual code under iteration, and a recovery path now detects tickets stuck mid-transition and completes the move on the next reconciler sweep.
+- **Refiner / Developer / Iterator composite actions accept `openai_api_key` and `google_api_key` inputs** — the multi-provider Phase 4 plumbing wired the new secrets through `ferry-run-reviewer` only; the other three composite actions still rejected the inputs with a "not declared" warning when consumers selected OpenAI or Google for those phases. All four agent composite actions now accept the same provider-key inputs.
+
+### Changed
+
+- **Iterator action bundle rebuilt** to match committed source after the idempotency-key fix; no behavior change beyond the fix above.
+
+---
+
 ## [0.10.1] — 2026-05-05
 
 ### Fixed
