@@ -21,6 +21,7 @@ import type {
   StdioMcpServerConfig,
 } from './types.js';
 import { isStdioMcpServer, isHttpMcpServer } from './types.js';
+import { compactOldToolResults } from './compact.js';
 
 type ToolExecutor = (
   repoRoot: string,
@@ -96,6 +97,7 @@ export function createAnthropicAgentLoop(opts: {
   maxIterations?: number;
   maxInputTokens?: number;
   maxTokens?: number;
+  compactWindow?: number;
   logger?: Logger;
 }): AgentLoop {
   const anthropic =
@@ -118,6 +120,8 @@ export function createAnthropicAgentLoop(opts: {
     const maxInputTokens =
       opts.maxInputTokens ?? parseInt(process.env.FERRY_DEV_MAX_INPUT_TOKENS ?? '500000', 10);
     const maxTokens = opts.maxTokens ?? parseInt(process.env.FERRY_DEV_MAX_TOKENS ?? '16384', 10);
+    const compactWindow =
+      opts.compactWindow ?? parseInt(process.env.FERRY_DEV_COMPACT_WINDOW ?? '8', 10);
 
     // Separate HTTP (server-side) and stdio (client-side) MCP servers.
     const allServers = input.mcpServers ?? [];
@@ -156,6 +160,7 @@ export function createAnthropicAgentLoop(opts: {
         maxIterations,
         maxInputTokens,
         maxTokens,
+        compactWindow,
         hasHttp,
         mcpServerParams,
         mcpToolsets,
@@ -177,6 +182,7 @@ export function createAnthropicAgentLoop(opts: {
     maxIterations: number;
     maxInputTokens: number;
     maxTokens: number;
+    compactWindow: number;
     hasHttp: boolean;
     mcpServerParams: McpServerParam[];
     mcpToolsets: McpToolsetParam[];
@@ -193,6 +199,7 @@ export function createAnthropicAgentLoop(opts: {
       maxIterations,
       maxInputTokens,
       maxTokens,
+      compactWindow,
       hasHttp,
       mcpServerParams,
       mcpToolsets,
@@ -457,6 +464,7 @@ export function createAnthropicAgentLoop(opts: {
       }
 
       messages.push({ role: 'user', content: toolResults });
+      compactOldToolResults(messages, compactWindow);
 
       if (done) {
         emitDebug(
