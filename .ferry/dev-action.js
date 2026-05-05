@@ -5896,6 +5896,13 @@ function compactOldToolResults(messages, windowTurns) {
 }
 
 // src/lib/llm/agent-loop/anthropic.ts
+var COMMIT_AND_STOP_TOOL_NAMES = /* @__PURE__ */ new Set([
+  "bash",
+  "write_file",
+  "str_replace",
+  "commit_progress",
+  "done"
+]);
 var KEEP_LAST_TURNS = 6;
 var STUB = "[truncated: tool result elided to save context]";
 function pruneMessageHistory(messages) {
@@ -5909,6 +5916,18 @@ function pruneMessageHistory(messages) {
     msg.content = content.map(
       (b) => b.type === "tool_result" && b.content !== STUB ? { ...b, content: STUB } : b
     );
+  }
+}
+function injectBudgetWarning(messages, text) {
+  const last = messages[messages.length - 1];
+  if (!last || last.role !== "user") return;
+  if (typeof last.content === "string") {
+    last.content = [
+      { type: "text", text: last.content },
+      { type: "text", text }
+    ];
+  } else if (Array.isArray(last.content)) {
+    last.content = [...last.content, { type: "text", text }];
   }
 }
 function buildMcpParams(mcpServers) {
@@ -6016,6 +6035,8 @@ function createAnthropicAgentLoop(opts) {
     let done = null;
     let iter = 0;
     const loopStart = Date.now();
+    let warned70 = false;
+    let warned85 = false;
     while (iter < maxIterations) {
       iter++;
       const iterStart = Date.now();
@@ -6027,12 +6048,33 @@ function createAnthropicAgentLoop(opts) {
           consumed: billableEquiv
         });
       }
+      const budgetFraction = maxInputTokens > 0 ? billableEquiv / maxInputTokens : 0;
+      if (!warned70 && budgetFraction >= 0.7) {
+        warned70 = true;
+        const remaining = Math.round((1 - budgetFraction) * 100);
+        logger.info("budget_warning", { depth, iter, threshold: 70, remaining_pct: remaining });
+        injectBudgetWarning(
+          messages,
+          `[ferry] You have used ~${Math.round(budgetFraction * 100)}% of your input budget (${remaining}% remaining). Wrap up now: stop exploration, finish the current change, commit, and push.`
+        );
+      }
+      if (!warned85 && budgetFraction >= 0.85) {
+        warned85 = true;
+        logger.info("budget_warning", { depth, iter, threshold: 85, mode: "commit-and-stop" });
+        injectBudgetWarning(
+          messages,
+          `[ferry] BUDGET CRITICAL: ~${Math.round(budgetFraction * 100)}% of your input budget is consumed. You are now in commit-and-stop mode. Only use: bash (git operations), write_file, str_replace, commit_progress, or done. No exploration, no new reads \u2014 commit all work and call done immediately.`
+        );
+      }
+      const effectiveTools = warned85 ? allTools.filter(
+        (t) => COMMIT_AND_STOP_TOOL_NAMES.has(t.name ?? "")
+      ) : allTools;
       pruneMessageHistory(messages);
       const baseParams = {
         model: opts.model,
         max_tokens: maxTokens,
         system: systemBlocks,
-        tools: allTools,
+        tools: effectiveTools,
         messages
       };
       const response = hasHttp ? await anthropic.beta.messages.create({
