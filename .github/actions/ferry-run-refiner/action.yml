@@ -18,8 +18,28 @@ inputs:
   anthropic_api_key:
     description: Anthropic API key
     required: true
-  ferry_model:
+  ferry_refiner_model:
     description: Model override (e.g. claude-sonnet-4-6)
+    required: false
+    default: ''
+  ferry_refiner_provider:
+    description: LLM provider override (anthropic / openai / google)
+    required: false
+    default: ''
+  ferry_refiner_subtask_cap:
+    description: Maximum subtasks per Refiner batch
+    required: false
+    default: ''
+  ferry_max_cost_eur_per_run:
+    description: Cost budget in EUR per agent run (overrides limits.max_cost_eur_per_run)
+    required: false
+    default: ''
+  ferry_llm_retry_max_attempts:
+    description: Maximum retry attempts for LLM utility calls
+    required: false
+    default: ''
+  ferry_jira_retry_max_attempts:
+    description: Maximum Jira API retry attempts per operation
     required: false
     default: ''
 runs:
@@ -51,5 +71,10 @@ runs:
         FERRY_JIRA_EMAIL: ${{ inputs.jira_email }}
         FERRY_JIRA_API_TOKEN: ${{ inputs.jira_api_token }}
         ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
-        FERRY_MODEL: ${{ inputs.ferry_model }}
+        FERRY_REFINER_MODEL: ${{ inputs.ferry_refiner_model }}
+        FERRY_REFINER_PROVIDER: ${{ inputs.ferry_refiner_provider }}
+        FERRY_REFINER_SUBTASK_CAP: ${{ inputs.ferry_refiner_subtask_cap }}
+        FERRY_MAX_COST_EUR_PER_RUN: ${{ inputs.ferry_max_cost_eur_per_run }}
+        FERRY_LLM_RETRY_MAX_ATTEMPTS: ${{ inputs.ferry_llm_retry_max_attempts }}
+        FERRY_JIRA_RETRY_MAX_ATTEMPTS: ${{ inputs.ferry_jira_retry_max_attempts }}
         FERRY_BUNDLED_PROMPTS_DIR: ${{ github.action_path }}/prompts

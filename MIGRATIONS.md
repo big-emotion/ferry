@@ -19,6 +19,14 @@ If there are no consumer-visible changes, omit the section (or note `(none — i
 
 ---
 
+## v0.7.x → v0.8.0
+
+- **(info)** Composite action inputs expanded: all four agent actions (`ferry-run-developer`, `ferry-run-iterator`, `ferry-run-reviewer`, `ferry-run-refiner`) now accept inputs for the B2 selective variable set (`FERRY_DEV_MAX_INPUT_TOKENS`, `FERRY_MAX_COST_EUR_PER_RUN`, `FERRY_LLM_RETRY_MAX_ATTEMPTS`, etc.). Existing consumers continue to work without changes — new inputs are all optional with safe empty-string defaults.
+- **(info)** Drive-by fix: the `ferry-run-developer` and `ferry-run-refiner` composite actions previously forwarded `ferry_model` → `FERRY_MODEL`, which is only read by the audit step and was silently ignored by the agent runtime. The inputs are now renamed to `ferry_dev_model` → `FERRY_DEV_MODEL` and `ferry_refiner_model` → `FERRY_REFINER_MODEL` respectively. If you passed `ferry_model` in a custom workflow, rename it to `ferry_dev_model` (developer) or `ferry_refiner_model` (refiner). Consumers using the bundled `examples/consumer-setup/workflows/` stubs get this automatically via `ferry-update`.
+- **(action)** Run `npx -p @big-emotion/ferry@v0.8.0 ferry-update` to pick up the updated consumer workflow stubs, which wire the new `vars.*` variables (`FERRY_DEV_MAX_INPUT_TOKENS`, `FERRY_DEV_MODEL`, provider overrides, cost/retry controls). Without this step, new repo variables are silently ignored.
+
+---
+
 ## v0.6.x → v0.7.0
 
 - **(action)** Run `npx -p @big-emotion/ferry@v0.7.0 ferry-update` to migrate consumer workflows from reusable-workflow form to expanded form. Required for any consumer in a GitHub org other than `big-emotion` (cross-org `secrets: inherit` is unsupported by GitHub).
