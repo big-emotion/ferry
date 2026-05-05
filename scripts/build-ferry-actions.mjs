@@ -16,12 +16,10 @@ const shared = {
   target: 'node20',
   format: 'esm',
   minify: false,
-  // Expose a real `require` at the top of each ESM bundle so transitive CJS
-  // deps (e.g. google-auth-library) can resolve dynamic require('child_process')
-  // calls instead of hitting esbuild's "Dynamic require of X is not supported" shim.
-  banner: {
-    js: "import { createRequire as __ferryCreateRequire } from 'node:module'; const require = __ferryCreateRequire(import.meta.url);",
-  },
+  // Keep LLM SDKs out of the bundle — they carry deeply-CJS transitive deps
+  // (e.g. google-auth-library uses dynamic require('child_process')) that break
+  // esbuild's ESM shim. Each action's package.json declares only what it needs.
+  external: ['@anthropic-ai/sdk', '@google/genai', 'openai'],
 };
 
 await Promise.all([
@@ -84,8 +82,8 @@ for (const f of [
   );
 }
 
-// Minimal package.json so `npm ci` in .ferry/ installs only the three
-// packages that the bundled scripts still resolve at runtime via createRequire.
+// Minimal package.json — LLM SDKs are now external (not bundled) so they must
+// be installed at runtime alongside the action bundles.
 writeFileSync(
   '.ferry/package.json',
   JSON.stringify(
@@ -99,6 +97,8 @@ writeFileSync(
         'ajv-formats': rootDeps['ajv-formats'],
         '@octokit/rest': rootDeps['@octokit/rest'],
         '@anthropic-ai/sdk': rootDeps['@anthropic-ai/sdk'],
+        '@google/genai': rootDeps['@google/genai'],
+        openai: rootDeps['openai'],
         yaml: '^2.6.0',
       },
     },
@@ -164,6 +164,17 @@ execSync('npm install --prefer-offline', { cwd: emitAuditActionDir, stdio: 'inhe
 // Each agent has a self-contained composite action under .github/actions/ferry-run-{agent}/.
 // The bundle + prompts + schema live in the action directory; consumers need no .ferry/.
 
+// Shared deps needed by every agent action.
+const agentBaseDeps = {
+  ajv: rootDeps['ajv'],
+  'ajv-formats': rootDeps['ajv-formats'],
+  yaml: '^2.6.0',
+};
+
+// Refiner routes through call.ts which statically imports all three providers,
+// so it needs all three SDKs installed at runtime.
+// Developer/reviewer/iterator use the Anthropic agent loop directly and throw
+// at startup when configured with a non-Anthropic provider — only need SDK.
 const agentActions = [
   {
     actionDir: '.github/actions/ferry-run-refiner',
@@ -171,6 +182,11 @@ const agentActions = [
     bundle: '.ferry/refiner-action.js',
     bundleOut: 'refiner-action.js',
     prompts: ['refiner'],
+    sdkDeps: {
+      '@anthropic-ai/sdk': rootDeps['@anthropic-ai/sdk'],
+      '@google/genai': rootDeps['@google/genai'],
+      openai: rootDeps['openai'],
+    },
   },
   {
     actionDir: '.github/actions/ferry-run-developer',
@@ -178,6 +194,7 @@ const agentActions = [
     bundle: '.ferry/dev-action.js',
     bundleOut: 'dev-action.js',
     prompts: ['dev'],
+    sdkDeps: { '@anthropic-ai/sdk': rootDeps['@anthropic-ai/sdk'] },
   },
   {
     actionDir: '.github/actions/ferry-run-reviewer',
@@ -185,6 +202,7 @@ const agentActions = [
     bundle: '.ferry/review-action.js',
     bundleOut: 'review-action.js',
     prompts: ['review', 'review-comment'],
+    sdkDeps: { '@anthropic-ai/sdk': rootDeps['@anthropic-ai/sdk'] },
   },
   {
     actionDir: '.github/actions/ferry-run-iterator',
@@ -192,6 +210,7 @@ const agentActions = [
     bundle: '.ferry/iterate-action.js',
     bundleOut: 'iterate-action.js',
     prompts: ['iterate'],
+    sdkDeps: { '@anthropic-ai/sdk': rootDeps['@anthropic-ai/sdk'] },
   },
 ];
 
@@ -224,11 +243,7 @@ for (const agent of agentActions) {
         version: '0.0.0',
         private: true,
         type: 'module',
-        dependencies: {
-          ajv: '^8.0.0',
-          'ajv-formats': '^3.0.1',
-          yaml: '^2.6.0',
-        },
+        dependencies: { ...agentBaseDeps, ...agent.sdkDeps },
       },
       null,
       2,
