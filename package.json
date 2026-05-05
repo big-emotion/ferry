@@ -58,21 +58,6 @@
     "prepare": "husky",
     "version": "npm run build:ferry && git add .ferry/"
   },
-  "lint-staged": {
-    "src/**/*.ts": [
-      "prettier --write",
-      "eslint --max-warnings=0"
-    ],
-    "prompts/**/*.md": [
-      "prettier --write"
-    ],
-    "docs/**/*.md": [
-      "prettier --write"
-    ],
-    "*.{md,json,yml,yaml}": [
-      "prettier --write"
-    ]
-  },
   "devDependencies": {
     "@types/node": "^25.6.0",
     "@typescript-eslint/eslint-plugin": "^8.0.0",
