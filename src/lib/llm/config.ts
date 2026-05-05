@@ -23,7 +23,7 @@ function parseJsonEnv(name: string): unknown {
 }
 
 function isProvider(x: unknown): x is LlmProvider {
-  return x === 'openai' || x === 'anthropic';
+  return x === 'openai' || x === 'anthropic' || x === 'google';
 }
 
 function isRoute(x: unknown): x is LlmRoute {
