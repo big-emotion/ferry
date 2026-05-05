@@ -11,6 +11,14 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.8.2] — 2026-05-05
+
+### Fixed
+
+- **`ferry-init` templates use per-agent model inputs** — the scaffolded `ferry-refine.yml` and `ferry-dev.yml` workflows passed `ferry_model:` to the refiner and developer composite actions, but those actions expect `ferry_refiner_model:` and `ferry_dev_model:` since the v0.7.x per-agent input split (#207). GitHub Actions silently ignored the unknown input (warning only), so consumers ran with the action's default model rather than their configured one. Re-running `ferry-update` against a Ferry pin ≥ v0.8.2 rewrites the workflows with the correct input names; manual fix is a one-line rename in each of the two workflow files.
+
+---
+
 ## [0.8.1] — 2026-05-05
 
 ### Fixed
@@ -235,7 +243,10 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
-[Unreleased]: https://github.com/big-emotion/ferry/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/big-emotion/ferry/compare/v0.8.2...HEAD
+[0.8.2]: https://github.com/big-emotion/ferry/releases/tag/v0.8.2
+[0.8.1]: https://github.com/big-emotion/ferry/releases/tag/v0.8.1
+[0.8.0]: https://github.com/big-emotion/ferry/releases/tag/v0.8.0
 [0.7.0]: https://github.com/big-emotion/ferry/releases/tag/v0.7.0
 [0.6.0]: https://github.com/big-emotion/ferry/releases/tag/v0.6.0
 [0.4.0]: https://github.com/big-emotion/ferry/releases/tag/v0.4.0

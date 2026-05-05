@@ -1,5 +1,5 @@
 # Copy this file to .github/workflows/ferry-refine.yml in your repository.
-# Replace @v0.8.1 with the Ferry release tag you want to pin.
+# Replace @v0.8.2 with the Ferry release tag you want to pin.
 # Required secrets: FERRY_JIRA_BASE_URL, FERRY_JIRA_EMAIL, FERRY_JIRA_API_TOKEN, ANTHROPIC_API_KEY
 # Required variables: FERRY_AUDIT_ISSUE (GitHub Issue number for the audit log)
 # Optional variables: FERRY_REFINER_MODEL (default: claude-sonnet-4-6)
@@ -34,7 +34,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Validate event envelope
-        uses: big-emotion/ferry/.github/actions/ferry-envelope-validate@v0.8.1
+        uses: big-emotion/ferry/.github/actions/ferry-envelope-validate@v0.8.2
         with:
           payload: ${{ toJson(github.event.client_payload) }}
 
@@ -55,7 +55,7 @@ jobs:
             | tar -xz -C /usr/local/bin gitleaks
 
       - name: Run Refiner agent
-        uses: big-emotion/ferry/.github/actions/ferry-run-refiner@v0.8.1
+        uses: big-emotion/ferry/.github/actions/ferry-run-refiner@v0.8.2
         with:
           payload: ${{ toJson(github.event.client_payload) }}
           jira_base_url: ${{ secrets.FERRY_JIRA_BASE_URL }}
@@ -84,7 +84,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Emit audit line
-        uses: big-emotion/ferry/.github/actions/ferry-emit-audit@v0.8.1
+        uses: big-emotion/ferry/.github/actions/ferry-emit-audit@v0.8.2
         with:
           ticket: ${{ github.event.client_payload.ticket_key }}
           phase: refine
