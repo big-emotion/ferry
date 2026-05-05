@@ -259,15 +259,17 @@ export function createAnthropicAgentLoop(opts: {
       iter++;
       const iterStart = Date.now();
 
-      if (
-        usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens >
-        maxInputTokens
-      ) {
+      // Anthropic bills cache reads at ~10% of fresh input tokens; weight them
+      // accordingly so the cap approximates dollar spend rather than raw volume.
+      const billableEquiv =
+        usage.input_tokens +
+        usage.cache_read_input_tokens * 0.1 +
+        usage.cache_creation_input_tokens;
+      if (billableEquiv > maxInputTokens) {
         throw new FerryError('spend-cap', {
           reason: 'input-token-budget-exceeded',
           cap: maxInputTokens,
-          consumed:
-            usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens,
+          consumed: billableEquiv,
         });
       }
 
