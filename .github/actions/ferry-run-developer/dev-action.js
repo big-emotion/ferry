@@ -5251,13 +5251,14 @@ function assertBashAllowed(command) {
 
 // src/agents/developer/tools.ts
 var MAX_BASH_OUTPUT_DEFAULT = 64 * 1024;
+var MAX_READ_FILE_BYTES_DEFAULT = 64 * 1024;
 var DEFAULT_BASH_TIMEOUT_MS_DEFAULT = 6e4;
 var MAX_BASH_TIMEOUT_MS_DEFAULT = 3e5;
 var MAX_SEARCH_MATCHES = 200;
 var TOOL_SCHEMAS = [
   {
     name: "read_file",
-    description: "Read the contents of a file under the repository root.",
+    description: "Read the contents of a file under the repository root. Files larger than ~64 KB are truncated head+tail; use bash sed/grep to read specific ranges.",
     input_schema: {
       type: "object",
       properties: {
@@ -5456,10 +5457,30 @@ async function executeTool(repoRoot, name, input) {
   switch (name) {
     case "read_file": {
       const resolved = assertPathUnderRoot(repoRoot, input.path);
+      const maxBytes = parseInt(process.env.FERRY_READ_FILE_MAX_BYTES ?? "", 10) || MAX_READ_FILE_BYTES_DEFAULT;
+      let fh;
       try {
-        return await fsp.readFile(resolved, "utf8");
+        fh = await fsp.open(resolved, "r");
       } catch (e) {
         throw new Error(`read_file failed: ${e.message}`);
+      }
+      try {
+        const stat = await fh.stat();
+        if (stat.size <= maxBytes) {
+          return await fh.readFile("utf8");
+        }
+        const headSize = Math.floor(maxBytes / 2);
+        const tailSize = maxBytes - headSize;
+        const headBuf = Buffer.alloc(headSize);
+        const tailBuf = Buffer.alloc(tailSize);
+        await fh.read(headBuf, 0, headSize, 0);
+        await fh.read(tailBuf, 0, tailSize, stat.size - tailSize);
+        const elided = stat.size - maxBytes;
+        return `${headBuf.toString("utf8")}
+[truncated: ${elided} bytes elided]
+${tailBuf.toString("utf8")}`;
+      } finally {
+        await fh.close();
       }
     }
     case "write_file": {
@@ -5545,7 +5566,9 @@ stdout:
 ${result.stdout}
 stderr:
 ${result.stderr}`;
-      return combined.slice(0, maxBashOutput);
+      if (combined.length <= maxBashOutput) return combined;
+      return combined.slice(0, maxBashOutput) + `
+[truncated: ${combined.length - maxBashOutput} more bytes \u2014 pipe through head/grep/awk to narrow output.]`;
     }
     default:
       throw new Error(`Unknown tool: ${name}`);
@@ -5774,7 +5797,7 @@ var safeJSON = (text) => {
 var sleep = (ms) => new Promise((resolve2) => setTimeout(resolve2, ms));
 
 // node_modules/@anthropic-ai/sdk/version.mjs
-var VERSION9 = "0.91.1";
+var VERSION9 = "0.93.0";
 
 // node_modules/@anthropic-ai/sdk/internal/detect-platform.mjs
 var isRunningInBrowser = () => {
@@ -6005,6 +6028,276 @@ function stringifyQuery(query) {
   }).join("&");
 }
 
+// node_modules/@anthropic-ai/sdk/lib/credentials/types.mjs
+var GRANT_TYPE_JWT_BEARER = "urn:ietf:params:oauth:grant-type:jwt-bearer";
+var GRANT_TYPE_REFRESH_TOKEN = "refresh_token";
+var TOKEN_ENDPOINT = "/v1/oauth/token";
+var OAUTH_API_BETA_HEADER = "oauth-2025-04-20";
+var FEDERATION_BETA_HEADER = "oidc-federation-2026-04-01";
+var ADVISORY_REFRESH_THRESHOLD_IN_SECONDS = 120;
+var MANDATORY_REFRESH_THRESHOLD_IN_SECONDS = 30;
+var ADVISORY_REFRESH_BACKOFF_IN_SECONDS = 5;
+var MAX_TOKEN_RESPONSE_BYTES = 1 << 20;
+function requireSecureTokenEndpoint(baseURL) {
+  if (!baseURL)
+    return;
+  let u;
+  try {
+    u = new URL(baseURL);
+  } catch (err) {
+    throw new WorkloadIdentityError(`Invalid token endpoint base URL "${baseURL}": ${err}`);
+  }
+  if (u.protocol === "https:")
+    return;
+  const host = u.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (u.protocol === "http:" && (host === "localhost" || host === "127.0.0.1" || host === "::1")) {
+    return;
+  }
+  throw new WorkloadIdentityError(`Refusing to send credential over non-https token endpoint "${baseURL}"`);
+}
+async function parseTokenResponse(resp, requestId) {
+  const text = await readLimitedText(resp);
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new WorkloadIdentityError(`Token endpoint returned non-JSON response (status ${resp.status})`, resp.status, redactSensitive(text), requestId);
+  }
+  if (!data.access_token) {
+    throw new WorkloadIdentityError(`Token endpoint response missing access_token: ${JSON.stringify(redactSensitive(data))}`, resp.status, redactSensitive(data), requestId);
+  }
+  if (data.token_type && data.token_type.toLowerCase() !== "bearer") {
+    throw new WorkloadIdentityError(`Token endpoint response: unsupported token_type "${data.token_type}" (want Bearer)`, resp.status, redactSensitive(data), requestId);
+  }
+  return data;
+}
+var MAX_ERROR_BODY_CHARS = 2e3;
+var SAFE_ERROR_KEYS = /* @__PURE__ */ new Set(["error", "error_description", "error_uri"]);
+function redactSensitive(body) {
+  if (body == null)
+    return body;
+  if (typeof body === "string") {
+    let parsed;
+    try {
+      parsed = JSON.parse(body);
+    } catch {
+      if (body.length <= MAX_ERROR_BODY_CHARS)
+        return body;
+      return body.slice(0, MAX_ERROR_BODY_CHARS) + `... <${body.length - MAX_ERROR_BODY_CHARS} more chars>`;
+    }
+    return JSON.stringify(redactSensitive(parsed));
+  }
+  if (typeof body === "object" && !Array.isArray(body)) {
+    const out = {};
+    for (const [k, v] of Object.entries(body)) {
+      if (SAFE_ERROR_KEYS.has(k))
+        out[k] = v;
+    }
+    return out;
+  }
+  return null;
+}
+async function checkCredentialsFileSafety(path7, onWarn = (m) => console.warn(`anthropic-sdk: ${m}`)) {
+  if (typeof process === "undefined" || process.platform === "win32")
+    return;
+  const fs2 = await import("node:fs");
+  let resolved = path7;
+  let st;
+  try {
+    resolved = await fs2.promises.realpath(path7);
+    st = await fs2.promises.stat(resolved);
+  } catch {
+    return;
+  }
+  const mode = st.mode & 511;
+  if (mode & 18) {
+    throw new WorkloadIdentityError(`Credentials file at ${resolved} is group/world-writable (mode 0o${mode.toString(8)}); this allows other local users to plant tokens. Run \`chmod 600 ${resolved}\`.`);
+  }
+  if (mode & 36) {
+    throw new WorkloadIdentityError(`Credentials file at ${resolved} is group/world-readable (mode 0o${mode.toString(8)}); run \`chmod 600 ${resolved}\` before retrying.`);
+  }
+  if (typeof process.getuid === "function" && st.uid !== process.getuid()) {
+    onWarn(`credentials file at ${resolved} is owned by uid ${st.uid} (current process uid ${process.getuid()}); verify this is intentional.`);
+  }
+}
+async function writeCredentialsFileAtomic(targetPath, data) {
+  const fs2 = await import("node:fs");
+  const path7 = await import("node:path");
+  const dir = path7.dirname(targetPath);
+  await fs2.promises.mkdir(dir, { recursive: true, mode: 448 });
+  const tmpPath = `${targetPath}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
+  try {
+    const fh = await fs2.promises.open(tmpPath, "w", 384);
+    try {
+      await fh.writeFile(JSON.stringify(data, null, 2));
+      await fh.sync();
+    } finally {
+      await fh.close();
+    }
+    await fs2.promises.rename(tmpPath, targetPath);
+  } catch (err) {
+    await fs2.promises.unlink(tmpPath).catch(() => {
+    });
+    throw err;
+  }
+  try {
+    const dirFh = await fs2.promises.open(dir, "r");
+    try {
+      await dirFh.sync();
+    } finally {
+      await dirFh.close();
+    }
+  } catch {
+  }
+}
+async function readLimitedText(resp) {
+  if (!resp.body) {
+    return "";
+  }
+  const reader = resp.body.getReader();
+  const chunks = [];
+  let received = 0;
+  for (; ; ) {
+    const { done, value } = await reader.read();
+    if (done)
+      break;
+    if (received + value.length > MAX_TOKEN_RESPONSE_BYTES) {
+      const remaining = MAX_TOKEN_RESPONSE_BYTES - received;
+      if (remaining > 0)
+        chunks.push(value.subarray(0, remaining));
+      await reader.cancel();
+      break;
+    }
+    chunks.push(value);
+    received += value.length;
+  }
+  let merged;
+  if (chunks.length === 1) {
+    merged = chunks[0];
+  } else {
+    merged = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
+    let offset = 0;
+    for (const c of chunks) {
+      merged.set(c, offset);
+      offset += c.length;
+    }
+  }
+  return new TextDecoder("utf-8").decode(merged);
+}
+var WorkloadIdentityError = class extends AnthropicError {
+  constructor(message, statusCode = null, body = null, requestId = null) {
+    super(message);
+    this.statusCode = statusCode;
+    this.body = body;
+    this.requestId = requestId;
+  }
+};
+
+// node_modules/@anthropic-ai/sdk/internal/utils/time.mjs
+function nowAsSeconds() {
+  return Math.floor(Date.now() / 1e3);
+}
+
+// node_modules/@anthropic-ai/sdk/lib/credentials/token-cache.mjs
+var TokenCache = class {
+  constructor(provider, onAdvisoryRefreshError) {
+    this.cached = null;
+    this.pendingRefresh = null;
+    this.nextForce = false;
+    this.lastAdvisoryError = 0;
+    this.provider = provider;
+    this.onAdvisoryRefreshError = onAdvisoryRefreshError;
+  }
+  async getToken() {
+    const force = this.nextForce;
+    this.nextForce = false;
+    const cached = this.cached;
+    if (force || cached == null) {
+      const token2 = await this.refresh(force);
+      return token2.token;
+    }
+    if (cached.expiresAt == null) {
+      return cached.token;
+    }
+    const remaining = cached.expiresAt - nowAsSeconds();
+    if (remaining > ADVISORY_REFRESH_THRESHOLD_IN_SECONDS) {
+      return cached.token;
+    }
+    if (remaining > MANDATORY_REFRESH_THRESHOLD_IN_SECONDS) {
+      this.backgroundRefresh();
+      return cached.token;
+    }
+    const token = await this.refresh();
+    return token.token;
+  }
+  /**
+   * Clears the cached token and marks the next {@link getToken} as a forced
+   * refresh, so the underlying provider bypasses any on-disk freshness check.
+   * Called after a 401 — the server has just told us the token is bad even
+   * if its `expires_at` still looks fresh.
+   */
+  invalidate() {
+    this.cached = null;
+    this.nextForce = true;
+  }
+  /**
+   * Mandatory refresh. Joins any in-flight refresh unless forced — a forced
+   * refresh must not coalesce into a non-forced one that may re-serve the
+   * same stale disk token.
+   */
+  refresh(force = false) {
+    if (this.pendingRefresh && !force) {
+      return this.pendingRefresh;
+    }
+    return this.doRefresh(force);
+  }
+  /**
+   * Advisory background refresh. Shares the same in-flight promise as
+   * mandatory refreshes for deduplication, but swallows errors so the
+   * stale cached token keeps being served. Backs off for
+   * {@link ADVISORY_REFRESH_BACKOFF_IN_SECONDS} after a failure so an
+   * outage during the advisory window doesn't hammer the token endpoint.
+   */
+  backgroundRefresh() {
+    if (this.pendingRefresh) {
+      return;
+    }
+    if (nowAsSeconds() - this.lastAdvisoryError < ADVISORY_REFRESH_BACKOFF_IN_SECONDS) {
+      return;
+    }
+    this.doRefresh().catch((err) => {
+      this.lastAdvisoryError = nowAsSeconds();
+      this.onAdvisoryRefreshError?.(err);
+    });
+  }
+  /**
+   * Core refresh. Sets {@link pendingRefresh} so concurrent callers
+   * (both advisory and mandatory) coalesce into a single provider call.
+   */
+  doRefresh(force = false) {
+    this.pendingRefresh = this.provider(force ? { forceRefresh: true } : void 0).then((token) => {
+      this.cached = token;
+      this.pendingRefresh = null;
+      return token;
+    }, (err) => {
+      this.pendingRefresh = null;
+      throw err;
+    });
+    return this.pendingRefresh;
+  }
+};
+
+// node_modules/@anthropic-ai/sdk/internal/utils/env.mjs
+var readEnv = (env) => {
+  if (typeof globalThis.process !== "undefined") {
+    return globalThis.process.env?.[env]?.trim() || void 0;
+  }
+  if (typeof globalThis.Deno !== "undefined") {
+    return globalThis.Deno.env?.get?.(env)?.trim() || void 0;
+  }
+  return void 0;
+};
+
 // node_modules/@anthropic-ai/sdk/internal/utils/bytes.mjs
 function concatBytes(buffers) {
   let length = 0;
@@ -6028,6 +6321,525 @@ var decodeUTF8_;
 function decodeUTF8(bytes) {
   let decoder;
   return (decodeUTF8_ ?? (decoder = new globalThis.TextDecoder(), decodeUTF8_ = decoder.decode.bind(decoder)))(bytes);
+}
+
+// node_modules/@anthropic-ai/sdk/internal/utils/log.mjs
+var levelNumbers = {
+  off: 0,
+  error: 200,
+  warn: 300,
+  info: 400,
+  debug: 500
+};
+var parseLogLevel = (maybeLevel, sourceName, client) => {
+  if (!maybeLevel) {
+    return void 0;
+  }
+  if (hasOwn(levelNumbers, maybeLevel)) {
+    return maybeLevel;
+  }
+  loggerFor(client).warn(`${sourceName} was set to ${JSON.stringify(maybeLevel)}, expected one of ${JSON.stringify(Object.keys(levelNumbers))}`);
+  return void 0;
+};
+function noop3() {
+}
+function makeLogFn(fnLevel, logger, logLevel) {
+  if (!logger || levelNumbers[fnLevel] > levelNumbers[logLevel]) {
+    return noop3;
+  } else {
+    return logger[fnLevel].bind(logger);
+  }
+}
+var noopLogger = {
+  error: noop3,
+  warn: noop3,
+  info: noop3,
+  debug: noop3
+};
+var cachedLoggers = /* @__PURE__ */ new WeakMap();
+function loggerFor(client) {
+  const logger = client.logger;
+  const logLevel = client.logLevel ?? "off";
+  if (!logger) {
+    return noopLogger;
+  }
+  const cachedLogger = cachedLoggers.get(logger);
+  if (cachedLogger && cachedLogger[0] === logLevel) {
+    return cachedLogger[1];
+  }
+  const levelLogger = {
+    error: makeLogFn("error", logger, logLevel),
+    warn: makeLogFn("warn", logger, logLevel),
+    info: makeLogFn("info", logger, logLevel),
+    debug: makeLogFn("debug", logger, logLevel)
+  };
+  cachedLoggers.set(logger, [logLevel, levelLogger]);
+  return levelLogger;
+}
+var formatRequestDetails = (details) => {
+  if (details.options) {
+    details.options = { ...details.options };
+    delete details.options["headers"];
+  }
+  if (details.headers) {
+    details.headers = Object.fromEntries((details.headers instanceof Headers ? [...details.headers] : Object.entries(details.headers)).map(([name, value]) => [
+      name,
+      name.toLowerCase() === "x-api-key" || name.toLowerCase() === "authorization" || name.toLowerCase() === "cookie" || name.toLowerCase() === "set-cookie" ? "***" : value
+    ]));
+  }
+  if ("retryOfRequestLogID" in details) {
+    if (details.retryOfRequestLogID) {
+      details.retryOf = details.retryOfRequestLogID;
+    }
+    delete details.retryOfRequestLogID;
+  }
+  return details;
+};
+
+// node_modules/@anthropic-ai/sdk/core/credentials.mjs
+var CREDENTIALS_FILE_VERSION = "1.0";
+var PROFILE_NAME_PATTERN = /^[A-Za-z0-9_.-]+$/;
+function validateProfileName(name) {
+  if (!name) {
+    throw new Error("profile name is empty");
+  }
+  if (name === "." || name === "..") {
+    throw new Error(`profile name "${name}" is not allowed`);
+  }
+  if (name.includes("/") || name.includes("\\")) {
+    throw new Error(`profile name "${name}" must not contain path separators`);
+  }
+  if (!PROFILE_NAME_PATTERN.test(name)) {
+    throw new Error(`profile name "${name}" contains disallowed characters (allowed: letters, digits, '_', '.', '-')`);
+  }
+}
+var loadConfig = async (profile) => {
+  var _a2, _b;
+  const rootConfigPath = await getRootConfigPath();
+  if (rootConfigPath === null) {
+    return null;
+  }
+  const profileName = profile ?? await getActiveProfileName();
+  if (profileName === null) {
+    return null;
+  }
+  validateProfileName(profileName);
+  const fs2 = await import("node:fs");
+  const path7 = await import("node:path");
+  const configPath = path7.join(rootConfigPath, "configs", `${profileName}.json`);
+  let configRaw;
+  try {
+    configRaw = await fs2.promises.readFile(configPath, "utf-8");
+  } catch (err) {
+    if (err?.code !== "ENOENT") {
+      throw new Error(`failed to read config file ${configPath}: ${err}`);
+    }
+    configRaw = null;
+  }
+  if (configRaw === null) {
+    const organizationId = readEnv("ANTHROPIC_ORGANIZATION_ID");
+    const identityTokenFile = readEnv("ANTHROPIC_IDENTITY_TOKEN_FILE");
+    const federationRuleId = readEnv("ANTHROPIC_FEDERATION_RULE_ID");
+    if (federationRuleId && organizationId) {
+      return {
+        organization_id: organizationId,
+        base_url: readEnv("ANTHROPIC_BASE_URL"),
+        authentication: {
+          type: "oidc_federation",
+          federation_rule_id: federationRuleId,
+          service_account_id: readEnv("ANTHROPIC_SERVICE_ACCOUNT_ID"),
+          identity_token: identityTokenFile ? { source: "file", path: identityTokenFile } : void 0,
+          scope: readEnv("ANTHROPIC_SCOPE")
+        }
+      };
+    }
+    return null;
+  }
+  let config;
+  try {
+    config = JSON.parse(configRaw);
+  } catch (err) {
+    throw new Error(`failed to parse config file ${configPath}: ${err}`);
+  }
+  if (!config.authentication) {
+    throw new Error(`config file ${configPath} is missing "authentication"`);
+  }
+  const authType = config.authentication.type;
+  if (authType !== "oidc_federation" && authType !== "user_oauth") {
+    throw new Error(`authentication.type "${authType}" is not a known authentication type`);
+  }
+  config.organization_id ?? (config.organization_id = readEnv("ANTHROPIC_ORGANIZATION_ID"));
+  config.base_url ?? (config.base_url = readEnv("ANTHROPIC_BASE_URL"));
+  (_a2 = config.authentication).scope ?? (_a2.scope = readEnv("ANTHROPIC_SCOPE"));
+  if (config.authentication.type === "oidc_federation") {
+    if (!config.authentication.identity_token) {
+      const identityTokenFile = readEnv("ANTHROPIC_IDENTITY_TOKEN_FILE");
+      if (identityTokenFile) {
+        config.authentication.identity_token = {
+          source: "file",
+          path: identityTokenFile
+        };
+      }
+    }
+    if (!config.authentication.federation_rule_id) {
+      config.authentication.federation_rule_id = readEnv("ANTHROPIC_FEDERATION_RULE_ID") ?? "";
+    }
+    (_b = config.authentication).service_account_id ?? (_b.service_account_id = readEnv("ANTHROPIC_SERVICE_ACCOUNT_ID"));
+  }
+  return config;
+};
+var getCredentialsPath = async (config, profile) => {
+  if (config?.authentication.credentials_path) {
+    return config.authentication.credentials_path;
+  }
+  const rootConfigPath = await getRootConfigPath();
+  if (!rootConfigPath) {
+    return null;
+  }
+  const profileName = profile ?? await getActiveProfileName();
+  if (!profileName) {
+    return null;
+  }
+  validateProfileName(profileName);
+  const path7 = await import("node:path");
+  return path7.join(rootConfigPath, "credentials", `${profileName}.json`);
+};
+var getRootConfigPath = async () => {
+  if (!supportsLocalConfigFiles()) {
+    return null;
+  }
+  const path7 = await import("node:path");
+  const configDir = readEnv("ANTHROPIC_CONFIG_DIR");
+  if (configDir) {
+    return configDir;
+  }
+  const os = getPlatformHeaders()["X-Stainless-OS"];
+  if (os === "Windows") {
+    const appData = readEnv("APPDATA");
+    if (appData) {
+      return path7.join(appData, "Anthropic");
+    }
+    const userProfile = readEnv("USERPROFILE");
+    if (userProfile) {
+      return path7.join(userProfile, "AppData", "Roaming", "Anthropic");
+    }
+    return null;
+  }
+  const xdgConfigHome = readEnv("XDG_CONFIG_HOME");
+  if (xdgConfigHome) {
+    return path7.join(xdgConfigHome, "anthropic");
+  }
+  const home = readEnv("HOME");
+  if (home) {
+    return path7.join(home, ".config", "anthropic");
+  }
+  return null;
+};
+var supportsLocalConfigFiles = () => {
+  const runtime = getPlatformHeaders()["X-Stainless-Runtime"];
+  return runtime === "node" || runtime === "deno";
+};
+var getActiveProfileName = async () => {
+  const rootConfigPath = await getRootConfigPath();
+  if (!rootConfigPath) {
+    return null;
+  }
+  const profileName = readEnv("ANTHROPIC_PROFILE");
+  if (profileName) {
+    return profileName;
+  }
+  const fs2 = await import("node:fs");
+  const path7 = await import("node:path");
+  const filePath = path7.join(rootConfigPath, "active_config");
+  try {
+    return (await fs2.promises.readFile(filePath, "utf-8")).trim() || "default";
+  } catch (err) {
+    if (err?.code !== "ENOENT") {
+      throw new Error(`failed to read ${filePath}: ${err}`);
+    }
+    return "default";
+  }
+};
+
+// node_modules/@anthropic-ai/sdk/lib/credentials/identity-token.mjs
+function identityTokenFromFile(path7) {
+  if (!path7) {
+    throw new AnthropicError("Identity token file path is empty");
+  }
+  return async () => {
+    const fs2 = await import("node:fs");
+    let content;
+    try {
+      content = await fs2.promises.readFile(path7, "utf-8");
+    } catch (err) {
+      throw new AnthropicError(`Failed to read identity token file at ${path7}: ${err}`);
+    }
+    const token = content.trim();
+    if (!token) {
+      throw new AnthropicError(`Identity token file at ${path7} is empty`);
+    }
+    return token;
+  };
+}
+function identityTokenFromValue(token) {
+  if (!token) {
+    throw new AnthropicError("Identity token value is empty");
+  }
+  return () => token;
+}
+
+// node_modules/@anthropic-ai/sdk/lib/credentials/oidc-federation.mjs
+function oidcFederationProvider(config) {
+  return async () => {
+    requireSecureTokenEndpoint(config.baseURL);
+    const jwt = await config.identityTokenProvider();
+    if (jwt.length > 16 * 1024) {
+      throw new WorkloadIdentityError(`Identity token is ${Math.ceil(jwt.length / 1024)} KiB, exceeds the 16 KiB assertion limit`);
+    }
+    const body = {
+      grant_type: GRANT_TYPE_JWT_BEARER,
+      assertion: jwt,
+      federation_rule_id: config.federationRuleId,
+      organization_id: config.organizationId
+    };
+    if (config.serviceAccountId) {
+      body["service_account_id"] = config.serviceAccountId;
+    }
+    const url = `${config.baseURL}${TOKEN_ENDPOINT}`;
+    let resp;
+    try {
+      resp = await config.fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "anthropic-beta": `${OAUTH_API_BETA_HEADER},${FEDERATION_BETA_HEADER}`,
+          "User-Agent": config.userAgent || `anthropic-sdk-typescript/${VERSION9} oidcFederationProvider`
+        },
+        body: JSON.stringify(body)
+      });
+    } catch (err) {
+      throw new WorkloadIdentityError(`Failed to reach token endpoint ${url}: ${err}`);
+    }
+    const requestId = resp.headers.get("Request-Id");
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => "");
+      const redacted = redactSensitive(text);
+      throw new WorkloadIdentityError(`Token exchange failed with status ${resp.status}${requestId ? ` (request-id ${requestId})` : ""}: ${redacted}`, resp.status, redacted, requestId);
+    }
+    const data = await parseTokenResponse(resp, requestId);
+    const expiresIn = Number(data.expires_in);
+    if (!Number.isFinite(expiresIn)) {
+      throw new WorkloadIdentityError(`Token endpoint response missing required fields: ${JSON.stringify(redactSensitive(data))}`, resp.status, redactSensitive(data), requestId);
+    }
+    return {
+      token: data.access_token,
+      expiresAt: nowAsSeconds() + expiresIn
+    };
+  };
+}
+
+// node_modules/@anthropic-ai/sdk/lib/credentials/user-oauth.mjs
+function userOAuthProvider(config) {
+  return async (opts) => {
+    const fs2 = await import("node:fs");
+    await checkCredentialsFileSafety(config.credentialsPath, config.onSafetyWarning);
+    let raw;
+    try {
+      raw = await fs2.promises.readFile(config.credentialsPath, "utf-8");
+    } catch (err) {
+      throw new WorkloadIdentityError(`Credentials file not found at ${config.credentialsPath}: ${err}`);
+    }
+    let creds;
+    try {
+      creds = JSON.parse(raw);
+    } catch (err) {
+      throw new WorkloadIdentityError(`Credentials file at ${config.credentialsPath} is not valid JSON: ${err}`);
+    }
+    const accessToken = creds.access_token;
+    if (!accessToken) {
+      throw new WorkloadIdentityError(`Credentials file at ${config.credentialsPath} must include 'access_token'`);
+    }
+    const expiresAt = creds.expires_at;
+    if (!opts?.forceRefresh && (expiresAt == null || nowAsSeconds() < expiresAt - MANDATORY_REFRESH_THRESHOLD_IN_SECONDS)) {
+      return { token: accessToken, expiresAt: expiresAt ?? null };
+    }
+    const refreshToken = creds.refresh_token;
+    if (!config.clientId || !refreshToken) {
+      throw new WorkloadIdentityError(`Access token at ${config.credentialsPath} has expired and no refresh is available (client_id ${config.clientId ? "set" : "empty"}, refresh_token ${refreshToken ? "set" : "empty"})`);
+    }
+    requireSecureTokenEndpoint(config.baseURL);
+    const body = {
+      grant_type: GRANT_TYPE_REFRESH_TOKEN,
+      refresh_token: refreshToken,
+      client_id: config.clientId
+    };
+    const url = `${config.baseURL}${TOKEN_ENDPOINT}`;
+    let resp;
+    try {
+      resp = await config.fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "anthropic-beta": OAUTH_API_BETA_HEADER,
+          "User-Agent": config.userAgent || `anthropic-sdk-typescript/${VERSION9} userOAuthProvider`
+        },
+        body: JSON.stringify(body)
+      });
+    } catch (err) {
+      throw new WorkloadIdentityError(`User OAuth refresh failed to reach token endpoint: ${err}`);
+    }
+    const requestId = resp.headers.get("Request-Id");
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => "");
+      throw new WorkloadIdentityError(`User OAuth refresh failed (HTTP ${resp.status}): ${redactSensitive(text)}`, resp.status, redactSensitive(text), requestId);
+    }
+    const data = await parseTokenResponse(resp, requestId);
+    const expiresIn = Number(data.expires_in);
+    if (!Number.isFinite(expiresIn)) {
+      throw new WorkloadIdentityError(`User OAuth refresh response missing or invalid expires_in: ${JSON.stringify(redactSensitive(data))}`, resp.status, redactSensitive(data), requestId);
+    }
+    const newExpiresAt = nowAsSeconds() + expiresIn;
+    const newRefreshToken = data.refresh_token || refreshToken;
+    await writeCredentialsFileAtomic(config.credentialsPath, {
+      ...creds,
+      version: CREDENTIALS_FILE_VERSION,
+      type: "oauth_token",
+      access_token: data.access_token,
+      expires_at: newExpiresAt,
+      refresh_token: newRefreshToken
+    });
+    return { token: data.access_token, expiresAt: newExpiresAt };
+  };
+}
+
+// node_modules/@anthropic-ai/sdk/lib/credentials/credential-chain.mjs
+function resolveCredentialsFromConfig(config, options) {
+  const credentialsPath = config.authentication.credentials_path ?? null;
+  const effectiveBaseURL = (config.base_url || options.baseURL).replace(/\/+$/, "");
+  const provider = buildProvider(config, credentialsPath, effectiveBaseURL, options);
+  const extraHeaders = {};
+  if (config.workspace_id && config.authentication.type === "user_oauth") {
+    extraHeaders["anthropic-workspace-id"] = config.workspace_id;
+  }
+  return { provider, extraHeaders, baseURL: config.base_url || void 0 };
+}
+async function defaultCredentials(options, profile) {
+  const config = await loadConfig(profile);
+  if (!config) {
+    return null;
+  }
+  const withPath = config.authentication.credentials_path ? config : {
+    ...config,
+    authentication: {
+      ...config.authentication,
+      credentials_path: await getCredentialsPath(config, profile) ?? void 0
+    }
+  };
+  return resolveCredentialsFromConfig(withPath, options);
+}
+function buildProvider(config, credentialsPath, baseURL, options) {
+  switch (config.authentication.type) {
+    case "oidc_federation": {
+      const auth2 = config.authentication;
+      const identityProvider = resolveIdentityTokenProvider(auth2);
+      if (!identityProvider) {
+        throw new WorkloadIdentityError("oidc_federation config requires an identity token (set authentication.identity_token, ANTHROPIC_IDENTITY_TOKEN_FILE, or ANTHROPIC_IDENTITY_TOKEN)");
+      }
+      if (!auth2.federation_rule_id) {
+        throw new WorkloadIdentityError("oidc_federation config requires 'federation_rule_id'. Set it in authentication.federation_rule_id in your profile, or via ANTHROPIC_FEDERATION_RULE_ID (profile takes precedence).");
+      }
+      if (!config.organization_id) {
+        throw new WorkloadIdentityError("oidc_federation config requires organization_id (set ANTHROPIC_ORGANIZATION_ID or config.organization_id)");
+      }
+      const exchange = oidcFederationProvider({
+        identityTokenProvider: identityProvider,
+        federationRuleId: auth2.federation_rule_id,
+        organizationId: config.organization_id,
+        serviceAccountId: auth2.service_account_id,
+        baseURL,
+        fetch: options.fetch,
+        userAgent: options.userAgent
+      });
+      if (credentialsPath) {
+        return cachedExchangeProvider(exchange, credentialsPath, options.onCacheWriteError, options.onSafetyWarning);
+      }
+      return exchange;
+    }
+    case "user_oauth": {
+      if (!credentialsPath) {
+        throw new WorkloadIdentityError("user_oauth config requires authentication.credentials_path (or load via a profile so it defaults to <config_dir>/credentials/<profile>.json)");
+      }
+      return userOAuthProvider({
+        credentialsPath,
+        clientId: config.authentication.client_id,
+        baseURL,
+        fetch: options.fetch,
+        userAgent: options.userAgent,
+        onSafetyWarning: options.onSafetyWarning
+      });
+    }
+    default: {
+      const t = config.authentication.type;
+      throw new WorkloadIdentityError(`authentication.type "${t}" is not a known authentication type`);
+    }
+  }
+}
+function resolveIdentityTokenProvider(auth2) {
+  if (auth2.identity_token) {
+    const source = auth2.identity_token.source;
+    if (source !== "file") {
+      throw new WorkloadIdentityError(`identity_token.source "${source}" is not supported by this SDK version (only "file")`);
+    }
+    if (!auth2.identity_token.path) {
+      throw new WorkloadIdentityError(`identity_token.source "file" requires a non-empty path`);
+    }
+    return identityTokenFromFile(auth2.identity_token.path);
+  }
+  const tokenFile = readEnv("ANTHROPIC_IDENTITY_TOKEN_FILE");
+  if (tokenFile) {
+    return identityTokenFromFile(tokenFile);
+  }
+  const tokenValue = readEnv("ANTHROPIC_IDENTITY_TOKEN");
+  if (tokenValue) {
+    return identityTokenFromValue(tokenValue);
+  }
+  return null;
+}
+function cachedExchangeProvider(exchange, credentialsPath, onCacheWriteError, onSafetyWarning) {
+  return async (opts) => {
+    const fs2 = await import("node:fs");
+    await checkCredentialsFileSafety(credentialsPath, onSafetyWarning);
+    let existing;
+    try {
+      const raw = await fs2.promises.readFile(credentialsPath, "utf-8");
+      existing = JSON.parse(raw);
+      const token = existing?.["access_token"];
+      if (token && !opts?.forceRefresh) {
+        const expiresAt = existing?.["expires_at"];
+        if (expiresAt == null || nowAsSeconds() < expiresAt - MANDATORY_REFRESH_THRESHOLD_IN_SECONDS) {
+          return { token, expiresAt: expiresAt ?? null };
+        }
+      }
+    } catch (err) {
+      const code = err?.code;
+      if (code !== "ENOENT" && !(err instanceof SyntaxError)) {
+        onCacheWriteError?.(err);
+      }
+    }
+    const result = await exchange(opts);
+    try {
+      await writeCredentialsFileAtomic(credentialsPath, {
+        ...existing ?? {},
+        version: CREDENTIALS_FILE_VERSION,
+        type: "oauth_token",
+        access_token: result.token,
+        expires_at: result.expiresAt
+      });
+    } catch (err) {
+      onCacheWriteError?.(err);
+    }
+    return result;
+  };
 }
 
 // node_modules/@anthropic-ai/sdk/internal/decoders/line.mjs
@@ -6106,79 +6918,6 @@ function findDoubleNewlineIndex(buffer) {
   }
   return -1;
 }
-
-// node_modules/@anthropic-ai/sdk/internal/utils/log.mjs
-var levelNumbers = {
-  off: 0,
-  error: 200,
-  warn: 300,
-  info: 400,
-  debug: 500
-};
-var parseLogLevel = (maybeLevel, sourceName, client) => {
-  if (!maybeLevel) {
-    return void 0;
-  }
-  if (hasOwn(levelNumbers, maybeLevel)) {
-    return maybeLevel;
-  }
-  loggerFor(client).warn(`${sourceName} was set to ${JSON.stringify(maybeLevel)}, expected one of ${JSON.stringify(Object.keys(levelNumbers))}`);
-  return void 0;
-};
-function noop3() {
-}
-function makeLogFn(fnLevel, logger, logLevel) {
-  if (!logger || levelNumbers[fnLevel] > levelNumbers[logLevel]) {
-    return noop3;
-  } else {
-    return logger[fnLevel].bind(logger);
-  }
-}
-var noopLogger = {
-  error: noop3,
-  warn: noop3,
-  info: noop3,
-  debug: noop3
-};
-var cachedLoggers = /* @__PURE__ */ new WeakMap();
-function loggerFor(client) {
-  const logger = client.logger;
-  const logLevel = client.logLevel ?? "off";
-  if (!logger) {
-    return noopLogger;
-  }
-  const cachedLogger = cachedLoggers.get(logger);
-  if (cachedLogger && cachedLogger[0] === logLevel) {
-    return cachedLogger[1];
-  }
-  const levelLogger = {
-    error: makeLogFn("error", logger, logLevel),
-    warn: makeLogFn("warn", logger, logLevel),
-    info: makeLogFn("info", logger, logLevel),
-    debug: makeLogFn("debug", logger, logLevel)
-  };
-  cachedLoggers.set(logger, [logLevel, levelLogger]);
-  return levelLogger;
-}
-var formatRequestDetails = (details) => {
-  if (details.options) {
-    details.options = { ...details.options };
-    delete details.options["headers"];
-  }
-  if (details.headers) {
-    details.headers = Object.fromEntries((details.headers instanceof Headers ? [...details.headers] : Object.entries(details.headers)).map(([name, value]) => [
-      name,
-      name.toLowerCase() === "x-api-key" || name.toLowerCase() === "authorization" || name.toLowerCase() === "cookie" || name.toLowerCase() === "set-cookie" ? "***" : value
-    ]));
-  }
-  if ("retryOfRequestLogID" in details) {
-    if (details.retryOfRequestLogID) {
-      details.retryOf = details.retryOfRequestLogID;
-    }
-    delete details.retryOfRequestLogID;
-  }
-  return details;
-};
 
 // node_modules/@anthropic-ai/sdk/core/streaming.mjs
 var _Stream_client;
@@ -7532,7 +8271,7 @@ Agents.Versions = Versions;
 // node_modules/@anthropic-ai/sdk/resources/beta/memory-stores/memories.mjs
 var Memories = class extends APIResource {
   /**
-   * CreateMemory
+   * Create a memory
    *
    * @example
    * ```ts
@@ -7556,7 +8295,7 @@ var Memories = class extends APIResource {
     });
   }
   /**
-   * GetMemory
+   * Retrieve a memory
    *
    * @example
    * ```ts
@@ -7579,7 +8318,7 @@ var Memories = class extends APIResource {
     });
   }
   /**
-   * UpdateMemory
+   * Update a memory
    *
    * @example
    * ```ts
@@ -7603,7 +8342,7 @@ var Memories = class extends APIResource {
     });
   }
   /**
-   * ListMemories
+   * List memories
    *
    * @example
    * ```ts
@@ -7627,7 +8366,7 @@ var Memories = class extends APIResource {
     });
   }
   /**
-   * DeleteMemory
+   * Delete a memory
    *
    * @example
    * ```ts
@@ -7654,7 +8393,7 @@ var Memories = class extends APIResource {
 // node_modules/@anthropic-ai/sdk/resources/beta/memory-stores/memory-versions.mjs
 var MemoryVersions = class extends APIResource {
   /**
-   * GetMemoryVersion
+   * Retrieve a memory version
    *
    * @example
    * ```ts
@@ -7677,7 +8416,7 @@ var MemoryVersions = class extends APIResource {
     });
   }
   /**
-   * ListMemoryVersions
+   * List memory versions
    *
    * @example
    * ```ts
@@ -7701,7 +8440,7 @@ var MemoryVersions = class extends APIResource {
     });
   }
   /**
-   * RedactMemoryVersion
+   * Redact a memory version
    *
    * @example
    * ```ts
@@ -7732,7 +8471,7 @@ var MemoryStores = class extends APIResource {
     this.memoryVersions = new MemoryVersions(this._client);
   }
   /**
-   * CreateMemoryStore
+   * Create a memory store
    *
    * @example
    * ```ts
@@ -7752,7 +8491,7 @@ var MemoryStores = class extends APIResource {
     });
   }
   /**
-   * GetMemoryStore
+   * Retrieve a memory store
    *
    * @example
    * ```ts
@@ -7773,7 +8512,7 @@ var MemoryStores = class extends APIResource {
     });
   }
   /**
-   * UpdateMemoryStore
+   * Update a memory store
    *
    * @example
    * ```ts
@@ -7793,7 +8532,7 @@ var MemoryStores = class extends APIResource {
     });
   }
   /**
-   * ListMemoryStores
+   * List memory stores
    *
    * @example
    * ```ts
@@ -7815,7 +8554,7 @@ var MemoryStores = class extends APIResource {
     });
   }
   /**
-   * DeleteMemoryStore
+   * Delete a memory store
    *
    * @example
    * ```ts
@@ -7834,7 +8573,7 @@ var MemoryStores = class extends APIResource {
     });
   }
   /**
-   * ArchiveMemoryStore
+   * Archive a memory store
    *
    * @example
    * ```ts
@@ -7855,6 +8594,230 @@ var MemoryStores = class extends APIResource {
 };
 MemoryStores.Memories = Memories;
 MemoryStores.MemoryVersions = MemoryVersions;
+
+// node_modules/@anthropic-ai/sdk/internal/decoders/jsonl.mjs
+var JSONLDecoder = class _JSONLDecoder {
+  constructor(iterator2, controller) {
+    this.iterator = iterator2;
+    this.controller = controller;
+  }
+  async *decoder() {
+    const lineDecoder = new LineDecoder();
+    for await (const chunk of this.iterator) {
+      for (const line of lineDecoder.decode(chunk)) {
+        yield JSON.parse(line);
+      }
+    }
+    for (const line of lineDecoder.flush()) {
+      yield JSON.parse(line);
+    }
+  }
+  [Symbol.asyncIterator]() {
+    return this.decoder();
+  }
+  static fromResponse(response, controller) {
+    if (!response.body) {
+      controller.abort();
+      if (typeof globalThis.navigator !== "undefined" && globalThis.navigator.product === "ReactNative") {
+        throw new AnthropicError(`The default react-native fetch implementation does not support streaming. Please use expo/fetch: https://docs.expo.dev/versions/latest/sdk/expo/#expofetch-api`);
+      }
+      throw new AnthropicError(`Attempted to iterate over a response with no body`);
+    }
+    return new _JSONLDecoder(ReadableStreamToAsyncIterable(response.body), controller);
+  }
+};
+
+// node_modules/@anthropic-ai/sdk/resources/beta/messages/batches.mjs
+var Batches = class extends APIResource {
+  /**
+   * Send a batch of Message creation requests.
+   *
+   * The Message Batches API can be used to process multiple Messages API requests at
+   * once. Once a Message Batch is created, it begins processing immediately. Batches
+   * can take up to 24 hours to complete.
+   *
+   * Learn more about the Message Batches API in our
+   * [user guide](https://docs.claude.com/en/docs/build-with-claude/batch-processing)
+   *
+   * @example
+   * ```ts
+   * const betaMessageBatch =
+   *   await client.beta.messages.batches.create({
+   *     requests: [
+   *       {
+   *         custom_id: 'my-custom-id-1',
+   *         params: {
+   *           max_tokens: 1024,
+   *           messages: [
+   *             { content: 'Hello, world', role: 'user' },
+   *           ],
+   *           model: 'claude-opus-4-6',
+   *         },
+   *       },
+   *     ],
+   *   });
+   * ```
+   */
+  create(params, options) {
+    const { betas, ...body } = params;
+    return this._client.post("/v1/messages/batches?beta=true", {
+      body,
+      ...options,
+      headers: buildHeaders([
+        { "anthropic-beta": [...betas ?? [], "message-batches-2024-09-24"].toString() },
+        options?.headers
+      ])
+    });
+  }
+  /**
+   * This endpoint is idempotent and can be used to poll for Message Batch
+   * completion. To access the results of a Message Batch, make a request to the
+   * `results_url` field in the response.
+   *
+   * Learn more about the Message Batches API in our
+   * [user guide](https://docs.claude.com/en/docs/build-with-claude/batch-processing)
+   *
+   * @example
+   * ```ts
+   * const betaMessageBatch =
+   *   await client.beta.messages.batches.retrieve(
+   *     'message_batch_id',
+   *   );
+   * ```
+   */
+  retrieve(messageBatchID, params = {}, options) {
+    const { betas } = params ?? {};
+    return this._client.get(path5`/v1/messages/batches/${messageBatchID}?beta=true`, {
+      ...options,
+      headers: buildHeaders([
+        { "anthropic-beta": [...betas ?? [], "message-batches-2024-09-24"].toString() },
+        options?.headers
+      ])
+    });
+  }
+  /**
+   * List all Message Batches within a Workspace. Most recently created batches are
+   * returned first.
+   *
+   * Learn more about the Message Batches API in our
+   * [user guide](https://docs.claude.com/en/docs/build-with-claude/batch-processing)
+   *
+   * @example
+   * ```ts
+   * // Automatically fetches more pages as needed.
+   * for await (const betaMessageBatch of client.beta.messages.batches.list()) {
+   *   // ...
+   * }
+   * ```
+   */
+  list(params = {}, options) {
+    const { betas, ...query } = params ?? {};
+    return this._client.getAPIList("/v1/messages/batches?beta=true", Page, {
+      query,
+      ...options,
+      headers: buildHeaders([
+        { "anthropic-beta": [...betas ?? [], "message-batches-2024-09-24"].toString() },
+        options?.headers
+      ])
+    });
+  }
+  /**
+   * Delete a Message Batch.
+   *
+   * Message Batches can only be deleted once they've finished processing. If you'd
+   * like to delete an in-progress batch, you must first cancel it.
+   *
+   * Learn more about the Message Batches API in our
+   * [user guide](https://docs.claude.com/en/docs/build-with-claude/batch-processing)
+   *
+   * @example
+   * ```ts
+   * const betaDeletedMessageBatch =
+   *   await client.beta.messages.batches.delete(
+   *     'message_batch_id',
+   *   );
+   * ```
+   */
+  delete(messageBatchID, params = {}, options) {
+    const { betas } = params ?? {};
+    return this._client.delete(path5`/v1/messages/batches/${messageBatchID}?beta=true`, {
+      ...options,
+      headers: buildHeaders([
+        { "anthropic-beta": [...betas ?? [], "message-batches-2024-09-24"].toString() },
+        options?.headers
+      ])
+    });
+  }
+  /**
+   * Batches may be canceled any time before processing ends. Once cancellation is
+   * initiated, the batch enters a `canceling` state, at which time the system may
+   * complete any in-progress, non-interruptible requests before finalizing
+   * cancellation.
+   *
+   * The number of canceled requests is specified in `request_counts`. To determine
+   * which requests were canceled, check the individual results within the batch.
+   * Note that cancellation may not result in any canceled requests if they were
+   * non-interruptible.
+   *
+   * Learn more about the Message Batches API in our
+   * [user guide](https://docs.claude.com/en/docs/build-with-claude/batch-processing)
+   *
+   * @example
+   * ```ts
+   * const betaMessageBatch =
+   *   await client.beta.messages.batches.cancel(
+   *     'message_batch_id',
+   *   );
+   * ```
+   */
+  cancel(messageBatchID, params = {}, options) {
+    const { betas } = params ?? {};
+    return this._client.post(path5`/v1/messages/batches/${messageBatchID}/cancel?beta=true`, {
+      ...options,
+      headers: buildHeaders([
+        { "anthropic-beta": [...betas ?? [], "message-batches-2024-09-24"].toString() },
+        options?.headers
+      ])
+    });
+  }
+  /**
+   * Streams the results of a Message Batch as a `.jsonl` file.
+   *
+   * Each line in the file is a JSON object containing the result of a single request
+   * in the Message Batch. Results are not guaranteed to be in the same order as
+   * requests. Use the `custom_id` field to match results to requests.
+   *
+   * Learn more about the Message Batches API in our
+   * [user guide](https://docs.claude.com/en/docs/build-with-claude/batch-processing)
+   *
+   * @example
+   * ```ts
+   * const betaMessageBatchIndividualResponse =
+   *   await client.beta.messages.batches.results(
+   *     'message_batch_id',
+   *   );
+   * ```
+   */
+  async results(messageBatchID, params = {}, options) {
+    const batch = await this.retrieve(messageBatchID);
+    if (!batch.results_url) {
+      throw new AnthropicError(`No batch \`results_url\`; Has it finished processing? ${batch.processing_status} - ${batch.id}`);
+    }
+    const { betas } = params ?? {};
+    return this._client.get(batch.results_url, {
+      ...options,
+      headers: buildHeaders([
+        {
+          "anthropic-beta": [...betas ?? [], "message-batches-2024-09-24"].toString(),
+          Accept: "application/binary"
+        },
+        options?.headers
+      ]),
+      stream: true,
+      __binaryResponse: true
+    })._thenUnwrap((_, props) => JSONLDecoder.fromResponse(props.response, props.controller));
+  }
+};
 
 // node_modules/@anthropic-ai/sdk/internal/constants.mjs
 var MODEL_NONSTREAMING_TOKENS = {
@@ -9167,230 +10130,6 @@ async function generateToolResponse(params, lastMessage = params.messages.at(-1)
     content: toolResults
   };
 }
-
-// node_modules/@anthropic-ai/sdk/internal/decoders/jsonl.mjs
-var JSONLDecoder = class _JSONLDecoder {
-  constructor(iterator2, controller) {
-    this.iterator = iterator2;
-    this.controller = controller;
-  }
-  async *decoder() {
-    const lineDecoder = new LineDecoder();
-    for await (const chunk of this.iterator) {
-      for (const line of lineDecoder.decode(chunk)) {
-        yield JSON.parse(line);
-      }
-    }
-    for (const line of lineDecoder.flush()) {
-      yield JSON.parse(line);
-    }
-  }
-  [Symbol.asyncIterator]() {
-    return this.decoder();
-  }
-  static fromResponse(response, controller) {
-    if (!response.body) {
-      controller.abort();
-      if (typeof globalThis.navigator !== "undefined" && globalThis.navigator.product === "ReactNative") {
-        throw new AnthropicError(`The default react-native fetch implementation does not support streaming. Please use expo/fetch: https://docs.expo.dev/versions/latest/sdk/expo/#expofetch-api`);
-      }
-      throw new AnthropicError(`Attempted to iterate over a response with no body`);
-    }
-    return new _JSONLDecoder(ReadableStreamToAsyncIterable(response.body), controller);
-  }
-};
-
-// node_modules/@anthropic-ai/sdk/resources/beta/messages/batches.mjs
-var Batches = class extends APIResource {
-  /**
-   * Send a batch of Message creation requests.
-   *
-   * The Message Batches API can be used to process multiple Messages API requests at
-   * once. Once a Message Batch is created, it begins processing immediately. Batches
-   * can take up to 24 hours to complete.
-   *
-   * Learn more about the Message Batches API in our
-   * [user guide](https://docs.claude.com/en/docs/build-with-claude/batch-processing)
-   *
-   * @example
-   * ```ts
-   * const betaMessageBatch =
-   *   await client.beta.messages.batches.create({
-   *     requests: [
-   *       {
-   *         custom_id: 'my-custom-id-1',
-   *         params: {
-   *           max_tokens: 1024,
-   *           messages: [
-   *             { content: 'Hello, world', role: 'user' },
-   *           ],
-   *           model: 'claude-opus-4-6',
-   *         },
-   *       },
-   *     ],
-   *   });
-   * ```
-   */
-  create(params, options) {
-    const { betas, ...body } = params;
-    return this._client.post("/v1/messages/batches?beta=true", {
-      body,
-      ...options,
-      headers: buildHeaders([
-        { "anthropic-beta": [...betas ?? [], "message-batches-2024-09-24"].toString() },
-        options?.headers
-      ])
-    });
-  }
-  /**
-   * This endpoint is idempotent and can be used to poll for Message Batch
-   * completion. To access the results of a Message Batch, make a request to the
-   * `results_url` field in the response.
-   *
-   * Learn more about the Message Batches API in our
-   * [user guide](https://docs.claude.com/en/docs/build-with-claude/batch-processing)
-   *
-   * @example
-   * ```ts
-   * const betaMessageBatch =
-   *   await client.beta.messages.batches.retrieve(
-   *     'message_batch_id',
-   *   );
-   * ```
-   */
-  retrieve(messageBatchID, params = {}, options) {
-    const { betas } = params ?? {};
-    return this._client.get(path5`/v1/messages/batches/${messageBatchID}?beta=true`, {
-      ...options,
-      headers: buildHeaders([
-        { "anthropic-beta": [...betas ?? [], "message-batches-2024-09-24"].toString() },
-        options?.headers
-      ])
-    });
-  }
-  /**
-   * List all Message Batches within a Workspace. Most recently created batches are
-   * returned first.
-   *
-   * Learn more about the Message Batches API in our
-   * [user guide](https://docs.claude.com/en/docs/build-with-claude/batch-processing)
-   *
-   * @example
-   * ```ts
-   * // Automatically fetches more pages as needed.
-   * for await (const betaMessageBatch of client.beta.messages.batches.list()) {
-   *   // ...
-   * }
-   * ```
-   */
-  list(params = {}, options) {
-    const { betas, ...query } = params ?? {};
-    return this._client.getAPIList("/v1/messages/batches?beta=true", Page, {
-      query,
-      ...options,
-      headers: buildHeaders([
-        { "anthropic-beta": [...betas ?? [], "message-batches-2024-09-24"].toString() },
-        options?.headers
-      ])
-    });
-  }
-  /**
-   * Delete a Message Batch.
-   *
-   * Message Batches can only be deleted once they've finished processing. If you'd
-   * like to delete an in-progress batch, you must first cancel it.
-   *
-   * Learn more about the Message Batches API in our
-   * [user guide](https://docs.claude.com/en/docs/build-with-claude/batch-processing)
-   *
-   * @example
-   * ```ts
-   * const betaDeletedMessageBatch =
-   *   await client.beta.messages.batches.delete(
-   *     'message_batch_id',
-   *   );
-   * ```
-   */
-  delete(messageBatchID, params = {}, options) {
-    const { betas } = params ?? {};
-    return this._client.delete(path5`/v1/messages/batches/${messageBatchID}?beta=true`, {
-      ...options,
-      headers: buildHeaders([
-        { "anthropic-beta": [...betas ?? [], "message-batches-2024-09-24"].toString() },
-        options?.headers
-      ])
-    });
-  }
-  /**
-   * Batches may be canceled any time before processing ends. Once cancellation is
-   * initiated, the batch enters a `canceling` state, at which time the system may
-   * complete any in-progress, non-interruptible requests before finalizing
-   * cancellation.
-   *
-   * The number of canceled requests is specified in `request_counts`. To determine
-   * which requests were canceled, check the individual results within the batch.
-   * Note that cancellation may not result in any canceled requests if they were
-   * non-interruptible.
-   *
-   * Learn more about the Message Batches API in our
-   * [user guide](https://docs.claude.com/en/docs/build-with-claude/batch-processing)
-   *
-   * @example
-   * ```ts
-   * const betaMessageBatch =
-   *   await client.beta.messages.batches.cancel(
-   *     'message_batch_id',
-   *   );
-   * ```
-   */
-  cancel(messageBatchID, params = {}, options) {
-    const { betas } = params ?? {};
-    return this._client.post(path5`/v1/messages/batches/${messageBatchID}/cancel?beta=true`, {
-      ...options,
-      headers: buildHeaders([
-        { "anthropic-beta": [...betas ?? [], "message-batches-2024-09-24"].toString() },
-        options?.headers
-      ])
-    });
-  }
-  /**
-   * Streams the results of a Message Batch as a `.jsonl` file.
-   *
-   * Each line in the file is a JSON object containing the result of a single request
-   * in the Message Batch. Results are not guaranteed to be in the same order as
-   * requests. Use the `custom_id` field to match results to requests.
-   *
-   * Learn more about the Message Batches API in our
-   * [user guide](https://docs.claude.com/en/docs/build-with-claude/batch-processing)
-   *
-   * @example
-   * ```ts
-   * const betaMessageBatchIndividualResponse =
-   *   await client.beta.messages.batches.results(
-   *     'message_batch_id',
-   *   );
-   * ```
-   */
-  async results(messageBatchID, params = {}, options) {
-    const batch = await this.retrieve(messageBatchID);
-    if (!batch.results_url) {
-      throw new AnthropicError(`No batch \`results_url\`; Has it finished processing? ${batch.processing_status} - ${batch.id}`);
-    }
-    const { betas } = params ?? {};
-    return this._client.get(batch.results_url, {
-      ...options,
-      headers: buildHeaders([
-        {
-          "anthropic-beta": [...betas ?? [], "message-batches-2024-09-24"].toString(),
-          Accept: "application/binary"
-        },
-        options?.headers
-      ]),
-      stream: true,
-      __binaryResponse: true
-    })._thenUnwrap((_, props) => JSONLDecoder.fromResponse(props.response, props.controller));
-  }
-};
 
 // node_modules/@anthropic-ai/sdk/resources/beta/messages/messages.mjs
 var DEPRECATED_MODELS = {
@@ -11328,17 +12067,6 @@ var Models2 = class extends APIResource {
   }
 };
 
-// node_modules/@anthropic-ai/sdk/internal/utils/env.mjs
-var readEnv = (env) => {
-  if (typeof globalThis.process !== "undefined") {
-    return globalThis.process.env?.[env]?.trim() || void 0;
-  }
-  if (typeof globalThis.Deno !== "undefined") {
-    return globalThis.Deno.env?.get?.(env)?.trim() || void 0;
-  }
-  return void 0;
-};
-
 // node_modules/@anthropic-ai/sdk/client.mjs
 var _BaseAnthropic_instances;
 var _a;
@@ -11347,6 +12075,19 @@ var _BaseAnthropic_baseURLOverridden;
 var HUMAN_PROMPT = "\\n\\nHuman:";
 var AI_PROMPT = "\\n\\nAssistant:";
 var BaseAnthropic = class {
+  /**
+   * The active credential provider. Default credential resolution runs once
+   * at construction time. If it fails, the error is surfaced on every
+   * request and the client must be reconstructed — there is no retry path.
+   *
+   * Clones returned by {@link withOptions} share the parent's auth state
+   * (provider, token cache, pending resolution, and any resolution error)
+   * unless the caller passes an explicit `apiKey`, `authToken`,
+   * `credentials`, `config`, or `profile` override.
+   */
+  get credentials() {
+    return this._authState.provider;
+  }
   /**
    * API Client for interfacing with the Anthropic API.
    *
@@ -11361,9 +12102,19 @@ var BaseAnthropic = class {
    * @param {Record<string, string | undefined>} opts.defaultQuery - Default query parameters to include with every request to the API.
    * @param {boolean} [opts.dangerouslyAllowBrowser=false] - By default, client-side use of this library is not allowed, as it risks exposing your secret API credentials to attackers.
    */
-  constructor({ baseURL = readEnv("ANTHROPIC_BASE_URL"), apiKey = readEnv("ANTHROPIC_API_KEY") ?? null, authToken = readEnv("ANTHROPIC_AUTH_TOKEN") ?? null, ...opts } = {}) {
+  constructor({ baseURL = readEnv("ANTHROPIC_BASE_URL"), apiKey, authToken, ...opts } = {}) {
     _BaseAnthropic_instances.add(this);
+    this._requestAuthFlags = /* @__PURE__ */ new WeakMap();
     _BaseAnthropic_encoder.set(this, void 0);
+    if (apiKey === void 0) {
+      apiKey = opts.profile != null ? null : readEnv("ANTHROPIC_API_KEY") ?? null;
+    }
+    if (authToken === void 0) {
+      authToken = opts.profile != null ? null : readEnv("ANTHROPIC_AUTH_TOKEN") ?? null;
+    }
+    if (opts.profile != null && (opts.credentials != null || opts.config != null)) {
+      throw new TypeError("Pass at most one of `profile`, `credentials`, or `config`.");
+    }
     const options = {
       apiKey,
       authToken,
@@ -11374,6 +12125,7 @@ var BaseAnthropic = class {
       throw new AnthropicError("It looks like you're running in a browser-like environment.\n\nThis is disabled by default, as it risks exposing your secret API credentials to attackers.\nIf you understand the risks and have appropriate mitigations in place,\nyou can set the `dangerouslyAllowBrowser` option to `true`, e.g.,\n\nnew Anthropic({ apiKey, dangerouslyAllowBrowser: true });\n");
     }
     this.baseURL = options.baseURL;
+    this._baseURLIsExplicit = opts.__baseURLIsExplicit ?? !!baseURL;
     this.timeout = options.timeout ?? _a.DEFAULT_TIMEOUT;
     this.logger = options.logger ?? console;
     const defaultLogLevel = "warn";
@@ -11383,17 +12135,107 @@ var BaseAnthropic = class {
     this.maxRetries = options.maxRetries ?? 2;
     this.fetch = options.fetch ?? getDefaultFetch();
     __classPrivateFieldSet(this, _BaseAnthropic_encoder, FallbackEncoder, "f");
+    const customHeadersEnv = readEnv("ANTHROPIC_CUSTOM_HEADERS");
+    if (customHeadersEnv) {
+      const parsed = {};
+      for (const line of customHeadersEnv.split("\n")) {
+        const colon = line.indexOf(":");
+        if (colon >= 0) {
+          parsed[line.substring(0, colon).trim()] = line.substring(colon + 1).trim();
+        }
+      }
+      options.defaultHeaders = { ...parsed, ...options.defaultHeaders };
+    }
+    const inherited = opts.__auth;
+    delete options.__auth;
+    delete options.__baseURLIsExplicit;
     this._options = options;
     this.apiKey = typeof apiKey === "string" ? apiKey : null;
     this.authToken = authToken;
+    if (inherited) {
+      this._authState = inherited;
+      if (!this._baseURLIsExplicit && inherited.baseURL) {
+        this.baseURL = inherited.baseURL;
+      }
+    } else {
+      this._authState = { provider: null, tokenCache: null, resolution: null, error: null, extraHeaders: {} };
+      if (this.apiKey == null && this.authToken == null) {
+        const credentials = options.credentials ?? null;
+        if (credentials) {
+          this._authState.provider = credentials;
+          this._authState.tokenCache = this._makeTokenCache(credentials);
+        } else if (options.config != null) {
+          const result = resolveCredentialsFromConfig(options.config, this._credentialResolverOptions());
+          this._authState.provider = result.provider;
+          this._authState.tokenCache = this._makeTokenCache(result.provider);
+          this._authState.extraHeaders = result.extraHeaders;
+          this._applyCredentialBaseURL(result.baseURL);
+        } else if (options.profile != null) {
+          this._authState.resolution = this._resolveDefaultCredentials(options.profile);
+        } else {
+          this._authState.resolution = this._resolveDefaultCredentials();
+        }
+      }
+    }
+  }
+  /**
+   * Stores a profile/config-supplied base URL on the shared auth state and, if
+   * the caller did not pin `baseURL` via constructor option or env, adopts it
+   * as this client's outbound API host. Precedence: ctor opt > env > profile >
+   * hardcoded default.
+   */
+  _applyCredentialBaseURL(baseURL) {
+    if (!baseURL)
+      return;
+    const normalized = baseURL.replace(/\/+$/, "");
+    this._authState.baseURL = normalized;
+    if (!this._baseURLIsExplicit) {
+      this.baseURL = normalized;
+    }
+  }
+  /**
+   * Options bag passed into the credential chain. `baseURL` here is only the
+   * fallback host for the token-exchange POST when the config itself omits
+   * `base_url`; the chain returns the config's own `base_url` (if any) on
+   * {@link CredentialResult.baseURL}, which {@link _applyCredentialBaseURL}
+   * then adopts for outbound API requests. The two are deliberately decoupled
+   * so this fallback never round-trips into precedence.
+   */
+  _credentialResolverOptions() {
+    return {
+      baseURL: this.baseURL,
+      fetch: this.fetch,
+      userAgent: this.getUserAgent(),
+      onCacheWriteError: (err) => {
+        loggerFor(this).debug("credential cache write failed (best-effort)", err);
+      },
+      onSafetyWarning: (msg) => {
+        loggerFor(this).warn(msg);
+      }
+    };
+  }
+  _makeTokenCache(provider) {
+    return new TokenCache(provider, (err) => {
+      loggerFor(this).debug("advisory token refresh failed; serving cached token", err);
+    });
   }
   /**
    * Create a new client instance re-using the same options given to the current client with optional overriding.
    */
   withOptions(options) {
-    const client = new this.constructor({
+    const overridesStructuredAuth = "credentials" in options || "config" in options || "profile" in options;
+    const overridesAuth = "apiKey" in options || "authToken" in options || overridesStructuredAuth;
+    const internal = {
       ...this._options,
-      baseURL: this.baseURL,
+      // Only forward baseURL when the caller (or env) explicitly chose it.
+      // For a non-explicit parent, this.baseURL may have been mutated to the
+      // profile-resolved host; pinning that as the clone's options.baseURL
+      // would make _options on the clone misreport caller intent and would
+      // leave the clone stuck on the parent's host across an auth override.
+      // The clone instead receives the construction-time value via
+      // ...this._options above and re-adopts the profile host through the
+      // shared _authState.baseURL + __baseURLIsExplicit=false path.
+      ...this._baseURLIsExplicit ? { baseURL: this.baseURL } : {},
       maxRetries: this.maxRetries,
       timeout: this.timeout,
       logger: this.logger,
@@ -11402,15 +12244,59 @@ var BaseAnthropic = class {
       fetchOptions: this.fetchOptions,
       apiKey: this.apiKey,
       authToken: this.authToken,
-      ...options
-    });
-    return client;
+      // credentials: this.credentials is a no-op when __auth is shared (the
+      // ctor takes the inherited path and ignores options.credentials); when
+      // overridesAuth is true via apiKey/authToken only, it lets the clone
+      // build a fresh TokenCache around the parent's provider.
+      credentials: this.credentials,
+      // When the caller passes a structured-credential override, drop inherited
+      // structured-credential options so only `...options` supplies them —
+      // otherwise an inherited `credentials`/`config`/`profile` would trip the
+      // mutual-exclusion check or precedence over the override.
+      ...overridesStructuredAuth ? { credentials: void 0, config: void 0, profile: void 0 } : {},
+      ...options,
+      // Always set __auth so any stale value from ...this._options is
+      // overwritten. undefined means "build fresh auth from these options".
+      __auth: overridesAuth ? void 0 : this._authState,
+      __baseURLIsExplicit: "baseURL" in options ? true : this._baseURLIsExplicit
+    };
+    return new this.constructor(internal);
+  }
+  /**
+   * Lazily resolves credentials from config files or environment variables.
+   * Called once from the constructor when no explicit auth is provided, or
+   * when an explicit `profile` was passed (in which case a missing/unresolved
+   * profile is surfaced as an error instead of falling through to "no auth").
+   * The returned promise is stored and awaited on the first request.
+   */
+  async _resolveDefaultCredentials(profile) {
+    try {
+      const result = await defaultCredentials(this._credentialResolverOptions(), profile);
+      if (result) {
+        this._authState.provider = result.provider;
+        this._authState.tokenCache = this._makeTokenCache(result.provider);
+        this._authState.extraHeaders = result.extraHeaders;
+        this._applyCredentialBaseURL(result.baseURL);
+      } else if (profile != null) {
+        throw new AnthropicError(`Profile "${profile}" could not be resolved (no <config_dir>/configs/${profile}.json found).`);
+      }
+    } catch (err) {
+      this._authState.error = err;
+    } finally {
+      this._authState.resolution = null;
+    }
   }
   defaultQuery() {
     return this._options.defaultQuery;
   }
   validateHeaders({ values, nulls }) {
     if (values.get("x-api-key") || values.get("authorization")) {
+      return;
+    }
+    if (this._authState.error) {
+      throw this._authState.error;
+    }
+    if (this._authState.tokenCache || this._authState.resolution) {
       return;
     }
     if (this.apiKey && values.get("x-api-key")) {
@@ -11425,9 +12311,28 @@ var BaseAnthropic = class {
     if (nulls.has("authorization")) {
       return;
     }
-    throw new Error('Could not resolve authentication method. Expected either apiKey or authToken to be set. Or for one of the "X-Api-Key" or "Authorization" headers to be explicitly omitted');
+    throw new Error('Could not resolve authentication method. Expected one of apiKey, authToken, credentials, config, or profile to be set. Or for one of the "X-Api-Key" or "Authorization" headers to be explicitly omitted');
+  }
+  _authFlags(opts) {
+    let flags = this._requestAuthFlags.get(opts);
+    if (!flags) {
+      flags = { usedTokenCache: false, didRefreshFor401: false };
+      this._requestAuthFlags.set(opts, flags);
+    }
+    return flags;
   }
   async authHeaders(opts) {
+    if (this._authState.resolution) {
+      await this._authState.resolution;
+    }
+    if (this._authState.error) {
+      return void 0;
+    }
+    if (this._authState.tokenCache && this.apiKey == null) {
+      const token = await this._authState.tokenCache.getToken();
+      this._authFlags(opts).usedTokenCache = true;
+      return buildHeaders([{ Authorization: `Bearer ${token}` }]);
+    }
     return buildHeaders([await this.apiKeyAuth(opts), await this.bearerAuth(opts)]);
   }
   async apiKeyAuth(opts) {
@@ -11490,6 +12395,18 @@ var BaseAnthropic = class {
    * the request properties, e.g. `method` or `url`.
    */
   async prepareRequest(request2, { url, options }) {
+    if (this._authState.tokenCache && this.apiKey == null) {
+      const headers = request2.headers instanceof Headers ? request2.headers : new Headers(request2.headers);
+      for (const [k, v] of Object.entries(this._authState.extraHeaders)) {
+        if (!headers.has(k))
+          headers.set(k, v);
+      }
+      const existing = headers.get("anthropic-beta")?.split(",").map((s) => s.trim());
+      if (!existing?.includes(OAUTH_API_BETA_HEADER)) {
+        headers.append("anthropic-beta", OAUTH_API_BETA_HEADER);
+      }
+      request2.headers = headers;
+    }
   }
   get(path7, opts) {
     return this.methodRequest("get", path7, opts);
@@ -11519,6 +12436,7 @@ var BaseAnthropic = class {
     const maxRetries = options.maxRetries ?? this.maxRetries;
     if (retriesRemaining == null) {
       retriesRemaining = maxRetries;
+      this._requestAuthFlags.delete(options);
     }
     await this.prepareOptions(options);
     const { req, url, timeout } = await this.buildRequest(options, {
@@ -11572,7 +12490,7 @@ var BaseAnthropic = class {
     const specialHeaders = [...response.headers.entries()].filter(([name]) => name === "request-id").map(([name, value]) => ", " + name + ": " + JSON.stringify(value)).join("");
     const responseInfo = `[${requestLogID}${retryLogStr}${specialHeaders}] ${req.method} ${url} ${response.ok ? "succeeded" : "failed"} with status ${response.status} in ${headersTime - startTime}ms`;
     if (!response.ok) {
-      const shouldRetry = await this.shouldRetry(response);
+      const shouldRetry = await this.shouldRetry(response, options);
       if (retriesRemaining && shouldRetry) {
         const retryMessage2 = `retrying, ${retriesRemaining} attempts remaining`;
         await CancelReadableStream(response.body);
@@ -11641,7 +12559,13 @@ var BaseAnthropic = class {
       clearTimeout(timeout);
     }
   }
-  async shouldRetry(response) {
+  async shouldRetry(response, options) {
+    const flags = this._authFlags(options);
+    if (response.status === 401 && this._authState.tokenCache && flags.usedTokenCache && !flags.didRefreshFor401) {
+      flags.didRefreshFor401 = true;
+      this._authState.tokenCache.invalidate();
+      return true;
+    }
     const shouldRetryHeader = response.headers.get("x-should-retry");
     if (shouldRetryHeader === "true")
       return true;
@@ -11702,6 +12626,12 @@ var BaseAnthropic = class {
   async buildRequest(inputOptions, { retryCount = 0 } = {}) {
     const options = { ...inputOptions };
     const { method, path: path7, query, defaultBaseURL } = options;
+    if (this._authState.resolution) {
+      await this._authState.resolution;
+    }
+    if (!this._baseURLIsExplicit && this._authState.baseURL && this.baseURL !== this._authState.baseURL) {
+      this.baseURL = this._authState.baseURL;
+    }
     const url = this.buildURL(path7, query, defaultBaseURL);
     if ("timeout" in options)
       validatePositiveInteger("timeout", options.timeout);
@@ -12013,6 +12943,38 @@ function isHttpMcpServer(s) {
   return s.type !== "stdio";
 }
 
+// src/lib/llm/agent-loop/compact.ts
+function estimateTokens(text) {
+  return Math.ceil(text.length / 4);
+}
+function compactOldToolResults(messages, windowTurns) {
+  const toolResultIndices = [];
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+    if (msg.role === "user" && Array.isArray(msg.content)) {
+      const content = msg.content;
+      if (content.some((b) => b.type === "tool_result")) {
+        toolResultIndices.push(i);
+      }
+    }
+  }
+  if (toolResultIndices.length <= windowTurns) return;
+  const compactCount = toolResultIndices.length - windowTurns;
+  for (let k = 0; k < compactCount; k++) {
+    const idx = toolResultIndices[k];
+    const msg = messages[idx];
+    const content = msg.content;
+    for (let j = 0; j < content.length; j++) {
+      const block = content[j];
+      if (block.type !== "tool_result") continue;
+      if (typeof block.content !== "string") continue;
+      if (block.content.startsWith("[compacted")) continue;
+      const tokens = estimateTokens(block.content);
+      content[j] = { ...block, content: `[compacted \u2014 ~${tokens} tokens elided]` };
+    }
+  }
+}
+
 // src/lib/llm/agent-loop/anthropic.ts
 var KEEP_LAST_TURNS = 6;
 var STUB = "[truncated: tool result elided to save context]";
@@ -12052,6 +13014,7 @@ function createAnthropicAgentLoop(opts) {
     const maxIterations = opts.maxIterations ?? parseInt(process.env.FERRY_DEV_MAX_ITERATIONS ?? "200", 10);
     const maxInputTokens = opts.maxInputTokens ?? parseInt(process.env.FERRY_DEV_MAX_INPUT_TOKENS ?? "500000", 10);
     const maxTokens = opts.maxTokens ?? parseInt(process.env.FERRY_DEV_MAX_TOKENS ?? "16384", 10);
+    const compactWindow = opts.compactWindow ?? parseInt(process.env.FERRY_DEV_COMPACT_WINDOW ?? "8", 10);
     const allServers = input.mcpServers ?? [];
     const httpServers = allServers.filter(
       (s) => isHttpMcpServer(s) && "url" in s
@@ -12082,6 +13045,7 @@ function createAnthropicAgentLoop(opts) {
         maxIterations,
         maxInputTokens,
         maxTokens,
+        compactWindow,
         hasHttp,
         mcpServerParams,
         mcpToolsets,
@@ -12103,6 +13067,7 @@ function createAnthropicAgentLoop(opts) {
       maxIterations,
       maxInputTokens,
       maxTokens,
+      compactWindow,
       hasHttp,
       mcpServerParams,
       mcpToolsets,
@@ -12134,11 +13099,12 @@ function createAnthropicAgentLoop(opts) {
     while (iter < maxIterations) {
       iter++;
       const iterStart = Date.now();
-      if (usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens > maxInputTokens) {
+      const billableEquiv = usage.input_tokens + usage.cache_read_input_tokens * 0.1 + usage.cache_creation_input_tokens;
+      if (billableEquiv > maxInputTokens) {
         throw new FerryError("spend-cap", {
           reason: "input-token-budget-exceeded",
           cap: maxInputTokens,
-          consumed: usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens
+          consumed: billableEquiv
         });
       }
       pruneMessageHistory(messages);
@@ -12325,6 +13291,7 @@ function createAnthropicAgentLoop(opts) {
         toolResults[toolResults.length - 1] = { ...last, cache_control: { type: "ephemeral" } };
       }
       messages.push({ role: "user", content: toolResults });
+      compactOldToolResults(messages, compactWindow);
       if (done) {
         emitDebug(
           {

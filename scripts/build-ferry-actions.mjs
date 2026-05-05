@@ -2,6 +2,8 @@ import { build } from 'esbuild';
 import { mkdirSync, copyFileSync, writeFileSync, readFileSync } from 'fs';
 import { execSync } from 'child_process';
 
+const rootDeps = JSON.parse(readFileSync('package.json', 'utf8')).dependencies;
+
 mkdirSync('.ferry/schemas', { recursive: true });
 mkdirSync('.ferry/prompts', { recursive: true });
 for (const name of ['refiner', 'dev', 'review', 'review-comment', 'iterate']) {
@@ -93,10 +95,10 @@ writeFileSync(
       private: true,
       type: 'module',
       dependencies: {
-        ajv: '^8.0.0',
-        'ajv-formats': '^3.0.1',
-        '@octokit/rest': '^22.0.1',
-        '@anthropic-ai/sdk': '^0.91.1',
+        ajv: rootDeps['ajv'],
+        'ajv-formats': rootDeps['ajv-formats'],
+        '@octokit/rest': rootDeps['@octokit/rest'],
+        '@anthropic-ai/sdk': rootDeps['@anthropic-ai/sdk'],
         yaml: '^2.6.0',
       },
     },
