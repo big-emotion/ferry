@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import url from 'node:url';
 import { buildIteratorPrompt, formatCommitMessage } from './prompt.js';
+
+const here = path.dirname(url.fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(here, '../../..');
+const iteratePrompt = readFileSync(path.join(repoRoot, 'prompts/iterate.md'), 'utf8');
 
 const baseFinding = {
   rule_id: 'no-skipped-tests',
@@ -8,6 +15,22 @@ const baseFinding = {
   line_start: 3,
   line_end: 3,
 };
+
+describe('prompts/iterate.md system prompt', () => {
+  it('forbids node_modules and framework spelunking', () => {
+    expect(iteratePrompt).toContain('Do NOT read `node_modules/`');
+    expect(iteratePrompt).toContain('framework internals');
+  });
+
+  it('provides done({actionable: false}) escape hatch for missing framework knowledge', () => {
+    expect(iteratePrompt).toContain('done({actionable: false, reason_if_not_actionable: ...})');
+  });
+
+  it('instructs parallel tool_use blocks with one-file-per-call rule', () => {
+    expect(iteratePrompt).toContain('emit multiple `tool_use` blocks in one turn');
+    expect(iteratePrompt).toContain('One file = one tool call');
+  });
+});
 
 describe('iterator prompt', () => {
   it('renders correctly with 0 prior iterations', () => {
