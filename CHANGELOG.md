@@ -11,6 +11,14 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.8.1] — 2026-05-05
+
+### Fixed
+
+- **`timeout-minutes` removed from composite action steps** — v0.8.0 set `timeout-minutes:` on the `Pre-agent setup` step inside all four `ferry-run-{developer,refiner,reviewer,iterator}` composite actions. GitHub Actions does not support that key on composite-action steps (only on workflow/job steps), so every consumer pinned to `@v0.8.0` failed at job setup with `Unexpected value 'timeout-minutes'` before any agent code executed. Replaced with a shell-level `timeout Nm bash -c "$CMD"` wrapper. The `pre_agent_timeout_minutes` input still caps the pre-agent step (default `'3'`); behavior is preserved for consumers whose pre-agent command completes within the cap. Consumer impact: bump from `@v0.8.0` to `@v0.8.1` to unblock all four agent workflows.
+
+---
+
 ## [0.8.0] — 2026-05-05
 
 ### Added
