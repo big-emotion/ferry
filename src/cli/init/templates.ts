@@ -58,7 +58,7 @@ jobs:
           jira_email: \${{ secrets.FERRY_JIRA_EMAIL }}
           jira_api_token: \${{ secrets.FERRY_JIRA_API_TOKEN }}
           anthropic_api_key: \${{ secrets.ANTHROPIC_API_KEY }}
-          ferry_model: claude-sonnet-4-6
+          ferry_refiner_model: claude-sonnet-4-6
 
   emit-audit:
     name: Emit audit line
@@ -150,7 +150,7 @@ jobs:
           anthropic_api_key: \${{ secrets.ANTHROPIC_API_KEY }}
           github_token: \${{ github.token }}
           github_repo: \${{ github.repository }}
-          ferry_model: claude-sonnet-4-6
+          ferry_dev_model: claude-sonnet-4-6
 
   emit-audit:
     name: Emit audit line
