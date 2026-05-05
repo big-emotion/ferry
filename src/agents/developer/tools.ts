@@ -246,21 +246,17 @@ export async function executeTool(
       const resolved = assertPathUnderRoot(repoRoot, input.path as string);
       const maxBytes =
         parseInt(process.env.FERRY_READ_FILE_MAX_BYTES ?? '', 10) || MAX_READ_FILE_BYTES_DEFAULT;
-      let stat: fs.Stats;
+      let fh: fsp.FileHandle;
       try {
-        stat = await fsp.stat(resolved);
+        fh = await fsp.open(resolved, 'r');
       } catch (e) {
         throw new Error(`read_file failed: ${(e as NodeJS.ErrnoException).message}`);
       }
-      if (stat.size <= maxBytes) {
-        try {
-          return await fsp.readFile(resolved, 'utf8');
-        } catch (e) {
-          throw new Error(`read_file failed: ${(e as NodeJS.ErrnoException).message}`);
-        }
-      }
-      const fh = await fsp.open(resolved, 'r');
       try {
+        const stat = await fh.stat();
+        if (stat.size <= maxBytes) {
+          return await fh.readFile('utf8');
+        }
         const buf = Buffer.alloc(maxBytes);
         await fh.read(buf, 0, maxBytes, 0);
         const remaining = stat.size - maxBytes;

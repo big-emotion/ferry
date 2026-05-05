@@ -201,13 +201,14 @@ function assertBashAllowed(command) {
 
 // src/agents/developer/tools.ts
 var MAX_BASH_OUTPUT_DEFAULT = 64 * 1024;
+var MAX_READ_FILE_BYTES_DEFAULT = 256 * 1024;
 var DEFAULT_BASH_TIMEOUT_MS_DEFAULT = 6e4;
 var MAX_BASH_TIMEOUT_MS_DEFAULT = 3e5;
 var MAX_SEARCH_MATCHES = 200;
 var TOOL_SCHEMAS = [
   {
     name: "read_file",
-    description: "Read the contents of a file under the repository root.",
+    description: "Read the contents of a file under the repository root. Files larger than ~256 KB are truncated; use bash sed/grep to read specific ranges.",
     input_schema: {
       type: "object",
       properties: {
@@ -392,10 +393,24 @@ async function executeTool(repoRoot, name, input) {
   switch (name) {
     case "read_file": {
       const resolved = assertPathUnderRoot(repoRoot, input.path);
+      const maxBytes = parseInt(process.env.FERRY_READ_FILE_MAX_BYTES ?? "", 10) || MAX_READ_FILE_BYTES_DEFAULT;
+      let fh;
       try {
-        return await fsp.readFile(resolved, "utf8");
+        fh = await fsp.open(resolved, "r");
       } catch (e) {
         throw new Error(`read_file failed: ${e.message}`);
+      }
+      try {
+        const stat = await fh.stat();
+        if (stat.size <= maxBytes) {
+          return await fh.readFile("utf8");
+        }
+        const buf = Buffer.alloc(maxBytes);
+        await fh.read(buf, 0, maxBytes, 0);
+        const remaining = stat.size - maxBytes;
+        return buf.toString("utf8") + `\n[truncated: ${remaining} more bytes — file is ${stat.size} bytes total. Use bash 'sed -n "N,Mp" <path>' or 'grep -n <pattern> <path>' to read specific ranges.]`;
+      } finally {
+        await fh.close();
       }
     }
     case "write_file": {
@@ -481,7 +496,8 @@ stdout:
 ${result.stdout}
 stderr:
 ${result.stderr}`;
-      return combined.slice(0, maxBashOutput);
+      if (combined.length <= maxBashOutput) return combined;
+      return combined.slice(0, maxBashOutput) + `\n[truncated: ${combined.length - maxBashOutput} more bytes — pipe through head/grep/awk to narrow output.]`;
     }
     default:
       throw new Error(`Unknown tool: ${name}`);
