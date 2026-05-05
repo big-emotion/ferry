@@ -27,8 +27,40 @@ inputs:
   github_repo:
     description: GitHub repository (owner/repo)
     required: true
-  ferry_model:
+  ferry_dev_model:
     description: Model override (e.g. claude-opus-4-5)
+    required: false
+    default: ''
+  ferry_dev_provider:
+    description: LLM provider override (anthropic / openai / google)
+    required: false
+    default: ''
+  ferry_dev_max_input_tokens:
+    description: Input token budget per run (overrides limits.max_tokens_per_run)
+    required: false
+    default: ''
+  ferry_dev_max_tokens:
+    description: Maximum output tokens per LLM call (overrides limits.max_tokens_per_message)
+    required: false
+    default: ''
+  ferry_dev_max_iterations:
+    description: Maximum agent loop iterations per run (overrides limits.max_agent_iterations)
+    required: false
+    default: ''
+  ferry_bash_timeout_max_ms:
+    description: Maximum bash command timeout the agent may request in ms (overrides limits.bash_timeout_max_ms)
+    required: false
+    default: ''
+  ferry_max_cost_eur_per_run:
+    description: Cost budget in EUR per agent run (overrides limits.max_cost_eur_per_run)
+    required: false
+    default: ''
+  ferry_llm_retry_max_attempts:
+    description: Maximum retry attempts for LLM utility calls
+    required: false
+    default: ''
+  ferry_jira_retry_max_attempts:
+    description: Maximum Jira API retry attempts per operation
     required: false
     default: ''
 outputs:
@@ -72,5 +104,13 @@ runs:
         GITHUB_TOKEN: ${{ inputs.github_token }}
         GH_TOKEN: ${{ inputs.github_token }}
         GITHUB_REPO: ${{ inputs.github_repo }}
-        FERRY_MODEL: ${{ inputs.ferry_model }}
+        FERRY_DEV_MODEL: ${{ inputs.ferry_dev_model }}
+        FERRY_DEV_PROVIDER: ${{ inputs.ferry_dev_provider }}
+        FERRY_DEV_MAX_INPUT_TOKENS: ${{ inputs.ferry_dev_max_input_tokens }}
+        FERRY_DEV_MAX_TOKENS: ${{ inputs.ferry_dev_max_tokens }}
+        FERRY_DEV_MAX_ITERATIONS: ${{ inputs.ferry_dev_max_iterations }}
+        FERRY_BASH_TIMEOUT_MAX_MS: ${{ inputs.ferry_bash_timeout_max_ms }}
+        FERRY_MAX_COST_EUR_PER_RUN: ${{ inputs.ferry_max_cost_eur_per_run }}
+        FERRY_LLM_RETRY_MAX_ATTEMPTS: ${{ inputs.ferry_llm_retry_max_attempts }}
+        FERRY_JIRA_RETRY_MAX_ATTEMPTS: ${{ inputs.ferry_jira_retry_max_attempts }}
         FERRY_BUNDLED_PROMPTS_DIR: ${{ github.action_path }}/prompts
