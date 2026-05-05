@@ -511,10 +511,12 @@ function formatStepSummary(stats) {
   lines.push(`| Iterations | ${iterations} |`);
   const totalTokens = usage.input_tokens + usage.output_tokens + usage.cache_creation_input_tokens + usage.cache_read_input_tokens;
   if (totalTokens > 0) {
-    lines.push(`| Input tokens | ${usage.input_tokens.toLocaleString()} |`);
-    lines.push(`| Output tokens | ${usage.output_tokens.toLocaleString()} |`);
-    lines.push(`| Cache write tokens | ${usage.cache_creation_input_tokens.toLocaleString()} |`);
-    lines.push(`| Cache read tokens | ${usage.cache_read_input_tokens.toLocaleString()} |`);
+    lines.push(`| Input tokens | ${usage.input_tokens.toLocaleString("en-US")} |`);
+    lines.push(`| Output tokens | ${usage.output_tokens.toLocaleString("en-US")} |`);
+    lines.push(
+      `| Cache write tokens | ${usage.cache_creation_input_tokens.toLocaleString("en-US")} |`
+    );
+    lines.push(`| Cache read tokens | ${usage.cache_read_input_tokens.toLocaleString("en-US")} |`);
   }
   lines.push("");
   const toolEntries = Object.entries(toolCounts).sort((a, b) => b[1] - a[1]);
@@ -535,7 +537,7 @@ function formatStepSummary(stats) {
     lines.push("| Tool | Output bytes |");
     lines.push("|------|-------------|");
     for (const rec of topBySize) {
-      lines.push(`| \`${rec.name}\` | ${rec.outputSize.toLocaleString()} |`);
+      lines.push(`| \`${rec.name}\` | ${rec.outputSize.toLocaleString("en-US")} |`);
     }
     lines.push("");
   }

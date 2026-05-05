@@ -418,10 +418,12 @@ function formatStepSummary(stats) {
   lines.push(`| Iterations | ${iterations} |`);
   const totalTokens = usage.input_tokens + usage.output_tokens + usage.cache_creation_input_tokens + usage.cache_read_input_tokens;
   if (totalTokens > 0) {
-    lines.push(`| Input tokens | ${usage.input_tokens.toLocaleString()} |`);
-    lines.push(`| Output tokens | ${usage.output_tokens.toLocaleString()} |`);
-    lines.push(`| Cache write tokens | ${usage.cache_creation_input_tokens.toLocaleString()} |`);
-    lines.push(`| Cache read tokens | ${usage.cache_read_input_tokens.toLocaleString()} |`);
+    lines.push(`| Input tokens | ${usage.input_tokens.toLocaleString("en-US")} |`);
+    lines.push(`| Output tokens | ${usage.output_tokens.toLocaleString("en-US")} |`);
+    lines.push(
+      `| Cache write tokens | ${usage.cache_creation_input_tokens.toLocaleString("en-US")} |`
+    );
+    lines.push(`| Cache read tokens | ${usage.cache_read_input_tokens.toLocaleString("en-US")} |`);
   }
   lines.push("");
   const toolEntries = Object.entries(toolCounts).sort((a, b) => b[1] - a[1]);
@@ -442,7 +444,7 @@ function formatStepSummary(stats) {
     lines.push("| Tool | Output bytes |");
     lines.push("|------|-------------|");
     for (const rec of topBySize) {
-      lines.push(`| \`${rec.name}\` | ${rec.outputSize.toLocaleString()} |`);
+      lines.push(`| \`${rec.name}\` | ${rec.outputSize.toLocaleString("en-US")} |`);
     }
     lines.push("");
   }
@@ -6367,11 +6369,12 @@ function createAnthropicAgentLoop(opts) {
         if (msg.role === "user" && Array.isArray(msg.content)) {
           const content = msg.content;
           if (content.some((b) => b.type === "tool_result")) {
-            const lastIdx = content.length - 1;
-            if ("cache_control" in content[lastIdx]) {
-              const entry = { ...content[lastIdx] };
-              delete entry.cache_control;
-              content[lastIdx] = entry;
+            for (let j = 0; j < content.length; j++) {
+              if ("cache_control" in content[j]) {
+                const entry = { ...content[j] };
+                delete entry.cache_control;
+                content[j] = entry;
+              }
             }
             break;
           }
@@ -6599,7 +6602,7 @@ function classifyError(err) {
     if (err.code === "spend-cap") {
       const cap = err.context?.cap;
       const consumed = err.context?.consumed;
-      const detail = cap != null && consumed != null ? `spend cap exceeded (used ${Math.round(Number(consumed)).toLocaleString()} / ${Math.round(Number(cap)).toLocaleString()} tokens)` : "spend cap exceeded";
+      const detail = cap != null && consumed != null ? `spend cap exceeded (used ${Math.round(Number(consumed)).toLocaleString("en-US")} / ${Math.round(Number(cap)).toLocaleString("en-US")} tokens)` : "spend cap exceeded";
       return { code: err.code, detail };
     }
     if (err.code === "state-invariant" && reason === "iteration-cap-exceeded") {
