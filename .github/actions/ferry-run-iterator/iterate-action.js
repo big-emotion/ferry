@@ -312,26 +312,30 @@ var TOOL_SCHEMAS = [
   },
   {
     name: "done",
-    description: "Terminate the loop. Call when implementation is complete or cannot be done.",
+    description: "Terminate the loop. Call with the appropriate outcome when finished.",
     input_schema: {
       type: "object",
       properties: {
-        actionable: {
-          type: "boolean",
-          description: "true if changes were made, false if ticket cannot be implemented."
+        outcome: {
+          type: "string",
+          enum: ["implemented", "already_satisfied", "blocked"],
+          description: "implemented \u2014 code was changed; triggers commit, push, PR, and transition. already_satisfied \u2014 spec is verifiably met by existing code with no changes needed; triggers a verification PR and transition. blocked \u2014 true blocker (contradictory spec, missing access, requires human decision); applies ferry:blocked label and exits non-zero. Never use blocked when the spec is already satisfied \u2014 use already_satisfied instead."
         },
-        summary: { type: "string", description: "One sentence describing what was implemented." },
+        summary: {
+          type: "string",
+          description: "One sentence describing what was implemented, what satisfies the spec, or why blocked."
+        },
         commit_message: {
           type: "string",
-          description: "Conventional commit message for any remaining uncommitted changes (required when actionable: true)."
+          description: "Conventional commit message for any remaining uncommitted changes (required when outcome=implemented)."
         },
-        reason_if_not_actionable: {
+        reason: {
           type: "string",
-          description: "Reason the ticket cannot be implemented (required when actionable: false)."
+          description: "Clear explanation for the Jira escalation comment (required when outcome=blocked)."
         },
         validation: {
           type: "array",
-          description: "Validation commands run during this session and their outcomes (used in the PR body).",
+          description: "Validation commands run during this session and their outcomes (used in the PR body and verification note).",
           items: {
             type: "object",
             properties: {
@@ -350,7 +354,7 @@ var TOOL_SCHEMAS = [
           items: { type: "string" }
         }
       },
-      required: ["actionable", "summary"]
+      required: ["outcome", "summary"]
     }
   }
 ];
@@ -1082,7 +1086,9 @@ function createAnthropicAgentLoop(opts) {
         const name = block.name;
         const blockInput = block.input;
         if (name === "done") {
-          done = blockInput;
+          const outcome = blockInput.outcome;
+          const actionable = outcome !== void 0 ? outcome !== "blocked" : blockInput.actionable;
+          done = { ...blockInput, actionable, outcome };
           toolResults.push({ type: "tool_result", tool_use_id: id, content: "ok" });
           continue;
         }
@@ -1115,7 +1121,7 @@ function createAnthropicAgentLoop(opts) {
               toolResults.push({
                 type: "tool_result",
                 tool_use_id: id,
-                content: `Sub-agent could not complete task: ${subResult.done.reason_if_not_actionable ?? "no reason given"}`,
+                content: `Sub-agent could not complete task: ${subResult.done.reason ?? subResult.done.reason_if_not_actionable ?? "no reason given"}`,
                 is_error: true
               });
             } else {
@@ -1230,6 +1236,22 @@ function resolveAnthropicAuth(input) {
     return { apiKey };
   }
   throw new FerryError("state-invariant", { reason: "missing-env", key: input.apiKeyEnv });
+}
+
+// src/agents/iterator/outcome-guard.ts
+function assertIterOutputContract(outcome, outputs) {
+  if (outcome === "implemented" || outcome === "already_satisfied") {
+    if (!outputs.branchPushed) {
+      throw new Error(
+        `Output contract violation: outcome="${outcome}" requires branch to be pushed before posting terminal comment`
+      );
+    }
+    if (!outputs.prNumber) {
+      throw new Error(
+        `Output contract violation: outcome="${outcome}" requires an open PR before posting terminal comment`
+      );
+    }
+  }
 }
 
 // src/agents/iterator/cap.ts
@@ -6321,6 +6343,9 @@ var JiraTracker = class {
   async postTransition(key, transitionId) {
     await this.client.postTransition(key, transitionId);
   }
+  async addLabel(key, label) {
+    await this.client.addLabel(key, label);
+  }
   async getSubtasks(key) {
     return this.client.getSubtasks(key);
   }
@@ -6501,21 +6526,24 @@ ${existingLog}` : "",
     secretScan,
     mcpServers
   });
+  const resolvedOutcome = done.outcome ?? (done.actionable ? "implemented" : "blocked");
   logger.info("done", {
     iterations,
-    actionable: done.actionable,
+    outcome: resolvedOutcome,
     in: usage.input_tokens,
     cache_w: usage.cache_creation_input_tokens,
     cache_r: usage.cache_read_input_tokens,
     out: usage.output_tokens
   });
-  if (!done.actionable) {
+  if (resolvedOutcome === "blocked") {
+    const reason = done.reason ?? done.reason_if_not_actionable ?? "no reason given";
+    await tracker.addLabel(ticketKey, "ferry:blocked");
     await tracker.postComment(
       ticketKey,
-      `${idempotencyMarker} Cannot fix \u2014 ${done.reason_if_not_actionable ?? "no reason given"}`
+      `${idempotencyMarker} \u{1F6A8} BLOCKED \u2014 ${reason}. Manual intervention required.`
     );
     appendOutput({ ...usage, model, provider: iterProvider });
-    process.exit(0);
+    process.exit(1);
   }
   const commitMessage = formatCommitMessage({
     ticket_key: ticketKey,
@@ -6533,15 +6561,15 @@ ${existingLog}` : "",
     execFileSync3("git", ["commit", "-m", commitMessage], { cwd: REPO_ROOT });
   }
   execFileSync3("git", ["push", "origin", branchName, "--force-with-lease"], { cwd: REPO_ROOT });
+  const branchPushed = true;
+  assertIterOutputContract(resolvedOutcome, { branchPushed, prNumber });
   if (shouldAutoTransition) {
     await tracker.postTransition(ticketKey, reviewTransitionId);
   }
   const { next_iteration } = decideIteratorTransition({ current_iteration: priorIterations });
   const transitionNote = shouldAutoTransition ? " Moved back to Review." : "";
-  await tracker.postComment(
-    ticketKey,
-    `${idempotencyMarker} Iteration ${next_iteration} complete. Pushed fixes to PR#${prNumber}.${transitionNote}`
-  );
+  const terminalComment = resolvedOutcome === "already_satisfied" ? `${idempotencyMarker} Findings already addressed \u2014 no changes needed. Pushed to PR#${prNumber}.${transitionNote}` : `${idempotencyMarker} Iteration ${next_iteration} complete. Pushed fixes to PR#${prNumber}.${transitionNote}`;
+  await tracker.postComment(ticketKey, terminalComment);
   appendOutput({ ...usage, model, provider: iterProvider });
   process.exit(0);
 }

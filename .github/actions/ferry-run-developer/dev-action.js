@@ -122,6 +122,8 @@ var require_fast_content_type_parse = __commonJS({
 
 // src/agents/developer/dev-action.ts
 import { execFileSync as execFileSync4 } from "node:child_process";
+import * as fsp2 from "node:fs/promises";
+import * as path6 from "node:path";
 
 // src/lib/llm/delimit-untrusted.ts
 var OPEN = "<<<UNTRUSTED>>>";
@@ -2198,17 +2200,17 @@ function requestLog(octokit) {
     octokit.log.debug("request", options);
     const start = Date.now();
     const requestOptions = octokit.request.endpoint.parse(options);
-    const path6 = requestOptions.url.replace(options.baseUrl, "");
+    const path7 = requestOptions.url.replace(options.baseUrl, "");
     return request2(options).then((response) => {
       const requestId = response.headers["x-github-request-id"];
       octokit.log.info(
-        `${requestOptions.method} ${path6} - ${response.status} with id ${requestId} in ${Date.now() - start}ms`
+        `${requestOptions.method} ${path7} - ${response.status} with id ${requestId} in ${Date.now() - start}ms`
       );
       return response;
     }).catch((error) => {
       const requestId = error.response?.headers["x-github-request-id"] || "UNKNOWN";
       octokit.log.error(
-        `${requestOptions.method} ${path6} - ${error.status} with id ${requestId} in ${Date.now() - start}ms`
+        `${requestOptions.method} ${path7} - ${error.status} with id ${requestId} in ${Date.now() - start}ms`
       );
       throw error;
     });
@@ -4873,9 +4875,9 @@ var GitHubActionsRunner = class {
     if (runs.some((r) => r.conclusion === "failure" || r.conclusion === "timed_out")) return "red";
     return "green";
   }
-  async getFileContent(owner, repo, path6, ref) {
+  async getFileContent(owner, repo, path7, ref) {
     try {
-      const { data } = await this.octokit.repos.getContent({ owner, repo, path: path6, ref });
+      const { data } = await this.octokit.repos.getContent({ owner, repo, path: path7, ref });
       if ("content" in data && typeof data.content === "string") {
         const decoded = Buffer.from(data.content, "base64").toString("utf8");
         const maxChars = parseInt(process.env.FERRY_FILE_DISPLAY_CHARS ?? "", 10) || MAX_CONTENT_CHARS_DEFAULT;
@@ -5163,6 +5165,9 @@ var JiraTracker = class {
   async postTransition(key, transitionId) {
     await this.client.postTransition(key, transitionId);
   }
+  async addLabel(key, label) {
+    await this.client.addLabel(key, label);
+  }
   async getSubtasks(key) {
     return this.client.getSubtasks(key);
   }
@@ -5420,26 +5425,30 @@ var TOOL_SCHEMAS = [
   },
   {
     name: "done",
-    description: "Terminate the loop. Call when implementation is complete or cannot be done.",
+    description: "Terminate the loop. Call with the appropriate outcome when finished.",
     input_schema: {
       type: "object",
       properties: {
-        actionable: {
-          type: "boolean",
-          description: "true if changes were made, false if ticket cannot be implemented."
+        outcome: {
+          type: "string",
+          enum: ["implemented", "already_satisfied", "blocked"],
+          description: "implemented \u2014 code was changed; triggers commit, push, PR, and transition. already_satisfied \u2014 spec is verifiably met by existing code with no changes needed; triggers a verification PR and transition. blocked \u2014 true blocker (contradictory spec, missing access, requires human decision); applies ferry:blocked label and exits non-zero. Never use blocked when the spec is already satisfied \u2014 use already_satisfied instead."
         },
-        summary: { type: "string", description: "One sentence describing what was implemented." },
+        summary: {
+          type: "string",
+          description: "One sentence describing what was implemented, what satisfies the spec, or why blocked."
+        },
         commit_message: {
           type: "string",
-          description: "Conventional commit message for any remaining uncommitted changes (required when actionable: true)."
+          description: "Conventional commit message for any remaining uncommitted changes (required when outcome=implemented)."
         },
-        reason_if_not_actionable: {
+        reason: {
           type: "string",
-          description: "Reason the ticket cannot be implemented (required when actionable: false)."
+          description: "Clear explanation for the Jira escalation comment (required when outcome=blocked)."
         },
         validation: {
           type: "array",
-          description: "Validation commands run during this session and their outcomes (used in the PR body).",
+          description: "Validation commands run during this session and their outcomes (used in the PR body and verification note).",
           items: {
             type: "object",
             properties: {
@@ -5458,7 +5467,7 @@ var TOOL_SCHEMAS = [
           items: { type: "string" }
         }
       },
-      required: ["actionable", "summary"]
+      required: ["outcome", "summary"]
     }
   }
 ];
@@ -6145,7 +6154,9 @@ function createAnthropicAgentLoop(opts) {
         const name = block.name;
         const blockInput = block.input;
         if (name === "done") {
-          done = blockInput;
+          const outcome = blockInput.outcome;
+          const actionable = outcome !== void 0 ? outcome !== "blocked" : blockInput.actionable;
+          done = { ...blockInput, actionable, outcome };
           toolResults.push({ type: "tool_result", tool_use_id: id, content: "ok" });
           continue;
         }
@@ -6178,7 +6189,7 @@ function createAnthropicAgentLoop(opts) {
               toolResults.push({
                 type: "tool_result",
                 tool_use_id: id,
-                content: `Sub-agent could not complete task: ${subResult.done.reason_if_not_actionable ?? "no reason given"}`,
+                content: `Sub-agent could not complete task: ${subResult.done.reason ?? subResult.done.reason_if_not_actionable ?? "no reason given"}`,
                 is_error: true
               });
             } else {
@@ -6394,13 +6405,13 @@ function packageJsonPath(repoRoot) {
   return path5.join(repoRoot, "package.json");
 }
 function detectPackageManager(repoRoot, _checkExists = existsSync4, _readFile = (p, enc) => readFileSync4(p, enc)) {
-  const join5 = (file) => path5.join(repoRoot, file);
-  if (_checkExists(join5("pnpm-lock.yaml"))) {
+  const join6 = (file) => path5.join(repoRoot, file);
+  if (_checkExists(join6("pnpm-lock.yaml"))) {
     return "pnpm lockfile detected (`pnpm-lock.yaml`). Use pnpm for all install and script commands.";
   }
-  if (_checkExists(join5("package.json"))) {
+  if (_checkExists(join6("package.json"))) {
     try {
-      const pkg = JSON.parse(_readFile(join5("package.json"), "utf8"));
+      const pkg = JSON.parse(_readFile(join6("package.json"), "utf8"));
       const pm = typeof pkg.packageManager === "string" ? pkg.packageManager : "";
       if (pm.startsWith("pnpm")) {
         return "pnpm declared in `package.json` (`packageManager` field). Use pnpm for all install and script commands.";
@@ -6417,33 +6428,53 @@ function detectPackageManager(repoRoot, _checkExists = existsSync4, _readFile = 
     } catch {
     }
   }
-  if (_checkExists(join5("yarn.lock"))) {
+  if (_checkExists(join6("yarn.lock"))) {
     return "yarn lockfile detected (`yarn.lock`). Use yarn for all install and script commands.";
   }
-  if (_checkExists(join5("bun.lockb"))) {
+  if (_checkExists(join6("bun.lockb"))) {
     return "bun lockfile detected (`bun.lockb`). Use bun for all install and script commands.";
   }
-  if (_checkExists(join5("package-lock.json"))) {
+  if (_checkExists(join6("package-lock.json"))) {
     return "npm lockfile detected (`package-lock.json`). Use npm for all install and script commands.";
   }
-  const hasPyproject = _checkExists(join5("pyproject.toml"));
-  const hasRequirements = _checkExists(join5("requirements.txt"));
+  const hasPyproject = _checkExists(join6("pyproject.toml"));
+  const hasRequirements = _checkExists(join6("requirements.txt"));
   if (hasPyproject || hasRequirements) {
     const marker = hasPyproject ? "pyproject.toml" : "requirements.txt";
     return `Python project detected (\`${marker}\`). Use pip or the project's configured tool for dependency management.`;
   }
-  if (_checkExists(join5("Gemfile.lock"))) {
+  if (_checkExists(join6("Gemfile.lock"))) {
     return "Ruby project detected (`Gemfile.lock`). Use bundler for dependency management.";
   }
-  if (_checkExists(join5("Cargo.lock"))) {
+  if (_checkExists(join6("Cargo.lock"))) {
     return "Rust project detected (`Cargo.lock`). Use cargo for dependency management.";
   }
   return null;
 }
 
+// src/agents/developer/outcome-guard.ts
+function assertDevOutputContract(outcome, outputs) {
+  if (outcome === "implemented" || outcome === "already_satisfied") {
+    if (!outputs.branchPushed) {
+      throw new Error(
+        `Output contract violation: outcome="${outcome}" requires branch to be pushed before posting terminal comment`
+      );
+    }
+    if (!outputs.prUrl) {
+      throw new Error(
+        `Output contract violation: outcome="${outcome}" requires a PR URL before posting terminal comment`
+      );
+    }
+    if (outcome === "already_satisfied" && !outputs.verificationNoteWritten) {
+      throw new Error(
+        `Output contract violation: outcome="already_satisfied" requires a verification note to be committed before posting terminal comment`
+      );
+    }
+  }
+}
+
 // src/agents/developer/dev-action.ts
 var REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
-var ALREADY_IMPLEMENTED_REASON = "already implemented";
 async function main(envelope, logger) {
   const { ticket_key: ticketKey, event_id: eventId } = envelope;
   const dryRun = isDryRun();
@@ -6535,7 +6566,7 @@ EXISTING_IMPLEMENTATION:`,
           `Open PR: ${existingPrUrl} (head: ${branchHeadSha.slice(0, 7)})`,
           `Changed files:
 ${fileList}`,
-          `If the implementation is already complete for this ticket, call \`done\` with actionable=false and reason="${ALREADY_IMPLEMENTED_REASON}".`
+          `If the spec is already fully satisfied by the existing code, call \`done\` with outcome="already_satisfied".`
         ].join("\n");
         logger.info("existing PR found", { pr: existingPrUrl, files: prFiles.length });
       }
@@ -6595,31 +6626,28 @@ ${tree}`,
     secretScan,
     mcpServers
   });
+  const resolvedOutcome = done.outcome ?? (done.actionable ? "implemented" : "blocked");
   logger.info("done", {
     iterations,
-    actionable: done.actionable,
+    outcome: resolvedOutcome,
     in: usage.input_tokens,
     cache_w: usage.cache_creation_input_tokens,
     cache_r: usage.cache_read_input_tokens,
     out: usage.output_tokens
   });
-  if (!done.actionable) {
-    const reason = done.reason_if_not_actionable ?? "no reason given";
-    const isAlreadyImplemented = reason.startsWith(ALREADY_IMPLEMENTED_REASON);
+  if (resolvedOutcome === "blocked") {
+    const reason = done.reason ?? done.reason_if_not_actionable ?? "no reason given";
     if (!dryRun) {
-      if (isAlreadyImplemented && existingPrUrl) {
-        await tracker.postComment(
-          ticketKey,
-          `${idempotencyMarker} No changes needed \u2014 implementation already at ${existingPrUrl}.`
-        );
-      } else {
-        await tracker.postComment(ticketKey, `${idempotencyMarker} Cannot implement \u2014 ${reason}`);
-      }
+      await tracker.addLabel(ticketKey, "ferry:blocked");
+      await tracker.postComment(
+        ticketKey,
+        `${idempotencyMarker} \u{1F6A8} BLOCKED \u2014 ${reason}. Manual intervention required.`
+      );
     } else {
-      logger.info("DRY_RUN \u2014 not actionable", { reason });
+      logger.info("DRY_RUN \u2014 blocked", { reason });
     }
     appendOutput({ ...usage, model, provider: devProvider });
-    process.exit(0);
+    process.exit(1);
   }
   const commitMessage = formatDeveloperCommit({
     ticketKey,
@@ -6627,6 +6655,26 @@ ${tree}`,
     summary: done.summary
   });
   try {
+    let verificationNoteWritten = false;
+    if (resolvedOutcome === "already_satisfied") {
+      const verificationDir = path6.join(REPO_ROOT, ".ferry", "verifications");
+      const verificationPath = path6.join(verificationDir, `${ticketKey}.md`);
+      const validationLines = (done.validation ?? []).length > 0 ? (done.validation ?? []).map((v) => `- \`${v.command}\`: ${v.outcome}`).join("\n") : "_none recorded_";
+      const verificationContent = [
+        `# Verification: ${ticketKey}`,
+        ``,
+        `**Date:** ${(/* @__PURE__ */ new Date()).toISOString()}`,
+        ``,
+        `## Summary`,
+        done.summary,
+        ``,
+        `## Validation`,
+        validationLines
+      ].join("\n");
+      await fsp2.mkdir(verificationDir, { recursive: true });
+      await fsp2.writeFile(verificationPath, verificationContent, "utf8");
+      verificationNoteWritten = true;
+    }
     execFileSync4("git", ["add", "-A"], { cwd: REPO_ROOT });
     const finalStatus = execFileSync4("git", ["status", "--porcelain"], {
       cwd: REPO_ROOT,
@@ -6634,9 +6682,8 @@ ${tree}`,
     });
     if (finalStatus.trim()) {
       await secretScan();
-      execFileSync4("git", ["commit", "-m", done.commit_message ?? commitMessage], {
-        cwd: REPO_ROOT
-      });
+      const msg = resolvedOutcome === "already_satisfied" ? `chore(${ticketKey}): add verification note \u2014 spec already satisfied` : done.commit_message ?? commitMessage;
+      execFileSync4("git", ["commit", "-m", msg], { cwd: REPO_ROOT });
     }
     if (dryRun) {
       let diffOutput = "(no local changes)";
@@ -6652,6 +6699,7 @@ ${tree}`,
       } catch {
       }
       logger.info("DRY_RUN \u2014 implementation summary", {
+        outcome: resolvedOutcome,
         summary: done.summary,
         diff: diffOutput
       });
@@ -6660,7 +6708,8 @@ ${tree}`,
       process.exit(0);
     }
     execFileSync4("git", ["push", "origin", branchName, "--force-with-lease"], { cwd: REPO_ROOT });
-    const prTitle = formatPullRequestTitle({ ticketKey, summary: done.summary });
+    const branchPushed = true;
+    const prTitle = resolvedOutcome === "already_satisfied" ? `verify(${ticketKey}): existing implementation satisfies spec` : formatPullRequestTitle({ ticketKey, summary: done.summary });
     const prBody = formatPullRequestBody({
       ticketKey,
       jiraBaseUrl,
@@ -6671,14 +6720,13 @@ ${tree}`,
       notes: done.notes ?? []
     });
     const prUrl = await runner.createPR(owner, repo, branchName, targetBranch, prTitle, prBody);
+    assertDevOutputContract(resolvedOutcome, { branchPushed, prUrl, verificationNoteWritten });
     if (shouldAutoTransition) {
       await tracker.postTransition(ticketKey, reviewTransitionId);
     }
     const transitionNote = shouldAutoTransition ? " Moved to Review." : "";
-    await tracker.postComment(
-      ticketKey,
-      `${idempotencyMarker} Implementation complete \u2014 PR: ${prUrl}.${transitionNote}`
-    );
+    const terminalComment = resolvedOutcome === "already_satisfied" ? `${idempotencyMarker} Spec already satisfied \u2014 verification PR: ${prUrl}.${transitionNote}` : `${idempotencyMarker} Implementation complete \u2014 PR: ${prUrl}.${transitionNote}`;
+    await tracker.postComment(ticketKey, terminalComment);
   } catch (err) {
     if (!dryRun) {
       try {

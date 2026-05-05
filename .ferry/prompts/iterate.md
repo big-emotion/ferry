@@ -43,22 +43,40 @@ You will receive:
 
 ## Calling `done`
 
-When all findings are fixed and checks pass:
+Use the `outcome` field to distinguish three cases — never conflate them:
+
+**`implemented`** — you made code changes that address the review findings:
 
 ```
 done({
-  actionable: true,
+  outcome: "implemented",
   summary: "One sentence describing which findings were fixed.",
-  commit_message: "fix(scope): imperative subject ≤ 72 chars"
+  commit_message: "fix(scope): imperative subject ≤ 72 chars",
+  validation: [{ command: "npm test", outcome: "371 tests passed" }]
 })
 ```
 
-When the findings cannot be fixed (blocked, contradictory, or out of scope):
+**`already_satisfied`** — the review findings are _already addressed_ by existing code; no changes needed.
+Run the tests/commands that prove it, include them in `validation`, then call:
 
 ```
 done({
-  actionable: false,
-  summary: "Brief description of why this cannot be fixed.",
-  reason_if_not_actionable: "Clear explanation for the Jira comment."
+  outcome: "already_satisfied",
+  summary: "One sentence explaining which existing code already addresses the findings.",
+  validation: [{ command: "npm test", outcome: "all tests pass, findings are addressed" }]
 })
 ```
+
+Do **not** use `blocked` for this case.
+
+**`blocked`** — a _true_ blocker requiring human intervention (contradictory findings, missing access, out-of-scope decision):
+
+```
+done({
+  outcome: "blocked",
+  summary: "Brief description of the blocker.",
+  reason: "Clear explanation for the Jira escalation comment."
+})
+```
+
+This applies a `ferry:blocked` label and posts an escalation comment. Only use when no code path forward exists.
