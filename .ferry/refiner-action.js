@@ -461,6 +461,103 @@ async function runAgent(role, handler2) {
   }
 }
 
+// src/lib/agent-runtime/step-summary.ts
+import { appendFileSync } from "node:fs";
+var TOP_N = 5;
+function stopRecommendation(outcome, stopReason) {
+  if (stopReason === "input-token-budget-exceeded") {
+    return "> \u26A0\uFE0F **Token cap exceeded** \u2014 consider raising `max_tokens_per_run` or splitting the task into smaller subtasks.";
+  }
+  if (stopReason === "iteration-cap-exceeded") {
+    return "> \u26A0\uFE0F **Iteration cap exceeded** \u2014 check for infinite loops or simplify the task.";
+  }
+  if (outcome === "blocked") {
+    return "> \u{1F6A8} **Blocked** \u2014 manual intervention required. Check the ticket for the blocking reason.";
+  }
+  if (outcome === "approved") {
+    return "> \u2705 **Approved** \u2014 PR is ready to merge.";
+  }
+  if (outcome === "changes_requested") {
+    return "> \u{1F504} **Changes requested** \u2014 see PR review findings.";
+  }
+  if (outcome === "implemented" || outcome === "already_satisfied" || outcome === "refined") {
+    return "> \u2705 **Completed successfully.**";
+  }
+  return `> \u2139\uFE0F **Outcome:** \`${outcome}\``;
+}
+function formatStepSummary(stats) {
+  const {
+    role,
+    iterations,
+    usage,
+    toolCounts,
+    toolCallRecords,
+    filesTouched,
+    branchPushed,
+    outcome,
+    stopReason
+  } = stats;
+  const lines = [];
+  lines.push(`## Ferry ${role} \u2014 run summary`);
+  lines.push("");
+  lines.push(stopRecommendation(outcome, stopReason));
+  lines.push("");
+  lines.push("### Stats");
+  lines.push("");
+  lines.push("| Metric | Value |");
+  lines.push("|--------|-------|");
+  lines.push(`| Outcome | \`${outcome}\` |`);
+  lines.push(`| Iterations | ${iterations} |`);
+  const totalTokens = usage.input_tokens + usage.output_tokens + usage.cache_creation_input_tokens + usage.cache_read_input_tokens;
+  if (totalTokens > 0) {
+    lines.push(`| Input tokens | ${usage.input_tokens.toLocaleString()} |`);
+    lines.push(`| Output tokens | ${usage.output_tokens.toLocaleString()} |`);
+    lines.push(`| Cache write tokens | ${usage.cache_creation_input_tokens.toLocaleString()} |`);
+    lines.push(`| Cache read tokens | ${usage.cache_read_input_tokens.toLocaleString()} |`);
+  }
+  lines.push("");
+  const toolEntries = Object.entries(toolCounts).sort((a, b) => b[1] - a[1]);
+  if (toolEntries.length > 0) {
+    lines.push("### Tools used");
+    lines.push("");
+    lines.push("| Tool | Calls |");
+    lines.push("|------|-------|");
+    for (const [tool, count] of toolEntries) {
+      lines.push(`| \`${tool}\` | ${count} |`);
+    }
+    lines.push("");
+  }
+  const topBySize = [...toolCallRecords].sort((a, b) => b.outputSize - a.outputSize).slice(0, TOP_N);
+  if (topBySize.length > 0) {
+    lines.push(`### Top ${Math.min(TOP_N, topBySize.length)} tool calls by output size`);
+    lines.push("");
+    lines.push("| Tool | Output bytes |");
+    lines.push("|------|-------------|");
+    for (const rec of topBySize) {
+      lines.push(`| \`${rec.name}\` | ${rec.outputSize.toLocaleString()} |`);
+    }
+    lines.push("");
+  }
+  if (filesTouched.length > 0) {
+    lines.push("### Files touched");
+    lines.push("");
+    for (const f of filesTouched) {
+      lines.push(`- \`${f}\``);
+    }
+    lines.push("");
+  }
+  if (branchPushed) {
+    lines.push(`**Branch pushed:** \`${branchPushed}\``);
+    lines.push("");
+  }
+  return lines.join("\n");
+}
+function writeStepSummary(stats) {
+  const summaryPath = process.env.GITHUB_STEP_SUMMARY;
+  if (!summaryPath) return;
+  appendFileSync(summaryPath, formatStepSummary(stats));
+}
+
 // src/lib/agent-runtime/config-reload.ts
 import { execFileSync } from "node:child_process";
 
@@ -5548,11 +5645,27 @@ async function run(envelope, deps) {
     callLlm: deps.callLlm,
     runLink
   });
+  const zeroUsage = {
+    input_tokens: 0,
+    output_tokens: 0,
+    cache_creation_input_tokens: 0,
+    cache_read_input_tokens: 0
+  };
   if (dryRun) {
     logger.info("DRY_RUN \u2014 plan (no Jira writes)", {
       ticket: ticketKey,
       subtaskCount: auditSummary.subtaskCount,
       actions: plan.actions.map((a) => a.type)
+    });
+    writeStepSummary({
+      role: "refiner",
+      iterations: 1,
+      usage: zeroUsage,
+      toolCounts: {},
+      toolCallRecords: [],
+      filesTouched: [],
+      branchPushed: "",
+      outcome: "dry_run"
     });
     return;
   }
@@ -5569,6 +5682,16 @@ async function run(envelope, deps) {
       ticketKey,
       `${idempotencyMarker} No changes needed \u2014 existing ${existingSubtasks.length} sub-task(s) still valid. ${result.noopReason ?? ""}`.trimEnd()
     );
+    writeStepSummary({
+      role: "refiner",
+      iterations: 1,
+      usage: zeroUsage,
+      toolCounts: {},
+      toolCallRecords: [],
+      filesTouched: [],
+      branchPushed: "",
+      outcome: "noop"
+    });
     return;
   }
   logger.info("reconcile complete", {
@@ -5581,6 +5704,16 @@ async function run(envelope, deps) {
     ticketKey,
     `${idempotencyMarker} Refined. Created ${result.createdCount}, kept ${result.keptCount}, staled ${result.staledCount} sub-task(s). See run: ${runLink}`
   );
+  writeStepSummary({
+    role: "refiner",
+    iterations: 1,
+    usage: zeroUsage,
+    toolCounts: {},
+    toolCallRecords: [],
+    filesTouched: [],
+    branchPushed: "",
+    outcome: "refined"
+  });
 }
 async function main(envelope, logger) {
   const { owner, repo, runner, tracker, ferryCfg: initialCfg } = createGitHubContext(REPO_ROOT);

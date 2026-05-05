@@ -8,6 +8,7 @@ import {
   buildSystem,
   buildTicketBlock,
   appendOutput,
+  writeStepSummary,
   configureFerryGitUser,
   makeCommitProgress,
   makeSecretScan,
@@ -258,6 +259,16 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
     } else {
       logger.info('DRY_RUN — blocked', { reason });
     }
+    writeStepSummary({
+      role: 'developer',
+      iterations,
+      usage,
+      toolCounts: loopResult.toolCounts,
+      toolCallRecords: loopResult.toolCallRecords,
+      filesTouched: [],
+      branchPushed: '',
+      outcome: 'blocked',
+    });
     appendOutput({ ...usage, model, provider: devProvider });
     process.exit(1);
   }
@@ -268,6 +279,9 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
     runId: eventId,
     summary: done.summary,
   });
+
+  let summaryFilesTouched: string[] = [];
+  let summaryBranchPushed = '';
 
   try {
     let verificationNoteWritten = false;
@@ -329,12 +343,32 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
         diff: diffOutput,
       });
       logger.info('DRY_RUN — skipped: git push, PR creation, Jira transition, Jira comment');
+      writeStepSummary({
+        role: 'developer',
+        iterations,
+        usage,
+        toolCounts: loopResult.toolCounts,
+        toolCallRecords: loopResult.toolCallRecords,
+        filesTouched: [],
+        branchPushed: '',
+        outcome: resolvedOutcome,
+      });
       appendOutput({ ...usage, model, provider: devProvider });
       process.exit(0);
     }
 
     execFileSync('git', ['push', 'origin', branchName, '--force-with-lease'], { cwd: REPO_ROOT });
     const branchPushed = true;
+    summaryBranchPushed = branchName;
+    try {
+      const diff = execFileSync('git', ['diff', '--name-only', `origin/${baseBranch}...HEAD`], {
+        cwd: REPO_ROOT,
+        encoding: 'utf8',
+      });
+      summaryFilesTouched = diff.trim().split('\n').filter(Boolean);
+    } catch {
+      // best-effort
+    }
 
     const prTitle =
       resolvedOutcome === 'already_satisfied'
@@ -380,6 +414,16 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
     throw err;
   }
 
+  writeStepSummary({
+    role: 'developer',
+    iterations,
+    usage,
+    toolCounts: loopResult.toolCounts,
+    toolCallRecords: loopResult.toolCallRecords,
+    filesTouched: summaryFilesTouched,
+    branchPushed: summaryBranchPushed,
+    outcome: resolvedOutcome,
+  });
   appendOutput({ ...usage, model, provider: devProvider });
   process.exit(0);
 }

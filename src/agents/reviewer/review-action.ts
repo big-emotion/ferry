@@ -9,6 +9,7 @@ import { FerryError } from '../../lib/errors/index.js';
 import {
   requireEnv,
   appendOutput,
+  writeStepSummary,
   buildSystem,
   loadOptionalPrompt,
   buildTicketBlock,
@@ -174,6 +175,9 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
     result: review,
     inputTokens,
     outputTokens,
+    iterations: reviewIterations,
+    toolCounts: reviewToolCounts,
+    toolCallRecords: reviewToolCallRecords,
   } = await runReviewLoop({
     anthropic,
     model,
@@ -195,6 +199,22 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
     approved: review.approved,
     in: inputTokens,
     out: outputTokens,
+  });
+
+  writeStepSummary({
+    role: 'reviewer',
+    iterations: reviewIterations,
+    usage: {
+      input_tokens: inputTokens,
+      output_tokens: outputTokens,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 0,
+    },
+    toolCounts: reviewToolCounts,
+    toolCallRecords: reviewToolCallRecords,
+    filesTouched: [],
+    branchPushed: '',
+    outcome: review.approved ? 'approved' : 'changes_requested',
   });
 
   if (review.approved) {

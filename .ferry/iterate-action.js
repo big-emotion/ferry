@@ -973,6 +973,12 @@ function createAnthropicAgentLoop(opts) {
       cache_creation_input_tokens: 0,
       cache_read_input_tokens: 0
     };
+    const toolCounts = {};
+    const toolCallRecords = [];
+    function trackTool(name, outputSize) {
+      toolCounts[name] = (toolCounts[name] ?? 0) + 1;
+      toolCallRecords.push({ name, outputSize });
+    }
     let done = null;
     let iter = 0;
     const loopStart = Date.now();
@@ -1065,12 +1071,14 @@ function createAnthropicAgentLoop(opts) {
           logger.debug("think", { depth, iter, text: block.text.trim() });
         }
         if (block.type === "mcp_tool_use") {
+          const mcpName = String(block.name ?? "unknown");
           logger.info("mcp_tool", {
             depth,
             iter,
-            tool: String(block.name ?? "unknown"),
+            tool: mcpName,
             server: String(block.server_name ?? "unknown")
           });
+          toolCounts[mcpName] = (toolCounts[mcpName] ?? 0) + 1;
         }
       }
       if (response.stop_reason !== "tool_use") {
@@ -1097,8 +1105,10 @@ function createAnthropicAgentLoop(opts) {
           logger.info("tool", { depth, iter, tool: "commit_progress", arg: message.slice(0, 120) });
           try {
             const result = await opts.commitProgress(repoRoot, branchName, message, secretScan);
+            trackTool("commit_progress", result.length);
             toolResults.push({ type: "tool_result", tool_use_id: id, content: result });
           } catch (e) {
+            trackTool("commit_progress", 0);
             toolResults.push({
               type: "tool_result",
               tool_use_id: id,
@@ -1117,7 +1127,12 @@ function createAnthropicAgentLoop(opts) {
             usage.output_tokens += subResult.usage.output_tokens;
             usage.cache_creation_input_tokens += subResult.usage.cache_creation_input_tokens;
             usage.cache_read_input_tokens += subResult.usage.cache_read_input_tokens;
+            for (const [tName, tCount] of Object.entries(subResult.toolCounts)) {
+              toolCounts[tName] = (toolCounts[tName] ?? 0) + tCount;
+            }
+            toolCallRecords.push(...subResult.toolCallRecords);
             if (!subResult.done.actionable) {
+              trackTool("spawn_subagent", 0);
               toolResults.push({
                 type: "tool_result",
                 tool_use_id: id,
@@ -1125,6 +1140,7 @@ function createAnthropicAgentLoop(opts) {
                 is_error: true
               });
             } else {
+              trackTool("spawn_subagent", subResult.done.summary.length);
               toolResults.push({
                 type: "tool_result",
                 tool_use_id: id,
@@ -1132,6 +1148,7 @@ function createAnthropicAgentLoop(opts) {
               });
             }
           } catch (e) {
+            trackTool("spawn_subagent", 0);
             toolResults.push({
               type: "tool_result",
               tool_use_id: id,
@@ -1146,8 +1163,10 @@ function createAnthropicAgentLoop(opts) {
           logger.info("mcp_stdio_tool", { depth, iter, tool: name, server: serverName });
           try {
             const result = await pool.callTool(name, blockInput);
+            trackTool(name, result.length);
             toolResults.push({ type: "tool_result", tool_use_id: id, content: result });
           } catch (e) {
+            trackTool(name, 0);
             toolResults.push({
               type: "tool_result",
               tool_use_id: id,
@@ -1166,8 +1185,10 @@ function createAnthropicAgentLoop(opts) {
         });
         try {
           const result = await opts.executeTool(repoRoot, name, blockInput);
+          trackTool(name, result.length);
           toolResults.push({ type: "tool_result", tool_use_id: id, content: result });
         } catch (e) {
+          trackTool(name, 0);
           toolResults.push({
             type: "tool_result",
             tool_use_id: id,
@@ -1209,7 +1230,7 @@ function createAnthropicAgentLoop(opts) {
           },
           logger
         );
-        return { done, usage, iterations: iter };
+        return { done, usage, iterations: iter, toolCounts, toolCallRecords };
       }
     }
     throw new FerryError("state-invariant", {
@@ -1523,6 +1544,103 @@ output_tokens=${usage.output_tokens}
 `;
     appendFileSync(githubOutput, out);
   }
+}
+
+// src/lib/agent-runtime/step-summary.ts
+import { appendFileSync as appendFileSync2 } from "node:fs";
+var TOP_N = 5;
+function stopRecommendation(outcome, stopReason) {
+  if (stopReason === "input-token-budget-exceeded") {
+    return "> \u26A0\uFE0F **Token cap exceeded** \u2014 consider raising `max_tokens_per_run` or splitting the task into smaller subtasks.";
+  }
+  if (stopReason === "iteration-cap-exceeded") {
+    return "> \u26A0\uFE0F **Iteration cap exceeded** \u2014 check for infinite loops or simplify the task.";
+  }
+  if (outcome === "blocked") {
+    return "> \u{1F6A8} **Blocked** \u2014 manual intervention required. Check the ticket for the blocking reason.";
+  }
+  if (outcome === "approved") {
+    return "> \u2705 **Approved** \u2014 PR is ready to merge.";
+  }
+  if (outcome === "changes_requested") {
+    return "> \u{1F504} **Changes requested** \u2014 see PR review findings.";
+  }
+  if (outcome === "implemented" || outcome === "already_satisfied" || outcome === "refined") {
+    return "> \u2705 **Completed successfully.**";
+  }
+  return `> \u2139\uFE0F **Outcome:** \`${outcome}\``;
+}
+function formatStepSummary(stats) {
+  const {
+    role,
+    iterations,
+    usage,
+    toolCounts,
+    toolCallRecords,
+    filesTouched,
+    branchPushed,
+    outcome,
+    stopReason
+  } = stats;
+  const lines = [];
+  lines.push(`## Ferry ${role} \u2014 run summary`);
+  lines.push("");
+  lines.push(stopRecommendation(outcome, stopReason));
+  lines.push("");
+  lines.push("### Stats");
+  lines.push("");
+  lines.push("| Metric | Value |");
+  lines.push("|--------|-------|");
+  lines.push(`| Outcome | \`${outcome}\` |`);
+  lines.push(`| Iterations | ${iterations} |`);
+  const totalTokens = usage.input_tokens + usage.output_tokens + usage.cache_creation_input_tokens + usage.cache_read_input_tokens;
+  if (totalTokens > 0) {
+    lines.push(`| Input tokens | ${usage.input_tokens.toLocaleString()} |`);
+    lines.push(`| Output tokens | ${usage.output_tokens.toLocaleString()} |`);
+    lines.push(`| Cache write tokens | ${usage.cache_creation_input_tokens.toLocaleString()} |`);
+    lines.push(`| Cache read tokens | ${usage.cache_read_input_tokens.toLocaleString()} |`);
+  }
+  lines.push("");
+  const toolEntries = Object.entries(toolCounts).sort((a, b) => b[1] - a[1]);
+  if (toolEntries.length > 0) {
+    lines.push("### Tools used");
+    lines.push("");
+    lines.push("| Tool | Calls |");
+    lines.push("|------|-------|");
+    for (const [tool, count] of toolEntries) {
+      lines.push(`| \`${tool}\` | ${count} |`);
+    }
+    lines.push("");
+  }
+  const topBySize = [...toolCallRecords].sort((a, b) => b.outputSize - a.outputSize).slice(0, TOP_N);
+  if (topBySize.length > 0) {
+    lines.push(`### Top ${Math.min(TOP_N, topBySize.length)} tool calls by output size`);
+    lines.push("");
+    lines.push("| Tool | Output bytes |");
+    lines.push("|------|-------------|");
+    for (const rec of topBySize) {
+      lines.push(`| \`${rec.name}\` | ${rec.outputSize.toLocaleString()} |`);
+    }
+    lines.push("");
+  }
+  if (filesTouched.length > 0) {
+    lines.push("### Files touched");
+    lines.push("");
+    for (const f of filesTouched) {
+      lines.push(`- \`${f}\``);
+    }
+    lines.push("");
+  }
+  if (branchPushed) {
+    lines.push(`**Branch pushed:** \`${branchPushed}\``);
+    lines.push("");
+  }
+  return lines.join("\n");
+}
+function writeStepSummary(stats) {
+  const summaryPath = process.env.GITHUB_STEP_SUMMARY;
+  if (!summaryPath) return;
+  appendFileSync2(summaryPath, formatStepSummary(stats));
 }
 
 // src/lib/agent-runtime/git.ts
@@ -6517,7 +6635,7 @@ ${existingLog}` : "",
     commitProgress: makeCommitProgress(logger),
     logger
   });
-  const { done, usage, iterations } = await loop.run({
+  const loopResult = await loop.run({
     system,
     initialPrompt,
     tools: [...TOOL_SCHEMAS, COMMIT_PROGRESS_SCHEMA],
@@ -6526,6 +6644,7 @@ ${existingLog}` : "",
     secretScan,
     mcpServers
   });
+  const { done, usage, iterations } = loopResult;
   const resolvedOutcome = done.outcome ?? (done.actionable ? "implemented" : "blocked");
   logger.info("done", {
     iterations,
@@ -6542,6 +6661,16 @@ ${existingLog}` : "",
       ticketKey,
       `${idempotencyMarker} \u{1F6A8} BLOCKED \u2014 ${reason}. Manual intervention required.`
     );
+    writeStepSummary({
+      role: "iterator",
+      iterations,
+      usage,
+      toolCounts: loopResult.toolCounts,
+      toolCallRecords: loopResult.toolCallRecords,
+      filesTouched: [],
+      branchPushed: "",
+      outcome: "blocked"
+    });
     appendOutput({ ...usage, model, provider: iterProvider });
     process.exit(1);
   }
@@ -6562,6 +6691,15 @@ ${existingLog}` : "",
   }
   execFileSync3("git", ["push", "origin", branchName, "--force-with-lease"], { cwd: REPO_ROOT });
   const branchPushed = true;
+  let iterFilesTouched = [];
+  try {
+    const diff = execFileSync3("git", ["diff", "--name-only", `origin/${baseBranch}...HEAD`], {
+      cwd: REPO_ROOT,
+      encoding: "utf8"
+    });
+    iterFilesTouched = diff.trim().split("\n").filter(Boolean);
+  } catch {
+  }
   assertIterOutputContract(resolvedOutcome, { branchPushed, prNumber });
   if (shouldAutoTransition) {
     await tracker.postTransition(ticketKey, reviewTransitionId);
@@ -6570,6 +6708,16 @@ ${existingLog}` : "",
   const transitionNote = shouldAutoTransition ? " Moved back to Review." : "";
   const terminalComment = resolvedOutcome === "already_satisfied" ? `${idempotencyMarker} Findings already addressed \u2014 no changes needed. Pushed to PR#${prNumber}.${transitionNote}` : `${idempotencyMarker} Iteration ${next_iteration} complete. Pushed fixes to PR#${prNumber}.${transitionNote}`;
   await tracker.postComment(ticketKey, terminalComment);
+  writeStepSummary({
+    role: "iterator",
+    iterations,
+    usage,
+    toolCounts: loopResult.toolCounts,
+    toolCallRecords: loopResult.toolCallRecords,
+    filesTouched: iterFilesTouched,
+    branchPushed: branchName,
+    outcome: resolvedOutcome
+  });
   appendOutput({ ...usage, model, provider: iterProvider });
   process.exit(0);
 }

@@ -4,6 +4,8 @@ export type { AgentRole } from './run-agent.js';
 export { byEventId, byPrHeadSha, byReviewCommentId } from './idempotency.js';
 export { buildSystem, loadOptionalPrompt, buildTicketBlock } from './prompt.js';
 export { appendOutput } from './output.js';
+export { writeStepSummary } from './step-summary.js';
+export type { AgentRunStats, ToolCallRecord } from './step-summary.js';
 export {
   configureFerryGitUser,
   makeCommitProgress,

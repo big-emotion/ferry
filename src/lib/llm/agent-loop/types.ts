@@ -66,10 +66,17 @@ export interface AgentLoopUsage {
   cache_read_input_tokens: number;
 }
 
+export interface ToolCallRecord {
+  name: string;
+  outputSize: number;
+}
+
 export interface AgentLoopResult {
   done: DonePayload;
   usage: AgentLoopUsage;
   iterations: number;
+  toolCounts: Record<string, number>;
+  toolCallRecords: ToolCallRecord[];
 }
 
 export interface AgentLoop {
