@@ -541,6 +541,87 @@ describe('createAnthropicAgentLoop — stdio MCP tools', () => {
   });
 });
 
+describe('createAnthropicAgentLoop — input-token budget cap', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    restorePoolDefaults();
+  });
+
+  // The cap check fires at the TOP of each iteration, checking usage accumulated
+  // from prior iterations. iter 1 always starts with zeros, so a two-turn setup
+  // (tool call + done) is needed to exercise the cap on iter 2.
+
+  it('does not trip cap when large cache_read_input_tokens stay under weighted limit', async () => {
+    // iter 1: API returns 100 input + 5000 cache_read. billable-equiv = 100 + 500 = 600 < 1000 cap.
+    // iter 2 check: 600 < 1000 → passes → done is called.
+    const toolResponse: FakeResponse = {
+      stop_reason: 'tool_use',
+      content: [{ type: 'tool_use', id: 'tu_r', name: 'read_file', input: { path: 'x.ts' } }],
+      usage: { input_tokens: 100, output_tokens: 10, cache_read_input_tokens: 5000 },
+    };
+    const execTool = vi
+      .fn<(r: string, n: string, i: Record<string, unknown>) => Promise<string>>()
+      .mockResolvedValueOnce('content');
+    const mock = makeMock([toolResponse, doneResponse]);
+    const loop = createAnthropicAgentLoop({
+      model: 'm',
+      client: mock as unknown as Anthropic,
+      executeTool: execTool,
+      maxInputTokens: 1000,
+    });
+
+    await expect(loop.run(baseInput)).resolves.toBeDefined();
+  });
+
+  it('throws spend-cap when billable-equivalent tokens exceed the cap', async () => {
+    // iter 1: 600 input + 9000 cache_read → billable-equiv = 600 + 900 = 1500 > 999 cap.
+    // iter 2 check: 1500 > 999 → throws spend-cap.
+    const toolResponse: FakeResponse = {
+      stop_reason: 'tool_use',
+      content: [{ type: 'tool_use', id: 'tu_r', name: 'read_file', input: { path: 'x.ts' } }],
+      usage: { input_tokens: 600, output_tokens: 10, cache_read_input_tokens: 9000 },
+    };
+    const execTool = vi
+      .fn<(r: string, n: string, i: Record<string, unknown>) => Promise<string>>()
+      .mockResolvedValueOnce('content');
+    const mock = makeMock([toolResponse, doneResponse]);
+    const loop = createAnthropicAgentLoop({
+      model: 'm',
+      client: mock as unknown as Anthropic,
+      executeTool: execTool,
+      maxInputTokens: 999,
+    });
+
+    const err = await loop.run(baseInput).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(FerryError);
+    expect((err as FerryError).code).toBe('spend-cap');
+  });
+
+  it('reports billable-equivalent consumed value (not raw token sum) in error', async () => {
+    // iter 1: 100 input + 10000 cache_read → billable-equiv = 100 + 1000 = 1100.
+    // iter 2 check: 1100 > 999 → consumed is 1100, not 10100 (raw sum).
+    const toolResponse: FakeResponse = {
+      stop_reason: 'tool_use',
+      content: [{ type: 'tool_use', id: 'tu_r', name: 'read_file', input: { path: 'x.ts' } }],
+      usage: { input_tokens: 100, output_tokens: 10, cache_read_input_tokens: 10000 },
+    };
+    const execTool = vi
+      .fn<(r: string, n: string, i: Record<string, unknown>) => Promise<string>>()
+      .mockResolvedValueOnce('content');
+    const mock = makeMock([toolResponse, doneResponse]);
+    const loop = createAnthropicAgentLoop({
+      model: 'm',
+      client: mock as unknown as Anthropic,
+      executeTool: execTool,
+      maxInputTokens: 999,
+    });
+
+    const err = await loop.run(baseInput).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(FerryError);
+    expect((err as FerryError).context).toMatchObject({ consumed: 1100 });
+  });
+});
+
 describe('createAnthropicAgentLoop — LOG_VERBOSITY=debug structured events', () => {
   beforeEach(() => {
     vi.resetAllMocks();
@@ -635,5 +716,179 @@ describe('createAnthropicAgentLoop — LOG_VERBOSITY=debug structured events', (
       iter: 1,
       depth: 0,
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Message history pruning
+// ---------------------------------------------------------------------------
+
+type CapturedMessage = { role: string; content: unknown };
+
+const STUB_VALUE = '[truncated: tool result elided to save context]';
+
+function makeMultiTurnMock(totalToolCalls: number) {
+  const capturedRequests: CapturedMessage[][] = [];
+  let callCount = 0;
+
+  const createFn = vi.fn().mockImplementation(async (params: { messages: CapturedMessage[] }) => {
+    capturedRequests.push(JSON.parse(JSON.stringify(params.messages)) as CapturedMessage[]);
+    callCount++;
+    if (callCount <= totalToolCalls) {
+      return {
+        stop_reason: 'tool_use',
+        content: [
+          {
+            type: 'tool_use',
+            id: `tu_${callCount}`,
+            name: 'read_file',
+            input: { path: `file${callCount}.ts` },
+          },
+        ],
+        usage: { input_tokens: 10, output_tokens: 5 },
+      };
+    }
+    return {
+      stop_reason: 'tool_use',
+      content: [
+        {
+          type: 'tool_use',
+          id: 'tu_done',
+          name: 'done',
+          input: { actionable: true, summary: 'ok' },
+        },
+      ],
+      usage: { input_tokens: 10, output_tokens: 5 },
+    };
+  });
+
+  const mockClient = {
+    messages: { create: createFn },
+    beta: { messages: { create: vi.fn() } },
+  };
+
+  return { capturedRequests, mockClient, createFn };
+}
+
+describe('createAnthropicAgentLoop — message history pruning', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    restorePoolDefaults();
+  });
+
+  it('stubs older tool-result bodies after KEEP_LAST_TURNS threshold and preserves tool_use_id linkage', async () => {
+    // 12 tool-call turns + 1 done turn = 13 API calls total.
+    // KEEP_LAST_TURNS=6 → pruning kicks in when messages.length > 13 (turn 8+).
+    const TOTAL_TOOL_CALLS = 12;
+    const { capturedRequests, mockClient } = makeMultiTurnMock(TOTAL_TOOL_CALLS);
+
+    const execTool = vi.fn().mockResolvedValue('file contents');
+    const loop = createAnthropicAgentLoop({
+      model: 'm',
+      client: mockClient as unknown as Anthropic,
+      executeTool: execTool,
+    });
+
+    await loop.run(baseInput);
+
+    expect(capturedRequests).toHaveLength(TOTAL_TOOL_CALLS + 1);
+
+    // At the last (13th) call: messages had 1 + 12*2 = 25 entries before the call,
+    // cutoff = 25 - 12 = 13 → indices 1..12 are checked.
+    // User-tool-result messages sit at even indices (2, 4, 6, …, 12) — all stubbed.
+    const lastMessages = capturedRequests[capturedRequests.length - 1];
+
+    // index 0: initial prompt must be untouched
+    const initial = lastMessages[0];
+    expect(initial.role).toBe('user');
+    expect((initial.content as Array<{ text: string }>)[0].text).toBe('p');
+
+    // index 2: first tool-result message — should be stubbed
+    const firstToolResultMsg = lastMessages[2];
+    expect(firstToolResultMsg.role).toBe('user');
+    const firstContent = firstToolResultMsg.content as Array<{
+      type: string;
+      tool_use_id: string;
+      content: string;
+    }>;
+    expect(firstContent[0].type).toBe('tool_result');
+    expect(firstContent[0].content).toBe(STUB_VALUE);
+    // tool_use_id linkage must be preserved
+    expect(firstContent[0].tool_use_id).toBe('tu_1');
+
+    // index 4: second tool-result also stubbed, id points to tu_2
+    const secondToolResultMsg = lastMessages[4];
+    const secondContent = secondToolResultMsg.content as Array<{
+      type: string;
+      tool_use_id: string;
+      content: string;
+    }>;
+    expect(secondContent[0].content).toBe(STUB_VALUE);
+    expect(secondContent[0].tool_use_id).toBe('tu_2');
+  });
+
+  it('pruning is idempotent — already-stubbed entries stay stubbed with the same value across turns', async () => {
+    // 14 tool-call turns + 1 done = 15 API calls — ensures multiple prune passes happen.
+    const TOTAL_TOOL_CALLS = 14;
+    const { capturedRequests, mockClient } = makeMultiTurnMock(TOTAL_TOOL_CALLS);
+
+    const execTool = vi.fn().mockResolvedValue('file contents');
+    const loop = createAnthropicAgentLoop({
+      model: 'm',
+      client: mockClient as unknown as Anthropic,
+      executeTool: execTool,
+    });
+
+    await loop.run(baseInput);
+
+    // Find the first captured turn where any tool-result was stubbed.
+    const firstPrunedTurn = capturedRequests.findIndex((msgs) =>
+      msgs.some(
+        (m) =>
+          m.role === 'user' &&
+          Array.isArray(m.content) &&
+          (m.content as Array<{ type: string; content: unknown }>).some(
+            (b) => b.type === 'tool_result' && b.content === STUB_VALUE,
+          ),
+      ),
+    );
+
+    expect(firstPrunedTurn).toBeGreaterThan(-1);
+
+    // In every subsequent turn the same indices must still carry STUB_VALUE.
+    for (let turn = firstPrunedTurn + 1; turn < capturedRequests.length; turn++) {
+      const prev = capturedRequests[firstPrunedTurn];
+      const curr = capturedRequests[turn];
+
+      for (let msgIdx = 1; msgIdx < prev.length; msgIdx++) {
+        const prevMsg = prev[msgIdx];
+        if (prevMsg.role !== 'user' || !Array.isArray(prevMsg.content)) continue;
+
+        const prevContent = prevMsg.content as Array<{
+          type: string;
+          tool_use_id: string;
+          content: unknown;
+        }>;
+        const stubbedBlocks = prevContent.filter(
+          (b) => b.type === 'tool_result' && b.content === STUB_VALUE,
+        );
+        if (stubbedBlocks.length === 0) continue;
+
+        if (msgIdx >= curr.length) continue;
+        const currMsg = curr[msgIdx];
+        const currContent = currMsg.content as Array<{
+          type: string;
+          tool_use_id: string;
+          content: unknown;
+        }>;
+
+        for (const stubbed of stubbedBlocks) {
+          const match = currContent.find(
+            (b) => b.type === 'tool_result' && b.tool_use_id === stubbed.tool_use_id,
+          );
+          expect(match?.content).toBe(STUB_VALUE);
+        }
+      }
+    }
   });
 });

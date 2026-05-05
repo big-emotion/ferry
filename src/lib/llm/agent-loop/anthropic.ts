@@ -21,6 +21,7 @@ import type {
   StdioMcpServerConfig,
 } from './types.js';
 import { isStdioMcpServer, isHttpMcpServer } from './types.js';
+import { compactOldToolResults } from './compact.js';
 
 type ToolExecutor = (
   repoRoot: string,
@@ -50,6 +51,24 @@ interface McpToolsetParam {
 }
 
 type ContentLike = { type: string; [key: string]: unknown };
+
+const KEEP_LAST_TURNS = 6;
+const STUB = '[truncated: tool result elided to save context]';
+
+function pruneMessageHistory(messages: MessageParam[]): void {
+  // messages[0] carries the cached seed — never touch it.
+  const cutoff = messages.length - KEEP_LAST_TURNS * 2;
+  if (cutoff <= 1) return;
+  for (let i = 1; i < cutoff; i++) {
+    const msg = messages[i];
+    if (msg.role !== 'user' || !Array.isArray(msg.content)) continue;
+    const content = msg.content as ToolResultBlockParam[];
+    if (!content.some((b) => b.type === 'tool_result' && b.content !== STUB)) continue;
+    msg.content = content.map((b) =>
+      b.type === 'tool_result' && b.content !== STUB ? { ...b, content: STUB } : b,
+    );
+  }
+}
 
 interface ApiResponse {
   stop_reason: string;
@@ -96,6 +115,7 @@ export function createAnthropicAgentLoop(opts: {
   maxIterations?: number;
   maxInputTokens?: number;
   maxTokens?: number;
+  compactWindow?: number;
   logger?: Logger;
 }): AgentLoop {
   const anthropic =
@@ -118,6 +138,8 @@ export function createAnthropicAgentLoop(opts: {
     const maxInputTokens =
       opts.maxInputTokens ?? parseInt(process.env.FERRY_DEV_MAX_INPUT_TOKENS ?? '500000', 10);
     const maxTokens = opts.maxTokens ?? parseInt(process.env.FERRY_DEV_MAX_TOKENS ?? '16384', 10);
+    const compactWindow =
+      opts.compactWindow ?? parseInt(process.env.FERRY_DEV_COMPACT_WINDOW ?? '8', 10);
 
     // Separate HTTP (server-side) and stdio (client-side) MCP servers.
     const allServers = input.mcpServers ?? [];
@@ -156,6 +178,7 @@ export function createAnthropicAgentLoop(opts: {
         maxIterations,
         maxInputTokens,
         maxTokens,
+        compactWindow,
         hasHttp,
         mcpServerParams,
         mcpToolsets,
@@ -177,6 +200,7 @@ export function createAnthropicAgentLoop(opts: {
     maxIterations: number;
     maxInputTokens: number;
     maxTokens: number;
+    compactWindow: number;
     hasHttp: boolean;
     mcpServerParams: McpServerParam[];
     mcpToolsets: McpToolsetParam[];
@@ -193,6 +217,7 @@ export function createAnthropicAgentLoop(opts: {
       maxIterations,
       maxInputTokens,
       maxTokens,
+      compactWindow,
       hasHttp,
       mcpServerParams,
       mcpToolsets,
@@ -234,17 +259,21 @@ export function createAnthropicAgentLoop(opts: {
       iter++;
       const iterStart = Date.now();
 
-      if (
-        usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens >
-        maxInputTokens
-      ) {
+      // Anthropic bills cache reads at ~10% of fresh input tokens; weight them
+      // accordingly so the cap approximates dollar spend rather than raw volume.
+      const billableEquiv =
+        usage.input_tokens +
+        usage.cache_read_input_tokens * 0.1 +
+        usage.cache_creation_input_tokens;
+      if (billableEquiv > maxInputTokens) {
         throw new FerryError('spend-cap', {
           reason: 'input-token-budget-exceeded',
           cap: maxInputTokens,
-          consumed:
-            usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens,
+          consumed: billableEquiv,
         });
       }
+
+      pruneMessageHistory(messages);
 
       const baseParams = {
         model: opts.model,
@@ -457,6 +486,7 @@ export function createAnthropicAgentLoop(opts: {
       }
 
       messages.push({ role: 'user', content: toolResults });
+      compactOldToolResults(messages, compactWindow);
 
       if (done) {
         emitDebug(

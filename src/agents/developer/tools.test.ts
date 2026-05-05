@@ -32,6 +32,58 @@ describe('read_file', () => {
       'Path traversal denied',
     );
   });
+
+  it('returns small files unchanged', async () => {
+    const content = 'a'.repeat(100);
+    await fsp.writeFile(path.join(tmpDir, 'small.txt'), content);
+    const result = await executeTool(tmpDir, 'read_file', { path: 'small.txt' });
+    expect(result).toBe(content);
+  });
+
+  it('returns full content when file is exactly at cap', async () => {
+    const cap = 1024;
+    const content = 'x'.repeat(cap);
+    await fsp.writeFile(path.join(tmpDir, 'exact.txt'), content);
+    const prev = process.env.FERRY_READ_FILE_MAX_BYTES;
+    process.env.FERRY_READ_FILE_MAX_BYTES = String(cap);
+    try {
+      const result = await executeTool(tmpDir, 'read_file', { path: 'exact.txt' });
+      expect(result).toBe(content);
+      expect(result).not.toContain('[truncated:');
+    } finally {
+      if (prev === undefined) delete process.env.FERRY_READ_FILE_MAX_BYTES;
+      else process.env.FERRY_READ_FILE_MAX_BYTES = prev;
+    }
+  });
+
+  it('truncates large files with head+tail and elision marker', async () => {
+    const big = 'a'.repeat(40_000) + 'b'.repeat(40_000);
+    await fsp.writeFile(path.join(tmpDir, 'big.txt'), big);
+    const result = await executeTool(tmpDir, 'read_file', { path: 'big.txt' });
+    expect(result).toContain('[truncated:');
+    expect(result).toContain('bytes elided]');
+    expect(result.length).toBeLessThan(big.length);
+    expect(result.startsWith('a')).toBe(true);
+    expect(result.endsWith('b')).toBe(true);
+  });
+
+  it('respects FERRY_READ_FILE_MAX_BYTES env override', async () => {
+    const original = process.env.FERRY_READ_FILE_MAX_BYTES;
+    try {
+      process.env.FERRY_READ_FILE_MAX_BYTES = '10';
+      const content = 'hello world, this is longer than ten bytes';
+      await fsp.writeFile(path.join(tmpDir, 'capped.txt'), content);
+      const result = await executeTool(tmpDir, 'read_file', { path: 'capped.txt' });
+      expect(result).toContain('[truncated:');
+      expect(result.length).toBeLessThan(content.length);
+    } finally {
+      if (original === undefined) {
+        delete process.env.FERRY_READ_FILE_MAX_BYTES;
+      } else {
+        process.env.FERRY_READ_FILE_MAX_BYTES = original;
+      }
+    }
+  });
 });
 
 describe('write_file', () => {
@@ -178,5 +230,26 @@ describe('bash', () => {
     await expect(executeTool(tmpDir, 'bash', { command: 'rm -rf /tmp/test' })).rejects.toThrow(
       'deny-list',
     );
+  });
+
+  it('appends truncation marker when bash output exceeds cap', async () => {
+    const prev = process.env.FERRY_BASH_OUTPUT_MAX_BYTES;
+    process.env.FERRY_BASH_OUTPUT_MAX_BYTES = '50';
+    try {
+      // Generate output longer than 50 bytes
+      const result = await executeTool(tmpDir, 'bash', {
+        command: 'printf "%0.s12345678901234567890" {1..10}',
+      });
+      expect(result).toContain('[truncated:');
+      expect(result).toContain('more bytes');
+    } finally {
+      if (prev === undefined) delete process.env.FERRY_BASH_OUTPUT_MAX_BYTES;
+      else process.env.FERRY_BASH_OUTPUT_MAX_BYTES = prev;
+    }
+  });
+
+  it('does not append truncation marker when bash output is within cap', async () => {
+    const result = await executeTool(tmpDir, 'bash', { command: 'echo hi' });
+    expect(result).not.toContain('[truncated:');
   });
 });
