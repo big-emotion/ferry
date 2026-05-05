@@ -109,47 +109,47 @@ Each composite action (`ferry-run-developer`, `ferry-run-iterator`, `ferry-run-r
 
 These inputs are passed in the `with:` block of your consumer workflow when you call the composite action.
 
-| Input                    | Default | Description                                                                                                                                                  |
-| ------------------------ | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `pre_agent_command`      | `''`    | Shell command to run **after** checkout + Ferry setup but **before** the agent starts. Skipped when empty. Typical use: `npm ci`, dependency caching, env setup. |
-| `pre_agent_timeout_minutes` | `'3'`| Timeout in minutes for the pre-agent step. Ignored when `pre_agent_command` is empty.                                                                       |
-| `post_agent_command`     | `''`    | Shell command to run **after** the agent finishes. **Always executes** (`if: always()`) — runs on agent success, failure, and cancellation. Typical use: cleanup, artifact upload, notifications. |
+| Input                       | Default | Description                                                                                                                                                                                       |
+| --------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pre_agent_command`         | `''`    | Shell command to run **after** checkout + Ferry setup but **before** the agent starts. Skipped when empty. Typical use: `npm ci`, dependency caching, env setup.                                  |
+| `pre_agent_timeout_minutes` | `'3'`   | Timeout in minutes for the pre-agent step. Ignored when `pre_agent_command` is empty.                                                                                                             |
+| `post_agent_command`        | `''`    | Shell command to run **after** the agent finishes. **Always executes** (`if: always()`) — runs on agent success, failure, and cancellation. Typical use: cleanup, artifact upload, notifications. |
 
 The pre-agent step runs in `GITHUB_WORKSPACE` (your checked-out repo root), after Ferry's own `npm ci` has completed. Use multi-line commands with `|` for scripts longer than one command.
 
 **Example — install consumer dependencies before the Developer agent:**
 
 ```yaml
-      - name: Run Developer agent
-        id: run-developer
-        uses: big-emotion/ferry/.github/actions/ferry-run-developer@v0.8.0
-        with:
-          payload: ${{ toJson(github.event.client_payload) }}
-          # ... required inputs ...
-          pre_agent_command: |
-            npm ci --prefer-offline
-          pre_agent_timeout_minutes: '5'
+- name: Run Developer agent
+  id: run-developer
+  uses: big-emotion/ferry/.github/actions/ferry-run-developer@v0.8.0
+  with:
+    payload: ${{ toJson(github.event.client_payload) }}
+    # ... required inputs ...
+    pre_agent_command: |
+      npm ci --prefer-offline
+    pre_agent_timeout_minutes: '5'
 ```
 
 **Example — combined with `actions/cache@v4` (cache set up in a prior step, populated here):**
 
 ```yaml
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@...
+steps:
+  - name: Checkout repository
+    uses: actions/checkout@...
 
-      - name: Cache node_modules
-        uses: actions/cache@v4
-        with:
-          path: node_modules
-          key: ${{ runner.os }}-node-${{ hashFiles('package-lock.json') }}
+  - name: Cache node_modules
+    uses: actions/cache@v4
+    with:
+      path: node_modules
+      key: ${{ runner.os }}-node-${{ hashFiles('package-lock.json') }}
 
-      - name: Run Developer agent
-        uses: big-emotion/ferry/.github/actions/ferry-run-developer@v0.8.0
-        with:
-          payload: ${{ toJson(github.event.client_payload) }}
-          # ... required inputs ...
-          pre_agent_command: npm ci --prefer-offline
+  - name: Run Developer agent
+    uses: big-emotion/ferry/.github/actions/ferry-run-developer@v0.8.0
+    with:
+      payload: ${{ toJson(github.event.client_payload) }}
+      # ... required inputs ...
+      pre_agent_command: npm ci --prefer-offline
 ```
 
 ---
@@ -220,12 +220,12 @@ Each agent phase can be configured independently. All `models.*` fields are opti
 
 Ferry supports three LLM providers: **`anthropic`**, **`openai`**, and **`google`**. Provider support varies by phase:
 
-| Phase     | Supported providers             | Notes                                                           |
-| --------- | ------------------------------- | --------------------------------------------------------------- |
-| `refiner` | `anthropic`, `openai`, `google` | Uses a single-turn LLM call — all providers work                |
-| `dev`     | `anthropic`                     | Uses an agentic tool-use loop; OpenAI/Google support is planned |
-| `review`  | `anthropic`                     | Uses an agentic tool-use loop; OpenAI/Google support is planned |
-| `iterate` | `anthropic`                     | Uses an agentic tool-use loop; OpenAI/Google support is planned |
+| Phase     | Supported providers             | Notes                                                                       |
+| --------- | ------------------------------- | --------------------------------------------------------------------------- |
+| `refiner` | `anthropic`, `openai`, `google` | Uses a single-turn LLM call — all three providers are supported             |
+| `dev`     | `anthropic`                     | Anthropic only (multi-provider in progress) — uses an agentic tool-use loop |
+| `review`  | `anthropic`                     | Anthropic only (multi-provider in progress) — uses an agentic tool-use loop |
+| `iterate` | `anthropic`                     | Anthropic only (multi-provider in progress) — uses an agentic tool-use loop |
 
 > **MCP:** Model Context Protocol (MCP) server integration is Anthropic-only and is not available when using other providers. MCP availability is also independent of the provider support table above — even with `provider: anthropic`, **only the Developer and Iterator agents consume `AGENT_MCP_SERVERS`**. The Refiner and Reviewer do not load MCP servers regardless of provider or configuration.
 

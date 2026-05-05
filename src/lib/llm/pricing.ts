@@ -10,6 +10,7 @@ const RATES: Record<string, TokenRates> = {
   'anthropic/claude-sonnet-4-6': { inputPer1M: 2.79, outputPer1M: 13.95 },
   'anthropic/claude-opus': { inputPer1M: 13.95, outputPer1M: 69.75 },
   'anthropic/claude-haiku': { inputPer1M: 0.23, outputPer1M: 1.16 },
+  'openai/gpt-4.1-nano': { inputPer1M: 0.09, outputPer1M: 0.37 },
   'openai/gpt-4.1-mini': { inputPer1M: 0.14, outputPer1M: 0.56 },
   'openai/gpt-4.': { inputPer1M: 2.79, outputPer1M: 8.37 },
   'openai/gpt-5.': { inputPer1M: 2.79, outputPer1M: 8.37 },

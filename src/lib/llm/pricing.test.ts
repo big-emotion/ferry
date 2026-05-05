@@ -29,6 +29,12 @@ describe('computeCostEur', () => {
   });
 
   describe('OpenAI models', () => {
+    it('computes cost for gpt-4.1-nano (exact match)', () => {
+      // 1M input @ 0.09 + 1M output @ 0.37 = 0.46
+      const cost = computeCostEur('openai', 'gpt-4.1-nano', 1_000_000, 1_000_000);
+      expect(cost).toBe(0.46);
+    });
+
     it('computes cost for gpt-4.1-mini (exact match)', () => {
       // 1M input @ 0.14 + 1M output @ 0.56 = 0.7
       const cost = computeCostEur('openai', 'gpt-4.1-mini', 1_000_000, 1_000_000);

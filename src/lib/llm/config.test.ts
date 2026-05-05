@@ -56,6 +56,23 @@ describe('llm config', () => {
     expect(() => loadFerryLlmConfig()).toThrow(/\[ferry:state-invariant\]/);
   });
 
+  test('accepts google provider in both routes', () => {
+    vi.stubEnv(
+      'FERRY_LLM_CONFIG',
+      JSON.stringify({
+        default: { provider: 'google', model: 'gemini-2.5-flash' },
+        critical: { provider: 'google', model: 'gemini-2.5-pro' },
+      }),
+    );
+
+    const cfg = loadFerryLlmConfig();
+
+    expect(cfg.default.provider).toBe('google');
+    expect(cfg.default.model).toBe('gemini-2.5-flash');
+    expect(cfg.critical.provider).toBe('google');
+    expect(cfg.critical.model).toBe('gemini-2.5-pro');
+  });
+
   test('throws FerryError when config is invalid', () => {
     vi.stubEnv(
       'FERRY_LLM_CONFIG',
