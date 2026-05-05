@@ -16,6 +16,7 @@ import type {
   AgentLoopResult,
   AgentLoopUsage,
   DonePayload,
+  DoneOutcome,
   McpServerConfig,
   HttpMcpServerConfig,
   StdioMcpServerConfig,
@@ -420,7 +421,10 @@ export function createAnthropicAgentLoop(opts: {
         const blockInput = block.input as Record<string, unknown>;
 
         if (name === 'done') {
-          done = blockInput as unknown as DonePayload;
+          const outcome = blockInput.outcome as DoneOutcome | undefined;
+          const actionable =
+            outcome !== undefined ? outcome !== 'blocked' : (blockInput.actionable as boolean);
+          done = { ...blockInput, actionable, outcome } as unknown as DonePayload;
           toolResults.push({ type: 'tool_result', tool_use_id: id, content: 'ok' });
           continue;
         }
@@ -455,7 +459,7 @@ export function createAnthropicAgentLoop(opts: {
               toolResults.push({
                 type: 'tool_result',
                 tool_use_id: id,
-                content: `Sub-agent could not complete task: ${subResult.done.reason_if_not_actionable ?? 'no reason given'}`,
+                content: `Sub-agent could not complete task: ${subResult.done.reason ?? subResult.done.reason_if_not_actionable ?? 'no reason given'}`,
                 is_error: true,
               });
             } else {

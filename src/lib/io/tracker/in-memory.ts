@@ -4,6 +4,7 @@ export class InMemoryTracker implements IssueTracker {
   readonly issues = new Map<string, TrackerIssue>();
   readonly postedComments: Array<{ key: string; body: string }> = [];
   readonly postedTransitions: Array<{ key: string; transitionId: string }> = [];
+  readonly addedLabels: Array<{ key: string; label: string }> = [];
   readonly createdSubtasks: Array<{ parentKey: string; title: string; description: string }> = [];
   private readonly subtaskMap = new Map<string, string[]>();
   private readonly subtaskDetailMap = new Map<string, TrackerSubtask[]>();
@@ -38,6 +39,13 @@ export class InMemoryTracker implements IssueTracker {
 
   async postTransition(key: string, transitionId: string): Promise<void> {
     this.postedTransitions.push({ key, transitionId });
+  }
+
+  async addLabel(key: string, label: string): Promise<void> {
+    const issue = this.issues.get(key);
+    if (!issue) throw new Error(`InMemoryTracker: issue ${key} not found`);
+    this.addedLabels.push({ key, label });
+    issue.labels.push(label);
   }
 
   async getSubtasks(key: string): Promise<string[]> {

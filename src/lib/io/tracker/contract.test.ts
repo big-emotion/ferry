@@ -101,4 +101,19 @@ describe('IssueTracker contract — InMemoryTracker', () => {
     expect(details[0].title).toBe('New task');
     expect(details[0].status).toBe('To Do');
   });
+
+  it('addLabel records the label in addedLabels', async () => {
+    await tracker.addLabel('PROJ-1', 'ferry:blocked');
+    expect(tracker.addedLabels).toEqual([{ key: 'PROJ-1', label: 'ferry:blocked' }]);
+  });
+
+  it('addLabel makes the label visible in subsequent getIssue calls', async () => {
+    await tracker.addLabel('PROJ-1', 'ferry:blocked');
+    const issue = await tracker.getIssue('PROJ-1');
+    expect(issue.labels).toContain('ferry:blocked');
+  });
+
+  it('addLabel throws when the issue does not exist', async () => {
+    await expect(tracker.addLabel('UNKNOWN-1', 'ferry:blocked')).rejects.toThrow('UNKNOWN-1');
+  });
 });

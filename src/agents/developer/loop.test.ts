@@ -265,6 +265,112 @@ describe('createAnthropicAgentLoop', () => {
     expect(result.usage.cache_read_input_tokens).toBe(10);
   });
 
+  describe('done tool outcome normalization', () => {
+    it('outcome=implemented sets actionable=true', async () => {
+      const mock = makeAnthropicMock([
+        {
+          stop_reason: 'tool_use',
+          content: [
+            {
+              type: 'tool_use',
+              id: 'tu_1',
+              name: 'done',
+              input: { outcome: 'implemented', summary: 'Added feature' },
+            },
+          ],
+        },
+      ]);
+
+      const result = await makeLoop(mock).run(defaultRunInput);
+      expect(result.done.outcome).toBe('implemented');
+      expect(result.done.actionable).toBe(true);
+    });
+
+    it('outcome=already_satisfied sets actionable=true', async () => {
+      const mock = makeAnthropicMock([
+        {
+          stop_reason: 'tool_use',
+          content: [
+            {
+              type: 'tool_use',
+              id: 'tu_1',
+              name: 'done',
+              input: { outcome: 'already_satisfied', summary: 'Spec already met' },
+            },
+          ],
+        },
+      ]);
+
+      const result = await makeLoop(mock).run(defaultRunInput);
+      expect(result.done.outcome).toBe('already_satisfied');
+      expect(result.done.actionable).toBe(true);
+    });
+
+    it('outcome=blocked sets actionable=false', async () => {
+      const mock = makeAnthropicMock([
+        {
+          stop_reason: 'tool_use',
+          content: [
+            {
+              type: 'tool_use',
+              id: 'tu_1',
+              name: 'done',
+              input: { outcome: 'blocked', summary: 'Cannot proceed', reason: 'Missing access' },
+            },
+          ],
+        },
+      ]);
+
+      const result = await makeLoop(mock).run(defaultRunInput);
+      expect(result.done.outcome).toBe('blocked');
+      expect(result.done.actionable).toBe(false);
+    });
+
+    it('legacy actionable=true (no outcome) preserved for back-compat', async () => {
+      const mock = makeAnthropicMock([
+        {
+          stop_reason: 'tool_use',
+          content: [
+            {
+              type: 'tool_use',
+              id: 'tu_1',
+              name: 'done',
+              input: { actionable: true, summary: 'Old-style done' },
+            },
+          ],
+        },
+      ]);
+
+      const result = await makeLoop(mock).run(defaultRunInput);
+      expect(result.done.actionable).toBe(true);
+      expect(result.done.outcome).toBeUndefined();
+    });
+
+    it('legacy actionable=false (no outcome) preserved for back-compat', async () => {
+      const mock = makeAnthropicMock([
+        {
+          stop_reason: 'tool_use',
+          content: [
+            {
+              type: 'tool_use',
+              id: 'tu_1',
+              name: 'done',
+              input: {
+                actionable: false,
+                summary: 'Old-style blocked',
+                reason_if_not_actionable: 'too vague',
+              },
+            },
+          ],
+        },
+      ]);
+
+      const result = await makeLoop(mock).run(defaultRunInput);
+      expect(result.done.actionable).toBe(false);
+      expect(result.done.outcome).toBeUndefined();
+    });
+  });
+
   it('spawn_subagent returns is_error when sub-agent actionable is false', async () => {
     const subResult: AgentLoopResult = {
       done: {

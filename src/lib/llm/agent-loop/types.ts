@@ -44,10 +44,16 @@ export interface ValidationEntry {
   outcome: string;
 }
 
+export type DoneOutcome = 'implemented' | 'already_satisfied' | 'blocked';
+
 export interface DonePayload {
   actionable: boolean;
+  outcome?: DoneOutcome;
   summary: string;
   commit_message?: string;
+  /** Reason the ticket is blocked (used for outcome=blocked). */
+  reason?: string;
+  /** @deprecated use reason instead */
   reason_if_not_actionable?: string;
   validation?: ValidationEntry[];
   notes?: string[];

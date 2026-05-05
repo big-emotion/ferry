@@ -17,6 +17,7 @@ export const LABELS_ALLOWLIST = [
   // Audit rotation
   'ferry:audit-log:active',
   // Escalation labels
+  'ferry:blocked',
   'needs-human',
   'status:stale',
   // Routing (user-applied, not agent-applied)
