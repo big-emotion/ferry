@@ -1,4 +1,6 @@
 import { execFileSync } from 'node:child_process';
+import * as fsp from 'node:fs/promises';
+import * as path from 'node:path';
 import { delimitUntrusted } from '../../lib/llm/delimit-untrusted.js';
 import {
   requireEnv,
@@ -32,10 +34,9 @@ import type { AgentLoop } from '../../lib/llm/agent-loop/types.js';
 import { resolveCapabilities, filterMcpServers } from '../../lib/labels/capabilities.js';
 import { resolveAnthropicAuth } from '../../lib/llm/anthropic-auth.js';
 import { detectTestRunner, repoTree, packageJsonPath, detectPackageManager } from './workspace.js';
+import { assertDevOutputContract } from './outcome-guard.js';
 
 const REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
-
-const ALREADY_IMPLEMENTED_REASON = 'already implemented';
 
 async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
   const { ticket_key: ticketKey, event_id: eventId } = envelope;
@@ -142,7 +143,7 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
           `\nEXISTING_IMPLEMENTATION:`,
           `Open PR: ${existingPrUrl} (head: ${branchHeadSha.slice(0, 7)})`,
           `Changed files:\n${fileList}`,
-          `If the implementation is already complete for this ticket, call \`done\` with actionable=false and reason="${ALREADY_IMPLEMENTED_REASON}".`,
+          `If the spec is already fully satisfied by the existing code, call \`done\` with outcome="already_satisfied".`,
         ].join('\n');
         logger.info('existing PR found', { pr: existingPrUrl, files: prFiles.length });
       }
@@ -213,36 +214,34 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
     mcpServers,
   });
 
+  const resolvedOutcome = done.outcome ?? (done.actionable ? 'implemented' : 'blocked');
+
   logger.info('done', {
     iterations,
-    actionable: done.actionable,
+    outcome: resolvedOutcome,
     in: usage.input_tokens,
     cache_w: usage.cache_creation_input_tokens,
     cache_r: usage.cache_read_input_tokens,
     out: usage.output_tokens,
   });
 
-  if (!done.actionable) {
-    const reason = done.reason_if_not_actionable ?? 'no reason given';
-    const isAlreadyImplemented = reason.startsWith(ALREADY_IMPLEMENTED_REASON);
-
+  // ── blocked ──────────────────────────────────────────────────────────────
+  if (resolvedOutcome === 'blocked') {
+    const reason = done.reason ?? done.reason_if_not_actionable ?? 'no reason given';
     if (!dryRun) {
-      if (isAlreadyImplemented && existingPrUrl) {
-        await tracker.postComment(
-          ticketKey,
-          `${idempotencyMarker} No changes needed — implementation already at ${existingPrUrl}.`,
-        );
-      } else {
-        await tracker.postComment(ticketKey, `${idempotencyMarker} Cannot implement — ${reason}`);
-      }
+      await tracker.addLabel(ticketKey, 'ferry:blocked');
+      await tracker.postComment(
+        ticketKey,
+        `${idempotencyMarker} 🚨 BLOCKED — ${reason}. Manual intervention required.`,
+      );
     } else {
-      logger.info('DRY_RUN — not actionable', { reason });
+      logger.info('DRY_RUN — blocked', { reason });
     }
     appendOutput({ ...usage, model, provider: devProvider });
-    process.exit(0);
+    process.exit(1);
   }
 
-  // actionable: commit any remaining changes and push
+  // ── implemented | already_satisfied ──────────────────────────────────────
   const commitMessage = formatDeveloperCommit({
     ticketKey,
     runId: eventId,
@@ -250,6 +249,31 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
   });
 
   try {
+    let verificationNoteWritten = false;
+
+    if (resolvedOutcome === 'already_satisfied') {
+      const verificationDir = path.join(REPO_ROOT, '.ferry', 'verifications');
+      const verificationPath = path.join(verificationDir, `${ticketKey}.md`);
+      const validationLines =
+        (done.validation ?? []).length > 0
+          ? (done.validation ?? []).map((v) => `- \`${v.command}\`: ${v.outcome}`).join('\n')
+          : '_none recorded_';
+      const verificationContent = [
+        `# Verification: ${ticketKey}`,
+        ``,
+        `**Date:** ${new Date().toISOString()}`,
+        ``,
+        `## Summary`,
+        done.summary,
+        ``,
+        `## Validation`,
+        validationLines,
+      ].join('\n');
+      await fsp.mkdir(verificationDir, { recursive: true });
+      await fsp.writeFile(verificationPath, verificationContent, 'utf8');
+      verificationNoteWritten = true;
+    }
+
     execFileSync('git', ['add', '-A'], { cwd: REPO_ROOT });
     const finalStatus = execFileSync('git', ['status', '--porcelain'], {
       cwd: REPO_ROOT,
@@ -257,9 +281,11 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
     });
     if (finalStatus.trim()) {
       await secretScan();
-      execFileSync('git', ['commit', '-m', done.commit_message ?? commitMessage], {
-        cwd: REPO_ROOT,
-      });
+      const msg =
+        resolvedOutcome === 'already_satisfied'
+          ? `chore(${ticketKey}): add verification note — spec already satisfied`
+          : (done.commit_message ?? commitMessage);
+      execFileSync('git', ['commit', '-m', msg], { cwd: REPO_ROOT });
     }
 
     if (dryRun) {
@@ -277,6 +303,7 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
         // best-effort
       }
       logger.info('DRY_RUN — implementation summary', {
+        outcome: resolvedOutcome,
         summary: done.summary,
         diff: diffOutput,
       });
@@ -286,8 +313,12 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
     }
 
     execFileSync('git', ['push', 'origin', branchName, '--force-with-lease'], { cwd: REPO_ROOT });
+    const branchPushed = true;
 
-    const prTitle = formatPullRequestTitle({ ticketKey, summary: done.summary });
+    const prTitle =
+      resolvedOutcome === 'already_satisfied'
+        ? `verify(${ticketKey}): existing implementation satisfies spec`
+        : formatPullRequestTitle({ ticketKey, summary: done.summary });
     const prBody = formatPullRequestBody({
       ticketKey,
       jiraBaseUrl,
@@ -300,14 +331,20 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
 
     const prUrl = await runner.createPR(owner, repo, branchName, targetBranch, prTitle, prBody);
 
+    // Output-contract guard: verify all required outputs exist before terminal comment.
+    assertDevOutputContract(resolvedOutcome, { branchPushed, prUrl, verificationNoteWritten });
+
     if (shouldAutoTransition) {
       await tracker.postTransition(ticketKey, reviewTransitionId);
     }
     const transitionNote = shouldAutoTransition ? ' Moved to Review.' : '';
-    await tracker.postComment(
-      ticketKey,
-      `${idempotencyMarker} Implementation complete — PR: ${prUrl}.${transitionNote}`,
-    );
+
+    const terminalComment =
+      resolvedOutcome === 'already_satisfied'
+        ? `${idempotencyMarker} Spec already satisfied — verification PR: ${prUrl}.${transitionNote}`
+        : `${idempotencyMarker} Implementation complete — PR: ${prUrl}.${transitionNote}`;
+
+    await tracker.postComment(ticketKey, terminalComment);
   } catch (err) {
     if (!dryRun) {
       try {

@@ -4,6 +4,7 @@ import { checkIdempotencyMarker } from '../../lib/io/idempotency.js';
 import { TOOL_SCHEMAS, COMMIT_PROGRESS_SCHEMA, executeTool } from '../developer/tools.js';
 import { createAnthropicAgentLoop } from '../../lib/llm/agent-loop/anthropic.js';
 import { resolveAnthropicAuth } from '../../lib/llm/anthropic-auth.js';
+import { assertIterOutputContract } from './outcome-guard.js';
 import { FerryError } from '../../lib/errors/index.js';
 import { checkIterationCap } from './cap.js';
 import { decideIteratorTransition } from './transition.js';
@@ -201,24 +202,30 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
     mcpServers,
   });
 
+  const resolvedOutcome = done.outcome ?? (done.actionable ? 'implemented' : 'blocked');
+
   logger.info('done', {
     iterations,
-    actionable: done.actionable,
+    outcome: resolvedOutcome,
     in: usage.input_tokens,
     cache_w: usage.cache_creation_input_tokens,
     cache_r: usage.cache_read_input_tokens,
     out: usage.output_tokens,
   });
 
-  if (!done.actionable) {
+  // ── blocked ──────────────────────────────────────────────────────────────
+  if (resolvedOutcome === 'blocked') {
+    const reason = done.reason ?? done.reason_if_not_actionable ?? 'no reason given';
+    await tracker.addLabel(ticketKey, 'ferry:blocked');
     await tracker.postComment(
       ticketKey,
-      `${idempotencyMarker} Cannot fix — ${done.reason_if_not_actionable ?? 'no reason given'}`,
+      `${idempotencyMarker} 🚨 BLOCKED — ${reason}. Manual intervention required.`,
     );
     appendOutput({ ...usage, model, provider: iterProvider });
-    process.exit(0);
+    process.exit(1);
   }
 
+  // ── implemented | already_satisfied ──────────────────────────────────────
   const commitMessage = formatCommitMessage({
     ticket_key: ticketKey,
     summary: done.summary,
@@ -236,6 +243,10 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
     execFileSync('git', ['commit', '-m', commitMessage], { cwd: REPO_ROOT });
   }
   execFileSync('git', ['push', 'origin', branchName, '--force-with-lease'], { cwd: REPO_ROOT });
+  const branchPushed = true;
+
+  // Output-contract guard: verify required outputs exist before terminal comment.
+  assertIterOutputContract(resolvedOutcome, { branchPushed, prNumber });
 
   if (shouldAutoTransition) {
     await tracker.postTransition(ticketKey, reviewTransitionId);
@@ -243,10 +254,13 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
 
   const { next_iteration } = decideIteratorTransition({ current_iteration: priorIterations });
   const transitionNote = shouldAutoTransition ? ' Moved back to Review.' : '';
-  await tracker.postComment(
-    ticketKey,
-    `${idempotencyMarker} Iteration ${next_iteration} complete. Pushed fixes to PR#${prNumber}.${transitionNote}`,
-  );
+
+  const terminalComment =
+    resolvedOutcome === 'already_satisfied'
+      ? `${idempotencyMarker} Findings already addressed — no changes needed. Pushed to PR#${prNumber}.${transitionNote}`
+      : `${idempotencyMarker} Iteration ${next_iteration} complete. Pushed fixes to PR#${prNumber}.${transitionNote}`;
+
+  await tracker.postComment(ticketKey, terminalComment);
 
   appendOutput({ ...usage, model, provider: iterProvider });
   process.exit(0);

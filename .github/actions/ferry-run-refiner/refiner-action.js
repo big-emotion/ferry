@@ -5135,6 +5135,9 @@ var JiraTracker = class {
   async postTransition(key, transitionId) {
     await this.client.postTransition(key, transitionId);
   }
+  async addLabel(key, label) {
+    await this.client.addLabel(key, label);
+  }
   async getSubtasks(key) {
     return this.client.getSubtasks(key);
   }

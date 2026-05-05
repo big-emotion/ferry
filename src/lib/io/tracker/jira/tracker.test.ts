@@ -108,6 +108,16 @@ describe('JiraTracker', () => {
     });
   });
 
+  describe('addLabel', () => {
+    it('delegates to the REST client with the given key and label', async () => {
+      vi.mocked(client.addLabel).mockResolvedValue(undefined);
+
+      await tracker.addLabel('PROJ-1', 'ferry:blocked');
+
+      expect(client.addLabel).toHaveBeenCalledWith('PROJ-1', 'ferry:blocked');
+    });
+  });
+
   describe('getSubtaskDetails', () => {
     it('converts ADF descriptions and returns TrackerSubtask array', async () => {
       vi.mocked(client.getSubtaskDetails).mockResolvedValue([

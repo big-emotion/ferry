@@ -132,28 +132,38 @@ export const TOOL_SCHEMAS: AgentTool[] = [
   },
   {
     name: 'done',
-    description: 'Terminate the loop. Call when implementation is complete or cannot be done.',
+    description: 'Terminate the loop. Call with the appropriate outcome when finished.',
     input_schema: {
       type: 'object' as const,
       properties: {
-        actionable: {
-          type: 'boolean',
-          description: 'true if changes were made, false if ticket cannot be implemented.',
+        outcome: {
+          type: 'string',
+          enum: ['implemented', 'already_satisfied', 'blocked'],
+          description:
+            'implemented — code was changed; triggers commit, push, PR, and transition. ' +
+            'already_satisfied — spec is verifiably met by existing code with no changes needed; triggers a verification PR and transition. ' +
+            'blocked — true blocker (contradictory spec, missing access, requires human decision); applies ferry:blocked label and exits non-zero. ' +
+            'Never use blocked when the spec is already satisfied — use already_satisfied instead.',
         },
-        summary: { type: 'string', description: 'One sentence describing what was implemented.' },
+        summary: {
+          type: 'string',
+          description:
+            'One sentence describing what was implemented, what satisfies the spec, or why blocked.',
+        },
         commit_message: {
           type: 'string',
           description:
-            'Conventional commit message for any remaining uncommitted changes (required when actionable: true).',
+            'Conventional commit message for any remaining uncommitted changes (required when outcome=implemented).',
         },
-        reason_if_not_actionable: {
+        reason: {
           type: 'string',
-          description: 'Reason the ticket cannot be implemented (required when actionable: false).',
+          description:
+            'Clear explanation for the Jira escalation comment (required when outcome=blocked).',
         },
         validation: {
           type: 'array',
           description:
-            'Validation commands run during this session and their outcomes (used in the PR body).',
+            'Validation commands run during this session and their outcomes (used in the PR body and verification note).',
           items: {
             type: 'object',
             properties: {
@@ -173,7 +183,7 @@ export const TOOL_SCHEMAS: AgentTool[] = [
           items: { type: 'string' },
         },
       },
-      required: ['actionable', 'summary'],
+      required: ['outcome', 'summary'],
     },
   },
 ];

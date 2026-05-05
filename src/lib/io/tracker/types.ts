@@ -18,6 +18,7 @@ export interface IssueTracker {
   getIssue(key: string): Promise<TrackerIssue>;
   postComment(key: string, body: string): Promise<void>;
   postTransition(key: string, transitionId: string): Promise<void>;
+  addLabel(key: string, label: string): Promise<void>;
   getSubtasks(key: string): Promise<string[]>;
   getSubtaskDetails(key: string): Promise<TrackerSubtask[]>;
   createSubtask(parentKey: string, title: string, description: string): Promise<{ id: string }>;
