@@ -11,6 +11,19 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.10.0] — 2026-05-05
+
+### Added
+
+- **Multi-provider agent loop ported to OpenAI and Google (Developer + Iterator agents)** — `src/lib/llm/agent-loop/openai.ts` and `agent-loop/google.ts` implement the full agent loop (multi-turn tool use, `commit_progress`, soft-budget warnings at 70 % / 85 %, commit-and-stop tool filter, message pruning, stdio MCP dispatch with HTTP MCP rejection) for OpenAI `chat.completions` function-calling and Google `generateContent` `functionDeclarations`. A `createAgentLoop()` factory dispatches by provider. The `provider !== 'anthropic'` guards in `dev-action.ts` and `iterate-action.ts` are removed, so the Developer and Iterator agents now run on all three providers, completing the rollout that began with the Refiner (Phase 1) and Reviewer (Phase 2). Adds 40 tests across `openai.test.ts` / `google.test.ts` (#219, #234).
+- **Multi-provider consumer ergonomics — Phase 4** — the four example consumer workflows (`ferry-refine.yml`, `ferry-dev.yml`, `ferry-iterate.yml`, `ferry-review.yml`) now pass `OPENAI_API_KEY` and `GOOGLE_API_KEY` alongside `ANTHROPIC_API_KEY` and document conditional secret requirements in their headers. `ferry-init` asks which LLM provider to use per phase (default: anthropic), collects the matching API key, and emits a `models:` block in `ferry.config.yaml` only when a non-default provider is selected. `ferry-doctor` cross-checks repo secrets via the GitHub API when a local key is absent and accepts both canonical (`OPENAI_API_KEY` / `GOOGLE_API_KEY`) and legacy (`FERRY_OPENAI_KEY` / `FERRY_GOOGLE_AI_KEY`) names. Closes #220 (#233).
+
+### Changed
+
+- **`docs/CONFIGURATION.md` provider matrix expanded** — replaces the previous "Anthropic only (in progress)" notes with a full provider × phase matrix, documenting HTTP MCP support (Anthropic-only), prompt caching (Anthropic-only), and the cost delta for OpenAI / Google long runs.
+
+---
+
 ## [0.9.0] — 2026-05-05
 
 ### Added
@@ -257,7 +270,8 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
-[Unreleased]: https://github.com/big-emotion/ferry/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/big-emotion/ferry/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/big-emotion/ferry/releases/tag/v0.10.0
 [0.9.0]: https://github.com/big-emotion/ferry/releases/tag/v0.9.0
 [0.8.2]: https://github.com/big-emotion/ferry/releases/tag/v0.8.2
 [0.8.1]: https://github.com/big-emotion/ferry/releases/tag/v0.8.1
