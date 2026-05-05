@@ -2147,8 +2147,8 @@ async function runAgent(role, handler2) {
 function byEventId(role, eventId) {
   return `[ferry:${role}:${eventId}]`;
 }
-function byReviewCommentId(role, commentId) {
-  return `[ferry:${role}:${commentId}]`;
+function byPrHeadSha(role, headSha) {
+  return `[ferry:${role}:${headSha.slice(0, 7)}]`;
 }
 
 // src/lib/agent-runtime/prompt.ts
@@ -7265,12 +7265,35 @@ async function main(envelope, logger) {
     return;
   }
   const prNumber = prs[0].number;
+  const pr = await runner.getPR({ owner, repo, prNumber });
+  const headSha = pr.headSha;
+  const idempotencyMarker = byPrHeadSha("iterator", headSha);
+  const { skipped } = checkIdempotencyMarker(idempotencyMarker, existingComments);
+  if (skipped) {
+    logger.info("already iterated for this head SHA, recovering transition", {
+      sha: headSha.slice(0, 7)
+    });
+    if (shouldAutoTransition) {
+      await tracker.postTransition(ticketKey, reviewTransitionId);
+    }
+    appendOutput({ input_tokens: 0, output_tokens: 0, model, provider: iterProvider });
+    return;
+  }
+  const expectedReviewerMarker = byPrHeadSha("reviewer", headSha);
+  const reviewerSeenInJira = existingComments.some((c) => c.includes(expectedReviewerMarker));
+  if (!reviewerSeenInJira) {
+    logger.info("reviewer for current head SHA not visible in Jira yet, deferring", {
+      sha: headSha.slice(0, 7)
+    });
+    appendOutput({ input_tokens: 0, output_tokens: 0, model, provider: iterProvider });
+    return;
+  }
   const recentComments = await runner.listPRComments({ owner, repo, prNumber }, 30);
   const reviewComments = recentComments.filter((c) => c.body.includes("[ferry:reviewer:"));
   if (reviewComments.length === 0) {
     const eventMarker = byEventId("iterator", eventId);
-    const { skipped: skipped2 } = checkIdempotencyMarker(eventMarker, existingComments);
-    if (!skipped2) {
+    const { skipped: errSkipped } = checkIdempotencyMarker(eventMarker, existingComments);
+    if (!errSkipped) {
       await tracker.postComment(
         ticketKey,
         `${eventMarker} No review comment found on PR#${prNumber}. Cannot iterate.`
@@ -7280,13 +7303,6 @@ async function main(envelope, logger) {
     return;
   }
   const latestReview = reviewComments[0];
-  const idempotencyMarker = byReviewCommentId("iterator", latestReview.id);
-  const { skipped } = checkIdempotencyMarker(idempotencyMarker, existingComments);
-  if (skipped) {
-    logger.info("review comment already handled, skipping", { review_comment_id: latestReview.id });
-    appendOutput({ input_tokens: 0, output_tokens: 0, model, provider: iterProvider });
-    return;
-  }
   const reviewComment = latestReview.body;
   if (/\*\*Verdict\*\*:\s*Approved\b/.test(reviewComment)) {
     await tracker.postComment(
