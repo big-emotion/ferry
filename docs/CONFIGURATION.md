@@ -59,16 +59,16 @@ All variables marked **wired** below are read directly by the standard consumer 
 
 #### Model and provider overrides
 
-| Variable                 | Default             | Wired?          | Affects         | Description                                                                                          |
-| ------------------------ | ------------------- | --------------- | --------------- | ---------------------------------------------------------------------------------------------------- |
-| `FERRY_DEV_MODEL`        | `claude-sonnet-4-6` | yes (`dev`)     | Developer agent | Override the model ID for the Developer. Wired via the `ferry_dev_model` composite action input.     |
-| `FERRY_DEV_PROVIDER`     | `anthropic`         | yes (`dev`)     | Developer agent | LLM provider override for the Developer. Currently only `anthropic` is supported for agentic phases. |
-| `FERRY_REVIEW_MODEL`     | `claude-sonnet-4-6` | yes (`review`)  | Reviewer agent  | Override the model ID for the Reviewer. Wired via the `ferry_review_model` composite action input.   |
-| `FERRY_REVIEW_PROVIDER`  | `anthropic`         | yes (`review`)  | Reviewer agent  | LLM provider override for the Reviewer. Currently only `anthropic` is supported for agentic phases.  |
-| `FERRY_ITER_MODEL`       | `claude-sonnet-4-6` | yes (`iterate`) | Iterator agent  | Override the model ID for the Iterator. Wired via the `ferry_iter_model` composite action input.     |
-| `FERRY_ITER_PROVIDER`    | `anthropic`         | yes (`iterate`) | Iterator agent  | LLM provider override for the Iterator. Currently only `anthropic` is supported for agentic phases.  |
-| `FERRY_REFINER_MODEL`    | `claude-sonnet-4-6` | yes (`refine`)  | Refiner agent   | Override the model ID for the Refiner. Wired via the `ferry_refiner_model` composite action input.   |
-| `FERRY_REFINER_PROVIDER` | `anthropic`         | yes (`refine`)  | Refiner agent   | LLM provider override for the Refiner (`anthropic` / `openai` / `google`).                           |
+| Variable                 | Default             | Wired?          | Affects         | Description                                                                                                 |
+| ------------------------ | ------------------- | --------------- | --------------- | ----------------------------------------------------------------------------------------------------------- |
+| `FERRY_DEV_MODEL`        | `claude-sonnet-4-6` | yes (`dev`)     | Developer agent | Override the model ID for the Developer. Wired via the `ferry_dev_model` composite action input.            |
+| `FERRY_DEV_PROVIDER`     | `anthropic`         | yes (`dev`)     | Developer agent | LLM provider override for the Developer. Accepts `anthropic`, `openai`, or `google`. See capability matrix. |
+| `FERRY_REVIEW_MODEL`     | `claude-sonnet-4-6` | yes (`review`)  | Reviewer agent  | Override the model ID for the Reviewer. Wired via the `ferry_review_model` composite action input.          |
+| `FERRY_REVIEW_PROVIDER`  | `anthropic`         | yes (`review`)  | Reviewer agent  | LLM provider override for the Reviewer. Currently only `anthropic` is supported for agentic phases.         |
+| `FERRY_ITER_MODEL`       | `claude-sonnet-4-6` | yes (`iterate`) | Iterator agent  | Override the model ID for the Iterator. Wired via the `ferry_iter_model` composite action input.            |
+| `FERRY_ITER_PROVIDER`    | `anthropic`         | yes (`iterate`) | Iterator agent  | LLM provider override for the Iterator. Accepts `anthropic`, `openai`, or `google`. See capability matrix.  |
+| `FERRY_REFINER_MODEL`    | `claude-sonnet-4-6` | yes (`refine`)  | Refiner agent   | Override the model ID for the Refiner. Wired via the `ferry_refiner_model` composite action input.          |
+| `FERRY_REFINER_PROVIDER` | `anthropic`         | yes (`refine`)  | Refiner agent   | LLM provider override for the Refiner (`anthropic` / `openai` / `google`).                                  |
 
 #### Token and iteration limits
 
@@ -220,24 +220,41 @@ Each agent phase can be configured independently. All `models.*` fields are opti
 
 Ferry supports three LLM providers: **`anthropic`**, **`openai`**, and **`google`**. Provider support varies by phase:
 
-| Phase     | Supported providers             | Notes                                                                       |
-| --------- | ------------------------------- | --------------------------------------------------------------------------- |
-| `refiner` | `anthropic`, `openai`, `google` | Uses a single-turn LLM call — all three providers are supported             |
-| `dev`     | `anthropic`                     | Anthropic only (multi-provider in progress) — uses an agentic tool-use loop |
-| `review`  | `anthropic`                     | Anthropic only (multi-provider in progress) — uses an agentic tool-use loop |
-| `iterate` | `anthropic`                     | Anthropic only (multi-provider in progress) — uses an agentic tool-use loop |
+| Phase     | Supported providers             | Notes                                                                                   |
+| --------- | ------------------------------- | --------------------------------------------------------------------------------------- |
+| `refiner` | `anthropic`, `openai`, `google` | Single-turn LLM call — all three providers are supported                                |
+| `dev`     | `anthropic`, `openai`, `google` | Multi-turn agentic loop. See capability matrix below for provider-specific limitations. |
+| `review`  | `anthropic`                     | Anthropic only — uses an agentic tool-use loop                                          |
+| `iterate` | `anthropic`, `openai`, `google` | Multi-turn agentic loop. See capability matrix below for provider-specific limitations. |
 
-> **MCP:** Model Context Protocol (MCP) server integration is Anthropic-only and is not available when using other providers. MCP availability is also independent of the provider support table above — even with `provider: anthropic`, **only the Developer and Iterator agents consume `AGENT_MCP_SERVERS`**. The Refiner and Reviewer do not load MCP servers regardless of provider or configuration.
+#### Provider capability matrix (agentic phases)
+
+| Capability                    | `anthropic` | `openai`           | `google`           |
+| ----------------------------- | ----------- | ------------------ | ------------------ |
+| Multi-turn tool use           | ✅          | ✅                 | ✅                 |
+| HTTP MCP servers              | ✅          | ❌ (stdio only)    | ❌ (stdio only)    |
+| Stdio MCP servers             | ✅          | ✅                 | ✅                 |
+| Explicit prompt cache control | ✅          | ❌ (automatic)     | ❌ (not supported) |
+| Cache-weighted token budget   | ✅          | ❌ (raw token sum) | ❌ (raw token sum) |
+| Expected cost per long run    | Baseline    | ~2–3× higher       | ~2–3× higher       |
+
+> **HTTP MCP:** Anthropic's HTTP MCP beta connector (`type: url` servers in `AGENT_MCP_SERVERS`) is Anthropic-only. Configuring an HTTP MCP server for an OpenAI or Google run raises a hard error at startup. Use stdio MCP servers for cross-provider compatibility.
+>
+> **Prompt caching:** With OpenAI and Google, token budgets (`FERRY_DEV_MAX_INPUT_TOKENS`, `max_tokens_per_run`) are applied against the raw sum of input + output tokens. Anthropic uses a cache-weighted formula (`input + cache_read × 0.1 + cache_creation`) that better approximates actual cost.
+>
+> **Cost note:** The Developer and Iterator agents run multi-turn agentic loops with many tool calls. Without Anthropic's prompt cache, OpenAI and Google runs are typically 2–3× more expensive for long tasks.
+>
+> **MCP availability:** Even with `provider: anthropic`, only the Developer and Iterator agents load MCP servers from `AGENT_MCP_SERVERS`. The Refiner and Reviewer ignore MCP configuration regardless of provider.
 
 | Field                     | Default               | Description                                                                                                                                |
 | ------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | `models.refiner.provider` | `"anthropic"`         | LLM provider for the Refiner agent. Accepts `"anthropic"`, `"openai"`, or `"google"`.                                                      |
 | `models.refiner.model`    | `"claude-sonnet-4-6"` | Model ID for the Refiner agent (overridden by `FERRY_REFINER_MODEL` env var)                                                               |
-| `models.dev.provider`     | `"anthropic"`         | LLM provider for the Developer agent. Currently only `"anthropic"` is supported.                                                           |
+| `models.dev.provider`     | `"anthropic"`         | LLM provider for the Developer agent. Accepts `"anthropic"`, `"openai"`, or `"google"`. See capability matrix above.                       |
 | `models.dev.model`        | `"claude-sonnet-4-6"` | Model ID for the Developer agent. The standard `dev.yml` workflow always runs `claude-sonnet-4-6`; override here to use a different model. |
 | `models.review.provider`  | `"anthropic"`         | LLM provider for the Reviewer agent. Currently only `"anthropic"` is supported.                                                            |
 | `models.review.model`     | `"claude-sonnet-4-6"` | Model ID for the Reviewer agent (overridden by `FERRY_REVIEW_MODEL` env var)                                                               |
-| `models.iterate.provider` | `"anthropic"`         | LLM provider for the Iterator agent. Currently only `"anthropic"` is supported.                                                            |
+| `models.iterate.provider` | `"anthropic"`         | LLM provider for the Iterator agent. Accepts `"anthropic"`, `"openai"`, or `"google"`. See capability matrix above.                        |
 | `models.iterate.model`    | `"claude-sonnet-4-6"` | Model ID for the Iterator agent (overridden by `FERRY_ITER_MODEL` env var)                                                                 |
 
 #### `limits`
