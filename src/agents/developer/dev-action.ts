@@ -35,6 +35,7 @@ import { resolveCapabilities, filterMcpServers } from '../../lib/labels/capabili
 import { resolveAnthropicAuth } from '../../lib/llm/anthropic-auth.js';
 import { detectTestRunner, repoTree, packageJsonPath, detectPackageManager } from './workspace.js';
 import { assertDevOutputContract } from './outcome-guard.js';
+import { runWipFinalizer } from './wip-finalizer.js';
 
 const REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
 
@@ -204,15 +205,35 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
     logger,
   });
 
-  const { done, usage, iterations } = await loop.run({
-    system,
-    initialPrompt: initialPrompt + resumeContext + existingPrContext,
-    tools: allToolSchemas,
-    repoRoot: REPO_ROOT,
-    branchName,
-    secretScan,
-    mcpServers,
-  });
+  let loopResult: Awaited<ReturnType<typeof loop.run>>;
+  try {
+    loopResult = await loop.run({
+      system,
+      initialPrompt: initialPrompt + resumeContext + existingPrContext,
+      tools: allToolSchemas,
+      repoRoot: REPO_ROOT,
+      branchName,
+      secretScan,
+      mcpServers,
+    });
+  } catch (loopErr) {
+    await runWipFinalizer({
+      error: loopErr,
+      ticketKey,
+      eventId,
+      branchName,
+      repoRoot: REPO_ROOT,
+      secretScan,
+      tracker,
+      logger,
+      dryRun,
+      model,
+      provider: devProvider,
+    });
+    throw loopErr;
+  }
+
+  const { done, usage, iterations } = loopResult;
 
   const resolvedOutcome = done.outcome ?? (done.actionable ? 'implemented' : 'blocked');
 
