@@ -20729,7 +20729,7 @@ var require_websocket = __commonJS({
     var http3 = __require("http");
     var net = __require("net");
     var tls = __require("tls");
-    var { randomBytes, createHash } = __require("crypto");
+    var { randomBytes, createHash: createHash2 } = __require("crypto");
     var { Duplex, Readable: Readable2 } = __require("stream");
     var { URL: URL2 } = __require("url");
     var PerMessageDeflate2 = require_permessage_deflate();
@@ -21389,7 +21389,7 @@ var require_websocket = __commonJS({
           abortHandshake(websocket, socket, "Invalid Upgrade header");
           return;
         }
-        const digest = createHash("sha1").update(key + GUID).digest("base64");
+        const digest = createHash2("sha1").update(key + GUID).digest("base64");
         if (res.headers["sec-websocket-accept"] !== digest) {
           abortHandshake(websocket, socket, "Invalid Sec-WebSocket-Accept header");
           return;
@@ -21756,7 +21756,7 @@ var require_websocket_server = __commonJS({
     var EventEmitter = __require("events");
     var http3 = __require("http");
     var { Duplex } = __require("stream");
-    var { createHash } = __require("crypto");
+    var { createHash: createHash2 } = __require("crypto");
     var extension2 = require_extension();
     var PerMessageDeflate2 = require_permessage_deflate();
     var subprotocol2 = require_subprotocol();
@@ -22057,7 +22057,7 @@ var require_websocket_server = __commonJS({
           );
         }
         if (this._state > RUNNING) return abortHandshake(socket, 503);
-        const digest = createHash("sha1").update(key + GUID).digest("base64");
+        const digest = createHash2("sha1").update(key + GUID).digest("base64");
         const headers = [
           "HTTP/1.1 101 Switching Protocols",
           "Upgrade: websocket",
@@ -22278,6 +22278,21 @@ var JiraRestClient = class {
     const data = await response.json();
     return (data.issues ?? []).map((i2) => `- [${i2.key}] ${i2.fields.summary}`);
   }
+  async getSubtaskDetails(parentKey) {
+    const jql = encodeURIComponent(`parent=${parentKey} ORDER BY created ASC`);
+    const response = await fetch(
+      `${this.baseUrl}/rest/api/3/search?jql=${jql}&fields=summary,description,status&maxResults=50`,
+      { method: "GET", headers: this.baseHeaders }
+    );
+    if (!response.ok) return [];
+    const data = await response.json();
+    return (data.issues ?? []).map((i2) => ({
+      key: i2.key,
+      title: i2.fields.summary,
+      descriptionAdf: i2.fields.description,
+      status: i2.fields.status.name
+    }));
+  }
 };
 function createJiraRestClientFromEnv() {
   const baseUrl = process.env.FERRY_JIRA_BASE_URL;
@@ -22349,6 +22364,15 @@ var JiraTracker = class {
   }
   async getSubtasks(key) {
     return this.client.getSubtasks(key);
+  }
+  async getSubtaskDetails(key) {
+    const raw = await this.client.getSubtaskDetails(key);
+    return raw.map((r2) => ({
+      key: r2.key,
+      title: r2.title,
+      description: adfToText(r2.descriptionAdf),
+      status: r2.status
+    }));
   }
   async createSubtask(parentKey, title, description) {
     const result = await this.client.createSubtask(parentKey, title, textToAdf(description));
@@ -23182,7 +23206,7 @@ var safeJSON = (text) => {
 var sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // node_modules/@anthropic-ai/sdk/version.mjs
-var VERSION = "0.91.1";
+var VERSION = "0.93.0";
 
 // node_modules/@anthropic-ai/sdk/internal/detect-platform.mjs
 var isRunningInBrowser = () => {
@@ -23413,6 +23437,276 @@ function stringifyQuery(query) {
   }).join("&");
 }
 
+// node_modules/@anthropic-ai/sdk/lib/credentials/types.mjs
+var GRANT_TYPE_JWT_BEARER = "urn:ietf:params:oauth:grant-type:jwt-bearer";
+var GRANT_TYPE_REFRESH_TOKEN = "refresh_token";
+var TOKEN_ENDPOINT = "/v1/oauth/token";
+var OAUTH_API_BETA_HEADER = "oauth-2025-04-20";
+var FEDERATION_BETA_HEADER = "oidc-federation-2026-04-01";
+var ADVISORY_REFRESH_THRESHOLD_IN_SECONDS = 120;
+var MANDATORY_REFRESH_THRESHOLD_IN_SECONDS = 30;
+var ADVISORY_REFRESH_BACKOFF_IN_SECONDS = 5;
+var MAX_TOKEN_RESPONSE_BYTES = 1 << 20;
+function requireSecureTokenEndpoint(baseURL) {
+  if (!baseURL)
+    return;
+  let u;
+  try {
+    u = new URL(baseURL);
+  } catch (err) {
+    throw new WorkloadIdentityError(`Invalid token endpoint base URL "${baseURL}": ${err}`);
+  }
+  if (u.protocol === "https:")
+    return;
+  const host = u.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (u.protocol === "http:" && (host === "localhost" || host === "127.0.0.1" || host === "::1")) {
+    return;
+  }
+  throw new WorkloadIdentityError(`Refusing to send credential over non-https token endpoint "${baseURL}"`);
+}
+async function parseTokenResponse(resp, requestId) {
+  const text = await readLimitedText(resp);
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new WorkloadIdentityError(`Token endpoint returned non-JSON response (status ${resp.status})`, resp.status, redactSensitive(text), requestId);
+  }
+  if (!data.access_token) {
+    throw new WorkloadIdentityError(`Token endpoint response missing access_token: ${JSON.stringify(redactSensitive(data))}`, resp.status, redactSensitive(data), requestId);
+  }
+  if (data.token_type && data.token_type.toLowerCase() !== "bearer") {
+    throw new WorkloadIdentityError(`Token endpoint response: unsupported token_type "${data.token_type}" (want Bearer)`, resp.status, redactSensitive(data), requestId);
+  }
+  return data;
+}
+var MAX_ERROR_BODY_CHARS = 2e3;
+var SAFE_ERROR_KEYS = /* @__PURE__ */ new Set(["error", "error_description", "error_uri"]);
+function redactSensitive(body) {
+  if (body == null)
+    return body;
+  if (typeof body === "string") {
+    let parsed;
+    try {
+      parsed = JSON.parse(body);
+    } catch {
+      if (body.length <= MAX_ERROR_BODY_CHARS)
+        return body;
+      return body.slice(0, MAX_ERROR_BODY_CHARS) + `... <${body.length - MAX_ERROR_BODY_CHARS} more chars>`;
+    }
+    return JSON.stringify(redactSensitive(parsed));
+  }
+  if (typeof body === "object" && !Array.isArray(body)) {
+    const out = {};
+    for (const [k, v] of Object.entries(body)) {
+      if (SAFE_ERROR_KEYS.has(k))
+        out[k] = v;
+    }
+    return out;
+  }
+  return null;
+}
+async function checkCredentialsFileSafety(path5, onWarn = (m2) => console.warn(`anthropic-sdk: ${m2}`)) {
+  if (typeof process === "undefined" || process.platform === "win32")
+    return;
+  const fs3 = await import("node:fs");
+  let resolved = path5;
+  let st;
+  try {
+    resolved = await fs3.promises.realpath(path5);
+    st = await fs3.promises.stat(resolved);
+  } catch {
+    return;
+  }
+  const mode = st.mode & 511;
+  if (mode & 18) {
+    throw new WorkloadIdentityError(`Credentials file at ${resolved} is group/world-writable (mode 0o${mode.toString(8)}); this allows other local users to plant tokens. Run \`chmod 600 ${resolved}\`.`);
+  }
+  if (mode & 36) {
+    throw new WorkloadIdentityError(`Credentials file at ${resolved} is group/world-readable (mode 0o${mode.toString(8)}); run \`chmod 600 ${resolved}\` before retrying.`);
+  }
+  if (typeof process.getuid === "function" && st.uid !== process.getuid()) {
+    onWarn(`credentials file at ${resolved} is owned by uid ${st.uid} (current process uid ${process.getuid()}); verify this is intentional.`);
+  }
+}
+async function writeCredentialsFileAtomic(targetPath, data) {
+  const fs3 = await import("node:fs");
+  const path5 = await import("node:path");
+  const dir = path5.dirname(targetPath);
+  await fs3.promises.mkdir(dir, { recursive: true, mode: 448 });
+  const tmpPath = `${targetPath}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
+  try {
+    const fh = await fs3.promises.open(tmpPath, "w", 384);
+    try {
+      await fh.writeFile(JSON.stringify(data, null, 2));
+      await fh.sync();
+    } finally {
+      await fh.close();
+    }
+    await fs3.promises.rename(tmpPath, targetPath);
+  } catch (err) {
+    await fs3.promises.unlink(tmpPath).catch(() => {
+    });
+    throw err;
+  }
+  try {
+    const dirFh = await fs3.promises.open(dir, "r");
+    try {
+      await dirFh.sync();
+    } finally {
+      await dirFh.close();
+    }
+  } catch {
+  }
+}
+async function readLimitedText(resp) {
+  if (!resp.body) {
+    return "";
+  }
+  const reader = resp.body.getReader();
+  const chunks = [];
+  let received = 0;
+  for (; ; ) {
+    const { done, value } = await reader.read();
+    if (done)
+      break;
+    if (received + value.length > MAX_TOKEN_RESPONSE_BYTES) {
+      const remaining = MAX_TOKEN_RESPONSE_BYTES - received;
+      if (remaining > 0)
+        chunks.push(value.subarray(0, remaining));
+      await reader.cancel();
+      break;
+    }
+    chunks.push(value);
+    received += value.length;
+  }
+  let merged;
+  if (chunks.length === 1) {
+    merged = chunks[0];
+  } else {
+    merged = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
+    let offset = 0;
+    for (const c of chunks) {
+      merged.set(c, offset);
+      offset += c.length;
+    }
+  }
+  return new TextDecoder("utf-8").decode(merged);
+}
+var WorkloadIdentityError = class extends AnthropicError {
+  constructor(message, statusCode = null, body = null, requestId = null) {
+    super(message);
+    this.statusCode = statusCode;
+    this.body = body;
+    this.requestId = requestId;
+  }
+};
+
+// node_modules/@anthropic-ai/sdk/internal/utils/time.mjs
+function nowAsSeconds() {
+  return Math.floor(Date.now() / 1e3);
+}
+
+// node_modules/@anthropic-ai/sdk/lib/credentials/token-cache.mjs
+var TokenCache = class {
+  constructor(provider, onAdvisoryRefreshError) {
+    this.cached = null;
+    this.pendingRefresh = null;
+    this.nextForce = false;
+    this.lastAdvisoryError = 0;
+    this.provider = provider;
+    this.onAdvisoryRefreshError = onAdvisoryRefreshError;
+  }
+  async getToken() {
+    const force = this.nextForce;
+    this.nextForce = false;
+    const cached = this.cached;
+    if (force || cached == null) {
+      const token2 = await this.refresh(force);
+      return token2.token;
+    }
+    if (cached.expiresAt == null) {
+      return cached.token;
+    }
+    const remaining = cached.expiresAt - nowAsSeconds();
+    if (remaining > ADVISORY_REFRESH_THRESHOLD_IN_SECONDS) {
+      return cached.token;
+    }
+    if (remaining > MANDATORY_REFRESH_THRESHOLD_IN_SECONDS) {
+      this.backgroundRefresh();
+      return cached.token;
+    }
+    const token = await this.refresh();
+    return token.token;
+  }
+  /**
+   * Clears the cached token and marks the next {@link getToken} as a forced
+   * refresh, so the underlying provider bypasses any on-disk freshness check.
+   * Called after a 401 — the server has just told us the token is bad even
+   * if its `expires_at` still looks fresh.
+   */
+  invalidate() {
+    this.cached = null;
+    this.nextForce = true;
+  }
+  /**
+   * Mandatory refresh. Joins any in-flight refresh unless forced — a forced
+   * refresh must not coalesce into a non-forced one that may re-serve the
+   * same stale disk token.
+   */
+  refresh(force = false) {
+    if (this.pendingRefresh && !force) {
+      return this.pendingRefresh;
+    }
+    return this.doRefresh(force);
+  }
+  /**
+   * Advisory background refresh. Shares the same in-flight promise as
+   * mandatory refreshes for deduplication, but swallows errors so the
+   * stale cached token keeps being served. Backs off for
+   * {@link ADVISORY_REFRESH_BACKOFF_IN_SECONDS} after a failure so an
+   * outage during the advisory window doesn't hammer the token endpoint.
+   */
+  backgroundRefresh() {
+    if (this.pendingRefresh) {
+      return;
+    }
+    if (nowAsSeconds() - this.lastAdvisoryError < ADVISORY_REFRESH_BACKOFF_IN_SECONDS) {
+      return;
+    }
+    this.doRefresh().catch((err) => {
+      this.lastAdvisoryError = nowAsSeconds();
+      this.onAdvisoryRefreshError?.(err);
+    });
+  }
+  /**
+   * Core refresh. Sets {@link pendingRefresh} so concurrent callers
+   * (both advisory and mandatory) coalesce into a single provider call.
+   */
+  doRefresh(force = false) {
+    this.pendingRefresh = this.provider(force ? { forceRefresh: true } : void 0).then((token) => {
+      this.cached = token;
+      this.pendingRefresh = null;
+      return token;
+    }, (err) => {
+      this.pendingRefresh = null;
+      throw err;
+    });
+    return this.pendingRefresh;
+  }
+};
+
+// node_modules/@anthropic-ai/sdk/internal/utils/env.mjs
+var readEnv = (env) => {
+  if (typeof globalThis.process !== "undefined") {
+    return globalThis.process.env?.[env]?.trim() || void 0;
+  }
+  if (typeof globalThis.Deno !== "undefined") {
+    return globalThis.Deno.env?.get?.(env)?.trim() || void 0;
+  }
+  return void 0;
+};
+
 // node_modules/@anthropic-ai/sdk/internal/utils/bytes.mjs
 function concatBytes(buffers) {
   let length = 0;
@@ -23436,6 +23730,525 @@ var decodeUTF8_;
 function decodeUTF8(bytes) {
   let decoder;
   return (decodeUTF8_ ?? (decoder = new globalThis.TextDecoder(), decodeUTF8_ = decoder.decode.bind(decoder)))(bytes);
+}
+
+// node_modules/@anthropic-ai/sdk/internal/utils/log.mjs
+var levelNumbers = {
+  off: 0,
+  error: 200,
+  warn: 300,
+  info: 400,
+  debug: 500
+};
+var parseLogLevel = (maybeLevel, sourceName, client) => {
+  if (!maybeLevel) {
+    return void 0;
+  }
+  if (hasOwn(levelNumbers, maybeLevel)) {
+    return maybeLevel;
+  }
+  loggerFor(client).warn(`${sourceName} was set to ${JSON.stringify(maybeLevel)}, expected one of ${JSON.stringify(Object.keys(levelNumbers))}`);
+  return void 0;
+};
+function noop() {
+}
+function makeLogFn(fnLevel, logger, logLevel) {
+  if (!logger || levelNumbers[fnLevel] > levelNumbers[logLevel]) {
+    return noop;
+  } else {
+    return logger[fnLevel].bind(logger);
+  }
+}
+var noopLogger = {
+  error: noop,
+  warn: noop,
+  info: noop,
+  debug: noop
+};
+var cachedLoggers = /* @__PURE__ */ new WeakMap();
+function loggerFor(client) {
+  const logger = client.logger;
+  const logLevel = client.logLevel ?? "off";
+  if (!logger) {
+    return noopLogger;
+  }
+  const cachedLogger = cachedLoggers.get(logger);
+  if (cachedLogger && cachedLogger[0] === logLevel) {
+    return cachedLogger[1];
+  }
+  const levelLogger = {
+    error: makeLogFn("error", logger, logLevel),
+    warn: makeLogFn("warn", logger, logLevel),
+    info: makeLogFn("info", logger, logLevel),
+    debug: makeLogFn("debug", logger, logLevel)
+  };
+  cachedLoggers.set(logger, [logLevel, levelLogger]);
+  return levelLogger;
+}
+var formatRequestDetails = (details) => {
+  if (details.options) {
+    details.options = { ...details.options };
+    delete details.options["headers"];
+  }
+  if (details.headers) {
+    details.headers = Object.fromEntries((details.headers instanceof Headers ? [...details.headers] : Object.entries(details.headers)).map(([name, value]) => [
+      name,
+      name.toLowerCase() === "x-api-key" || name.toLowerCase() === "authorization" || name.toLowerCase() === "cookie" || name.toLowerCase() === "set-cookie" ? "***" : value
+    ]));
+  }
+  if ("retryOfRequestLogID" in details) {
+    if (details.retryOfRequestLogID) {
+      details.retryOf = details.retryOfRequestLogID;
+    }
+    delete details.retryOfRequestLogID;
+  }
+  return details;
+};
+
+// node_modules/@anthropic-ai/sdk/core/credentials.mjs
+var CREDENTIALS_FILE_VERSION = "1.0";
+var PROFILE_NAME_PATTERN = /^[A-Za-z0-9_.-]+$/;
+function validateProfileName(name) {
+  if (!name) {
+    throw new Error("profile name is empty");
+  }
+  if (name === "." || name === "..") {
+    throw new Error(`profile name "${name}" is not allowed`);
+  }
+  if (name.includes("/") || name.includes("\\")) {
+    throw new Error(`profile name "${name}" must not contain path separators`);
+  }
+  if (!PROFILE_NAME_PATTERN.test(name)) {
+    throw new Error(`profile name "${name}" contains disallowed characters (allowed: letters, digits, '_', '.', '-')`);
+  }
+}
+var loadConfig = async (profile) => {
+  var _a5, _b;
+  const rootConfigPath = await getRootConfigPath();
+  if (rootConfigPath === null) {
+    return null;
+  }
+  const profileName = profile ?? await getActiveProfileName();
+  if (profileName === null) {
+    return null;
+  }
+  validateProfileName(profileName);
+  const fs3 = await import("node:fs");
+  const path5 = await import("node:path");
+  const configPath = path5.join(rootConfigPath, "configs", `${profileName}.json`);
+  let configRaw;
+  try {
+    configRaw = await fs3.promises.readFile(configPath, "utf-8");
+  } catch (err) {
+    if (err?.code !== "ENOENT") {
+      throw new Error(`failed to read config file ${configPath}: ${err}`);
+    }
+    configRaw = null;
+  }
+  if (configRaw === null) {
+    const organizationId = readEnv("ANTHROPIC_ORGANIZATION_ID");
+    const identityTokenFile = readEnv("ANTHROPIC_IDENTITY_TOKEN_FILE");
+    const federationRuleId = readEnv("ANTHROPIC_FEDERATION_RULE_ID");
+    if (federationRuleId && organizationId) {
+      return {
+        organization_id: organizationId,
+        base_url: readEnv("ANTHROPIC_BASE_URL"),
+        authentication: {
+          type: "oidc_federation",
+          federation_rule_id: federationRuleId,
+          service_account_id: readEnv("ANTHROPIC_SERVICE_ACCOUNT_ID"),
+          identity_token: identityTokenFile ? { source: "file", path: identityTokenFile } : void 0,
+          scope: readEnv("ANTHROPIC_SCOPE")
+        }
+      };
+    }
+    return null;
+  }
+  let config;
+  try {
+    config = JSON.parse(configRaw);
+  } catch (err) {
+    throw new Error(`failed to parse config file ${configPath}: ${err}`);
+  }
+  if (!config.authentication) {
+    throw new Error(`config file ${configPath} is missing "authentication"`);
+  }
+  const authType = config.authentication.type;
+  if (authType !== "oidc_federation" && authType !== "user_oauth") {
+    throw new Error(`authentication.type "${authType}" is not a known authentication type`);
+  }
+  config.organization_id ?? (config.organization_id = readEnv("ANTHROPIC_ORGANIZATION_ID"));
+  config.base_url ?? (config.base_url = readEnv("ANTHROPIC_BASE_URL"));
+  (_a5 = config.authentication).scope ?? (_a5.scope = readEnv("ANTHROPIC_SCOPE"));
+  if (config.authentication.type === "oidc_federation") {
+    if (!config.authentication.identity_token) {
+      const identityTokenFile = readEnv("ANTHROPIC_IDENTITY_TOKEN_FILE");
+      if (identityTokenFile) {
+        config.authentication.identity_token = {
+          source: "file",
+          path: identityTokenFile
+        };
+      }
+    }
+    if (!config.authentication.federation_rule_id) {
+      config.authentication.federation_rule_id = readEnv("ANTHROPIC_FEDERATION_RULE_ID") ?? "";
+    }
+    (_b = config.authentication).service_account_id ?? (_b.service_account_id = readEnv("ANTHROPIC_SERVICE_ACCOUNT_ID"));
+  }
+  return config;
+};
+var getCredentialsPath = async (config, profile) => {
+  if (config?.authentication.credentials_path) {
+    return config.authentication.credentials_path;
+  }
+  const rootConfigPath = await getRootConfigPath();
+  if (!rootConfigPath) {
+    return null;
+  }
+  const profileName = profile ?? await getActiveProfileName();
+  if (!profileName) {
+    return null;
+  }
+  validateProfileName(profileName);
+  const path5 = await import("node:path");
+  return path5.join(rootConfigPath, "credentials", `${profileName}.json`);
+};
+var getRootConfigPath = async () => {
+  if (!supportsLocalConfigFiles()) {
+    return null;
+  }
+  const path5 = await import("node:path");
+  const configDir = readEnv("ANTHROPIC_CONFIG_DIR");
+  if (configDir) {
+    return configDir;
+  }
+  const os = getPlatformHeaders()["X-Stainless-OS"];
+  if (os === "Windows") {
+    const appData = readEnv("APPDATA");
+    if (appData) {
+      return path5.join(appData, "Anthropic");
+    }
+    const userProfile = readEnv("USERPROFILE");
+    if (userProfile) {
+      return path5.join(userProfile, "AppData", "Roaming", "Anthropic");
+    }
+    return null;
+  }
+  const xdgConfigHome = readEnv("XDG_CONFIG_HOME");
+  if (xdgConfigHome) {
+    return path5.join(xdgConfigHome, "anthropic");
+  }
+  const home = readEnv("HOME");
+  if (home) {
+    return path5.join(home, ".config", "anthropic");
+  }
+  return null;
+};
+var supportsLocalConfigFiles = () => {
+  const runtime = getPlatformHeaders()["X-Stainless-Runtime"];
+  return runtime === "node" || runtime === "deno";
+};
+var getActiveProfileName = async () => {
+  const rootConfigPath = await getRootConfigPath();
+  if (!rootConfigPath) {
+    return null;
+  }
+  const profileName = readEnv("ANTHROPIC_PROFILE");
+  if (profileName) {
+    return profileName;
+  }
+  const fs3 = await import("node:fs");
+  const path5 = await import("node:path");
+  const filePath = path5.join(rootConfigPath, "active_config");
+  try {
+    return (await fs3.promises.readFile(filePath, "utf-8")).trim() || "default";
+  } catch (err) {
+    if (err?.code !== "ENOENT") {
+      throw new Error(`failed to read ${filePath}: ${err}`);
+    }
+    return "default";
+  }
+};
+
+// node_modules/@anthropic-ai/sdk/lib/credentials/identity-token.mjs
+function identityTokenFromFile(path5) {
+  if (!path5) {
+    throw new AnthropicError("Identity token file path is empty");
+  }
+  return async () => {
+    const fs3 = await import("node:fs");
+    let content;
+    try {
+      content = await fs3.promises.readFile(path5, "utf-8");
+    } catch (err) {
+      throw new AnthropicError(`Failed to read identity token file at ${path5}: ${err}`);
+    }
+    const token = content.trim();
+    if (!token) {
+      throw new AnthropicError(`Identity token file at ${path5} is empty`);
+    }
+    return token;
+  };
+}
+function identityTokenFromValue(token) {
+  if (!token) {
+    throw new AnthropicError("Identity token value is empty");
+  }
+  return () => token;
+}
+
+// node_modules/@anthropic-ai/sdk/lib/credentials/oidc-federation.mjs
+function oidcFederationProvider(config) {
+  return async () => {
+    requireSecureTokenEndpoint(config.baseURL);
+    const jwt = await config.identityTokenProvider();
+    if (jwt.length > 16 * 1024) {
+      throw new WorkloadIdentityError(`Identity token is ${Math.ceil(jwt.length / 1024)} KiB, exceeds the 16 KiB assertion limit`);
+    }
+    const body = {
+      grant_type: GRANT_TYPE_JWT_BEARER,
+      assertion: jwt,
+      federation_rule_id: config.federationRuleId,
+      organization_id: config.organizationId
+    };
+    if (config.serviceAccountId) {
+      body["service_account_id"] = config.serviceAccountId;
+    }
+    const url = `${config.baseURL}${TOKEN_ENDPOINT}`;
+    let resp;
+    try {
+      resp = await config.fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "anthropic-beta": `${OAUTH_API_BETA_HEADER},${FEDERATION_BETA_HEADER}`,
+          "User-Agent": config.userAgent || `anthropic-sdk-typescript/${VERSION} oidcFederationProvider`
+        },
+        body: JSON.stringify(body)
+      });
+    } catch (err) {
+      throw new WorkloadIdentityError(`Failed to reach token endpoint ${url}: ${err}`);
+    }
+    const requestId = resp.headers.get("Request-Id");
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => "");
+      const redacted = redactSensitive(text);
+      throw new WorkloadIdentityError(`Token exchange failed with status ${resp.status}${requestId ? ` (request-id ${requestId})` : ""}: ${redacted}`, resp.status, redacted, requestId);
+    }
+    const data = await parseTokenResponse(resp, requestId);
+    const expiresIn = Number(data.expires_in);
+    if (!Number.isFinite(expiresIn)) {
+      throw new WorkloadIdentityError(`Token endpoint response missing required fields: ${JSON.stringify(redactSensitive(data))}`, resp.status, redactSensitive(data), requestId);
+    }
+    return {
+      token: data.access_token,
+      expiresAt: nowAsSeconds() + expiresIn
+    };
+  };
+}
+
+// node_modules/@anthropic-ai/sdk/lib/credentials/user-oauth.mjs
+function userOAuthProvider(config) {
+  return async (opts) => {
+    const fs3 = await import("node:fs");
+    await checkCredentialsFileSafety(config.credentialsPath, config.onSafetyWarning);
+    let raw;
+    try {
+      raw = await fs3.promises.readFile(config.credentialsPath, "utf-8");
+    } catch (err) {
+      throw new WorkloadIdentityError(`Credentials file not found at ${config.credentialsPath}: ${err}`);
+    }
+    let creds;
+    try {
+      creds = JSON.parse(raw);
+    } catch (err) {
+      throw new WorkloadIdentityError(`Credentials file at ${config.credentialsPath} is not valid JSON: ${err}`);
+    }
+    const accessToken = creds.access_token;
+    if (!accessToken) {
+      throw new WorkloadIdentityError(`Credentials file at ${config.credentialsPath} must include 'access_token'`);
+    }
+    const expiresAt = creds.expires_at;
+    if (!opts?.forceRefresh && (expiresAt == null || nowAsSeconds() < expiresAt - MANDATORY_REFRESH_THRESHOLD_IN_SECONDS)) {
+      return { token: accessToken, expiresAt: expiresAt ?? null };
+    }
+    const refreshToken = creds.refresh_token;
+    if (!config.clientId || !refreshToken) {
+      throw new WorkloadIdentityError(`Access token at ${config.credentialsPath} has expired and no refresh is available (client_id ${config.clientId ? "set" : "empty"}, refresh_token ${refreshToken ? "set" : "empty"})`);
+    }
+    requireSecureTokenEndpoint(config.baseURL);
+    const body = {
+      grant_type: GRANT_TYPE_REFRESH_TOKEN,
+      refresh_token: refreshToken,
+      client_id: config.clientId
+    };
+    const url = `${config.baseURL}${TOKEN_ENDPOINT}`;
+    let resp;
+    try {
+      resp = await config.fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "anthropic-beta": OAUTH_API_BETA_HEADER,
+          "User-Agent": config.userAgent || `anthropic-sdk-typescript/${VERSION} userOAuthProvider`
+        },
+        body: JSON.stringify(body)
+      });
+    } catch (err) {
+      throw new WorkloadIdentityError(`User OAuth refresh failed to reach token endpoint: ${err}`);
+    }
+    const requestId = resp.headers.get("Request-Id");
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => "");
+      throw new WorkloadIdentityError(`User OAuth refresh failed (HTTP ${resp.status}): ${redactSensitive(text)}`, resp.status, redactSensitive(text), requestId);
+    }
+    const data = await parseTokenResponse(resp, requestId);
+    const expiresIn = Number(data.expires_in);
+    if (!Number.isFinite(expiresIn)) {
+      throw new WorkloadIdentityError(`User OAuth refresh response missing or invalid expires_in: ${JSON.stringify(redactSensitive(data))}`, resp.status, redactSensitive(data), requestId);
+    }
+    const newExpiresAt = nowAsSeconds() + expiresIn;
+    const newRefreshToken = data.refresh_token || refreshToken;
+    await writeCredentialsFileAtomic(config.credentialsPath, {
+      ...creds,
+      version: CREDENTIALS_FILE_VERSION,
+      type: "oauth_token",
+      access_token: data.access_token,
+      expires_at: newExpiresAt,
+      refresh_token: newRefreshToken
+    });
+    return { token: data.access_token, expiresAt: newExpiresAt };
+  };
+}
+
+// node_modules/@anthropic-ai/sdk/lib/credentials/credential-chain.mjs
+function resolveCredentialsFromConfig(config, options) {
+  const credentialsPath = config.authentication.credentials_path ?? null;
+  const effectiveBaseURL = (config.base_url || options.baseURL).replace(/\/+$/, "");
+  const provider = buildProvider(config, credentialsPath, effectiveBaseURL, options);
+  const extraHeaders = {};
+  if (config.workspace_id && config.authentication.type === "user_oauth") {
+    extraHeaders["anthropic-workspace-id"] = config.workspace_id;
+  }
+  return { provider, extraHeaders, baseURL: config.base_url || void 0 };
+}
+async function defaultCredentials(options, profile) {
+  const config = await loadConfig(profile);
+  if (!config) {
+    return null;
+  }
+  const withPath = config.authentication.credentials_path ? config : {
+    ...config,
+    authentication: {
+      ...config.authentication,
+      credentials_path: await getCredentialsPath(config, profile) ?? void 0
+    }
+  };
+  return resolveCredentialsFromConfig(withPath, options);
+}
+function buildProvider(config, credentialsPath, baseURL, options) {
+  switch (config.authentication.type) {
+    case "oidc_federation": {
+      const auth = config.authentication;
+      const identityProvider = resolveIdentityTokenProvider(auth);
+      if (!identityProvider) {
+        throw new WorkloadIdentityError("oidc_federation config requires an identity token (set authentication.identity_token, ANTHROPIC_IDENTITY_TOKEN_FILE, or ANTHROPIC_IDENTITY_TOKEN)");
+      }
+      if (!auth.federation_rule_id) {
+        throw new WorkloadIdentityError("oidc_federation config requires 'federation_rule_id'. Set it in authentication.federation_rule_id in your profile, or via ANTHROPIC_FEDERATION_RULE_ID (profile takes precedence).");
+      }
+      if (!config.organization_id) {
+        throw new WorkloadIdentityError("oidc_federation config requires organization_id (set ANTHROPIC_ORGANIZATION_ID or config.organization_id)");
+      }
+      const exchange = oidcFederationProvider({
+        identityTokenProvider: identityProvider,
+        federationRuleId: auth.federation_rule_id,
+        organizationId: config.organization_id,
+        serviceAccountId: auth.service_account_id,
+        baseURL,
+        fetch: options.fetch,
+        userAgent: options.userAgent
+      });
+      if (credentialsPath) {
+        return cachedExchangeProvider(exchange, credentialsPath, options.onCacheWriteError, options.onSafetyWarning);
+      }
+      return exchange;
+    }
+    case "user_oauth": {
+      if (!credentialsPath) {
+        throw new WorkloadIdentityError("user_oauth config requires authentication.credentials_path (or load via a profile so it defaults to <config_dir>/credentials/<profile>.json)");
+      }
+      return userOAuthProvider({
+        credentialsPath,
+        clientId: config.authentication.client_id,
+        baseURL,
+        fetch: options.fetch,
+        userAgent: options.userAgent,
+        onSafetyWarning: options.onSafetyWarning
+      });
+    }
+    default: {
+      const t2 = config.authentication.type;
+      throw new WorkloadIdentityError(`authentication.type "${t2}" is not a known authentication type`);
+    }
+  }
+}
+function resolveIdentityTokenProvider(auth) {
+  if (auth.identity_token) {
+    const source = auth.identity_token.source;
+    if (source !== "file") {
+      throw new WorkloadIdentityError(`identity_token.source "${source}" is not supported by this SDK version (only "file")`);
+    }
+    if (!auth.identity_token.path) {
+      throw new WorkloadIdentityError(`identity_token.source "file" requires a non-empty path`);
+    }
+    return identityTokenFromFile(auth.identity_token.path);
+  }
+  const tokenFile = readEnv("ANTHROPIC_IDENTITY_TOKEN_FILE");
+  if (tokenFile) {
+    return identityTokenFromFile(tokenFile);
+  }
+  const tokenValue = readEnv("ANTHROPIC_IDENTITY_TOKEN");
+  if (tokenValue) {
+    return identityTokenFromValue(tokenValue);
+  }
+  return null;
+}
+function cachedExchangeProvider(exchange, credentialsPath, onCacheWriteError, onSafetyWarning) {
+  return async (opts) => {
+    const fs3 = await import("node:fs");
+    await checkCredentialsFileSafety(credentialsPath, onSafetyWarning);
+    let existing;
+    try {
+      const raw = await fs3.promises.readFile(credentialsPath, "utf-8");
+      existing = JSON.parse(raw);
+      const token = existing?.["access_token"];
+      if (token && !opts?.forceRefresh) {
+        const expiresAt = existing?.["expires_at"];
+        if (expiresAt == null || nowAsSeconds() < expiresAt - MANDATORY_REFRESH_THRESHOLD_IN_SECONDS) {
+          return { token, expiresAt: expiresAt ?? null };
+        }
+      }
+    } catch (err) {
+      const code = err?.code;
+      if (code !== "ENOENT" && !(err instanceof SyntaxError)) {
+        onCacheWriteError?.(err);
+      }
+    }
+    const result = await exchange(opts);
+    try {
+      await writeCredentialsFileAtomic(credentialsPath, {
+        ...existing ?? {},
+        version: CREDENTIALS_FILE_VERSION,
+        type: "oauth_token",
+        access_token: result.token,
+        expires_at: result.expiresAt
+      });
+    } catch (err) {
+      onCacheWriteError?.(err);
+    }
+    return result;
+  };
 }
 
 // node_modules/@anthropic-ai/sdk/internal/decoders/line.mjs
@@ -23514,79 +24327,6 @@ function findDoubleNewlineIndex(buffer) {
   }
   return -1;
 }
-
-// node_modules/@anthropic-ai/sdk/internal/utils/log.mjs
-var levelNumbers = {
-  off: 0,
-  error: 200,
-  warn: 300,
-  info: 400,
-  debug: 500
-};
-var parseLogLevel = (maybeLevel, sourceName, client) => {
-  if (!maybeLevel) {
-    return void 0;
-  }
-  if (hasOwn(levelNumbers, maybeLevel)) {
-    return maybeLevel;
-  }
-  loggerFor(client).warn(`${sourceName} was set to ${JSON.stringify(maybeLevel)}, expected one of ${JSON.stringify(Object.keys(levelNumbers))}`);
-  return void 0;
-};
-function noop() {
-}
-function makeLogFn(fnLevel, logger, logLevel) {
-  if (!logger || levelNumbers[fnLevel] > levelNumbers[logLevel]) {
-    return noop;
-  } else {
-    return logger[fnLevel].bind(logger);
-  }
-}
-var noopLogger = {
-  error: noop,
-  warn: noop,
-  info: noop,
-  debug: noop
-};
-var cachedLoggers = /* @__PURE__ */ new WeakMap();
-function loggerFor(client) {
-  const logger = client.logger;
-  const logLevel = client.logLevel ?? "off";
-  if (!logger) {
-    return noopLogger;
-  }
-  const cachedLogger = cachedLoggers.get(logger);
-  if (cachedLogger && cachedLogger[0] === logLevel) {
-    return cachedLogger[1];
-  }
-  const levelLogger = {
-    error: makeLogFn("error", logger, logLevel),
-    warn: makeLogFn("warn", logger, logLevel),
-    info: makeLogFn("info", logger, logLevel),
-    debug: makeLogFn("debug", logger, logLevel)
-  };
-  cachedLoggers.set(logger, [logLevel, levelLogger]);
-  return levelLogger;
-}
-var formatRequestDetails = (details) => {
-  if (details.options) {
-    details.options = { ...details.options };
-    delete details.options["headers"];
-  }
-  if (details.headers) {
-    details.headers = Object.fromEntries((details.headers instanceof Headers ? [...details.headers] : Object.entries(details.headers)).map(([name, value]) => [
-      name,
-      name.toLowerCase() === "x-api-key" || name.toLowerCase() === "authorization" || name.toLowerCase() === "cookie" || name.toLowerCase() === "set-cookie" ? "***" : value
-    ]));
-  }
-  if ("retryOfRequestLogID" in details) {
-    if (details.retryOfRequestLogID) {
-      details.retryOf = details.retryOfRequestLogID;
-    }
-    delete details.retryOfRequestLogID;
-  }
-  return details;
-};
 
 // node_modules/@anthropic-ai/sdk/core/streaming.mjs
 var _Stream_client;
@@ -24940,7 +25680,7 @@ Agents.Versions = Versions;
 // node_modules/@anthropic-ai/sdk/resources/beta/memory-stores/memories.mjs
 var Memories = class extends APIResource {
   /**
-   * CreateMemory
+   * Create a memory
    *
    * @example
    * ```ts
@@ -24964,7 +25704,7 @@ var Memories = class extends APIResource {
     });
   }
   /**
-   * GetMemory
+   * Retrieve a memory
    *
    * @example
    * ```ts
@@ -24987,7 +25727,7 @@ var Memories = class extends APIResource {
     });
   }
   /**
-   * UpdateMemory
+   * Update a memory
    *
    * @example
    * ```ts
@@ -25011,7 +25751,7 @@ var Memories = class extends APIResource {
     });
   }
   /**
-   * ListMemories
+   * List memories
    *
    * @example
    * ```ts
@@ -25035,7 +25775,7 @@ var Memories = class extends APIResource {
     });
   }
   /**
-   * DeleteMemory
+   * Delete a memory
    *
    * @example
    * ```ts
@@ -25062,7 +25802,7 @@ var Memories = class extends APIResource {
 // node_modules/@anthropic-ai/sdk/resources/beta/memory-stores/memory-versions.mjs
 var MemoryVersions = class extends APIResource {
   /**
-   * GetMemoryVersion
+   * Retrieve a memory version
    *
    * @example
    * ```ts
@@ -25085,7 +25825,7 @@ var MemoryVersions = class extends APIResource {
     });
   }
   /**
-   * ListMemoryVersions
+   * List memory versions
    *
    * @example
    * ```ts
@@ -25109,7 +25849,7 @@ var MemoryVersions = class extends APIResource {
     });
   }
   /**
-   * RedactMemoryVersion
+   * Redact a memory version
    *
    * @example
    * ```ts
@@ -25140,7 +25880,7 @@ var MemoryStores = class extends APIResource {
     this.memoryVersions = new MemoryVersions(this._client);
   }
   /**
-   * CreateMemoryStore
+   * Create a memory store
    *
    * @example
    * ```ts
@@ -25160,7 +25900,7 @@ var MemoryStores = class extends APIResource {
     });
   }
   /**
-   * GetMemoryStore
+   * Retrieve a memory store
    *
    * @example
    * ```ts
@@ -25181,7 +25921,7 @@ var MemoryStores = class extends APIResource {
     });
   }
   /**
-   * UpdateMemoryStore
+   * Update a memory store
    *
    * @example
    * ```ts
@@ -25201,7 +25941,7 @@ var MemoryStores = class extends APIResource {
     });
   }
   /**
-   * ListMemoryStores
+   * List memory stores
    *
    * @example
    * ```ts
@@ -25223,7 +25963,7 @@ var MemoryStores = class extends APIResource {
     });
   }
   /**
-   * DeleteMemoryStore
+   * Delete a memory store
    *
    * @example
    * ```ts
@@ -25242,7 +25982,7 @@ var MemoryStores = class extends APIResource {
     });
   }
   /**
-   * ArchiveMemoryStore
+   * Archive a memory store
    *
    * @example
    * ```ts
@@ -25263,6 +26003,230 @@ var MemoryStores = class extends APIResource {
 };
 MemoryStores.Memories = Memories;
 MemoryStores.MemoryVersions = MemoryVersions;
+
+// node_modules/@anthropic-ai/sdk/internal/decoders/jsonl.mjs
+var JSONLDecoder = class _JSONLDecoder {
+  constructor(iterator, controller) {
+    this.iterator = iterator;
+    this.controller = controller;
+  }
+  async *decoder() {
+    const lineDecoder = new LineDecoder();
+    for await (const chunk of this.iterator) {
+      for (const line of lineDecoder.decode(chunk)) {
+        yield JSON.parse(line);
+      }
+    }
+    for (const line of lineDecoder.flush()) {
+      yield JSON.parse(line);
+    }
+  }
+  [Symbol.asyncIterator]() {
+    return this.decoder();
+  }
+  static fromResponse(response, controller) {
+    if (!response.body) {
+      controller.abort();
+      if (typeof globalThis.navigator !== "undefined" && globalThis.navigator.product === "ReactNative") {
+        throw new AnthropicError(`The default react-native fetch implementation does not support streaming. Please use expo/fetch: https://docs.expo.dev/versions/latest/sdk/expo/#expofetch-api`);
+      }
+      throw new AnthropicError(`Attempted to iterate over a response with no body`);
+    }
+    return new _JSONLDecoder(ReadableStreamToAsyncIterable(response.body), controller);
+  }
+};
+
+// node_modules/@anthropic-ai/sdk/resources/beta/messages/batches.mjs
+var Batches = class extends APIResource {
+  /**
+   * Send a batch of Message creation requests.
+   *
+   * The Message Batches API can be used to process multiple Messages API requests at
+   * once. Once a Message Batch is created, it begins processing immediately. Batches
+   * can take up to 24 hours to complete.
+   *
+   * Learn more about the Message Batches API in our
+   * [user guide](https://docs.claude.com/en/docs/build-with-claude/batch-processing)
+   *
+   * @example
+   * ```ts
+   * const betaMessageBatch =
+   *   await client.beta.messages.batches.create({
+   *     requests: [
+   *       {
+   *         custom_id: 'my-custom-id-1',
+   *         params: {
+   *           max_tokens: 1024,
+   *           messages: [
+   *             { content: 'Hello, world', role: 'user' },
+   *           ],
+   *           model: 'claude-opus-4-6',
+   *         },
+   *       },
+   *     ],
+   *   });
+   * ```
+   */
+  create(params, options) {
+    const { betas, ...body } = params;
+    return this._client.post("/v1/messages/batches?beta=true", {
+      body,
+      ...options,
+      headers: buildHeaders([
+        { "anthropic-beta": [...betas ?? [], "message-batches-2024-09-24"].toString() },
+        options?.headers
+      ])
+    });
+  }
+  /**
+   * This endpoint is idempotent and can be used to poll for Message Batch
+   * completion. To access the results of a Message Batch, make a request to the
+   * `results_url` field in the response.
+   *
+   * Learn more about the Message Batches API in our
+   * [user guide](https://docs.claude.com/en/docs/build-with-claude/batch-processing)
+   *
+   * @example
+   * ```ts
+   * const betaMessageBatch =
+   *   await client.beta.messages.batches.retrieve(
+   *     'message_batch_id',
+   *   );
+   * ```
+   */
+  retrieve(messageBatchID, params = {}, options) {
+    const { betas } = params ?? {};
+    return this._client.get(path2`/v1/messages/batches/${messageBatchID}?beta=true`, {
+      ...options,
+      headers: buildHeaders([
+        { "anthropic-beta": [...betas ?? [], "message-batches-2024-09-24"].toString() },
+        options?.headers
+      ])
+    });
+  }
+  /**
+   * List all Message Batches within a Workspace. Most recently created batches are
+   * returned first.
+   *
+   * Learn more about the Message Batches API in our
+   * [user guide](https://docs.claude.com/en/docs/build-with-claude/batch-processing)
+   *
+   * @example
+   * ```ts
+   * // Automatically fetches more pages as needed.
+   * for await (const betaMessageBatch of client.beta.messages.batches.list()) {
+   *   // ...
+   * }
+   * ```
+   */
+  list(params = {}, options) {
+    const { betas, ...query } = params ?? {};
+    return this._client.getAPIList("/v1/messages/batches?beta=true", Page, {
+      query,
+      ...options,
+      headers: buildHeaders([
+        { "anthropic-beta": [...betas ?? [], "message-batches-2024-09-24"].toString() },
+        options?.headers
+      ])
+    });
+  }
+  /**
+   * Delete a Message Batch.
+   *
+   * Message Batches can only be deleted once they've finished processing. If you'd
+   * like to delete an in-progress batch, you must first cancel it.
+   *
+   * Learn more about the Message Batches API in our
+   * [user guide](https://docs.claude.com/en/docs/build-with-claude/batch-processing)
+   *
+   * @example
+   * ```ts
+   * const betaDeletedMessageBatch =
+   *   await client.beta.messages.batches.delete(
+   *     'message_batch_id',
+   *   );
+   * ```
+   */
+  delete(messageBatchID, params = {}, options) {
+    const { betas } = params ?? {};
+    return this._client.delete(path2`/v1/messages/batches/${messageBatchID}?beta=true`, {
+      ...options,
+      headers: buildHeaders([
+        { "anthropic-beta": [...betas ?? [], "message-batches-2024-09-24"].toString() },
+        options?.headers
+      ])
+    });
+  }
+  /**
+   * Batches may be canceled any time before processing ends. Once cancellation is
+   * initiated, the batch enters a `canceling` state, at which time the system may
+   * complete any in-progress, non-interruptible requests before finalizing
+   * cancellation.
+   *
+   * The number of canceled requests is specified in `request_counts`. To determine
+   * which requests were canceled, check the individual results within the batch.
+   * Note that cancellation may not result in any canceled requests if they were
+   * non-interruptible.
+   *
+   * Learn more about the Message Batches API in our
+   * [user guide](https://docs.claude.com/en/docs/build-with-claude/batch-processing)
+   *
+   * @example
+   * ```ts
+   * const betaMessageBatch =
+   *   await client.beta.messages.batches.cancel(
+   *     'message_batch_id',
+   *   );
+   * ```
+   */
+  cancel(messageBatchID, params = {}, options) {
+    const { betas } = params ?? {};
+    return this._client.post(path2`/v1/messages/batches/${messageBatchID}/cancel?beta=true`, {
+      ...options,
+      headers: buildHeaders([
+        { "anthropic-beta": [...betas ?? [], "message-batches-2024-09-24"].toString() },
+        options?.headers
+      ])
+    });
+  }
+  /**
+   * Streams the results of a Message Batch as a `.jsonl` file.
+   *
+   * Each line in the file is a JSON object containing the result of a single request
+   * in the Message Batch. Results are not guaranteed to be in the same order as
+   * requests. Use the `custom_id` field to match results to requests.
+   *
+   * Learn more about the Message Batches API in our
+   * [user guide](https://docs.claude.com/en/docs/build-with-claude/batch-processing)
+   *
+   * @example
+   * ```ts
+   * const betaMessageBatchIndividualResponse =
+   *   await client.beta.messages.batches.results(
+   *     'message_batch_id',
+   *   );
+   * ```
+   */
+  async results(messageBatchID, params = {}, options) {
+    const batch = await this.retrieve(messageBatchID);
+    if (!batch.results_url) {
+      throw new AnthropicError(`No batch \`results_url\`; Has it finished processing? ${batch.processing_status} - ${batch.id}`);
+    }
+    const { betas } = params ?? {};
+    return this._client.get(batch.results_url, {
+      ...options,
+      headers: buildHeaders([
+        {
+          "anthropic-beta": [...betas ?? [], "message-batches-2024-09-24"].toString(),
+          Accept: "application/binary"
+        },
+        options?.headers
+      ]),
+      stream: true,
+      __binaryResponse: true
+    })._thenUnwrap((_, props) => JSONLDecoder.fromResponse(props.response, props.controller));
+  }
+};
 
 // node_modules/@anthropic-ai/sdk/internal/constants.mjs
 var MODEL_NONSTREAMING_TOKENS = {
@@ -26575,230 +27539,6 @@ async function generateToolResponse(params, lastMessage = params.messages.at(-1)
     content: toolResults
   };
 }
-
-// node_modules/@anthropic-ai/sdk/internal/decoders/jsonl.mjs
-var JSONLDecoder = class _JSONLDecoder {
-  constructor(iterator, controller) {
-    this.iterator = iterator;
-    this.controller = controller;
-  }
-  async *decoder() {
-    const lineDecoder = new LineDecoder();
-    for await (const chunk of this.iterator) {
-      for (const line of lineDecoder.decode(chunk)) {
-        yield JSON.parse(line);
-      }
-    }
-    for (const line of lineDecoder.flush()) {
-      yield JSON.parse(line);
-    }
-  }
-  [Symbol.asyncIterator]() {
-    return this.decoder();
-  }
-  static fromResponse(response, controller) {
-    if (!response.body) {
-      controller.abort();
-      if (typeof globalThis.navigator !== "undefined" && globalThis.navigator.product === "ReactNative") {
-        throw new AnthropicError(`The default react-native fetch implementation does not support streaming. Please use expo/fetch: https://docs.expo.dev/versions/latest/sdk/expo/#expofetch-api`);
-      }
-      throw new AnthropicError(`Attempted to iterate over a response with no body`);
-    }
-    return new _JSONLDecoder(ReadableStreamToAsyncIterable(response.body), controller);
-  }
-};
-
-// node_modules/@anthropic-ai/sdk/resources/beta/messages/batches.mjs
-var Batches = class extends APIResource {
-  /**
-   * Send a batch of Message creation requests.
-   *
-   * The Message Batches API can be used to process multiple Messages API requests at
-   * once. Once a Message Batch is created, it begins processing immediately. Batches
-   * can take up to 24 hours to complete.
-   *
-   * Learn more about the Message Batches API in our
-   * [user guide](https://docs.claude.com/en/docs/build-with-claude/batch-processing)
-   *
-   * @example
-   * ```ts
-   * const betaMessageBatch =
-   *   await client.beta.messages.batches.create({
-   *     requests: [
-   *       {
-   *         custom_id: 'my-custom-id-1',
-   *         params: {
-   *           max_tokens: 1024,
-   *           messages: [
-   *             { content: 'Hello, world', role: 'user' },
-   *           ],
-   *           model: 'claude-opus-4-6',
-   *         },
-   *       },
-   *     ],
-   *   });
-   * ```
-   */
-  create(params, options) {
-    const { betas, ...body } = params;
-    return this._client.post("/v1/messages/batches?beta=true", {
-      body,
-      ...options,
-      headers: buildHeaders([
-        { "anthropic-beta": [...betas ?? [], "message-batches-2024-09-24"].toString() },
-        options?.headers
-      ])
-    });
-  }
-  /**
-   * This endpoint is idempotent and can be used to poll for Message Batch
-   * completion. To access the results of a Message Batch, make a request to the
-   * `results_url` field in the response.
-   *
-   * Learn more about the Message Batches API in our
-   * [user guide](https://docs.claude.com/en/docs/build-with-claude/batch-processing)
-   *
-   * @example
-   * ```ts
-   * const betaMessageBatch =
-   *   await client.beta.messages.batches.retrieve(
-   *     'message_batch_id',
-   *   );
-   * ```
-   */
-  retrieve(messageBatchID, params = {}, options) {
-    const { betas } = params ?? {};
-    return this._client.get(path2`/v1/messages/batches/${messageBatchID}?beta=true`, {
-      ...options,
-      headers: buildHeaders([
-        { "anthropic-beta": [...betas ?? [], "message-batches-2024-09-24"].toString() },
-        options?.headers
-      ])
-    });
-  }
-  /**
-   * List all Message Batches within a Workspace. Most recently created batches are
-   * returned first.
-   *
-   * Learn more about the Message Batches API in our
-   * [user guide](https://docs.claude.com/en/docs/build-with-claude/batch-processing)
-   *
-   * @example
-   * ```ts
-   * // Automatically fetches more pages as needed.
-   * for await (const betaMessageBatch of client.beta.messages.batches.list()) {
-   *   // ...
-   * }
-   * ```
-   */
-  list(params = {}, options) {
-    const { betas, ...query } = params ?? {};
-    return this._client.getAPIList("/v1/messages/batches?beta=true", Page, {
-      query,
-      ...options,
-      headers: buildHeaders([
-        { "anthropic-beta": [...betas ?? [], "message-batches-2024-09-24"].toString() },
-        options?.headers
-      ])
-    });
-  }
-  /**
-   * Delete a Message Batch.
-   *
-   * Message Batches can only be deleted once they've finished processing. If you'd
-   * like to delete an in-progress batch, you must first cancel it.
-   *
-   * Learn more about the Message Batches API in our
-   * [user guide](https://docs.claude.com/en/docs/build-with-claude/batch-processing)
-   *
-   * @example
-   * ```ts
-   * const betaDeletedMessageBatch =
-   *   await client.beta.messages.batches.delete(
-   *     'message_batch_id',
-   *   );
-   * ```
-   */
-  delete(messageBatchID, params = {}, options) {
-    const { betas } = params ?? {};
-    return this._client.delete(path2`/v1/messages/batches/${messageBatchID}?beta=true`, {
-      ...options,
-      headers: buildHeaders([
-        { "anthropic-beta": [...betas ?? [], "message-batches-2024-09-24"].toString() },
-        options?.headers
-      ])
-    });
-  }
-  /**
-   * Batches may be canceled any time before processing ends. Once cancellation is
-   * initiated, the batch enters a `canceling` state, at which time the system may
-   * complete any in-progress, non-interruptible requests before finalizing
-   * cancellation.
-   *
-   * The number of canceled requests is specified in `request_counts`. To determine
-   * which requests were canceled, check the individual results within the batch.
-   * Note that cancellation may not result in any canceled requests if they were
-   * non-interruptible.
-   *
-   * Learn more about the Message Batches API in our
-   * [user guide](https://docs.claude.com/en/docs/build-with-claude/batch-processing)
-   *
-   * @example
-   * ```ts
-   * const betaMessageBatch =
-   *   await client.beta.messages.batches.cancel(
-   *     'message_batch_id',
-   *   );
-   * ```
-   */
-  cancel(messageBatchID, params = {}, options) {
-    const { betas } = params ?? {};
-    return this._client.post(path2`/v1/messages/batches/${messageBatchID}/cancel?beta=true`, {
-      ...options,
-      headers: buildHeaders([
-        { "anthropic-beta": [...betas ?? [], "message-batches-2024-09-24"].toString() },
-        options?.headers
-      ])
-    });
-  }
-  /**
-   * Streams the results of a Message Batch as a `.jsonl` file.
-   *
-   * Each line in the file is a JSON object containing the result of a single request
-   * in the Message Batch. Results are not guaranteed to be in the same order as
-   * requests. Use the `custom_id` field to match results to requests.
-   *
-   * Learn more about the Message Batches API in our
-   * [user guide](https://docs.claude.com/en/docs/build-with-claude/batch-processing)
-   *
-   * @example
-   * ```ts
-   * const betaMessageBatchIndividualResponse =
-   *   await client.beta.messages.batches.results(
-   *     'message_batch_id',
-   *   );
-   * ```
-   */
-  async results(messageBatchID, params = {}, options) {
-    const batch = await this.retrieve(messageBatchID);
-    if (!batch.results_url) {
-      throw new AnthropicError(`No batch \`results_url\`; Has it finished processing? ${batch.processing_status} - ${batch.id}`);
-    }
-    const { betas } = params ?? {};
-    return this._client.get(batch.results_url, {
-      ...options,
-      headers: buildHeaders([
-        {
-          "anthropic-beta": [...betas ?? [], "message-batches-2024-09-24"].toString(),
-          Accept: "application/binary"
-        },
-        options?.headers
-      ]),
-      stream: true,
-      __binaryResponse: true
-    })._thenUnwrap((_, props) => JSONLDecoder.fromResponse(props.response, props.controller));
-  }
-};
 
 // node_modules/@anthropic-ai/sdk/resources/beta/messages/messages.mjs
 var DEPRECATED_MODELS = {
@@ -28736,17 +29476,6 @@ var Models2 = class extends APIResource {
   }
 };
 
-// node_modules/@anthropic-ai/sdk/internal/utils/env.mjs
-var readEnv = (env) => {
-  if (typeof globalThis.process !== "undefined") {
-    return globalThis.process.env?.[env]?.trim() || void 0;
-  }
-  if (typeof globalThis.Deno !== "undefined") {
-    return globalThis.Deno.env?.get?.(env)?.trim() || void 0;
-  }
-  return void 0;
-};
-
 // node_modules/@anthropic-ai/sdk/client.mjs
 var _BaseAnthropic_instances;
 var _a;
@@ -28755,6 +29484,19 @@ var _BaseAnthropic_baseURLOverridden;
 var HUMAN_PROMPT = "\\n\\nHuman:";
 var AI_PROMPT = "\\n\\nAssistant:";
 var BaseAnthropic = class {
+  /**
+   * The active credential provider. Default credential resolution runs once
+   * at construction time. If it fails, the error is surfaced on every
+   * request and the client must be reconstructed — there is no retry path.
+   *
+   * Clones returned by {@link withOptions} share the parent's auth state
+   * (provider, token cache, pending resolution, and any resolution error)
+   * unless the caller passes an explicit `apiKey`, `authToken`,
+   * `credentials`, `config`, or `profile` override.
+   */
+  get credentials() {
+    return this._authState.provider;
+  }
   /**
    * API Client for interfacing with the Anthropic API.
    *
@@ -28769,9 +29511,19 @@ var BaseAnthropic = class {
    * @param {Record<string, string | undefined>} opts.defaultQuery - Default query parameters to include with every request to the API.
    * @param {boolean} [opts.dangerouslyAllowBrowser=false] - By default, client-side use of this library is not allowed, as it risks exposing your secret API credentials to attackers.
    */
-  constructor({ baseURL = readEnv("ANTHROPIC_BASE_URL"), apiKey = readEnv("ANTHROPIC_API_KEY") ?? null, authToken = readEnv("ANTHROPIC_AUTH_TOKEN") ?? null, ...opts } = {}) {
+  constructor({ baseURL = readEnv("ANTHROPIC_BASE_URL"), apiKey, authToken, ...opts } = {}) {
     _BaseAnthropic_instances.add(this);
+    this._requestAuthFlags = /* @__PURE__ */ new WeakMap();
     _BaseAnthropic_encoder.set(this, void 0);
+    if (apiKey === void 0) {
+      apiKey = opts.profile != null ? null : readEnv("ANTHROPIC_API_KEY") ?? null;
+    }
+    if (authToken === void 0) {
+      authToken = opts.profile != null ? null : readEnv("ANTHROPIC_AUTH_TOKEN") ?? null;
+    }
+    if (opts.profile != null && (opts.credentials != null || opts.config != null)) {
+      throw new TypeError("Pass at most one of `profile`, `credentials`, or `config`.");
+    }
     const options = {
       apiKey,
       authToken,
@@ -28782,6 +29534,7 @@ var BaseAnthropic = class {
       throw new AnthropicError("It looks like you're running in a browser-like environment.\n\nThis is disabled by default, as it risks exposing your secret API credentials to attackers.\nIf you understand the risks and have appropriate mitigations in place,\nyou can set the `dangerouslyAllowBrowser` option to `true`, e.g.,\n\nnew Anthropic({ apiKey, dangerouslyAllowBrowser: true });\n");
     }
     this.baseURL = options.baseURL;
+    this._baseURLIsExplicit = opts.__baseURLIsExplicit ?? !!baseURL;
     this.timeout = options.timeout ?? _a.DEFAULT_TIMEOUT;
     this.logger = options.logger ?? console;
     const defaultLogLevel = "warn";
@@ -28791,17 +29544,107 @@ var BaseAnthropic = class {
     this.maxRetries = options.maxRetries ?? 2;
     this.fetch = options.fetch ?? getDefaultFetch();
     __classPrivateFieldSet(this, _BaseAnthropic_encoder, FallbackEncoder, "f");
+    const customHeadersEnv = readEnv("ANTHROPIC_CUSTOM_HEADERS");
+    if (customHeadersEnv) {
+      const parsed = {};
+      for (const line of customHeadersEnv.split("\n")) {
+        const colon = line.indexOf(":");
+        if (colon >= 0) {
+          parsed[line.substring(0, colon).trim()] = line.substring(colon + 1).trim();
+        }
+      }
+      options.defaultHeaders = { ...parsed, ...options.defaultHeaders };
+    }
+    const inherited = opts.__auth;
+    delete options.__auth;
+    delete options.__baseURLIsExplicit;
     this._options = options;
     this.apiKey = typeof apiKey === "string" ? apiKey : null;
     this.authToken = authToken;
+    if (inherited) {
+      this._authState = inherited;
+      if (!this._baseURLIsExplicit && inherited.baseURL) {
+        this.baseURL = inherited.baseURL;
+      }
+    } else {
+      this._authState = { provider: null, tokenCache: null, resolution: null, error: null, extraHeaders: {} };
+      if (this.apiKey == null && this.authToken == null) {
+        const credentials = options.credentials ?? null;
+        if (credentials) {
+          this._authState.provider = credentials;
+          this._authState.tokenCache = this._makeTokenCache(credentials);
+        } else if (options.config != null) {
+          const result = resolveCredentialsFromConfig(options.config, this._credentialResolverOptions());
+          this._authState.provider = result.provider;
+          this._authState.tokenCache = this._makeTokenCache(result.provider);
+          this._authState.extraHeaders = result.extraHeaders;
+          this._applyCredentialBaseURL(result.baseURL);
+        } else if (options.profile != null) {
+          this._authState.resolution = this._resolveDefaultCredentials(options.profile);
+        } else {
+          this._authState.resolution = this._resolveDefaultCredentials();
+        }
+      }
+    }
+  }
+  /**
+   * Stores a profile/config-supplied base URL on the shared auth state and, if
+   * the caller did not pin `baseURL` via constructor option or env, adopts it
+   * as this client's outbound API host. Precedence: ctor opt > env > profile >
+   * hardcoded default.
+   */
+  _applyCredentialBaseURL(baseURL) {
+    if (!baseURL)
+      return;
+    const normalized = baseURL.replace(/\/+$/, "");
+    this._authState.baseURL = normalized;
+    if (!this._baseURLIsExplicit) {
+      this.baseURL = normalized;
+    }
+  }
+  /**
+   * Options bag passed into the credential chain. `baseURL` here is only the
+   * fallback host for the token-exchange POST when the config itself omits
+   * `base_url`; the chain returns the config's own `base_url` (if any) on
+   * {@link CredentialResult.baseURL}, which {@link _applyCredentialBaseURL}
+   * then adopts for outbound API requests. The two are deliberately decoupled
+   * so this fallback never round-trips into precedence.
+   */
+  _credentialResolverOptions() {
+    return {
+      baseURL: this.baseURL,
+      fetch: this.fetch,
+      userAgent: this.getUserAgent(),
+      onCacheWriteError: (err) => {
+        loggerFor(this).debug("credential cache write failed (best-effort)", err);
+      },
+      onSafetyWarning: (msg) => {
+        loggerFor(this).warn(msg);
+      }
+    };
+  }
+  _makeTokenCache(provider) {
+    return new TokenCache(provider, (err) => {
+      loggerFor(this).debug("advisory token refresh failed; serving cached token", err);
+    });
   }
   /**
    * Create a new client instance re-using the same options given to the current client with optional overriding.
    */
   withOptions(options) {
-    const client = new this.constructor({
+    const overridesStructuredAuth = "credentials" in options || "config" in options || "profile" in options;
+    const overridesAuth = "apiKey" in options || "authToken" in options || overridesStructuredAuth;
+    const internal = {
       ...this._options,
-      baseURL: this.baseURL,
+      // Only forward baseURL when the caller (or env) explicitly chose it.
+      // For a non-explicit parent, this.baseURL may have been mutated to the
+      // profile-resolved host; pinning that as the clone's options.baseURL
+      // would make _options on the clone misreport caller intent and would
+      // leave the clone stuck on the parent's host across an auth override.
+      // The clone instead receives the construction-time value via
+      // ...this._options above and re-adopts the profile host through the
+      // shared _authState.baseURL + __baseURLIsExplicit=false path.
+      ...this._baseURLIsExplicit ? { baseURL: this.baseURL } : {},
       maxRetries: this.maxRetries,
       timeout: this.timeout,
       logger: this.logger,
@@ -28810,15 +29653,59 @@ var BaseAnthropic = class {
       fetchOptions: this.fetchOptions,
       apiKey: this.apiKey,
       authToken: this.authToken,
-      ...options
-    });
-    return client;
+      // credentials: this.credentials is a no-op when __auth is shared (the
+      // ctor takes the inherited path and ignores options.credentials); when
+      // overridesAuth is true via apiKey/authToken only, it lets the clone
+      // build a fresh TokenCache around the parent's provider.
+      credentials: this.credentials,
+      // When the caller passes a structured-credential override, drop inherited
+      // structured-credential options so only `...options` supplies them —
+      // otherwise an inherited `credentials`/`config`/`profile` would trip the
+      // mutual-exclusion check or precedence over the override.
+      ...overridesStructuredAuth ? { credentials: void 0, config: void 0, profile: void 0 } : {},
+      ...options,
+      // Always set __auth so any stale value from ...this._options is
+      // overwritten. undefined means "build fresh auth from these options".
+      __auth: overridesAuth ? void 0 : this._authState,
+      __baseURLIsExplicit: "baseURL" in options ? true : this._baseURLIsExplicit
+    };
+    return new this.constructor(internal);
+  }
+  /**
+   * Lazily resolves credentials from config files or environment variables.
+   * Called once from the constructor when no explicit auth is provided, or
+   * when an explicit `profile` was passed (in which case a missing/unresolved
+   * profile is surfaced as an error instead of falling through to "no auth").
+   * The returned promise is stored and awaited on the first request.
+   */
+  async _resolveDefaultCredentials(profile) {
+    try {
+      const result = await defaultCredentials(this._credentialResolverOptions(), profile);
+      if (result) {
+        this._authState.provider = result.provider;
+        this._authState.tokenCache = this._makeTokenCache(result.provider);
+        this._authState.extraHeaders = result.extraHeaders;
+        this._applyCredentialBaseURL(result.baseURL);
+      } else if (profile != null) {
+        throw new AnthropicError(`Profile "${profile}" could not be resolved (no <config_dir>/configs/${profile}.json found).`);
+      }
+    } catch (err) {
+      this._authState.error = err;
+    } finally {
+      this._authState.resolution = null;
+    }
   }
   defaultQuery() {
     return this._options.defaultQuery;
   }
   validateHeaders({ values, nulls }) {
     if (values.get("x-api-key") || values.get("authorization")) {
+      return;
+    }
+    if (this._authState.error) {
+      throw this._authState.error;
+    }
+    if (this._authState.tokenCache || this._authState.resolution) {
       return;
     }
     if (this.apiKey && values.get("x-api-key")) {
@@ -28833,9 +29720,28 @@ var BaseAnthropic = class {
     if (nulls.has("authorization")) {
       return;
     }
-    throw new Error('Could not resolve authentication method. Expected either apiKey or authToken to be set. Or for one of the "X-Api-Key" or "Authorization" headers to be explicitly omitted');
+    throw new Error('Could not resolve authentication method. Expected one of apiKey, authToken, credentials, config, or profile to be set. Or for one of the "X-Api-Key" or "Authorization" headers to be explicitly omitted');
+  }
+  _authFlags(opts) {
+    let flags = this._requestAuthFlags.get(opts);
+    if (!flags) {
+      flags = { usedTokenCache: false, didRefreshFor401: false };
+      this._requestAuthFlags.set(opts, flags);
+    }
+    return flags;
   }
   async authHeaders(opts) {
+    if (this._authState.resolution) {
+      await this._authState.resolution;
+    }
+    if (this._authState.error) {
+      return void 0;
+    }
+    if (this._authState.tokenCache && this.apiKey == null) {
+      const token = await this._authState.tokenCache.getToken();
+      this._authFlags(opts).usedTokenCache = true;
+      return buildHeaders([{ Authorization: `Bearer ${token}` }]);
+    }
     return buildHeaders([await this.apiKeyAuth(opts), await this.bearerAuth(opts)]);
   }
   async apiKeyAuth(opts) {
@@ -28898,6 +29804,18 @@ var BaseAnthropic = class {
    * the request properties, e.g. `method` or `url`.
    */
   async prepareRequest(request, { url, options }) {
+    if (this._authState.tokenCache && this.apiKey == null) {
+      const headers = request.headers instanceof Headers ? request.headers : new Headers(request.headers);
+      for (const [k, v] of Object.entries(this._authState.extraHeaders)) {
+        if (!headers.has(k))
+          headers.set(k, v);
+      }
+      const existing = headers.get("anthropic-beta")?.split(",").map((s2) => s2.trim());
+      if (!existing?.includes(OAUTH_API_BETA_HEADER)) {
+        headers.append("anthropic-beta", OAUTH_API_BETA_HEADER);
+      }
+      request.headers = headers;
+    }
   }
   get(path5, opts) {
     return this.methodRequest("get", path5, opts);
@@ -28927,6 +29845,7 @@ var BaseAnthropic = class {
     const maxRetries = options.maxRetries ?? this.maxRetries;
     if (retriesRemaining == null) {
       retriesRemaining = maxRetries;
+      this._requestAuthFlags.delete(options);
     }
     await this.prepareOptions(options);
     const { req, url, timeout } = await this.buildRequest(options, {
@@ -28980,7 +29899,7 @@ var BaseAnthropic = class {
     const specialHeaders = [...response.headers.entries()].filter(([name]) => name === "request-id").map(([name, value]) => ", " + name + ": " + JSON.stringify(value)).join("");
     const responseInfo = `[${requestLogID}${retryLogStr}${specialHeaders}] ${req.method} ${url} ${response.ok ? "succeeded" : "failed"} with status ${response.status} in ${headersTime - startTime}ms`;
     if (!response.ok) {
-      const shouldRetry = await this.shouldRetry(response);
+      const shouldRetry = await this.shouldRetry(response, options);
       if (retriesRemaining && shouldRetry) {
         const retryMessage2 = `retrying, ${retriesRemaining} attempts remaining`;
         await CancelReadableStream(response.body);
@@ -29049,7 +29968,13 @@ var BaseAnthropic = class {
       clearTimeout(timeout);
     }
   }
-  async shouldRetry(response) {
+  async shouldRetry(response, options) {
+    const flags = this._authFlags(options);
+    if (response.status === 401 && this._authState.tokenCache && flags.usedTokenCache && !flags.didRefreshFor401) {
+      flags.didRefreshFor401 = true;
+      this._authState.tokenCache.invalidate();
+      return true;
+    }
     const shouldRetryHeader = response.headers.get("x-should-retry");
     if (shouldRetryHeader === "true")
       return true;
@@ -29110,6 +30035,12 @@ var BaseAnthropic = class {
   async buildRequest(inputOptions, { retryCount = 0 } = {}) {
     const options = { ...inputOptions };
     const { method, path: path5, query, defaultBaseURL } = options;
+    if (this._authState.resolution) {
+      await this._authState.resolution;
+    }
+    if (!this._baseURLIsExplicit && this._authState.baseURL && this.baseURL !== this._authState.baseURL) {
+      this.baseURL = this._authState.baseURL;
+    }
     const url = this.buildURL(path5, query, defaultBaseURL);
     if ("timeout" in options)
       validatePositiveInteger("timeout", options.timeout);
@@ -29565,7 +30496,7 @@ var safeJSON2 = (text) => {
 var sleep3 = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // node_modules/openai/version.mjs
-var VERSION2 = "6.34.0";
+var VERSION2 = "6.36.0";
 
 // node_modules/openai/internal/detect-platform.mjs
 var isRunningInBrowser2 = () => {
@@ -30830,6 +31761,36 @@ var ConversationCursorPage = class extends AbstractPage2 {
     };
   }
 };
+var NextCursorPage = class extends AbstractPage2 {
+  constructor(client, response, body, options) {
+    super(client, response, body, options);
+    this.data = body.data || [];
+    this.has_more = body.has_more || false;
+    this.next = body.next || null;
+  }
+  getPaginatedItems() {
+    return this.data ?? [];
+  }
+  hasNextPage() {
+    if (this.has_more === false) {
+      return false;
+    }
+    return super.hasNextPage();
+  }
+  nextPageRequestOptions() {
+    const cursor = this.next;
+    if (!cursor) {
+      return null;
+    }
+    return {
+      ...this.options,
+      query: {
+        ...maybeObj2(this.options.query),
+        after: cursor
+      }
+    };
+  }
+};
 
 // node_modules/openai/auth/workload-identity-auth.mjs
 var SUBJECT_TOKEN_TYPES = {
@@ -31138,7 +32099,7 @@ var Messages3 = class extends APIResource2 {
    * ```
    */
   list(completionID, query = {}, options) {
-    return this._client.getAPIList(path3`/chat/completions/${completionID}/messages`, CursorPage, { query, ...options });
+    return this._client.getAPIList(path3`/chat/completions/${completionID}/messages`, CursorPage, { query, ...options, __security: { bearerAuth: true } });
   }
 };
 
@@ -32460,7 +33421,12 @@ var Completions2 = class extends APIResource2 {
     this.messages = new Messages3(this._client);
   }
   create(body, options) {
-    return this._client.post("/chat/completions", { body, ...options, stream: body.stream ?? false });
+    return this._client.post("/chat/completions", {
+      body,
+      ...options,
+      stream: body.stream ?? false,
+      __security: { bearerAuth: true }
+    });
   }
   /**
    * Get a stored chat completion. Only Chat Completions that have been created with
@@ -32473,7 +33439,10 @@ var Completions2 = class extends APIResource2 {
    * ```
    */
   retrieve(completionID, options) {
-    return this._client.get(path3`/chat/completions/${completionID}`, options);
+    return this._client.get(path3`/chat/completions/${completionID}`, {
+      ...options,
+      __security: { bearerAuth: true }
+    });
   }
   /**
    * Modify a stored chat completion. Only Chat Completions that have been created
@@ -32489,7 +33458,11 @@ var Completions2 = class extends APIResource2 {
    * ```
    */
   update(completionID, body, options) {
-    return this._client.post(path3`/chat/completions/${completionID}`, { body, ...options });
+    return this._client.post(path3`/chat/completions/${completionID}`, {
+      body,
+      ...options,
+      __security: { bearerAuth: true }
+    });
   }
   /**
    * List stored Chat Completions. Only Chat Completions that have been stored with
@@ -32504,7 +33477,11 @@ var Completions2 = class extends APIResource2 {
    * ```
    */
   list(query = {}, options) {
-    return this._client.getAPIList("/chat/completions", CursorPage, { query, ...options });
+    return this._client.getAPIList("/chat/completions", CursorPage, {
+      query,
+      ...options,
+      __security: { bearerAuth: true }
+    });
   }
   /**
    * Delete a stored chat completion. Only Chat Completions that have been created
@@ -32517,7 +33494,10 @@ var Completions2 = class extends APIResource2 {
    * ```
    */
   delete(completionID, options) {
-    return this._client.delete(path3`/chat/completions/${completionID}`, options);
+    return this._client.delete(path3`/chat/completions/${completionID}`, {
+      ...options,
+      __security: { bearerAuth: true }
+    });
   }
   parse(body, options) {
     validateInputTools(body.tools);
@@ -32552,6 +33532,1636 @@ var Chat = class extends APIResource2 {
   }
 };
 Chat.Completions = Completions2;
+
+// node_modules/openai/resources/admin/organization/admin-api-keys.mjs
+var AdminAPIKeys = class extends APIResource2 {
+  /**
+   * Create an organization admin API key
+   *
+   * @example
+   * ```ts
+   * const adminAPIKey =
+   *   await client.admin.organization.adminAPIKeys.create({
+   *     name: 'New Admin Key',
+   *   });
+   * ```
+   */
+  create(body, options) {
+    return this._client.post("/organization/admin_api_keys", {
+      body,
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+  /**
+   * Retrieve a single organization API key
+   *
+   * @example
+   * ```ts
+   * const adminAPIKey =
+   *   await client.admin.organization.adminAPIKeys.retrieve(
+   *     'key_id',
+   *   );
+   * ```
+   */
+  retrieve(keyID, options) {
+    return this._client.get(path3`/organization/admin_api_keys/${keyID}`, {
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+  /**
+   * List organization API keys
+   *
+   * @example
+   * ```ts
+   * // Automatically fetches more pages as needed.
+   * for await (const adminAPIKey of client.admin.organization.adminAPIKeys.list()) {
+   *   // ...
+   * }
+   * ```
+   */
+  list(query = {}, options) {
+    return this._client.getAPIList("/organization/admin_api_keys", CursorPage, {
+      query,
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+  /**
+   * Delete an organization admin API key
+   *
+   * @example
+   * ```ts
+   * const adminAPIKey =
+   *   await client.admin.organization.adminAPIKeys.delete(
+   *     'key_id',
+   *   );
+   * ```
+   */
+  delete(keyID, options) {
+    return this._client.delete(path3`/organization/admin_api_keys/${keyID}`, {
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+};
+
+// node_modules/openai/resources/admin/organization/audit-logs.mjs
+var AuditLogs = class extends APIResource2 {
+  /**
+   * List user actions and configuration changes within this organization.
+   *
+   * @example
+   * ```ts
+   * // Automatically fetches more pages as needed.
+   * for await (const auditLogListResponse of client.admin.organization.auditLogs.list()) {
+   *   // ...
+   * }
+   * ```
+   */
+  list(query = {}, options) {
+    return this._client.getAPIList("/organization/audit_logs", ConversationCursorPage, {
+      query,
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+};
+
+// node_modules/openai/resources/admin/organization/certificates.mjs
+var Certificates = class extends APIResource2 {
+  /**
+   * Upload a certificate to the organization. This does **not** automatically
+   * activate the certificate.
+   *
+   * Organizations can upload up to 50 certificates.
+   *
+   * @example
+   * ```ts
+   * const certificate =
+   *   await client.admin.organization.certificates.create({
+   *     certificate: 'certificate',
+   *   });
+   * ```
+   */
+  create(body, options) {
+    return this._client.post("/organization/certificates", {
+      body,
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+  /**
+   * Get a certificate that has been uploaded to the organization.
+   *
+   * You can get a certificate regardless of whether it is active or not.
+   *
+   * @example
+   * ```ts
+   * const certificate =
+   *   await client.admin.organization.certificates.retrieve(
+   *     'certificate_id',
+   *   );
+   * ```
+   */
+  retrieve(certificateID, query = {}, options) {
+    return this._client.get(path3`/organization/certificates/${certificateID}`, {
+      query,
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+  /**
+   * Modify a certificate. Note that only the name can be modified.
+   *
+   * @example
+   * ```ts
+   * const certificate =
+   *   await client.admin.organization.certificates.update(
+   *     'certificate_id',
+   *   );
+   * ```
+   */
+  update(certificateID, body, options) {
+    return this._client.post(path3`/organization/certificates/${certificateID}`, {
+      body,
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+  /**
+   * List uploaded certificates for this organization.
+   *
+   * @example
+   * ```ts
+   * // Automatically fetches more pages as needed.
+   * for await (const certificateListResponse of client.admin.organization.certificates.list()) {
+   *   // ...
+   * }
+   * ```
+   */
+  list(query = {}, options) {
+    return this._client.getAPIList("/organization/certificates", ConversationCursorPage, { query, ...options, __security: { adminAPIKeyAuth: true } });
+  }
+  /**
+   * Delete a certificate from the organization.
+   *
+   * The certificate must be inactive for the organization and all projects.
+   *
+   * @example
+   * ```ts
+   * const certificate =
+   *   await client.admin.organization.certificates.delete(
+   *     'certificate_id',
+   *   );
+   * ```
+   */
+  delete(certificateID, options) {
+    return this._client.delete(path3`/organization/certificates/${certificateID}`, {
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+  /**
+   * Activate certificates at the organization level.
+   *
+   * You can atomically and idempotently activate up to 10 certificates at a time.
+   *
+   * @example
+   * ```ts
+   * // Automatically fetches more pages as needed.
+   * for await (const certificateActivateResponse of client.admin.organization.certificates.activate(
+   *   { certificate_ids: ['cert_abc'] },
+   * )) {
+   *   // ...
+   * }
+   * ```
+   */
+  activate(body, options) {
+    return this._client.getAPIList("/organization/certificates/activate", Page2, {
+      body,
+      method: "post",
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+  /**
+   * Deactivate certificates at the organization level.
+   *
+   * You can atomically and idempotently deactivate up to 10 certificates at a time.
+   *
+   * @example
+   * ```ts
+   * // Automatically fetches more pages as needed.
+   * for await (const certificateDeactivateResponse of client.admin.organization.certificates.deactivate(
+   *   { certificate_ids: ['cert_abc'] },
+   * )) {
+   *   // ...
+   * }
+   * ```
+   */
+  deactivate(body, options) {
+    return this._client.getAPIList("/organization/certificates/deactivate", Page2, { body, method: "post", ...options, __security: { adminAPIKeyAuth: true } });
+  }
+};
+
+// node_modules/openai/resources/admin/organization/invites.mjs
+var Invites = class extends APIResource2 {
+  /**
+   * Create an invite for a user to the organization. The invite must be accepted by
+   * the user before they have access to the organization.
+   *
+   * @example
+   * ```ts
+   * const invite =
+   *   await client.admin.organization.invites.create({
+   *     email: 'email',
+   *     role: 'reader',
+   *   });
+   * ```
+   */
+  create(body, options) {
+    return this._client.post("/organization/invites", {
+      body,
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+  /**
+   * Retrieves an invite.
+   *
+   * @example
+   * ```ts
+   * const invite =
+   *   await client.admin.organization.invites.retrieve(
+   *     'invite_id',
+   *   );
+   * ```
+   */
+  retrieve(inviteID, options) {
+    return this._client.get(path3`/organization/invites/${inviteID}`, {
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+  /**
+   * Returns a list of invites in the organization.
+   *
+   * @example
+   * ```ts
+   * // Automatically fetches more pages as needed.
+   * for await (const invite of client.admin.organization.invites.list()) {
+   *   // ...
+   * }
+   * ```
+   */
+  list(query = {}, options) {
+    return this._client.getAPIList("/organization/invites", ConversationCursorPage, {
+      query,
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+  /**
+   * Delete an invite. If the invite has already been accepted, it cannot be deleted.
+   *
+   * @example
+   * ```ts
+   * const invite =
+   *   await client.admin.organization.invites.delete(
+   *     'invite_id',
+   *   );
+   * ```
+   */
+  delete(inviteID, options) {
+    return this._client.delete(path3`/organization/invites/${inviteID}`, {
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+};
+
+// node_modules/openai/resources/admin/organization/roles.mjs
+var Roles = class extends APIResource2 {
+  /**
+   * Creates a custom role for the organization.
+   *
+   * @example
+   * ```ts
+   * const role = await client.admin.organization.roles.create({
+   *   permissions: ['string'],
+   *   role_name: 'role_name',
+   * });
+   * ```
+   */
+  create(body, options) {
+    return this._client.post("/organization/roles", {
+      body,
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+  /**
+   * Updates an existing organization role.
+   *
+   * @example
+   * ```ts
+   * const role = await client.admin.organization.roles.update(
+   *   'role_id',
+   * );
+   * ```
+   */
+  update(roleID, body, options) {
+    return this._client.post(path3`/organization/roles/${roleID}`, {
+      body,
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+  /**
+   * Lists the roles configured for the organization.
+   *
+   * @example
+   * ```ts
+   * // Automatically fetches more pages as needed.
+   * for await (const role of client.admin.organization.roles.list()) {
+   *   // ...
+   * }
+   * ```
+   */
+  list(query = {}, options) {
+    return this._client.getAPIList("/organization/roles", NextCursorPage, {
+      query,
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+  /**
+   * Deletes a custom role from the organization.
+   *
+   * @example
+   * ```ts
+   * const role = await client.admin.organization.roles.delete(
+   *   'role_id',
+   * );
+   * ```
+   */
+  delete(roleID, options) {
+    return this._client.delete(path3`/organization/roles/${roleID}`, {
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+};
+
+// node_modules/openai/resources/admin/organization/usage.mjs
+var Usage = class extends APIResource2 {
+  /**
+   * Get audio speeches usage details for the organization.
+   *
+   * @example
+   * ```ts
+   * const response =
+   *   await client.admin.organization.usage.audioSpeeches({
+   *     start_time: 0,
+   *   });
+   * ```
+   */
+  audioSpeeches(query, options) {
+    return this._client.get("/organization/usage/audio_speeches", {
+      query,
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+  /**
+   * Get audio transcriptions usage details for the organization.
+   *
+   * @example
+   * ```ts
+   * const response =
+   *   await client.admin.organization.usage.audioTranscriptions(
+   *     { start_time: 0 },
+   *   );
+   * ```
+   */
+  audioTranscriptions(query, options) {
+    return this._client.get("/organization/usage/audio_transcriptions", {
+      query,
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+  /**
+   * Get code interpreter sessions usage details for the organization.
+   *
+   * @example
+   * ```ts
+   * const response =
+   *   await client.admin.organization.usage.codeInterpreterSessions(
+   *     { start_time: 0 },
+   *   );
+   * ```
+   */
+  codeInterpreterSessions(query, options) {
+    return this._client.get("/organization/usage/code_interpreter_sessions", {
+      query,
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+  /**
+   * Get completions usage details for the organization.
+   *
+   * @example
+   * ```ts
+   * const response =
+   *   await client.admin.organization.usage.completions({
+   *     start_time: 0,
+   *   });
+   * ```
+   */
+  completions(query, options) {
+    return this._client.get("/organization/usage/completions", {
+      query,
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+  /**
+   * Get costs details for the organization.
+   *
+   * @example
+   * ```ts
+   * const response =
+   *   await client.admin.organization.usage.costs({
+   *     start_time: 0,
+   *   });
+   * ```
+   */
+  costs(query, options) {
+    return this._client.get("/organization/costs", {
+      query,
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+  /**
+   * Get embeddings usage details for the organization.
+   *
+   * @example
+   * ```ts
+   * const response =
+   *   await client.admin.organization.usage.embeddings({
+   *     start_time: 0,
+   *   });
+   * ```
+   */
+  embeddings(query, options) {
+    return this._client.get("/organization/usage/embeddings", {
+      query,
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+  /**
+   * Get images usage details for the organization.
+   *
+   * @example
+   * ```ts
+   * const response =
+   *   await client.admin.organization.usage.images({
+   *     start_time: 0,
+   *   });
+   * ```
+   */
+  images(query, options) {
+    return this._client.get("/organization/usage/images", {
+      query,
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+  /**
+   * Get moderations usage details for the organization.
+   *
+   * @example
+   * ```ts
+   * const response =
+   *   await client.admin.organization.usage.moderations({
+   *     start_time: 0,
+   *   });
+   * ```
+   */
+  moderations(query, options) {
+    return this._client.get("/organization/usage/moderations", {
+      query,
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+  /**
+   * Get vector stores usage details for the organization.
+   *
+   * @example
+   * ```ts
+   * const response =
+   *   await client.admin.organization.usage.vectorStores({
+   *     start_time: 0,
+   *   });
+   * ```
+   */
+  vectorStores(query, options) {
+    return this._client.get("/organization/usage/vector_stores", {
+      query,
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+};
+
+// node_modules/openai/resources/admin/organization/groups/roles.mjs
+var Roles2 = class extends APIResource2 {
+  /**
+   * Assigns an organization role to a group within the organization.
+   *
+   * @example
+   * ```ts
+   * const role =
+   *   await client.admin.organization.groups.roles.create(
+   *     'group_id',
+   *     { role_id: 'role_id' },
+   *   );
+   * ```
+   */
+  create(groupID, body, options) {
+    return this._client.post(path3`/organization/groups/${groupID}/roles`, {
+      body,
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+  /**
+   * Lists the organization roles assigned to a group within the organization.
+   *
+   * @example
+   * ```ts
+   * // Automatically fetches more pages as needed.
+   * for await (const roleListResponse of client.admin.organization.groups.roles.list(
+   *   'group_id',
+   * )) {
+   *   // ...
+   * }
+   * ```
+   */
+  list(groupID, query = {}, options) {
+    return this._client.getAPIList(path3`/organization/groups/${groupID}/roles`, NextCursorPage, { query, ...options, __security: { adminAPIKeyAuth: true } });
+  }
+  /**
+   * Unassigns an organization role from a group within the organization.
+   *
+   * @example
+   * ```ts
+   * const role =
+   *   await client.admin.organization.groups.roles.delete(
+   *     'role_id',
+   *     { group_id: 'group_id' },
+   *   );
+   * ```
+   */
+  delete(roleID, params, options) {
+    const { group_id } = params;
+    return this._client.delete(path3`/organization/groups/${group_id}/roles/${roleID}`, {
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+};
+
+// node_modules/openai/resources/admin/organization/groups/users.mjs
+var Users = class extends APIResource2 {
+  /**
+   * Adds a user to a group.
+   *
+   * @example
+   * ```ts
+   * const user =
+   *   await client.admin.organization.groups.users.create(
+   *     'group_id',
+   *     { user_id: 'user_id' },
+   *   );
+   * ```
+   */
+  create(groupID, body, options) {
+    return this._client.post(path3`/organization/groups/${groupID}/users`, {
+      body,
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+  /**
+   * Lists the users assigned to a group.
+   *
+   * @example
+   * ```ts
+   * // Automatically fetches more pages as needed.
+   * for await (const organizationGroupUser of client.admin.organization.groups.users.list(
+   *   'group_id',
+   * )) {
+   *   // ...
+   * }
+   * ```
+   */
+  list(groupID, query = {}, options) {
+    return this._client.getAPIList(path3`/organization/groups/${groupID}/users`, NextCursorPage, { query, ...options, __security: { adminAPIKeyAuth: true } });
+  }
+  /**
+   * Removes a user from a group.
+   *
+   * @example
+   * ```ts
+   * const user =
+   *   await client.admin.organization.groups.users.delete(
+   *     'user_id',
+   *     { group_id: 'group_id' },
+   *   );
+   * ```
+   */
+  delete(userID, params, options) {
+    const { group_id } = params;
+    return this._client.delete(path3`/organization/groups/${group_id}/users/${userID}`, {
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+};
+
+// node_modules/openai/resources/admin/organization/groups/groups.mjs
+var Groups = class extends APIResource2 {
+  constructor() {
+    super(...arguments);
+    this.users = new Users(this._client);
+    this.roles = new Roles2(this._client);
+  }
+  /**
+   * Creates a new group in the organization.
+   *
+   * @example
+   * ```ts
+   * const group = await client.admin.organization.groups.create(
+   *   { name: 'x' },
+   * );
+   * ```
+   */
+  create(body, options) {
+    return this._client.post("/organization/groups", {
+      body,
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+  /**
+   * Updates a group's information.
+   *
+   * @example
+   * ```ts
+   * const group = await client.admin.organization.groups.update(
+   *   'group_id',
+   *   { name: 'x' },
+   * );
+   * ```
+   */
+  update(groupID, body, options) {
+    return this._client.post(path3`/organization/groups/${groupID}`, {
+      body,
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+  /**
+   * Lists all groups in the organization.
+   *
+   * @example
+   * ```ts
+   * // Automatically fetches more pages as needed.
+   * for await (const group of client.admin.organization.groups.list()) {
+   *   // ...
+   * }
+   * ```
+   */
+  list(query = {}, options) {
+    return this._client.getAPIList("/organization/groups", NextCursorPage, {
+      query,
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+  /**
+   * Deletes a group from the organization.
+   *
+   * @example
+   * ```ts
+   * const group = await client.admin.organization.groups.delete(
+   *   'group_id',
+   * );
+   * ```
+   */
+  delete(groupID, options) {
+    return this._client.delete(path3`/organization/groups/${groupID}`, {
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+};
+Groups.Users = Users;
+Groups.Roles = Roles2;
+
+// node_modules/openai/resources/admin/organization/projects/api-keys.mjs
+var APIKeys = class extends APIResource2 {
+  /**
+   * Retrieves an API key in the project.
+   *
+   * @example
+   * ```ts
+   * const projectAPIKey =
+   *   await client.admin.organization.projects.apiKeys.retrieve(
+   *     'api_key_id',
+   *     { project_id: 'project_id' },
+   *   );
+   * ```
+   */
+  retrieve(apiKeyID, params, options) {
+    const { project_id } = params;
+    return this._client.get(path3`/organization/projects/${project_id}/api_keys/${apiKeyID}`, {
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+  /**
+   * Returns a list of API keys in the project.
+   *
+   * @example
+   * ```ts
+   * // Automatically fetches more pages as needed.
+   * for await (const projectAPIKey of client.admin.organization.projects.apiKeys.list(
+   *   'project_id',
+   * )) {
+   *   // ...
+   * }
+   * ```
+   */
+  list(projectID, query = {}, options) {
+    return this._client.getAPIList(path3`/organization/projects/${projectID}/api_keys`, ConversationCursorPage, { query, ...options, __security: { adminAPIKeyAuth: true } });
+  }
+  /**
+   * Deletes an API key from the project.
+   *
+   * Returns confirmation of the key deletion, or an error if the key belonged to a
+   * service account.
+   *
+   * @example
+   * ```ts
+   * const apiKey =
+   *   await client.admin.organization.projects.apiKeys.delete(
+   *     'api_key_id',
+   *     { project_id: 'project_id' },
+   *   );
+   * ```
+   */
+  delete(apiKeyID, params, options) {
+    const { project_id } = params;
+    return this._client.delete(path3`/organization/projects/${project_id}/api_keys/${apiKeyID}`, {
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+};
+
+// node_modules/openai/resources/admin/organization/projects/certificates.mjs
+var Certificates2 = class extends APIResource2 {
+  /**
+   * List certificates for this project.
+   *
+   * @example
+   * ```ts
+   * // Automatically fetches more pages as needed.
+   * for await (const certificateListResponse of client.admin.organization.projects.certificates.list(
+   *   'project_id',
+   * )) {
+   *   // ...
+   * }
+   * ```
+   */
+  list(projectID, query = {}, options) {
+    return this._client.getAPIList(path3`/organization/projects/${projectID}/certificates`, ConversationCursorPage, { query, ...options, __security: { adminAPIKeyAuth: true } });
+  }
+  /**
+   * Activate certificates at the project level.
+   *
+   * You can atomically and idempotently activate up to 10 certificates at a time.
+   *
+   * @example
+   * ```ts
+   * // Automatically fetches more pages as needed.
+   * for await (const certificateActivateResponse of client.admin.organization.projects.certificates.activate(
+   *   'project_id',
+   *   { certificate_ids: ['cert_abc'] },
+   * )) {
+   *   // ...
+   * }
+   * ```
+   */
+  activate(projectID, body, options) {
+    return this._client.getAPIList(path3`/organization/projects/${projectID}/certificates/activate`, Page2, { body, method: "post", ...options, __security: { adminAPIKeyAuth: true } });
+  }
+  /**
+   * Deactivate certificates at the project level. You can atomically and
+   * idempotently deactivate up to 10 certificates at a time.
+   *
+   * @example
+   * ```ts
+   * // Automatically fetches more pages as needed.
+   * for await (const certificateDeactivateResponse of client.admin.organization.projects.certificates.deactivate(
+   *   'project_id',
+   *   { certificate_ids: ['cert_abc'] },
+   * )) {
+   *   // ...
+   * }
+   * ```
+   */
+  deactivate(projectID, body, options) {
+    return this._client.getAPIList(path3`/organization/projects/${projectID}/certificates/deactivate`, Page2, { body, method: "post", ...options, __security: { adminAPIKeyAuth: true } });
+  }
+};
+
+// node_modules/openai/resources/admin/organization/projects/rate-limits.mjs
+var RateLimits = class extends APIResource2 {
+  /**
+   * Returns the rate limits per model for a project.
+   *
+   * @example
+   * ```ts
+   * // Automatically fetches more pages as needed.
+   * for await (const projectRateLimit of client.admin.organization.projects.rateLimits.listRateLimits(
+   *   'project_id',
+   * )) {
+   *   // ...
+   * }
+   * ```
+   */
+  listRateLimits(projectID, query = {}, options) {
+    return this._client.getAPIList(path3`/organization/projects/${projectID}/rate_limits`, ConversationCursorPage, { query, ...options, __security: { adminAPIKeyAuth: true } });
+  }
+  /**
+   * Updates a project rate limit.
+   *
+   * @example
+   * ```ts
+   * const projectRateLimit =
+   *   await client.admin.organization.projects.rateLimits.updateRateLimit(
+   *     'rate_limit_id',
+   *     { project_id: 'project_id' },
+   *   );
+   * ```
+   */
+  updateRateLimit(rateLimitID, params, options) {
+    const { project_id, ...body } = params;
+    return this._client.post(path3`/organization/projects/${project_id}/rate_limits/${rateLimitID}`, {
+      body,
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+};
+
+// node_modules/openai/resources/admin/organization/projects/roles.mjs
+var Roles3 = class extends APIResource2 {
+  /**
+   * Creates a custom role for a project.
+   *
+   * @example
+   * ```ts
+   * const role =
+   *   await client.admin.organization.projects.roles.create(
+   *     'project_id',
+   *     { permissions: ['string'], role_name: 'role_name' },
+   *   );
+   * ```
+   */
+  create(projectID, body, options) {
+    return this._client.post(path3`/projects/${projectID}/roles`, {
+      body,
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+  /**
+   * Updates an existing project role.
+   *
+   * @example
+   * ```ts
+   * const role =
+   *   await client.admin.organization.projects.roles.update(
+   *     'role_id',
+   *     { project_id: 'project_id' },
+   *   );
+   * ```
+   */
+  update(roleID, params, options) {
+    const { project_id, ...body } = params;
+    return this._client.post(path3`/projects/${project_id}/roles/${roleID}`, {
+      body,
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+  /**
+   * Lists the roles configured for a project.
+   *
+   * @example
+   * ```ts
+   * // Automatically fetches more pages as needed.
+   * for await (const role of client.admin.organization.projects.roles.list(
+   *   'project_id',
+   * )) {
+   *   // ...
+   * }
+   * ```
+   */
+  list(projectID, query = {}, options) {
+    return this._client.getAPIList(path3`/projects/${projectID}/roles`, NextCursorPage, {
+      query,
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+  /**
+   * Deletes a custom role from a project.
+   *
+   * @example
+   * ```ts
+   * const role =
+   *   await client.admin.organization.projects.roles.delete(
+   *     'role_id',
+   *     { project_id: 'project_id' },
+   *   );
+   * ```
+   */
+  delete(roleID, params, options) {
+    const { project_id } = params;
+    return this._client.delete(path3`/projects/${project_id}/roles/${roleID}`, {
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+};
+
+// node_modules/openai/resources/admin/organization/projects/service-accounts.mjs
+var ServiceAccounts = class extends APIResource2 {
+  /**
+   * Creates a new service account in the project. This also returns an unredacted
+   * API key for the service account.
+   *
+   * @example
+   * ```ts
+   * const serviceAccount =
+   *   await client.admin.organization.projects.serviceAccounts.create(
+   *     'project_id',
+   *     { name: 'name' },
+   *   );
+   * ```
+   */
+  create(projectID, body, options) {
+    return this._client.post(path3`/organization/projects/${projectID}/service_accounts`, {
+      body,
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+  /**
+   * Retrieves a service account in the project.
+   *
+   * @example
+   * ```ts
+   * const projectServiceAccount =
+   *   await client.admin.organization.projects.serviceAccounts.retrieve(
+   *     'service_account_id',
+   *     { project_id: 'project_id' },
+   *   );
+   * ```
+   */
+  retrieve(serviceAccountID, params, options) {
+    const { project_id } = params;
+    return this._client.get(path3`/organization/projects/${project_id}/service_accounts/${serviceAccountID}`, {
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+  /**
+   * Returns a list of service accounts in the project.
+   *
+   * @example
+   * ```ts
+   * // Automatically fetches more pages as needed.
+   * for await (const projectServiceAccount of client.admin.organization.projects.serviceAccounts.list(
+   *   'project_id',
+   * )) {
+   *   // ...
+   * }
+   * ```
+   */
+  list(projectID, query = {}, options) {
+    return this._client.getAPIList(path3`/organization/projects/${projectID}/service_accounts`, ConversationCursorPage, { query, ...options, __security: { adminAPIKeyAuth: true } });
+  }
+  /**
+   * Deletes a service account from the project.
+   *
+   * Returns confirmation of service account deletion, or an error if the project is
+   * archived (archived projects have no service accounts).
+   *
+   * @example
+   * ```ts
+   * const serviceAccount =
+   *   await client.admin.organization.projects.serviceAccounts.delete(
+   *     'service_account_id',
+   *     { project_id: 'project_id' },
+   *   );
+   * ```
+   */
+  delete(serviceAccountID, params, options) {
+    const { project_id } = params;
+    return this._client.delete(path3`/organization/projects/${project_id}/service_accounts/${serviceAccountID}`, { ...options, __security: { adminAPIKeyAuth: true } });
+  }
+};
+
+// node_modules/openai/resources/admin/organization/projects/groups/roles.mjs
+var Roles4 = class extends APIResource2 {
+  /**
+   * Assigns a project role to a group within a project.
+   *
+   * @example
+   * ```ts
+   * const role =
+   *   await client.admin.organization.projects.groups.roles.create(
+   *     'group_id',
+   *     { project_id: 'project_id', role_id: 'role_id' },
+   *   );
+   * ```
+   */
+  create(groupID, params, options) {
+    const { project_id, ...body } = params;
+    return this._client.post(path3`/projects/${project_id}/groups/${groupID}/roles`, {
+      body,
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+  /**
+   * Lists the project roles assigned to a group within a project.
+   *
+   * @example
+   * ```ts
+   * // Automatically fetches more pages as needed.
+   * for await (const roleListResponse of client.admin.organization.projects.groups.roles.list(
+   *   'group_id',
+   *   { project_id: 'project_id' },
+   * )) {
+   *   // ...
+   * }
+   * ```
+   */
+  list(groupID, params, options) {
+    const { project_id, ...query } = params;
+    return this._client.getAPIList(path3`/projects/${project_id}/groups/${groupID}/roles`, NextCursorPage, { query, ...options, __security: { adminAPIKeyAuth: true } });
+  }
+  /**
+   * Unassigns a project role from a group within a project.
+   *
+   * @example
+   * ```ts
+   * const role =
+   *   await client.admin.organization.projects.groups.roles.delete(
+   *     'role_id',
+   *     { project_id: 'project_id', group_id: 'group_id' },
+   *   );
+   * ```
+   */
+  delete(roleID, params, options) {
+    const { project_id, group_id } = params;
+    return this._client.delete(path3`/projects/${project_id}/groups/${group_id}/roles/${roleID}`, {
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+};
+
+// node_modules/openai/resources/admin/organization/projects/groups/groups.mjs
+var Groups2 = class extends APIResource2 {
+  constructor() {
+    super(...arguments);
+    this.roles = new Roles4(this._client);
+  }
+  /**
+   * Grants a group access to a project.
+   *
+   * @example
+   * ```ts
+   * const projectGroup =
+   *   await client.admin.organization.projects.groups.create(
+   *     'project_id',
+   *     { group_id: 'group_id', role: 'role' },
+   *   );
+   * ```
+   */
+  create(projectID, body, options) {
+    return this._client.post(path3`/organization/projects/${projectID}/groups`, {
+      body,
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+  /**
+   * Lists the groups that have access to a project.
+   *
+   * @example
+   * ```ts
+   * // Automatically fetches more pages as needed.
+   * for await (const projectGroup of client.admin.organization.projects.groups.list(
+   *   'project_id',
+   * )) {
+   *   // ...
+   * }
+   * ```
+   */
+  list(projectID, query = {}, options) {
+    return this._client.getAPIList(path3`/organization/projects/${projectID}/groups`, NextCursorPage, { query, ...options, __security: { adminAPIKeyAuth: true } });
+  }
+  /**
+   * Revokes a group's access to a project.
+   *
+   * @example
+   * ```ts
+   * const group =
+   *   await client.admin.organization.projects.groups.delete(
+   *     'group_id',
+   *     { project_id: 'project_id' },
+   *   );
+   * ```
+   */
+  delete(groupID, params, options) {
+    const { project_id } = params;
+    return this._client.delete(path3`/organization/projects/${project_id}/groups/${groupID}`, {
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+};
+Groups2.Roles = Roles4;
+
+// node_modules/openai/resources/admin/organization/projects/users/roles.mjs
+var Roles5 = class extends APIResource2 {
+  /**
+   * Assigns a project role to a user within a project.
+   *
+   * @example
+   * ```ts
+   * const role =
+   *   await client.admin.organization.projects.users.roles.create(
+   *     'user_id',
+   *     { project_id: 'project_id', role_id: 'role_id' },
+   *   );
+   * ```
+   */
+  create(userID, params, options) {
+    const { project_id, ...body } = params;
+    return this._client.post(path3`/projects/${project_id}/users/${userID}/roles`, {
+      body,
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+  /**
+   * Lists the project roles assigned to a user within a project.
+   *
+   * @example
+   * ```ts
+   * // Automatically fetches more pages as needed.
+   * for await (const roleListResponse of client.admin.organization.projects.users.roles.list(
+   *   'user_id',
+   *   { project_id: 'project_id' },
+   * )) {
+   *   // ...
+   * }
+   * ```
+   */
+  list(userID, params, options) {
+    const { project_id, ...query } = params;
+    return this._client.getAPIList(path3`/projects/${project_id}/users/${userID}/roles`, NextCursorPage, { query, ...options, __security: { adminAPIKeyAuth: true } });
+  }
+  /**
+   * Unassigns a project role from a user within a project.
+   *
+   * @example
+   * ```ts
+   * const role =
+   *   await client.admin.organization.projects.users.roles.delete(
+   *     'role_id',
+   *     { project_id: 'project_id', user_id: 'user_id' },
+   *   );
+   * ```
+   */
+  delete(roleID, params, options) {
+    const { project_id, user_id } = params;
+    return this._client.delete(path3`/projects/${project_id}/users/${user_id}/roles/${roleID}`, {
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+};
+
+// node_modules/openai/resources/admin/organization/projects/users/users.mjs
+var Users2 = class extends APIResource2 {
+  constructor() {
+    super(...arguments);
+    this.roles = new Roles5(this._client);
+  }
+  /**
+   * Adds a user to the project. Users must already be members of the organization to
+   * be added to a project.
+   *
+   * @example
+   * ```ts
+   * const projectUser =
+   *   await client.admin.organization.projects.users.create(
+   *     'project_id',
+   *     { role: 'role' },
+   *   );
+   * ```
+   */
+  create(projectID, body, options) {
+    return this._client.post(path3`/organization/projects/${projectID}/users`, {
+      body,
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+  /**
+   * Retrieves a user in the project.
+   *
+   * @example
+   * ```ts
+   * const projectUser =
+   *   await client.admin.organization.projects.users.retrieve(
+   *     'user_id',
+   *     { project_id: 'project_id' },
+   *   );
+   * ```
+   */
+  retrieve(userID, params, options) {
+    const { project_id } = params;
+    return this._client.get(path3`/organization/projects/${project_id}/users/${userID}`, {
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+  /**
+   * Modifies a user's role in the project.
+   *
+   * @example
+   * ```ts
+   * const projectUser =
+   *   await client.admin.organization.projects.users.update(
+   *     'user_id',
+   *     { project_id: 'project_id' },
+   *   );
+   * ```
+   */
+  update(userID, params, options) {
+    const { project_id, ...body } = params;
+    return this._client.post(path3`/organization/projects/${project_id}/users/${userID}`, {
+      body,
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+  /**
+   * Returns a list of users in the project.
+   *
+   * @example
+   * ```ts
+   * // Automatically fetches more pages as needed.
+   * for await (const projectUser of client.admin.organization.projects.users.list(
+   *   'project_id',
+   * )) {
+   *   // ...
+   * }
+   * ```
+   */
+  list(projectID, query = {}, options) {
+    return this._client.getAPIList(path3`/organization/projects/${projectID}/users`, ConversationCursorPage, { query, ...options, __security: { adminAPIKeyAuth: true } });
+  }
+  /**
+   * Deletes a user from the project.
+   *
+   * Returns confirmation of project user deletion, or an error if the project is
+   * archived (archived projects have no users).
+   *
+   * @example
+   * ```ts
+   * const user =
+   *   await client.admin.organization.projects.users.delete(
+   *     'user_id',
+   *     { project_id: 'project_id' },
+   *   );
+   * ```
+   */
+  delete(userID, params, options) {
+    const { project_id } = params;
+    return this._client.delete(path3`/organization/projects/${project_id}/users/${userID}`, {
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+};
+Users2.Roles = Roles5;
+
+// node_modules/openai/resources/admin/organization/projects/projects.mjs
+var Projects = class extends APIResource2 {
+  constructor() {
+    super(...arguments);
+    this.users = new Users2(this._client);
+    this.serviceAccounts = new ServiceAccounts(this._client);
+    this.apiKeys = new APIKeys(this._client);
+    this.rateLimits = new RateLimits(this._client);
+    this.groups = new Groups2(this._client);
+    this.roles = new Roles3(this._client);
+    this.certificates = new Certificates2(this._client);
+  }
+  /**
+   * Create a new project in the organization. Projects can be created and archived,
+   * but cannot be deleted.
+   *
+   * @example
+   * ```ts
+   * const project =
+   *   await client.admin.organization.projects.create({
+   *     name: 'name',
+   *   });
+   * ```
+   */
+  create(body, options) {
+    return this._client.post("/organization/projects", {
+      body,
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+  /**
+   * Retrieves a project.
+   *
+   * @example
+   * ```ts
+   * const project =
+   *   await client.admin.organization.projects.retrieve(
+   *     'project_id',
+   *   );
+   * ```
+   */
+  retrieve(projectID, options) {
+    return this._client.get(path3`/organization/projects/${projectID}`, {
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+  /**
+   * Modifies a project in the organization.
+   *
+   * @example
+   * ```ts
+   * const project =
+   *   await client.admin.organization.projects.update(
+   *     'project_id',
+   *   );
+   * ```
+   */
+  update(projectID, body, options) {
+    return this._client.post(path3`/organization/projects/${projectID}`, {
+      body,
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+  /**
+   * Returns a list of projects.
+   *
+   * @example
+   * ```ts
+   * // Automatically fetches more pages as needed.
+   * for await (const project of client.admin.organization.projects.list()) {
+   *   // ...
+   * }
+   * ```
+   */
+  list(query = {}, options) {
+    return this._client.getAPIList("/organization/projects", ConversationCursorPage, {
+      query,
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+  /**
+   * Archives a project in the organization. Archived projects cannot be used or
+   * updated.
+   *
+   * @example
+   * ```ts
+   * const project =
+   *   await client.admin.organization.projects.archive(
+   *     'project_id',
+   *   );
+   * ```
+   */
+  archive(projectID, options) {
+    return this._client.post(path3`/organization/projects/${projectID}/archive`, {
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+};
+Projects.Users = Users2;
+Projects.ServiceAccounts = ServiceAccounts;
+Projects.APIKeys = APIKeys;
+Projects.RateLimits = RateLimits;
+Projects.Groups = Groups2;
+Projects.Roles = Roles3;
+Projects.Certificates = Certificates2;
+
+// node_modules/openai/resources/admin/organization/users/roles.mjs
+var Roles6 = class extends APIResource2 {
+  /**
+   * Assigns an organization role to a user within the organization.
+   *
+   * @example
+   * ```ts
+   * const role =
+   *   await client.admin.organization.users.roles.create(
+   *     'user_id',
+   *     { role_id: 'role_id' },
+   *   );
+   * ```
+   */
+  create(userID, body, options) {
+    return this._client.post(path3`/organization/users/${userID}/roles`, {
+      body,
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+  /**
+   * Lists the organization roles assigned to a user within the organization.
+   *
+   * @example
+   * ```ts
+   * // Automatically fetches more pages as needed.
+   * for await (const roleListResponse of client.admin.organization.users.roles.list(
+   *   'user_id',
+   * )) {
+   *   // ...
+   * }
+   * ```
+   */
+  list(userID, query = {}, options) {
+    return this._client.getAPIList(path3`/organization/users/${userID}/roles`, NextCursorPage, { query, ...options, __security: { adminAPIKeyAuth: true } });
+  }
+  /**
+   * Unassigns an organization role from a user within the organization.
+   *
+   * @example
+   * ```ts
+   * const role =
+   *   await client.admin.organization.users.roles.delete(
+   *     'role_id',
+   *     { user_id: 'user_id' },
+   *   );
+   * ```
+   */
+  delete(roleID, params, options) {
+    const { user_id } = params;
+    return this._client.delete(path3`/organization/users/${user_id}/roles/${roleID}`, {
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+};
+
+// node_modules/openai/resources/admin/organization/users/users.mjs
+var Users3 = class extends APIResource2 {
+  constructor() {
+    super(...arguments);
+    this.roles = new Roles6(this._client);
+  }
+  /**
+   * Retrieves a user by their identifier.
+   *
+   * @example
+   * ```ts
+   * const organizationUser =
+   *   await client.admin.organization.users.retrieve('user_id');
+   * ```
+   */
+  retrieve(userID, options) {
+    return this._client.get(path3`/organization/users/${userID}`, {
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+  /**
+   * Modifies a user's role in the organization.
+   *
+   * @example
+   * ```ts
+   * const organizationUser =
+   *   await client.admin.organization.users.update('user_id');
+   * ```
+   */
+  update(userID, body, options) {
+    return this._client.post(path3`/organization/users/${userID}`, {
+      body,
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+  /**
+   * Lists all of the users in the organization.
+   *
+   * @example
+   * ```ts
+   * // Automatically fetches more pages as needed.
+   * for await (const organizationUser of client.admin.organization.users.list()) {
+   *   // ...
+   * }
+   * ```
+   */
+  list(query = {}, options) {
+    return this._client.getAPIList("/organization/users", ConversationCursorPage, {
+      query,
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+  /**
+   * Deletes a user from the organization.
+   *
+   * @example
+   * ```ts
+   * const user = await client.admin.organization.users.delete(
+   *   'user_id',
+   * );
+   * ```
+   */
+  delete(userID, options) {
+    return this._client.delete(path3`/organization/users/${userID}`, {
+      ...options,
+      __security: { adminAPIKeyAuth: true }
+    });
+  }
+};
+Users3.Roles = Roles6;
+
+// node_modules/openai/resources/admin/organization/organization.mjs
+var Organization = class extends APIResource2 {
+  constructor() {
+    super(...arguments);
+    this.auditLogs = new AuditLogs(this._client);
+    this.adminAPIKeys = new AdminAPIKeys(this._client);
+    this.usage = new Usage(this._client);
+    this.invites = new Invites(this._client);
+    this.users = new Users3(this._client);
+    this.groups = new Groups(this._client);
+    this.roles = new Roles(this._client);
+    this.certificates = new Certificates(this._client);
+    this.projects = new Projects(this._client);
+  }
+};
+Organization.AuditLogs = AuditLogs;
+Organization.AdminAPIKeys = AdminAPIKeys;
+Organization.Usage = Usage;
+Organization.Invites = Invites;
+Organization.Users = Users3;
+Organization.Groups = Groups;
+Organization.Roles = Roles;
+Organization.Certificates = Certificates;
+Organization.Projects = Projects;
+
+// node_modules/openai/resources/admin/admin.mjs
+var Admin = class extends APIResource2 {
+  constructor() {
+    super(...arguments);
+    this.organization = new Organization(this._client);
+  }
+};
+Admin.Organization = Organization;
 
 // node_modules/openai/internal/headers.mjs
 var brand_privateNullableHeaders2 = /* @__PURE__ */ Symbol("brand.privateNullableHeaders");
@@ -32627,8 +35237,8 @@ var Speech = class extends APIResource2 {
    * ```ts
    * const speech = await client.audio.speech.create({
    *   input: 'input',
-   *   model: 'string',
-   *   voice: 'string',
+   *   model: 'tts-1',
+   *   voice: 'alloy',
    * });
    *
    * const content = await speech.blob();
@@ -32640,6 +35250,7 @@ var Speech = class extends APIResource2 {
       body,
       ...options,
       headers: buildHeaders2([{ Accept: "application/octet-stream" }, options?.headers]),
+      __security: { bearerAuth: true },
       __binaryResponse: true
     });
   }
@@ -32652,7 +35263,8 @@ var Transcriptions = class extends APIResource2 {
       body,
       ...options,
       stream: body.stream ?? false,
-      __metadata: { model: body.model }
+      __metadata: { model: body.model },
+      __security: { bearerAuth: true }
     }, this._client));
   }
 };
@@ -32660,7 +35272,7 @@ var Transcriptions = class extends APIResource2 {
 // node_modules/openai/resources/audio/translations.mjs
 var Translations = class extends APIResource2 {
   create(body, options) {
-    return this._client.post("/audio/translations", multipartFormRequestOptions2({ body, ...options, __metadata: { model: body.model } }, this._client));
+    return this._client.post("/audio/translations", multipartFormRequestOptions2({ body, ...options, __metadata: { model: body.model }, __security: { bearerAuth: true } }, this._client));
   }
 };
 
@@ -32683,19 +35295,23 @@ var Batches3 = class extends APIResource2 {
    * Creates and executes a batch from an uploaded file of requests
    */
   create(body, options) {
-    return this._client.post("/batches", { body, ...options });
+    return this._client.post("/batches", { body, ...options, __security: { bearerAuth: true } });
   }
   /**
    * Retrieves a batch.
    */
   retrieve(batchID, options) {
-    return this._client.get(path3`/batches/${batchID}`, options);
+    return this._client.get(path3`/batches/${batchID}`, { ...options, __security: { bearerAuth: true } });
   }
   /**
    * List your organization's batches.
    */
   list(query = {}, options) {
-    return this._client.getAPIList("/batches", CursorPage, { query, ...options });
+    return this._client.getAPIList("/batches", CursorPage, {
+      query,
+      ...options,
+      __security: { bearerAuth: true }
+    });
   }
   /**
    * Cancels an in-progress batch. The batch will be in status `cancelling` for up to
@@ -32703,7 +35319,10 @@ var Batches3 = class extends APIResource2 {
    * (if any) available in the output file.
    */
   cancel(batchID, options) {
-    return this._client.post(path3`/batches/${batchID}/cancel`, options);
+    return this._client.post(path3`/batches/${batchID}/cancel`, {
+      ...options,
+      __security: { bearerAuth: true }
+    });
   }
 };
 
@@ -32718,7 +35337,8 @@ var Assistants = class extends APIResource2 {
     return this._client.post("/assistants", {
       body,
       ...options,
-      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers])
+      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+      __security: { bearerAuth: true }
     });
   }
   /**
@@ -32729,7 +35349,8 @@ var Assistants = class extends APIResource2 {
   retrieve(assistantID, options) {
     return this._client.get(path3`/assistants/${assistantID}`, {
       ...options,
-      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers])
+      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+      __security: { bearerAuth: true }
     });
   }
   /**
@@ -32741,7 +35362,8 @@ var Assistants = class extends APIResource2 {
     return this._client.post(path3`/assistants/${assistantID}`, {
       body,
       ...options,
-      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers])
+      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+      __security: { bearerAuth: true }
     });
   }
   /**
@@ -32753,7 +35375,8 @@ var Assistants = class extends APIResource2 {
     return this._client.getAPIList("/assistants", CursorPage, {
       query,
       ...options,
-      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers])
+      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+      __security: { bearerAuth: true }
     });
   }
   /**
@@ -32764,7 +35387,8 @@ var Assistants = class extends APIResource2 {
   delete(assistantID, options) {
     return this._client.delete(path3`/assistants/${assistantID}`, {
       ...options,
-      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers])
+      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+      __security: { bearerAuth: true }
     });
   }
 };
@@ -32790,7 +35414,8 @@ var Sessions2 = class extends APIResource2 {
     return this._client.post("/realtime/sessions", {
       body,
       ...options,
-      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers])
+      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+      __security: { bearerAuth: true }
     });
   }
 };
@@ -32816,7 +35441,8 @@ var TranscriptionSessions = class extends APIResource2 {
     return this._client.post("/realtime/transcription_sessions", {
       body,
       ...options,
-      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers])
+      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+      __security: { bearerAuth: true }
     });
   }
 };
@@ -32850,7 +35476,8 @@ var Sessions3 = class extends APIResource2 {
     return this._client.post("/chatkit/sessions", {
       body,
       ...options,
-      headers: buildHeaders2([{ "OpenAI-Beta": "chatkit_beta=v1" }, options?.headers])
+      headers: buildHeaders2([{ "OpenAI-Beta": "chatkit_beta=v1" }, options?.headers]),
+      __security: { bearerAuth: true }
     });
   }
   /**
@@ -32867,7 +35494,8 @@ var Sessions3 = class extends APIResource2 {
   cancel(sessionID, options) {
     return this._client.post(path3`/chatkit/sessions/${sessionID}/cancel`, {
       ...options,
-      headers: buildHeaders2([{ "OpenAI-Beta": "chatkit_beta=v1" }, options?.headers])
+      headers: buildHeaders2([{ "OpenAI-Beta": "chatkit_beta=v1" }, options?.headers]),
+      __security: { bearerAuth: true }
     });
   }
 };
@@ -32886,7 +35514,8 @@ var Threads = class extends APIResource2 {
   retrieve(threadID, options) {
     return this._client.get(path3`/chatkit/threads/${threadID}`, {
       ...options,
-      headers: buildHeaders2([{ "OpenAI-Beta": "chatkit_beta=v1" }, options?.headers])
+      headers: buildHeaders2([{ "OpenAI-Beta": "chatkit_beta=v1" }, options?.headers]),
+      __security: { bearerAuth: true }
     });
   }
   /**
@@ -32904,7 +35533,8 @@ var Threads = class extends APIResource2 {
     return this._client.getAPIList("/chatkit/threads", ConversationCursorPage, {
       query,
       ...options,
-      headers: buildHeaders2([{ "OpenAI-Beta": "chatkit_beta=v1" }, options?.headers])
+      headers: buildHeaders2([{ "OpenAI-Beta": "chatkit_beta=v1" }, options?.headers]),
+      __security: { bearerAuth: true }
     });
   }
   /**
@@ -32920,7 +35550,8 @@ var Threads = class extends APIResource2 {
   delete(threadID, options) {
     return this._client.delete(path3`/chatkit/threads/${threadID}`, {
       ...options,
-      headers: buildHeaders2([{ "OpenAI-Beta": "chatkit_beta=v1" }, options?.headers])
+      headers: buildHeaders2([{ "OpenAI-Beta": "chatkit_beta=v1" }, options?.headers]),
+      __security: { bearerAuth: true }
     });
   }
   /**
@@ -32937,7 +35568,12 @@ var Threads = class extends APIResource2 {
    * ```
    */
   listItems(threadID, query = {}, options) {
-    return this._client.getAPIList(path3`/chatkit/threads/${threadID}/items`, ConversationCursorPage, { query, ...options, headers: buildHeaders2([{ "OpenAI-Beta": "chatkit_beta=v1" }, options?.headers]) });
+    return this._client.getAPIList(path3`/chatkit/threads/${threadID}/items`, ConversationCursorPage, {
+      query,
+      ...options,
+      headers: buildHeaders2([{ "OpenAI-Beta": "chatkit_beta=v1" }, options?.headers]),
+      __security: { bearerAuth: true }
+    });
   }
 };
 
@@ -32963,7 +35599,8 @@ var Messages4 = class extends APIResource2 {
     return this._client.post(path3`/threads/${threadID}/messages`, {
       body,
       ...options,
-      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers])
+      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+      __security: { bearerAuth: true }
     });
   }
   /**
@@ -32975,7 +35612,8 @@ var Messages4 = class extends APIResource2 {
     const { thread_id } = params;
     return this._client.get(path3`/threads/${thread_id}/messages/${messageID}`, {
       ...options,
-      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers])
+      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+      __security: { bearerAuth: true }
     });
   }
   /**
@@ -32988,7 +35626,8 @@ var Messages4 = class extends APIResource2 {
     return this._client.post(path3`/threads/${thread_id}/messages/${messageID}`, {
       body,
       ...options,
-      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers])
+      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+      __security: { bearerAuth: true }
     });
   }
   /**
@@ -33000,7 +35639,8 @@ var Messages4 = class extends APIResource2 {
     return this._client.getAPIList(path3`/threads/${threadID}/messages`, CursorPage, {
       query,
       ...options,
-      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers])
+      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+      __security: { bearerAuth: true }
     });
   }
   /**
@@ -33012,7 +35652,8 @@ var Messages4 = class extends APIResource2 {
     const { thread_id } = params;
     return this._client.delete(path3`/threads/${thread_id}/messages/${messageID}`, {
       ...options,
-      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers])
+      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+      __security: { bearerAuth: true }
     });
   }
 };
@@ -33029,7 +35670,8 @@ var Steps = class extends APIResource2 {
     return this._client.get(path3`/threads/${thread_id}/runs/${run_id}/steps/${stepID}`, {
       query,
       ...options,
-      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers])
+      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+      __security: { bearerAuth: true }
     });
   }
   /**
@@ -33042,7 +35684,8 @@ var Steps = class extends APIResource2 {
     return this._client.getAPIList(path3`/threads/${thread_id}/runs/${runID}/steps`, CursorPage, {
       query,
       ...options,
-      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers])
+      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+      __security: { bearerAuth: true }
     });
   }
 };
@@ -33066,10 +35709,10 @@ var toFloat32Array = (base64Str) => {
 // node_modules/openai/internal/utils/env.mjs
 var readEnv2 = (env) => {
   if (typeof globalThis.process !== "undefined") {
-    return globalThis.process.env?.[env]?.trim() ?? void 0;
+    return globalThis.process.env?.[env]?.trim() || void 0;
   }
   if (typeof globalThis.Deno !== "undefined") {
-    return globalThis.Deno.env?.get?.(env)?.trim();
+    return globalThis.Deno.env?.get?.(env)?.trim() || void 0;
   }
   return void 0;
 };
@@ -33627,7 +36270,8 @@ var Runs = class extends APIResource2 {
       ...options,
       headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
       stream: params.stream ?? false,
-      __synthesizeEventData: true
+      __synthesizeEventData: true,
+      __security: { bearerAuth: true }
     });
   }
   /**
@@ -33639,7 +36283,8 @@ var Runs = class extends APIResource2 {
     const { thread_id } = params;
     return this._client.get(path3`/threads/${thread_id}/runs/${runID}`, {
       ...options,
-      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers])
+      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+      __security: { bearerAuth: true }
     });
   }
   /**
@@ -33652,7 +36297,8 @@ var Runs = class extends APIResource2 {
     return this._client.post(path3`/threads/${thread_id}/runs/${runID}`, {
       body,
       ...options,
-      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers])
+      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+      __security: { bearerAuth: true }
     });
   }
   /**
@@ -33664,7 +36310,8 @@ var Runs = class extends APIResource2 {
     return this._client.getAPIList(path3`/threads/${threadID}/runs`, CursorPage, {
       query,
       ...options,
-      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers])
+      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+      __security: { bearerAuth: true }
     });
   }
   /**
@@ -33676,7 +36323,8 @@ var Runs = class extends APIResource2 {
     const { thread_id } = params;
     return this._client.post(path3`/threads/${thread_id}/runs/${runID}/cancel`, {
       ...options,
-      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers])
+      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+      __security: { bearerAuth: true }
     });
   }
   /**
@@ -33757,7 +36405,8 @@ var Runs = class extends APIResource2 {
       ...options,
       headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
       stream: params.stream ?? false,
-      __synthesizeEventData: true
+      __synthesizeEventData: true,
+      __security: { bearerAuth: true }
     });
   }
   /**
@@ -33796,7 +36445,8 @@ var Threads2 = class extends APIResource2 {
     return this._client.post("/threads", {
       body,
       ...options,
-      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers])
+      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+      __security: { bearerAuth: true }
     });
   }
   /**
@@ -33807,7 +36457,8 @@ var Threads2 = class extends APIResource2 {
   retrieve(threadID, options) {
     return this._client.get(path3`/threads/${threadID}`, {
       ...options,
-      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers])
+      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+      __security: { bearerAuth: true }
     });
   }
   /**
@@ -33819,7 +36470,8 @@ var Threads2 = class extends APIResource2 {
     return this._client.post(path3`/threads/${threadID}`, {
       body,
       ...options,
-      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers])
+      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+      __security: { bearerAuth: true }
     });
   }
   /**
@@ -33830,7 +36482,8 @@ var Threads2 = class extends APIResource2 {
   delete(threadID, options) {
     return this._client.delete(path3`/threads/${threadID}`, {
       ...options,
-      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers])
+      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+      __security: { bearerAuth: true }
     });
   }
   createAndRun(body, options) {
@@ -33839,7 +36492,8 @@ var Threads2 = class extends APIResource2 {
       ...options,
       headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
       stream: body.stream ?? false,
-      __synthesizeEventData: true
+      __synthesizeEventData: true,
+      __security: { bearerAuth: true }
     });
   }
   /**
@@ -33879,7 +36533,12 @@ Beta2.Threads = Threads2;
 // node_modules/openai/resources/completions.mjs
 var Completions3 = class extends APIResource2 {
   create(body, options) {
-    return this._client.post("/completions", { body, ...options, stream: body.stream ?? false });
+    return this._client.post("/completions", {
+      body,
+      ...options,
+      stream: body.stream ?? false,
+      __security: { bearerAuth: true }
+    });
   }
 };
 
@@ -33893,6 +36552,7 @@ var Content = class extends APIResource2 {
     return this._client.get(path3`/containers/${container_id}/files/${fileID}/content`, {
       ...options,
       headers: buildHeaders2([{ Accept: "application/binary" }, options?.headers]),
+      __security: { bearerAuth: true },
       __binaryResponse: true
     });
   }
@@ -33911,14 +36571,17 @@ var Files2 = class extends APIResource2 {
    * a JSON request with a file ID.
    */
   create(containerID, body, options) {
-    return this._client.post(path3`/containers/${containerID}/files`, maybeMultipartFormRequestOptions({ body, ...options }, this._client));
+    return this._client.post(path3`/containers/${containerID}/files`, maybeMultipartFormRequestOptions({ body, ...options, __security: { bearerAuth: true } }, this._client));
   }
   /**
    * Retrieve Container File
    */
   retrieve(fileID, params, options) {
     const { container_id } = params;
-    return this._client.get(path3`/containers/${container_id}/files/${fileID}`, options);
+    return this._client.get(path3`/containers/${container_id}/files/${fileID}`, {
+      ...options,
+      __security: { bearerAuth: true }
+    });
   }
   /**
    * List Container files
@@ -33926,7 +36589,8 @@ var Files2 = class extends APIResource2 {
   list(containerID, query = {}, options) {
     return this._client.getAPIList(path3`/containers/${containerID}/files`, CursorPage, {
       query,
-      ...options
+      ...options,
+      __security: { bearerAuth: true }
     });
   }
   /**
@@ -33936,7 +36600,8 @@ var Files2 = class extends APIResource2 {
     const { container_id } = params;
     return this._client.delete(path3`/containers/${container_id}/files/${fileID}`, {
       ...options,
-      headers: buildHeaders2([{ Accept: "*/*" }, options?.headers])
+      headers: buildHeaders2([{ Accept: "*/*" }, options?.headers]),
+      __security: { bearerAuth: true }
     });
   }
 };
@@ -33952,19 +36617,26 @@ var Containers = class extends APIResource2 {
    * Create Container
    */
   create(body, options) {
-    return this._client.post("/containers", { body, ...options });
+    return this._client.post("/containers", { body, ...options, __security: { bearerAuth: true } });
   }
   /**
    * Retrieve Container
    */
   retrieve(containerID, options) {
-    return this._client.get(path3`/containers/${containerID}`, options);
+    return this._client.get(path3`/containers/${containerID}`, {
+      ...options,
+      __security: { bearerAuth: true }
+    });
   }
   /**
    * List Containers
    */
   list(query = {}, options) {
-    return this._client.getAPIList("/containers", CursorPage, { query, ...options });
+    return this._client.getAPIList("/containers", CursorPage, {
+      query,
+      ...options,
+      __security: { bearerAuth: true }
+    });
   }
   /**
    * Delete Container
@@ -33972,7 +36644,8 @@ var Containers = class extends APIResource2 {
   delete(containerID, options) {
     return this._client.delete(path3`/containers/${containerID}`, {
       ...options,
-      headers: buildHeaders2([{ Accept: "*/*" }, options?.headers])
+      headers: buildHeaders2([{ Accept: "*/*" }, options?.headers]),
+      __security: { bearerAuth: true }
     });
   }
 };
@@ -33988,7 +36661,8 @@ var Items = class extends APIResource2 {
     return this._client.post(path3`/conversations/${conversationID}/items`, {
       query: { include },
       body,
-      ...options
+      ...options,
+      __security: { bearerAuth: true }
     });
   }
   /**
@@ -33996,20 +36670,27 @@ var Items = class extends APIResource2 {
    */
   retrieve(itemID, params, options) {
     const { conversation_id, ...query } = params;
-    return this._client.get(path3`/conversations/${conversation_id}/items/${itemID}`, { query, ...options });
+    return this._client.get(path3`/conversations/${conversation_id}/items/${itemID}`, {
+      query,
+      ...options,
+      __security: { bearerAuth: true }
+    });
   }
   /**
    * List all items for a conversation with the given ID.
    */
   list(conversationID, query = {}, options) {
-    return this._client.getAPIList(path3`/conversations/${conversationID}/items`, ConversationCursorPage, { query, ...options });
+    return this._client.getAPIList(path3`/conversations/${conversationID}/items`, ConversationCursorPage, { query, ...options, __security: { bearerAuth: true } });
   }
   /**
    * Delete an item from a conversation with the given IDs.
    */
   delete(itemID, params, options) {
     const { conversation_id } = params;
-    return this._client.delete(path3`/conversations/${conversation_id}/items/${itemID}`, options);
+    return this._client.delete(path3`/conversations/${conversation_id}/items/${itemID}`, {
+      ...options,
+      __security: { bearerAuth: true }
+    });
   }
 };
 
@@ -34023,25 +36704,35 @@ var Conversations = class extends APIResource2 {
    * Create a conversation.
    */
   create(body = {}, options) {
-    return this._client.post("/conversations", { body, ...options });
+    return this._client.post("/conversations", { body, ...options, __security: { bearerAuth: true } });
   }
   /**
    * Get a conversation
    */
   retrieve(conversationID, options) {
-    return this._client.get(path3`/conversations/${conversationID}`, options);
+    return this._client.get(path3`/conversations/${conversationID}`, {
+      ...options,
+      __security: { bearerAuth: true }
+    });
   }
   /**
    * Update a conversation
    */
   update(conversationID, body, options) {
-    return this._client.post(path3`/conversations/${conversationID}`, { body, ...options });
+    return this._client.post(path3`/conversations/${conversationID}`, {
+      body,
+      ...options,
+      __security: { bearerAuth: true }
+    });
   }
   /**
    * Delete a conversation. Items in the conversation will not be deleted.
    */
   delete(conversationID, options) {
-    return this._client.delete(path3`/conversations/${conversationID}`, options);
+    return this._client.delete(path3`/conversations/${conversationID}`, {
+      ...options,
+      __security: { bearerAuth: true }
+    });
   }
 };
 Conversations.Items = Items;
@@ -34071,7 +36762,8 @@ var Embeddings = class extends APIResource2 {
         ...body,
         encoding_format
       },
-      ...options
+      ...options,
+      __security: { bearerAuth: true }
     });
     if (hasUserProvidedEncodingFormat) {
       return response;
@@ -34096,14 +36788,17 @@ var OutputItems = class extends APIResource2 {
    */
   retrieve(outputItemID, params, options) {
     const { eval_id, run_id } = params;
-    return this._client.get(path3`/evals/${eval_id}/runs/${run_id}/output_items/${outputItemID}`, options);
+    return this._client.get(path3`/evals/${eval_id}/runs/${run_id}/output_items/${outputItemID}`, {
+      ...options,
+      __security: { bearerAuth: true }
+    });
   }
   /**
    * Get a list of output items for an evaluation run.
    */
   list(runID, params, options) {
     const { eval_id, ...query } = params;
-    return this._client.getAPIList(path3`/evals/${eval_id}/runs/${runID}/output_items`, CursorPage, { query, ...options });
+    return this._client.getAPIList(path3`/evals/${eval_id}/runs/${runID}/output_items`, CursorPage, { query, ...options, __security: { bearerAuth: true } });
   }
 };
 
@@ -34119,14 +36814,21 @@ var Runs2 = class extends APIResource2 {
    * schema specified in the config of the evaluation.
    */
   create(evalID, body, options) {
-    return this._client.post(path3`/evals/${evalID}/runs`, { body, ...options });
+    return this._client.post(path3`/evals/${evalID}/runs`, {
+      body,
+      ...options,
+      __security: { bearerAuth: true }
+    });
   }
   /**
    * Get an evaluation run by ID.
    */
   retrieve(runID, params, options) {
     const { eval_id } = params;
-    return this._client.get(path3`/evals/${eval_id}/runs/${runID}`, options);
+    return this._client.get(path3`/evals/${eval_id}/runs/${runID}`, {
+      ...options,
+      __security: { bearerAuth: true }
+    });
   }
   /**
    * Get a list of runs for an evaluation.
@@ -34134,7 +36836,8 @@ var Runs2 = class extends APIResource2 {
   list(evalID, query = {}, options) {
     return this._client.getAPIList(path3`/evals/${evalID}/runs`, CursorPage, {
       query,
-      ...options
+      ...options,
+      __security: { bearerAuth: true }
     });
   }
   /**
@@ -34142,14 +36845,20 @@ var Runs2 = class extends APIResource2 {
    */
   delete(runID, params, options) {
     const { eval_id } = params;
-    return this._client.delete(path3`/evals/${eval_id}/runs/${runID}`, options);
+    return this._client.delete(path3`/evals/${eval_id}/runs/${runID}`, {
+      ...options,
+      __security: { bearerAuth: true }
+    });
   }
   /**
    * Cancel an ongoing evaluation run.
    */
   cancel(runID, params, options) {
     const { eval_id } = params;
-    return this._client.post(path3`/evals/${eval_id}/runs/${runID}`, options);
+    return this._client.post(path3`/evals/${eval_id}/runs/${runID}`, {
+      ...options,
+      __security: { bearerAuth: true }
+    });
   }
 };
 Runs2.OutputItems = OutputItems;
@@ -34169,31 +36878,35 @@ var Evals = class extends APIResource2 {
    * the [Evals guide](https://platform.openai.com/docs/guides/evals).
    */
   create(body, options) {
-    return this._client.post("/evals", { body, ...options });
+    return this._client.post("/evals", { body, ...options, __security: { bearerAuth: true } });
   }
   /**
    * Get an evaluation by ID.
    */
   retrieve(evalID, options) {
-    return this._client.get(path3`/evals/${evalID}`, options);
+    return this._client.get(path3`/evals/${evalID}`, { ...options, __security: { bearerAuth: true } });
   }
   /**
    * Update certain properties of an evaluation.
    */
   update(evalID, body, options) {
-    return this._client.post(path3`/evals/${evalID}`, { body, ...options });
+    return this._client.post(path3`/evals/${evalID}`, { body, ...options, __security: { bearerAuth: true } });
   }
   /**
    * List evaluations for a project.
    */
   list(query = {}, options) {
-    return this._client.getAPIList("/evals", CursorPage, { query, ...options });
+    return this._client.getAPIList("/evals", CursorPage, {
+      query,
+      ...options,
+      __security: { bearerAuth: true }
+    });
   }
   /**
    * Delete an evaluation.
    */
   delete(evalID, options) {
-    return this._client.delete(path3`/evals/${evalID}`, options);
+    return this._client.delete(path3`/evals/${evalID}`, { ...options, __security: { bearerAuth: true } });
   }
 };
 Evals.Runs = Runs2;
@@ -34203,7 +36916,8 @@ var Files3 = class extends APIResource2 {
   /**
    * Upload a file that can be used across various endpoints. Individual files can be
    * up to 512 MB, and each project can store up to 2.5 TB of files in total. There
-   * is no organization-wide storage limit.
+   * is no organization-wide storage limit. Uploads to this endpoint are rate-limited
+   * to 1,000 requests per minute per authenticated user.
    *
    * - The Assistants API supports files up to 2 million tokens and of specific file
    *   types. See the
@@ -34218,30 +36932,40 @@ var Files3 = class extends APIResource2 {
    * - The Batch API only supports `.jsonl` files up to 200 MB in size. The input
    *   also has a specific required
    *   [format](https://platform.openai.com/docs/api-reference/batch/request-input).
+   * - For Retrieval or `file_search` ingestion, upload files here first. If you need
+   *   to attach multiple uploaded files to the same vector store, use
+   *   [`/vector_stores/{vector_store_id}/file_batches`](https://platform.openai.com/docs/api-reference/vector-stores-file-batches/createBatch)
+   *   instead of attaching them one by one. Vector store attachment has separate
+   *   limits from file upload, including 2,000 attached files per minute per
+   *   organization.
    *
    * Please [contact us](https://help.openai.com/) if you need to increase these
    * storage limits.
    */
   create(body, options) {
-    return this._client.post("/files", multipartFormRequestOptions2({ body, ...options }, this._client));
+    return this._client.post("/files", multipartFormRequestOptions2({ body, ...options, __security: { bearerAuth: true } }, this._client));
   }
   /**
    * Returns information about a specific file.
    */
   retrieve(fileID, options) {
-    return this._client.get(path3`/files/${fileID}`, options);
+    return this._client.get(path3`/files/${fileID}`, { ...options, __security: { bearerAuth: true } });
   }
   /**
    * Returns a list of files.
    */
   list(query = {}, options) {
-    return this._client.getAPIList("/files", CursorPage, { query, ...options });
+    return this._client.getAPIList("/files", CursorPage, {
+      query,
+      ...options,
+      __security: { bearerAuth: true }
+    });
   }
   /**
    * Delete a file and remove it from all vector stores.
    */
   delete(fileID, options) {
-    return this._client.delete(path3`/files/${fileID}`, options);
+    return this._client.delete(path3`/files/${fileID}`, { ...options, __security: { bearerAuth: true } });
   }
   /**
    * Returns the contents of the specified file.
@@ -34250,6 +36974,7 @@ var Files3 = class extends APIResource2 {
     return this._client.get(path3`/files/${fileID}/content`, {
       ...options,
       headers: buildHeaders2([{ Accept: "application/binary" }, options?.headers]),
+      __security: { bearerAuth: true },
       __binaryResponse: true
     });
   }
@@ -34297,7 +37022,11 @@ var Graders = class extends APIResource2 {
    * ```
    */
   run(body, options) {
-    return this._client.post("/fine_tuning/alpha/graders/run", { body, ...options });
+    return this._client.post("/fine_tuning/alpha/graders/run", {
+      body,
+      ...options,
+      __security: { bearerAuth: true }
+    });
   }
   /**
    * Validate a grader.
@@ -34317,7 +37046,11 @@ var Graders = class extends APIResource2 {
    * ```
    */
   validate(body, options) {
-    return this._client.post("/fine_tuning/alpha/graders/validate", { body, ...options });
+    return this._client.post("/fine_tuning/alpha/graders/validate", {
+      body,
+      ...options,
+      __security: { bearerAuth: true }
+    });
   }
 };
 
@@ -34350,7 +37083,7 @@ var Permissions = class extends APIResource2 {
    * ```
    */
   create(fineTunedModelCheckpoint, body, options) {
-    return this._client.getAPIList(path3`/fine_tuning/checkpoints/${fineTunedModelCheckpoint}/permissions`, Page2, { body, method: "post", ...options });
+    return this._client.getAPIList(path3`/fine_tuning/checkpoints/${fineTunedModelCheckpoint}/permissions`, Page2, { body, method: "post", ...options, __security: { adminAPIKeyAuth: true } });
   }
   /**
    * **NOTE:** This endpoint requires an [admin API key](../admin-api-keys).
@@ -34363,7 +37096,8 @@ var Permissions = class extends APIResource2 {
   retrieve(fineTunedModelCheckpoint, query = {}, options) {
     return this._client.get(path3`/fine_tuning/checkpoints/${fineTunedModelCheckpoint}/permissions`, {
       query,
-      ...options
+      ...options,
+      __security: { adminAPIKeyAuth: true }
     });
   }
   /**
@@ -34383,7 +37117,7 @@ var Permissions = class extends APIResource2 {
    * ```
    */
   list(fineTunedModelCheckpoint, query = {}, options) {
-    return this._client.getAPIList(path3`/fine_tuning/checkpoints/${fineTunedModelCheckpoint}/permissions`, ConversationCursorPage, { query, ...options });
+    return this._client.getAPIList(path3`/fine_tuning/checkpoints/${fineTunedModelCheckpoint}/permissions`, ConversationCursorPage, { query, ...options, __security: { adminAPIKeyAuth: true } });
   }
   /**
    * **NOTE:** This endpoint requires an [admin API key](../admin-api-keys).
@@ -34405,7 +37139,7 @@ var Permissions = class extends APIResource2 {
    */
   delete(permissionID, params, options) {
     const { fine_tuned_model_checkpoint } = params;
-    return this._client.delete(path3`/fine_tuning/checkpoints/${fine_tuned_model_checkpoint}/permissions/${permissionID}`, options);
+    return this._client.delete(path3`/fine_tuning/checkpoints/${fine_tuned_model_checkpoint}/permissions/${permissionID}`, { ...options, __security: { adminAPIKeyAuth: true } });
   }
 };
 
@@ -34434,7 +37168,7 @@ var Checkpoints2 = class extends APIResource2 {
    * ```
    */
   list(fineTuningJobID, query = {}, options) {
-    return this._client.getAPIList(path3`/fine_tuning/jobs/${fineTuningJobID}/checkpoints`, CursorPage, { query, ...options });
+    return this._client.getAPIList(path3`/fine_tuning/jobs/${fineTuningJobID}/checkpoints`, CursorPage, { query, ...options, __security: { bearerAuth: true } });
   }
 };
 
@@ -34462,7 +37196,7 @@ var Jobs = class extends APIResource2 {
    * ```
    */
   create(body, options) {
-    return this._client.post("/fine_tuning/jobs", { body, ...options });
+    return this._client.post("/fine_tuning/jobs", { body, ...options, __security: { bearerAuth: true } });
   }
   /**
    * Get info about a fine-tuning job.
@@ -34477,7 +37211,10 @@ var Jobs = class extends APIResource2 {
    * ```
    */
   retrieve(fineTuningJobID, options) {
-    return this._client.get(path3`/fine_tuning/jobs/${fineTuningJobID}`, options);
+    return this._client.get(path3`/fine_tuning/jobs/${fineTuningJobID}`, {
+      ...options,
+      __security: { bearerAuth: true }
+    });
   }
   /**
    * List your organization's fine-tuning jobs
@@ -34491,7 +37228,11 @@ var Jobs = class extends APIResource2 {
    * ```
    */
   list(query = {}, options) {
-    return this._client.getAPIList("/fine_tuning/jobs", CursorPage, { query, ...options });
+    return this._client.getAPIList("/fine_tuning/jobs", CursorPage, {
+      query,
+      ...options,
+      __security: { bearerAuth: true }
+    });
   }
   /**
    * Immediately cancel a fine-tune job.
@@ -34504,7 +37245,10 @@ var Jobs = class extends APIResource2 {
    * ```
    */
   cancel(fineTuningJobID, options) {
-    return this._client.post(path3`/fine_tuning/jobs/${fineTuningJobID}/cancel`, options);
+    return this._client.post(path3`/fine_tuning/jobs/${fineTuningJobID}/cancel`, {
+      ...options,
+      __security: { bearerAuth: true }
+    });
   }
   /**
    * Get status updates for a fine-tuning job.
@@ -34520,7 +37264,7 @@ var Jobs = class extends APIResource2 {
    * ```
    */
   listEvents(fineTuningJobID, query = {}, options) {
-    return this._client.getAPIList(path3`/fine_tuning/jobs/${fineTuningJobID}/events`, CursorPage, { query, ...options });
+    return this._client.getAPIList(path3`/fine_tuning/jobs/${fineTuningJobID}/events`, CursorPage, { query, ...options, __security: { bearerAuth: true } });
   }
   /**
    * Pause a fine-tune job.
@@ -34533,7 +37277,10 @@ var Jobs = class extends APIResource2 {
    * ```
    */
   pause(fineTuningJobID, options) {
-    return this._client.post(path3`/fine_tuning/jobs/${fineTuningJobID}/pause`, options);
+    return this._client.post(path3`/fine_tuning/jobs/${fineTuningJobID}/pause`, {
+      ...options,
+      __security: { bearerAuth: true }
+    });
   }
   /**
    * Resume a fine-tune job.
@@ -34546,7 +37293,10 @@ var Jobs = class extends APIResource2 {
    * ```
    */
   resume(fineTuningJobID, options) {
-    return this._client.post(path3`/fine_tuning/jobs/${fineTuningJobID}/resume`, options);
+    return this._client.post(path3`/fine_tuning/jobs/${fineTuningJobID}/resume`, {
+      ...options,
+      __security: { bearerAuth: true }
+    });
   }
 };
 Jobs.Checkpoints = Checkpoints2;
@@ -34592,13 +37342,18 @@ var Images = class extends APIResource2 {
    * ```
    */
   createVariation(body, options) {
-    return this._client.post("/images/variations", multipartFormRequestOptions2({ body, ...options }, this._client));
+    return this._client.post("/images/variations", multipartFormRequestOptions2({ body, ...options, __security: { bearerAuth: true } }, this._client));
   }
   edit(body, options) {
-    return this._client.post("/images/edits", multipartFormRequestOptions2({ body, ...options, stream: body.stream ?? false }, this._client));
+    return this._client.post("/images/edits", multipartFormRequestOptions2({ body, ...options, stream: body.stream ?? false, __security: { bearerAuth: true } }, this._client));
   }
   generate(body, options) {
-    return this._client.post("/images/generations", { body, ...options, stream: body.stream ?? false });
+    return this._client.post("/images/generations", {
+      body,
+      ...options,
+      stream: body.stream ?? false,
+      __security: { bearerAuth: true }
+    });
   }
 };
 
@@ -34609,21 +37364,21 @@ var Models3 = class extends APIResource2 {
    * the owner and permissioning.
    */
   retrieve(model, options) {
-    return this._client.get(path3`/models/${model}`, options);
+    return this._client.get(path3`/models/${model}`, { ...options, __security: { bearerAuth: true } });
   }
   /**
    * Lists the currently available models, and provides basic information about each
    * one such as the owner and availability.
    */
   list(options) {
-    return this._client.getAPIList("/models", Page2, options);
+    return this._client.getAPIList("/models", Page2, { ...options, __security: { bearerAuth: true } });
   }
   /**
    * Delete a fine-tuned model. You must have the Owner role in your organization to
    * delete a model.
    */
   delete(model, options) {
-    return this._client.delete(path3`/models/${model}`, options);
+    return this._client.delete(path3`/models/${model}`, { ...options, __security: { bearerAuth: true } });
   }
 };
 
@@ -34634,7 +37389,7 @@ var Moderations = class extends APIResource2 {
    * the [moderation guide](https://platform.openai.com/docs/guides/moderation).
    */
   create(body, options) {
-    return this._client.post("/moderations", { body, ...options });
+    return this._client.post("/moderations", { body, ...options, __security: { bearerAuth: true } });
   }
 };
 
@@ -34655,7 +37410,8 @@ var Calls = class extends APIResource2 {
     return this._client.post(path3`/realtime/calls/${callID}/accept`, {
       body,
       ...options,
-      headers: buildHeaders2([{ Accept: "*/*" }, options?.headers])
+      headers: buildHeaders2([{ Accept: "*/*" }, options?.headers]),
+      __security: { bearerAuth: true }
     });
   }
   /**
@@ -34669,7 +37425,8 @@ var Calls = class extends APIResource2 {
   hangup(callID, options) {
     return this._client.post(path3`/realtime/calls/${callID}/hangup`, {
       ...options,
-      headers: buildHeaders2([{ Accept: "*/*" }, options?.headers])
+      headers: buildHeaders2([{ Accept: "*/*" }, options?.headers]),
+      __security: { bearerAuth: true }
     });
   }
   /**
@@ -34686,7 +37443,8 @@ var Calls = class extends APIResource2 {
     return this._client.post(path3`/realtime/calls/${callID}/refer`, {
       body,
       ...options,
-      headers: buildHeaders2([{ Accept: "*/*" }, options?.headers])
+      headers: buildHeaders2([{ Accept: "*/*" }, options?.headers]),
+      __security: { bearerAuth: true }
     });
   }
   /**
@@ -34701,7 +37459,8 @@ var Calls = class extends APIResource2 {
     return this._client.post(path3`/realtime/calls/${callID}/reject`, {
       body,
       ...options,
-      headers: buildHeaders2([{ Accept: "*/*" }, options?.headers])
+      headers: buildHeaders2([{ Accept: "*/*" }, options?.headers]),
+      __security: { bearerAuth: true }
     });
   }
 };
@@ -34732,7 +37491,11 @@ var ClientSecrets = class extends APIResource2 {
    * ```
    */
   create(body, options) {
-    return this._client.post("/realtime/client_secrets", { body, ...options });
+    return this._client.post("/realtime/client_secrets", {
+      body,
+      ...options,
+      __security: { bearerAuth: true }
+    });
   }
 };
 
@@ -35146,7 +37909,7 @@ var InputItems = class extends APIResource2 {
    * ```
    */
   list(responseID, query = {}, options) {
-    return this._client.getAPIList(path3`/responses/${responseID}/input_items`, CursorPage, { query, ...options });
+    return this._client.getAPIList(path3`/responses/${responseID}/input_items`, CursorPage, { query, ...options, __security: { bearerAuth: true } });
   }
 };
 
@@ -35164,7 +37927,11 @@ var InputTokens = class extends APIResource2 {
    * ```
    */
   count(body = {}, options) {
-    return this._client.post("/responses/input_tokens", { body, ...options });
+    return this._client.post("/responses/input_tokens", {
+      body,
+      ...options,
+      __security: { bearerAuth: true }
+    });
   }
 };
 
@@ -35176,7 +37943,12 @@ var Responses = class extends APIResource2 {
     this.inputTokens = new InputTokens(this._client);
   }
   create(body, options) {
-    return this._client.post("/responses", { body, ...options, stream: body.stream ?? false })._thenUnwrap((rsp) => {
+    return this._client.post("/responses", {
+      body,
+      ...options,
+      stream: body.stream ?? false,
+      __security: { bearerAuth: true }
+    })._thenUnwrap((rsp) => {
       if ("object" in rsp && rsp.object === "response") {
         addOutputText(rsp);
       }
@@ -35187,7 +37959,8 @@ var Responses = class extends APIResource2 {
     return this._client.get(path3`/responses/${responseID}`, {
       query,
       ...options,
-      stream: query?.stream ?? false
+      stream: query?.stream ?? false,
+      __security: { bearerAuth: true }
     })._thenUnwrap((rsp) => {
       if ("object" in rsp && rsp.object === "response") {
         addOutputText(rsp);
@@ -35208,7 +37981,8 @@ var Responses = class extends APIResource2 {
   delete(responseID, options) {
     return this._client.delete(path3`/responses/${responseID}`, {
       ...options,
-      headers: buildHeaders2([{ Accept: "*/*" }, options?.headers])
+      headers: buildHeaders2([{ Accept: "*/*" }, options?.headers]),
+      __security: { bearerAuth: true }
     });
   }
   parse(body, options) {
@@ -35233,7 +38007,10 @@ var Responses = class extends APIResource2 {
    * ```
    */
   cancel(responseID, options) {
-    return this._client.post(path3`/responses/${responseID}/cancel`, options);
+    return this._client.post(path3`/responses/${responseID}/cancel`, {
+      ...options,
+      __security: { bearerAuth: true }
+    });
   }
   /**
    * Compact a conversation. Returns a compacted response object.
@@ -35251,7 +38028,7 @@ var Responses = class extends APIResource2 {
    * ```
    */
   compact(body, options) {
-    return this._client.post("/responses/compact", { body, ...options });
+    return this._client.post("/responses/compact", { body, ...options, __security: { bearerAuth: true } });
   }
 };
 Responses.InputItems = InputItems;
@@ -35266,6 +38043,7 @@ var Content2 = class extends APIResource2 {
     return this._client.get(path3`/skills/${skillID}/content`, {
       ...options,
       headers: buildHeaders2([{ Accept: "application/binary" }, options?.headers]),
+      __security: { bearerAuth: true },
       __binaryResponse: true
     });
   }
@@ -35281,6 +38059,7 @@ var Content3 = class extends APIResource2 {
     return this._client.get(path3`/skills/${skill_id}/versions/${version}/content`, {
       ...options,
       headers: buildHeaders2([{ Accept: "application/binary" }, options?.headers]),
+      __security: { bearerAuth: true },
       __binaryResponse: true
     });
   }
@@ -35296,14 +38075,17 @@ var Versions3 = class extends APIResource2 {
    * Create a new immutable skill version.
    */
   create(skillID, body = {}, options) {
-    return this._client.post(path3`/skills/${skillID}/versions`, maybeMultipartFormRequestOptions({ body, ...options }, this._client));
+    return this._client.post(path3`/skills/${skillID}/versions`, maybeMultipartFormRequestOptions({ body, ...options, __security: { bearerAuth: true } }, this._client));
   }
   /**
    * Get a specific skill version.
    */
   retrieve(version, params, options) {
     const { skill_id } = params;
-    return this._client.get(path3`/skills/${skill_id}/versions/${version}`, options);
+    return this._client.get(path3`/skills/${skill_id}/versions/${version}`, {
+      ...options,
+      __security: { bearerAuth: true }
+    });
   }
   /**
    * List skill versions for a skill.
@@ -35311,7 +38093,8 @@ var Versions3 = class extends APIResource2 {
   list(skillID, query = {}, options) {
     return this._client.getAPIList(path3`/skills/${skillID}/versions`, CursorPage, {
       query,
-      ...options
+      ...options,
+      __security: { bearerAuth: true }
     });
   }
   /**
@@ -35319,7 +38102,10 @@ var Versions3 = class extends APIResource2 {
    */
   delete(version, params, options) {
     const { skill_id } = params;
-    return this._client.delete(path3`/skills/${skill_id}/versions/${version}`, options);
+    return this._client.delete(path3`/skills/${skill_id}/versions/${version}`, {
+      ...options,
+      __security: { bearerAuth: true }
+    });
   }
 };
 Versions3.Content = Content3;
@@ -35335,31 +38121,39 @@ var Skills2 = class extends APIResource2 {
    * Create a new skill.
    */
   create(body = {}, options) {
-    return this._client.post("/skills", maybeMultipartFormRequestOptions({ body, ...options }, this._client));
+    return this._client.post("/skills", maybeMultipartFormRequestOptions({ body, ...options, __security: { bearerAuth: true } }, this._client));
   }
   /**
    * Get a skill by its ID.
    */
   retrieve(skillID, options) {
-    return this._client.get(path3`/skills/${skillID}`, options);
+    return this._client.get(path3`/skills/${skillID}`, { ...options, __security: { bearerAuth: true } });
   }
   /**
    * Update the default version pointer for a skill.
    */
   update(skillID, body, options) {
-    return this._client.post(path3`/skills/${skillID}`, { body, ...options });
+    return this._client.post(path3`/skills/${skillID}`, {
+      body,
+      ...options,
+      __security: { bearerAuth: true }
+    });
   }
   /**
    * List all skills for the current project.
    */
   list(query = {}, options) {
-    return this._client.getAPIList("/skills", CursorPage, { query, ...options });
+    return this._client.getAPIList("/skills", CursorPage, {
+      query,
+      ...options,
+      __security: { bearerAuth: true }
+    });
   }
   /**
    * Delete a skill by its ID.
    */
   delete(skillID, options) {
-    return this._client.delete(path3`/skills/${skillID}`, options);
+    return this._client.delete(path3`/skills/${skillID}`, { ...options, __security: { bearerAuth: true } });
   }
 };
 Skills2.Content = Content2;
@@ -35381,7 +38175,7 @@ var Parts = class extends APIResource2 {
    * [complete the Upload](https://platform.openai.com/docs/api-reference/uploads/complete).
    */
   create(uploadID, body, options) {
-    return this._client.post(path3`/uploads/${uploadID}/parts`, multipartFormRequestOptions2({ body, ...options }, this._client));
+    return this._client.post(path3`/uploads/${uploadID}/parts`, multipartFormRequestOptions2({ body, ...options, __security: { bearerAuth: true } }, this._client));
   }
 };
 
@@ -35415,7 +38209,7 @@ var Uploads = class extends APIResource2 {
    * Returns the Upload object with status `pending`.
    */
   create(body, options) {
-    return this._client.post("/uploads", { body, ...options });
+    return this._client.post("/uploads", { body, ...options, __security: { bearerAuth: true } });
   }
   /**
    * Cancels the Upload. No Parts may be added after an Upload is cancelled.
@@ -35423,7 +38217,10 @@ var Uploads = class extends APIResource2 {
    * Returns the Upload object with status `cancelled`.
    */
   cancel(uploadID, options) {
-    return this._client.post(path3`/uploads/${uploadID}/cancel`, options);
+    return this._client.post(path3`/uploads/${uploadID}/cancel`, {
+      ...options,
+      __security: { bearerAuth: true }
+    });
   }
   /**
    * Completes the
@@ -35443,7 +38240,11 @@ var Uploads = class extends APIResource2 {
    * object.
    */
   complete(uploadID, body, options) {
-    return this._client.post(path3`/uploads/${uploadID}/complete`, { body, ...options });
+    return this._client.post(path3`/uploads/${uploadID}/complete`, {
+      body,
+      ...options,
+      __security: { bearerAuth: true }
+    });
   }
 };
 Uploads.Parts = Parts;
@@ -35476,7 +38277,8 @@ var FileBatches = class extends APIResource2 {
     return this._client.post(path3`/vector_stores/${vectorStoreID}/file_batches`, {
       body,
       ...options,
-      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers])
+      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+      __security: { bearerAuth: true }
     });
   }
   /**
@@ -35486,7 +38288,8 @@ var FileBatches = class extends APIResource2 {
     const { vector_store_id } = params;
     return this._client.get(path3`/vector_stores/${vector_store_id}/file_batches/${batchID}`, {
       ...options,
-      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers])
+      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+      __security: { bearerAuth: true }
     });
   }
   /**
@@ -35497,7 +38300,8 @@ var FileBatches = class extends APIResource2 {
     const { vector_store_id } = params;
     return this._client.post(path3`/vector_stores/${vector_store_id}/file_batches/${batchID}/cancel`, {
       ...options,
-      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers])
+      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+      __security: { bearerAuth: true }
     });
   }
   /**
@@ -35512,7 +38316,12 @@ var FileBatches = class extends APIResource2 {
    */
   listFiles(batchID, params, options) {
     const { vector_store_id, ...query } = params;
-    return this._client.getAPIList(path3`/vector_stores/${vector_store_id}/file_batches/${batchID}/files`, CursorPage, { query, ...options, headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]) });
+    return this._client.getAPIList(path3`/vector_stores/${vector_store_id}/file_batches/${batchID}/files`, CursorPage, {
+      query,
+      ...options,
+      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+      __security: { bearerAuth: true }
+    });
   }
   /**
    * Wait for the given file batch to be processed.
@@ -35595,7 +38404,8 @@ var Files4 = class extends APIResource2 {
     return this._client.post(path3`/vector_stores/${vectorStoreID}/files`, {
       body,
       ...options,
-      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers])
+      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+      __security: { bearerAuth: true }
     });
   }
   /**
@@ -35605,7 +38415,8 @@ var Files4 = class extends APIResource2 {
     const { vector_store_id } = params;
     return this._client.get(path3`/vector_stores/${vector_store_id}/files/${fileID}`, {
       ...options,
-      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers])
+      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+      __security: { bearerAuth: true }
     });
   }
   /**
@@ -35616,7 +38427,8 @@ var Files4 = class extends APIResource2 {
     return this._client.post(path3`/vector_stores/${vector_store_id}/files/${fileID}`, {
       body,
       ...options,
-      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers])
+      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+      __security: { bearerAuth: true }
     });
   }
   /**
@@ -35626,7 +38438,8 @@ var Files4 = class extends APIResource2 {
     return this._client.getAPIList(path3`/vector_stores/${vectorStoreID}/files`, CursorPage, {
       query,
       ...options,
-      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers])
+      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+      __security: { bearerAuth: true }
     });
   }
   /**
@@ -35639,7 +38452,8 @@ var Files4 = class extends APIResource2 {
     const { vector_store_id } = params;
     return this._client.delete(path3`/vector_stores/${vector_store_id}/files/${fileID}`, {
       ...options,
-      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers])
+      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+      __security: { bearerAuth: true }
     });
   }
   /**
@@ -35712,7 +38526,11 @@ var Files4 = class extends APIResource2 {
    */
   content(fileID, params, options) {
     const { vector_store_id } = params;
-    return this._client.getAPIList(path3`/vector_stores/${vector_store_id}/files/${fileID}/content`, Page2, { ...options, headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]) });
+    return this._client.getAPIList(path3`/vector_stores/${vector_store_id}/files/${fileID}/content`, Page2, {
+      ...options,
+      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+      __security: { bearerAuth: true }
+    });
   }
 };
 
@@ -35730,7 +38548,8 @@ var VectorStores = class extends APIResource2 {
     return this._client.post("/vector_stores", {
       body,
       ...options,
-      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers])
+      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+      __security: { bearerAuth: true }
     });
   }
   /**
@@ -35739,7 +38558,8 @@ var VectorStores = class extends APIResource2 {
   retrieve(vectorStoreID, options) {
     return this._client.get(path3`/vector_stores/${vectorStoreID}`, {
       ...options,
-      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers])
+      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+      __security: { bearerAuth: true }
     });
   }
   /**
@@ -35749,7 +38569,8 @@ var VectorStores = class extends APIResource2 {
     return this._client.post(path3`/vector_stores/${vectorStoreID}`, {
       body,
       ...options,
-      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers])
+      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+      __security: { bearerAuth: true }
     });
   }
   /**
@@ -35759,7 +38580,8 @@ var VectorStores = class extends APIResource2 {
     return this._client.getAPIList("/vector_stores", CursorPage, {
       query,
       ...options,
-      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers])
+      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+      __security: { bearerAuth: true }
     });
   }
   /**
@@ -35768,7 +38590,8 @@ var VectorStores = class extends APIResource2 {
   delete(vectorStoreID, options) {
     return this._client.delete(path3`/vector_stores/${vectorStoreID}`, {
       ...options,
-      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers])
+      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+      __security: { bearerAuth: true }
     });
   }
   /**
@@ -35780,7 +38603,8 @@ var VectorStores = class extends APIResource2 {
       body,
       method: "post",
       ...options,
-      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers])
+      headers: buildHeaders2([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+      __security: { bearerAuth: true }
     });
   }
 };
@@ -35793,31 +38617,35 @@ var Videos = class extends APIResource2 {
    * Create a new video generation job from a prompt and optional reference assets.
    */
   create(body, options) {
-    return this._client.post("/videos", multipartFormRequestOptions2({ body, ...options }, this._client));
+    return this._client.post("/videos", multipartFormRequestOptions2({ body, ...options, __security: { bearerAuth: true } }, this._client));
   }
   /**
    * Fetch the latest metadata for a generated video.
    */
   retrieve(videoID, options) {
-    return this._client.get(path3`/videos/${videoID}`, options);
+    return this._client.get(path3`/videos/${videoID}`, { ...options, __security: { bearerAuth: true } });
   }
   /**
    * List recently generated videos for the current project.
    */
   list(query = {}, options) {
-    return this._client.getAPIList("/videos", ConversationCursorPage, { query, ...options });
+    return this._client.getAPIList("/videos", ConversationCursorPage, {
+      query,
+      ...options,
+      __security: { bearerAuth: true }
+    });
   }
   /**
    * Permanently delete a completed or failed video and its stored assets.
    */
   delete(videoID, options) {
-    return this._client.delete(path3`/videos/${videoID}`, options);
+    return this._client.delete(path3`/videos/${videoID}`, { ...options, __security: { bearerAuth: true } });
   }
   /**
    * Create a character from an uploaded video.
    */
   createCharacter(body, options) {
-    return this._client.post("/videos/characters", multipartFormRequestOptions2({ body, ...options }, this._client));
+    return this._client.post("/videos/characters", multipartFormRequestOptions2({ body, ...options, __security: { bearerAuth: true } }, this._client));
   }
   /**
    * Download the generated video bytes or a derived preview asset.
@@ -35829,6 +38657,7 @@ var Videos = class extends APIResource2 {
       query,
       ...options,
       headers: buildHeaders2([{ Accept: "application/binary" }, options?.headers]),
+      __security: { bearerAuth: true },
       __binaryResponse: true
     });
   }
@@ -35837,25 +38666,28 @@ var Videos = class extends APIResource2 {
    * generated video.
    */
   edit(body, options) {
-    return this._client.post("/videos/edits", multipartFormRequestOptions2({ body, ...options }, this._client));
+    return this._client.post("/videos/edits", multipartFormRequestOptions2({ body, ...options, __security: { bearerAuth: true } }, this._client));
   }
   /**
    * Create an extension of a completed video.
    */
   extend(body, options) {
-    return this._client.post("/videos/extensions", multipartFormRequestOptions2({ body, ...options }, this._client));
+    return this._client.post("/videos/extensions", multipartFormRequestOptions2({ body, ...options, __security: { bearerAuth: true } }, this._client));
   }
   /**
    * Fetch a character.
    */
   getCharacter(characterID, options) {
-    return this._client.get(path3`/videos/characters/${characterID}`, options);
+    return this._client.get(path3`/videos/characters/${characterID}`, {
+      ...options,
+      __security: { bearerAuth: true }
+    });
   }
   /**
    * Create a remix of a completed video using a refreshed prompt.
    */
   remix(videoID, body, options) {
-    return this._client.post(path3`/videos/${videoID}/remix`, maybeMultipartFormRequestOptions({ body, ...options }, this._client));
+    return this._client.post(path3`/videos/${videoID}/remix`, maybeMultipartFormRequestOptions({ body, ...options, __security: { bearerAuth: true } }, this._client));
   }
 };
 
@@ -35948,7 +38780,8 @@ var OpenAI = class {
   /**
    * API Client for interfacing with the OpenAI API.
    *
-   * @param {string | undefined} [opts.apiKey=process.env['OPENAI_API_KEY'] ?? undefined]
+   * @param {string | null | undefined} [opts.apiKey=process.env['OPENAI_API_KEY'] ?? null]
+   * @param {string | null | undefined} [opts.adminAPIKey=process.env['OPENAI_ADMIN_KEY'] ?? null]
    * @param {string | null | undefined} [opts.organization=process.env['OPENAI_ORG_ID'] ?? null]
    * @param {string | null | undefined} [opts.project=process.env['OPENAI_PROJECT_ID'] ?? null]
    * @param {string | null | undefined} [opts.webhookSecret=process.env['OPENAI_WEBHOOK_SECRET'] ?? null]
@@ -35961,7 +38794,7 @@ var OpenAI = class {
    * @param {Record<string, string | undefined>} opts.defaultQuery - Default query parameters to include with every request to the API.
    * @param {boolean} [opts.dangerouslyAllowBrowser=false] - By default, client-side use of this library is not allowed, as it risks exposing your secret API credentials to attackers.
    */
-  constructor({ baseURL = readEnv2("OPENAI_BASE_URL"), apiKey = readEnv2("OPENAI_API_KEY"), organization = readEnv2("OPENAI_ORG_ID") ?? null, project = readEnv2("OPENAI_PROJECT_ID") ?? null, webhookSecret = readEnv2("OPENAI_WEBHOOK_SECRET") ?? null, workloadIdentity, ...opts } = {}) {
+  constructor({ baseURL = readEnv2("OPENAI_BASE_URL"), apiKey = readEnv2("OPENAI_API_KEY") ?? null, adminAPIKey = readEnv2("OPENAI_ADMIN_KEY") ?? null, organization = readEnv2("OPENAI_ORG_ID") ?? null, project = readEnv2("OPENAI_PROJECT_ID") ?? null, webhookSecret = readEnv2("OPENAI_WEBHOOK_SECRET") ?? null, workloadIdentity, ...opts } = {}) {
     _OpenAI_instances.add(this);
     _OpenAI_encoder.set(this, void 0);
     this.completions = new Completions3(this);
@@ -35979,6 +38812,7 @@ var OpenAI = class {
     this.beta = new Beta2(this);
     this.batches = new Batches3(this);
     this.uploads = new Uploads(this);
+    this.admin = new Admin(this);
     this.responses = new Responses(this);
     this.realtime = new Realtime2(this);
     this.conversations = new Conversations(this);
@@ -35986,16 +38820,9 @@ var OpenAI = class {
     this.containers = new Containers(this);
     this.skills = new Skills2(this);
     this.videos = new Videos(this);
-    if (workloadIdentity) {
-      if (apiKey && apiKey !== WORKLOAD_IDENTITY_API_KEY_PLACEHOLDER) {
-        throw new OpenAIError("The `apiKey` and `workloadIdentity` arguments are mutually exclusive; only one can be passed at a time.");
-      }
-      apiKey = WORKLOAD_IDENTITY_API_KEY_PLACEHOLDER;
-    } else if (apiKey === void 0) {
-      throw new OpenAIError("Missing credentials. Please pass an `apiKey`, `workloadIdentity`, or set the `OPENAI_API_KEY` environment variable.");
-    }
     const options = {
       apiKey,
+      adminAPIKey,
       organization,
       project,
       webhookSecret,
@@ -36003,6 +38830,12 @@ var OpenAI = class {
       ...opts,
       baseURL: baseURL || `https://api.openai.com/v1`
     };
+    if (apiKey && workloadIdentity) {
+      throw new OpenAIError("The `apiKey` and `workloadIdentity` options are mutually exclusive");
+    }
+    if (!apiKey && !adminAPIKey && !workloadIdentity) {
+      throw new OpenAIError("Missing credentials. Please pass an `apiKey`, `workloadIdentity`, `adminAPIKey`, or set the `OPENAI_API_KEY` or `OPENAI_ADMIN_KEY` environment variable.");
+    }
     if (!options.dangerouslyAllowBrowser && isRunningInBrowser2()) {
       throw new OpenAIError("It looks like you're running in a browser-like environment.\n\nThis is disabled by default, as it risks exposing your secret API credentials to attackers.\nIf you understand the risks and have appropriate mitigations in place,\nyou can set the `dangerouslyAllowBrowser` option to `true`, e.g.,\n\nnew OpenAI({ apiKey, dangerouslyAllowBrowser: true });\n\nhttps://help.openai.com/en/articles/5112595-best-practices-for-api-key-safety\n");
     }
@@ -36016,11 +38849,23 @@ var OpenAI = class {
     this.maxRetries = options.maxRetries ?? 2;
     this.fetch = options.fetch ?? getDefaultFetch2();
     __classPrivateFieldSet2(this, _OpenAI_encoder, FallbackEncoder2, "f");
+    const customHeadersEnv = readEnv2("OPENAI_CUSTOM_HEADERS");
+    if (customHeadersEnv) {
+      const parsed = {};
+      for (const line of customHeadersEnv.split("\n")) {
+        const colon = line.indexOf(":");
+        if (colon >= 0) {
+          parsed[line.substring(0, colon).trim()] = line.substring(colon + 1).trim();
+        }
+      }
+      options.defaultHeaders = buildHeaders2([parsed, options.defaultHeaders]);
+    }
     this._options = options;
     if (workloadIdentity) {
       this._workloadIdentityAuth = new WorkloadIdentityAuth(workloadIdentity, this.fetch);
     }
-    this.apiKey = typeof apiKey === "string" ? apiKey : "Missing Key";
+    this.apiKey = typeof apiKey === "string" ? apiKey : null;
+    this.adminAPIKey = adminAPIKey;
     this.organization = organization;
     this.project = project;
     this.webhookSecret = webhookSecret;
@@ -36038,7 +38883,8 @@ var OpenAI = class {
       logLevel: this.logLevel,
       fetch: this.fetch,
       fetchOptions: this.fetchOptions,
-      apiKey: this.apiKey,
+      apiKey: this._options.apiKey,
+      adminAPIKey: this.adminAPIKey,
       workloadIdentity: this._options.workloadIdentity,
       organization: this.organization,
       project: this.project,
@@ -36050,11 +38896,44 @@ var OpenAI = class {
   defaultQuery() {
     return this._options.defaultQuery;
   }
-  validateHeaders({ values, nulls }) {
-    return;
+  validateHeaders({ values, nulls }, schemes = {
+    bearerAuth: true,
+    adminAPIKeyAuth: true
+  }) {
+    if (values.get("authorization") || values.get("api-key")) {
+      return;
+    }
+    if (nulls.has("authorization") || nulls.has("api-key")) {
+      return;
+    }
+    if (this._workloadIdentityAuth && schemes.bearerAuth) {
+      return;
+    }
+    throw new Error('Could not resolve authentication method. Expected either apiKey or adminAPIKey to be set. Or for one of the "Authorization" or "api-key" headers to be explicitly omitted');
   }
-  async authHeaders(opts) {
+  async authHeaders(opts, schemes = {
+    bearerAuth: true,
+    adminAPIKeyAuth: true
+  }) {
+    return buildHeaders2([
+      schemes.bearerAuth ? await this.bearerAuth(opts) : null,
+      schemes.adminAPIKeyAuth ? await this.adminAPIKeyAuth(opts) : null
+    ]);
+  }
+  async bearerAuth(opts) {
+    if (this._workloadIdentityAuth) {
+      return buildHeaders2([{ Authorization: `Bearer ${await this._workloadIdentityAuth.getToken()}` }]);
+    }
+    if (this.apiKey == null) {
+      return void 0;
+    }
     return buildHeaders2([{ Authorization: `Bearer ${this.apiKey}` }]);
+  }
+  async adminAPIKeyAuth(opts) {
+    if (this.adminAPIKey == null) {
+      return void 0;
+    }
+    return buildHeaders2([{ Authorization: `Bearer ${this.adminAPIKey}` }]);
   }
   stringifyQuery(query) {
     return stringifyQuery2(query);
@@ -36107,7 +38986,10 @@ var OpenAI = class {
    * Used as a callback for mutating the given `FinalRequestOptions` object.
    */
   async prepareOptions(options) {
-    await this._callApiKey();
+    const security = options.__security ?? { bearerAuth: true };
+    if (security.bearerAuth) {
+      await this._callApiKey();
+    }
   }
   /**
    * Used as a callback for mutating the given `RequestInit` object.
@@ -36164,8 +39046,9 @@ var OpenAI = class {
     if (options.signal?.aborted) {
       throw new APIUserAbortError2();
     }
+    const security = options.__security ?? { bearerAuth: true };
     const controller = new AbortController();
-    const response = await this.fetchWithAuth(url, req, timeout, controller).catch(castToError2);
+    const response = await this.fetchWithAuth(url, req, timeout, controller, security).catch(castToError2);
     const headersTime = Date.now();
     if (response instanceof globalThis.Error) {
       const retryMessage = `retrying, ${retriesRemaining} attempts remaining`;
@@ -36201,7 +39084,7 @@ var OpenAI = class {
     const specialHeaders = [...response.headers.entries()].filter(([name]) => name === "x-request-id").map(([name, value]) => ", " + name + ": " + JSON.stringify(value)).join("");
     const responseInfo = `[${requestLogID}${retryLogStr}${specialHeaders}] ${req.method} ${url} ${response.ok ? "succeeded" : "failed"} with status ${response.status} in ${headersTime - startTime}ms`;
     if (!response.ok) {
-      if (response.status === 401 && this._workloadIdentityAuth && !options.__metadata?.["hasStreamingBody"] && !options.__metadata?.["workloadIdentityTokenRefreshed"]) {
+      if (response.status === 401 && this._workloadIdentityAuth && security.bearerAuth && !options.__metadata?.["hasStreamingBody"] && !options.__metadata?.["workloadIdentityTokenRefreshed"]) {
         await CancelReadableStream2(response.body);
         this._workloadIdentityAuth.invalidateToken();
         return this.makeRequest({
@@ -36259,8 +39142,11 @@ var OpenAI = class {
     const request = this.makeRequest(options, null, void 0);
     return new PagePromise2(this, request, Page3);
   }
-  async fetchWithAuth(url, init, timeout, controller) {
-    if (this._workloadIdentityAuth) {
+  async fetchWithAuth(url, init, timeout, controller, schemes = {
+    bearerAuth: true,
+    adminAPIKeyAuth: true
+  }) {
+    if (this._workloadIdentityAuth && schemes.bearerAuth) {
       const headers = init.headers;
       const authHeader = headers.get("Authorization");
       if (!authHeader || authHeader === `Bearer ${WORKLOAD_IDENTITY_API_KEY_PLACEHOLDER}`) {
@@ -36386,12 +39272,12 @@ var OpenAI = class {
         "OpenAI-Organization": this.organization,
         "OpenAI-Project": this.project
       },
-      await this.authHeaders(options),
+      await this.authHeaders(options, options.__security ?? { bearerAuth: true }),
       this._options.defaultHeaders,
       bodyHeaders,
       options.headers
     ]);
-    this.validateHeaders(headers);
+    this.validateHeaders(headers, options.__security ?? { bearerAuth: true });
     return headers.values;
   }
   _makeAbort(controller) {
@@ -36466,6 +39352,7 @@ OpenAI.Webhooks = Webhooks;
 OpenAI.Beta = Beta2;
 OpenAI.Batches = Batches3;
 OpenAI.Uploads = Uploads;
+OpenAI.Admin = Admin;
 OpenAI.Responses = Responses;
 OpenAI.Realtime = Realtime2;
 OpenAI.Conversations = Conversations;
@@ -54785,21 +57672,56 @@ function extractFirstJsonObject(text) {
 // src/agents/refiner/schema.ts
 var REFINER_OUTPUT_SCHEMA = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
-  $id: "https://ferry.dev/schemas/refiner-output.v1.json",
+  $id: "https://ferry.dev/schemas/refiner-output.v2.json",
   type: "object",
-  required: ["subtasks", "touch_paths", "output_locale", "audit_summary"],
+  required: ["actions", "touch_paths", "output_locale", "audit_summary"],
   additionalProperties: false,
   properties: {
-    subtasks: {
+    actions: {
       type: "array",
+      minItems: 1,
       items: {
-        type: "object",
-        required: ["title", "description"],
-        additionalProperties: false,
-        properties: {
-          title: { type: "string", minLength: 1, maxLength: 200 },
-          description: { type: "string", minLength: 1, maxLength: 4e3 }
-        }
+        anyOf: [
+          {
+            type: "object",
+            required: ["type", "title", "description"],
+            additionalProperties: false,
+            properties: {
+              type: { const: "create" },
+              title: { type: "string", minLength: 1, maxLength: 200 },
+              description: { type: "string", minLength: 1, maxLength: 4e3 }
+            }
+          },
+          {
+            type: "object",
+            required: ["type", "existing_key", "reason"],
+            additionalProperties: false,
+            properties: {
+              type: { const: "keep" },
+              existing_key: { type: "string", minLength: 1 },
+              reason: { type: "string", minLength: 1 }
+            }
+          },
+          {
+            type: "object",
+            required: ["type", "existing_key", "reason"],
+            additionalProperties: false,
+            properties: {
+              type: { const: "mark_stale" },
+              existing_key: { type: "string", minLength: 1 },
+              reason: { type: "string", minLength: 1 }
+            }
+          },
+          {
+            type: "object",
+            required: ["type", "reason"],
+            additionalProperties: false,
+            properties: {
+              type: { const: "noop" },
+              reason: { type: "string", minLength: 1 }
+            }
+          }
+        ]
       }
     },
     touch_paths: {
@@ -54825,18 +57747,22 @@ var ajvModule2 = _require3("ajv/dist/2020");
 var ajvInstance2 = new ajvModule2.Ajv2020({ strict: true });
 var validatePlan = ajvInstance2.compile(REFINER_OUTPUT_SCHEMA);
 var SCHEMA_EXAMPLE = `{
-  "subtasks": [
-    {
-      "title": "imperative verb, specific, max 200 chars",
-      "description": "concrete acceptance criteria, file paths, done criteria; max 4000 chars"
-    }
+  "actions": [
+    { "type": "create", "title": "imperative verb, specific, max 200 chars", "description": "concrete acceptance criteria; max 4000 chars" },
+    { "type": "keep", "existing_key": "PROJ-91", "reason": "still valid" },
+    { "type": "mark_stale", "existing_key": "PROJ-92", "reason": "superseded by ticket edit" },
+    { "type": "noop", "reason": "ticket and existing sub-tasks unchanged" }
   ],
   "touch_paths": ["src/path/to/file.ts"],
   "output_locale": "en",
   "audit_summary": "one sentence summarising the plan"
 }`;
+function formatExistingSubtasks(subtasks) {
+  if (subtasks.length === 0) return "(none)";
+  return subtasks.map((s2) => `- [${s2.key}] ${s2.title} (status: ${s2.status})`).join("\n");
+}
 function buildPrompt(input) {
-  const block = [
+  const ticketBlock = [
     `TICKET ${input.ticket.key}`,
     `TITLE: ${input.ticket.title}`,
     `LABELS: ${input.ticket.labels.join(", ")}`,
@@ -54845,12 +57771,27 @@ ${input.ticket.description}`,
     `COMMENTS:
 ${input.ticket.comments.join("\n---\n")}`
   ].join("\n\n");
+  const existingBlock = [
+    `EXISTING_SUBTASKS (do NOT re-create these unless the ticket has materially changed):`,
+    formatExistingSubtasks(input.existingSubtasks ?? [])
+  ].join("\n");
+  const priorRunsBlock = (input.priorRefinerRuns ?? []).length > 0 ? `PRIOR_REFINER_RUNS:
+${input.priorRefinerRuns.join("\n---\n")}` : "PRIOR_REFINER_RUNS: (none)";
   return [
-    "You are the Ferry Refiner. Decompose the ticket into concrete sub-tasks.",
+    "You are the Ferry Refiner. Analyse the ticket and its existing sub-tasks, then return a reconciliation plan.",
     "Reply with JSON only \u2014 no prose, no code fences \u2014 matching this exact schema:",
     SCHEMA_EXAMPLE,
-    'Rules: max 12 subtasks (prefer 3\u20137). output_locale must be "en" or "fr" matching the ticket language. touch_paths lists every file the subtasks will touch (max 20).',
-    delimitUntrusted(block)
+    [
+      "Rules:",
+      '- Use "noop" when the ticket and existing sub-tasks are already aligned.',
+      '- Use "keep" for existing sub-tasks that are still valid.',
+      '- Use "mark_stale" for existing sub-tasks superseded by a ticket edit.',
+      '- Use "create" only for genuinely missing sub-tasks (max 12 total; prefer 3\u20137).',
+      '- Sub-tasks with status "In Progress" or "Done" must always be "keep".',
+      '- output_locale must be "en" or "fr" matching the ticket language.',
+      "- touch_paths lists every file the new sub-tasks will touch (max 20)."
+    ].join("\n"),
+    delimitUntrusted([ticketBlock, existingBlock, priorRunsBlock].join("\n\n"))
   ].join("\n\n");
 }
 var SAMPLE_MAX = 512;
@@ -54896,10 +57837,11 @@ async function runRefiner(input) {
       cap: touchPathsCap
     });
   }
+  const createCount = parsed.actions.filter((a) => a.type === "create").length;
   return {
     plan: parsed,
     auditSummary: {
-      subtaskCount: parsed.subtasks.length,
+      subtaskCount: createCount,
       costEur: llm.usage?.costEur ?? 0,
       runLink: input.runLink,
       attachmentNames: input.ticket.attachments ?? []
@@ -54908,23 +57850,26 @@ async function runRefiner(input) {
 }
 
 // src/agents/refiner/batch.ts
+import { createHash } from "node:crypto";
 var SUBTASK_CAP = 12;
-function prepareBatch(plan, planId, cap) {
+function subtaskContentHash(title, description) {
+  return createHash("sha256").update(`${title}
+${description}`).digest("hex").slice(0, 12);
+}
+function prepareBatch(createActions, cap) {
   const subtaskCap = cap ?? (parseInt(process.env.FERRY_REFINER_SUBTASK_CAP ?? "", 10) || SUBTASK_CAP);
-  const original = plan.subtasks;
-  const truncated = original.length > subtaskCap;
-  const slice = truncated ? original.slice(0, subtaskCap) : original;
-  const subtasks = slice.map((s2, i2) => ({
+  const truncated = createActions.length > subtaskCap;
+  const slice = truncated ? createActions.slice(0, subtaskCap) : createActions;
+  const subtasks = slice.map((s2) => ({
     title: s2.title,
     description: `${s2.description}
 
-[ferry:refiner-subtask:${planId}:${i2}]`
+[ferry:refiner-subtask:${subtaskContentHash(s2.title, s2.description)}]`
   }));
   return {
     subtasks,
     truncated,
-    originalCount: original.length,
-    planId
+    originalCount: createActions.length
   };
 }
 async function applyBatch(prepared, create) {
@@ -54956,14 +57901,70 @@ function filterExistingSubtasks(prepared, existingDescriptions) {
   return { ...prepared, subtasks };
 }
 
+// src/agents/refiner/reconcile.ts
+var LOCKED_STATUSES = /* @__PURE__ */ new Set(["In Progress", "Done"]);
+async function applyActions(actions, ctx) {
+  const noopAction = actions.find((a) => a.type === "noop");
+  if (noopAction) {
+    return {
+      createdCount: 0,
+      keptCount: 0,
+      staledCount: 0,
+      noop: true,
+      noopReason: noopAction.reason
+    };
+  }
+  const existingByKey = new Map(ctx.existingSubtasks.map((s2) => [s2.key, s2]));
+  const existingDescriptions = ctx.existingSubtasks.map((s2) => s2.description);
+  const staleMarkerPrefix = `[ferry:refiner-stale:${ctx.eventId}]`;
+  let keptCount = 0;
+  let staledCount = 0;
+  for (const action of actions) {
+    if (action.type === "keep") {
+      keptCount++;
+      continue;
+    }
+    if (action.type === "mark_stale") {
+      const existing = existingByKey.get(action.existing_key);
+      if (existing && LOCKED_STATUSES.has(existing.status)) {
+        await ctx.tracker.postComment(
+          ctx.ticketKey,
+          `${staleMarkerPrefix} Would mark ${action.existing_key} stale but it is ${existing.status} \u2014 ${action.reason}`
+        );
+      } else {
+        await ctx.tracker.postComment(action.existing_key, `${staleMarkerPrefix} ${action.reason}`);
+      }
+      staledCount++;
+    }
+  }
+  const createActions = actions.filter(
+    (a) => a.type === "create"
+  );
+  let createdCount = 0;
+  if (createActions.length > 0) {
+    const batch = filterExistingSubtasks(prepareBatch(createActions), existingDescriptions);
+    const applied = await applyBatch(
+      batch,
+      (items) => Promise.all(
+        items.map((item) => ctx.tracker.createSubtask(ctx.ticketKey, item.title, item.description))
+      )
+    );
+    createdCount = applied.createdCount;
+  }
+  return { createdCount, keptCount, staledCount, noop: false };
+}
+
 // src/agents/refiner/refiner-action.ts
 var REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
+var PRIOR_RUN_MARKER = /\[ferry:refiner:[^\]]+\]/;
 async function run(envelope, deps) {
   const { ticket_key: ticketKey, event_id: eventId } = envelope;
   const logger = deps.logger ?? createLogger(eventId, "ferry:refiner-action");
   const dryRun = isDryRun();
   const issue = await deps.tracker.getIssue(ticketKey);
   const runLink = `https://github.com/${process.env.GITHUB_REPO ?? "unknown"}/actions/runs/${process.env.GITHUB_RUN_ID ?? "0"}`;
+  const existingSubtasks = await deps.tracker.getSubtaskDetails(ticketKey);
+  const priorRefinerRuns = issue.comments.filter((c) => PRIOR_RUN_MARKER.test(c));
   const { plan, auditSummary } = await runRefiner({
     ticket: {
       key: issue.key,
@@ -54972,30 +57973,43 @@ async function run(envelope, deps) {
       comments: issue.comments,
       labels: issue.labels
     },
+    existingSubtasks,
+    priorRefinerRuns,
     callLlm: deps.callLlm,
     runLink
   });
   if (dryRun) {
     logger.info("DRY_RUN \u2014 plan (no Jira writes)", {
       ticket: ticketKey,
-      subtasks: auditSummary.subtaskCount,
-      plan
+      subtaskCount: auditSummary.subtaskCount,
+      actions: plan.actions.map((a) => a.type)
     });
     return;
   }
+  const result = await applyActions(plan.actions, {
+    ticketKey,
+    eventId,
+    existingSubtasks,
+    tracker: deps.tracker
+  });
   const idempotencyMarker = `[ferry:refiner:${eventId}]`;
-  const existingSubtasks = await deps.tracker.getSubtasks(ticketKey);
-  const batch = filterExistingSubtasks(prepareBatch(plan, eventId), existingSubtasks);
-  const applied = await applyBatch(
-    batch,
-    (items) => Promise.all(
-      items.map((item) => deps.tracker.createSubtask(ticketKey, item.title, item.description))
-    )
-  );
-  logger.info("subtasks created", { ticket: ticketKey, count: applied.createdCount });
+  if (result.noop) {
+    logger.info("noop \u2014 existing sub-tasks still valid", { ticket: ticketKey });
+    await deps.tracker.postComment(
+      ticketKey,
+      `${idempotencyMarker} No changes needed \u2014 existing ${existingSubtasks.length} sub-task(s) still valid. ${result.noopReason ?? ""}`.trimEnd()
+    );
+    return;
+  }
+  logger.info("reconcile complete", {
+    ticket: ticketKey,
+    created: result.createdCount,
+    kept: result.keptCount,
+    staled: result.staledCount
+  });
   await deps.tracker.postComment(
     ticketKey,
-    `${idempotencyMarker} Refined. Created ${applied.createdCount} sub-task(s). See run: ${runLink}`
+    `${idempotencyMarker} Refined. Created ${result.createdCount}, kept ${result.keptCount}, staled ${result.staledCount} sub-task(s). See run: ${runLink}`
   );
 }
 async function main(envelope, logger) {
