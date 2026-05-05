@@ -9,14 +9,42 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+---
+
+## [0.8.0] — 2026-05-05
+
 ### Added
 
-- **Bundle-runtime smoke gate** (`scripts/smoke-bundle.sh`, `npm run smoke:bundle`) — boots each compiled `.ferry/<role>-action.js` under Node 20 with stub credentials and asserts stderr contains none of the v0.5.1 DOA failure signatures (`Dynamic require of`, `Cannot find module`, `is not a function`). Bridges the gap between the bundle drift check (verifies the bundle is current) and real execution (verifies the bundle actually runs). Wired into `release.yml` after bundle drift check and before `npm publish`; runs in parallel in `ferry-ci.yml`. Surfaced by the v0.5.1 incident (#162).
+- **GitHub step summary on agent termination** — every agent now writes a structured run-stats summary (token counts, top tool calls by output size, files touched, branch pushed) to `$GITHUB_STEP_SUMMARY`, surfacing per-run telemetry directly in the GitHub Actions UI without scraping logs (#224).
+- **Pre/post-agent command hooks** — all four composite actions (`ferry-run-{refiner,developer,reviewer,iterator}`) accept optional `pre_agent_command` and `post_agent_command` inputs that run shell commands before and after the agent step. Enables consumers to wire setup (cache warmups, secret-injection) and teardown (artifact uploads, custom telemetry) without forking the workflow (#223).
+- **Developer commits WIP and posts Jira summary on agent failure** — when the developer agent crashes mid-task, it now commits any in-progress work to a `ferry-wip/<ticket>` branch, pushes it, and posts a structured Jira comment summarizing the failure category, token usage, and the WIP branch URL. Reduces "lost work" incidents and gives operators a starting point for manual recovery (#222).
+- **3-state outcome in done tool** — agents' `done` tool now reports a 3-state `outcome` (`success` | `partial` | `blocked`) instead of a binary `actionable` flag, giving downstream automation finer-grained signal for routing decisions (#221).
+- **Developer auto-detects package manager** — the developer agent inspects `package-lock.json` / `pnpm-lock.yaml` / `yarn.lock` / `bun.lockb` and injects the detected package manager into the system prompt, eliminating mis-`npm install` runs on pnpm/yarn/bun repos (#209).
+- **Soft budget warnings at 70% / 85% of `max_tokens_per_run`** — agent loop emits warnings as it approaches the token cap, so operators see the trajectory before the cap-induced hard stop (#208).
+- **B2 FERRY\_\* repo variables wired across all agent composite actions** — selective per-agent overrides (`FERRY_DEV_MAX_INPUT_TOKENS`, `FERRY_DEV_MODEL`, provider overrides, retry/cost controls) are now plumbed through the four `ferry-run-*` composite actions. Existing consumers continue to work unchanged; new inputs default to safe empty strings (#164, #207).
+- **Content-aware re-trigger deduplication** for refiner & developer — Ferry now hashes the relevant inputs (ticket description for refiner; sub-task batch for developer) and skips re-runs that would produce the same output, cutting duplicate spend on Jira-side noisy column flips (#204).
+- **`read_file` output capped at 64 KB** with head+tail truncation — agents that grep/read large files now see a clearly-marked truncated view instead of blowing the conversation budget on a single tool call (#200).
+- **Agent-loop history pruning** — message history is now compacted (#198) and bounded by progressive tool-result compaction (d0962f2) so long-running agent runs no longer hit token-cap blow-ups from accumulated context.
+- **Bundle-runtime smoke gate** (`scripts/smoke-bundle.sh`, `npm run smoke:bundle`) — boots each compiled `.ferry/<role>-action.js` under Node 20 with stub credentials and asserts stderr contains none of the v0.5.1 DOA failure signatures (`Dynamic require of`, `Cannot find module`, `is not a function`). Bridges the gap between the bundle drift check (verifies the bundle is current) and real execution (verifies the bundle actually runs). Wired into `release.yml` after bundle drift check and before `npm publish`; runs in parallel in `ferry-ci.yml`. Surfaced by the v0.5.1 incident (#162, #172).
+
+### Changed
+
+- **LLM SDKs externalized from action bundles** — `@anthropic-ai/sdk`, `openai`, and `@google/genai` are now declared as runtime dependencies inside `.ferry/package.json` instead of being bundled into each composite-action `.js`. Cuts bundle size, speeds up CI bundle-drift checks, and lets `npm install` resolve the SDKs once per agent runtime instead of duplicating them across four bundles (#203).
 
 ### Fixed
 
+- **Iterator stays inside the project** — explore boundaries tightened to prevent the iterator from spelunking into framework internals (`node_modules/`, vendored code) when applying review feedback (#206).
+- **`ferry.config.json` reloaded from `base_branch` on every agent run** — previously the config was cached from the dispatch event, so consumer-side config edits between runs were silently ignored (#199).
+- **Bundle CI drift resolved permanently** — `npm run build:ferry` now produces deterministic output across runners; CI no longer trips on whitespace-only or ordering deltas (#205).
+- **`cache_read_input_tokens` weighted at 0.1×** in the agent-loop budget cap — previously cache reads counted at full price against the per-run cap, causing premature termination on prompts with heavy cached context (#196).
+- **`read_file` capped at 256 KB with bash truncation marker** — second-tier safety net that prevents catastrophic memory blow-ups on adversarial inputs (#197, issue #185).
 - **Refiner JSON parser hardened against LLM prose preamble and trailing prose (D9)** — replaced the previous fence-strip-then-parse approach with a bracket-counting extractor (`src/agents/refiner/parse.ts`) that finds the first balanced `{...}` substring in the raw LLM output. Any preamble ("Here is the plan:"), trailing prose, or code-fenced wrapping is now transparent to the parser. Resolves the confirmed prod failure from run `25262368292` (`big-emotion/ethniafrica`, 2026-05-02, `ferry-run-refiner@v0.5.2`).
 - **`ferry-update` now prints manual follow-ups from `MIGRATIONS.md`** — `getRelevantMigrations()` previously returned an empty array for every upgrade because `MIGRATIONS` was a stub object. It now parses `MIGRATIONS.md` at runtime, collecting all entries whose target version falls between `fromVersion` and `toVersion` (multi-hop upgrades are handled in a single pass). Consumers upgrading from v0.3.x will now see the critical `FERRY_ANTHROPIC_API_KEY → ANTHROPIC_API_KEY` rename action they previously missed silently. Closes #161 (D6).
+
+### Dependencies
+
+- Bumped `@anthropic-ai/sdk` (0.91.1 → 0.93.0), `openai` (6.34.0 → 6.36.0), `@google/genai` (1.50.1 → 1.52.0), and the typescript-toolchain group.
+- Bumped CI actions: `actions/checkout@v4 → @v6`, `actions/setup-node@v4.1.0 → @v6.4.0`, `actions/upload-artifact@v4.6.2 → @v7.0.1`, `github/codeql-action@v3 → @v4`.
 
 ---
 
