@@ -8,6 +8,9 @@
 #                     FERRY_MAX_COST_EUR_PER_RUN (default: 10)
 #                     FERRY_LLM_RETRY_MAX_ATTEMPTS (default: 3)
 #                     FERRY_JIRA_RETRY_MAX_ATTEMPTS (default: 3)
+# Action inputs:      pre_agent_command (optional) — shell command to run before the agent (e.g. npm ci)
+#                     pre_agent_timeout_minutes (optional, default: 3)
+#                     post_agent_command (optional) — shell command to run after the agent (always runs)
 
 name: Ferry — Refine
 
@@ -65,6 +68,9 @@ jobs:
           ferry_max_cost_eur_per_run: ${{ vars.FERRY_MAX_COST_EUR_PER_RUN }}
           ferry_llm_retry_max_attempts: ${{ vars.FERRY_LLM_RETRY_MAX_ATTEMPTS }}
           ferry_jira_retry_max_attempts: ${{ vars.FERRY_JIRA_RETRY_MAX_ATTEMPTS }}
+          # pre_agent_command: npm ci  # uncomment to install deps before the agent
+          # pre_agent_timeout_minutes: '3'
+          # post_agent_command: ''  # uncomment to run cleanup after the agent
 
   emit-audit:
     name: Emit audit line

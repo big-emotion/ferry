@@ -63,6 +63,18 @@ inputs:
     description: Maximum Jira API retry attempts per operation
     required: false
     default: ''
+  pre_agent_command:
+    description: Optional shell command to run after checkout but before the agent (e.g. npm ci, cache restore)
+    required: false
+    default: ''
+  pre_agent_timeout_minutes:
+    description: Timeout in minutes for the pre-agent command (default 3)
+    required: false
+    default: '3'
+  post_agent_command:
+    description: Optional shell command to run after the agent; always executes (e.g. cleanup, reporting)
+    required: false
+    default: ''
 outputs:
   input_tokens:
     description: Number of LLM input tokens consumed
@@ -93,6 +105,11 @@ runs:
         FERRY_JIRA_BASE_URL: ${{ inputs.jira_base_url }}
         FERRY_JIRA_EMAIL: ${{ inputs.jira_email }}
         FERRY_JIRA_API_TOKEN: ${{ inputs.jira_api_token }}
+    - name: Pre-agent setup
+      if: inputs.pre_agent_command != ''
+      shell: bash
+      timeout-minutes: ${{ fromJSON(inputs.pre_agent_timeout_minutes) }}
+      run: ${{ inputs.pre_agent_command }}
     - name: Run Iterator agent
       id: run-iterator
       shell: bash
@@ -117,3 +134,7 @@ runs:
         FERRY_LLM_RETRY_MAX_ATTEMPTS: ${{ inputs.ferry_llm_retry_max_attempts }}
         FERRY_JIRA_RETRY_MAX_ATTEMPTS: ${{ inputs.ferry_jira_retry_max_attempts }}
         FERRY_BUNDLED_PROMPTS_DIR: ${{ github.action_path }}/prompts
+    - name: Post-agent command
+      if: always() && inputs.post_agent_command != ''
+      shell: bash
+      run: ${{ inputs.post_agent_command }}
