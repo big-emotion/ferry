@@ -1,11 +1,9 @@
-import Anthropic from '@anthropic-ai/sdk';
-import { resolveAnthropicAuth } from '../../lib/llm/anthropic-auth.js';
+import { createToolCallLoop } from '../../lib/llm/tool-loop/index.js';
 import { delimitUntrusted } from '../../lib/llm/delimit-untrusted.js';
 import { checkIdempotencyMarker } from '../../lib/io/idempotency.js';
 import { gateCi } from './ci-gate.js';
 import { detectMergeConflicts, buildFileList, runReviewLoop } from './review-loop.js';
 import { resolveCapabilities } from '../../lib/labels/capabilities.js';
-import { FerryError } from '../../lib/errors/index.js';
 import {
   requireEnv,
   appendOutput,
@@ -35,15 +33,6 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
   const { baseBranch } = await resolveGitConfig(initialCfg, runner, owner, repo);
   const ferryCfg = loadFerryConfigFromBaseBranch(baseBranch, REPO_ROOT, initialCfg);
   const { provider, model } = ferryCfg.models.review;
-  if (provider !== 'anthropic') {
-    throw new FerryError('state-invariant', {
-      reason: 'unsupported-provider',
-      provider,
-      phase: 'reviewer',
-      detail:
-        "The reviewer phase requires provider 'anthropic'. OpenAI and Google support for agentic phases is planned for a future release.",
-    });
-  }
   const reviewerWorkflow = ferryCfg.workflow.agents.reviewer;
   const shouldTransitionChanges = reviewerWorkflow.auto_transition_changes !== null;
   const shouldTransitionApprove = reviewerWorkflow.auto_transition_approve !== null;
@@ -169,7 +158,7 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
     extraParts: [loadOptionalPrompt('review-comment', REPO_ROOT)],
     separator: '\n\n---\n\n',
   });
-  const anthropic = new Anthropic(resolveAnthropicAuth({ apiKeyEnv: 'ANTHROPIC_API_KEY' }));
+  const loop = createToolCallLoop({ provider, model });
 
   const {
     result: review,
@@ -179,8 +168,7 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
     toolCounts: reviewToolCounts,
     toolCallRecords: reviewToolCallRecords,
   } = await runReviewLoop({
-    anthropic,
-    model,
+    loop,
     system,
     initialPrompt,
     fileMap,

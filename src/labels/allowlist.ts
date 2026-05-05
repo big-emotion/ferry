@@ -31,4 +31,5 @@ export const LABELS_ALLOWLIST = [
   'ferry:envelope',
   'ferry:dev-loop',
   'ferry:review-loop',
+  'ferry:tool-loop',
 ] as const;

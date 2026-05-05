@@ -1,10 +1,13 @@
 # Copy this file to .github/workflows/ferry-review.yml in your repository.
 # Replace @v0.8.0 with the Ferry release tag you want to pin.
 # Required secrets: FERRY_JIRA_BASE_URL, FERRY_JIRA_EMAIL, FERRY_JIRA_API_TOKEN,
-#                   ANTHROPIC_API_KEY, FERRY_ITER_TRANSITION_ID
+#                   FERRY_ITER_TRANSITION_ID
+#                   ANTHROPIC_API_KEY    — required when FERRY_REVIEW_PROVIDER=anthropic (default)
+#                   OPENAI_API_KEY       — required when FERRY_REVIEW_PROVIDER=openai
+#                   GOOGLE_API_KEY       — required when FERRY_REVIEW_PROVIDER=google
 # Required variables: FERRY_AUDIT_ISSUE (GitHub Issue number for the audit log)
 # Optional variables: FERRY_REVIEW_MODEL (default: claude-sonnet-4-6)
-#                     FERRY_REVIEW_PROVIDER (default: anthropic)
+#                     FERRY_REVIEW_PROVIDER (default: anthropic; also: openai, google)
 #                     FERRY_REVIEWER_MAX_ITERATIONS (default: 40)
 #                     FERRY_REVIEWER_MAX_TOKENS (default: 16384)
 #                     FERRY_MAX_COST_EUR_PER_RUN (default: 10)
@@ -13,6 +16,8 @@
 # Action inputs:      pre_agent_command (optional) — shell command to run before the agent (e.g. npm ci)
 #                     pre_agent_timeout_minutes (optional, default: 3)
 #                     post_agent_command (optional) — shell command to run after the agent (always runs)
+#
+# Note: MCP server support is not available for non-Anthropic providers in the Reviewer agent.
 
 name: Ferry — Review
 
@@ -73,6 +78,8 @@ jobs:
           jira_api_token: ${{ secrets.FERRY_JIRA_API_TOKEN }}
           ferry_iter_transition_id: ${{ secrets.FERRY_ITER_TRANSITION_ID }}
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          openai_api_key: ${{ secrets.OPENAI_API_KEY }}
+          google_api_key: ${{ secrets.GOOGLE_API_KEY }}
           github_token: ${{ github.token }}
           github_repo: ${{ github.repository }}
           ferry_review_model: ${{ vars.FERRY_REVIEW_MODEL || 'claude-sonnet-4-6' }}
