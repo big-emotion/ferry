@@ -1,7 +1,8 @@
 # 0003 — Anthropic Messages API over Agent SDK
 
 **Status:** Accepted  
-**Date:** 2024-01-01
+**Date:** 2024-01-01  
+**See also:** [docs/decisions/0001-vercel-ai-sdk-evaluation.md](../decisions/0001-vercel-ai-sdk-evaluation.md) — May 2026 spike evaluating Vercel AI SDK as a multi-provider loop foundation; rejected (HTTP MCP gap + `ToolLoopAgent` not stable).
 
 ## Context
 
