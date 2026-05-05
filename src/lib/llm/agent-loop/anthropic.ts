@@ -52,6 +52,24 @@ interface McpToolsetParam {
 
 type ContentLike = { type: string; [key: string]: unknown };
 
+const KEEP_LAST_TURNS = 6;
+const STUB = '[truncated: tool result elided to save context]';
+
+function pruneMessageHistory(messages: MessageParam[]): void {
+  // messages[0] carries the cached seed — never touch it.
+  const cutoff = messages.length - KEEP_LAST_TURNS * 2;
+  if (cutoff <= 1) return;
+  for (let i = 1; i < cutoff; i++) {
+    const msg = messages[i];
+    if (msg.role !== 'user' || !Array.isArray(msg.content)) continue;
+    const content = msg.content as ToolResultBlockParam[];
+    if (!content.some((b) => b.type === 'tool_result' && b.content !== STUB)) continue;
+    msg.content = content.map((b) =>
+      b.type === 'tool_result' && b.content !== STUB ? { ...b, content: STUB } : b,
+    );
+  }
+}
+
 interface ApiResponse {
   stop_reason: string;
   content: ContentLike[];
@@ -252,6 +270,8 @@ export function createAnthropicAgentLoop(opts: {
             usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens,
         });
       }
+
+      pruneMessageHistory(messages);
 
       const baseParams = {
         model: opts.model,
