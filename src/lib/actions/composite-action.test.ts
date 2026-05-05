@@ -104,10 +104,9 @@ describe('composite action step-key allowlist', () => {
     it(`${actionName}/action.yml — only uses allowlisted step keys`, () => {
       const content = readFileSync(join(ACTIONS_DIR, actionName, 'action.yml'), 'utf-8');
 
-      expect(
-        content,
-        `${actionName}/action.yml must declare a composite action`,
-      ).toContain('using: composite');
+      expect(content, `${actionName}/action.yml must declare a composite action`).toContain(
+        'using: composite',
+      );
 
       const steps = extractCompositeStepKeys(content);
       expect(
