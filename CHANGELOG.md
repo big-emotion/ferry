@@ -11,6 +11,20 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.9.0] — 2026-05-05
+
+### Added
+
+- **Multi-provider support for Reviewer agent (Phase 2)** — the Reviewer can now run on OpenAI and Google in addition to Anthropic, completing the multi-provider rollout begun with the Developer agent. Provider selection follows the same precedence as the other agents (per-agent override → global default → bundled default), and the per-agent `FERRY_REVIEWER_*` repo variables are now plumbed end-to-end through the `ferry-run-reviewer` composite action (#231).
+
+### Fixed
+
+- **Agent runtime number formatting pinned to `en-US` locale** — token counts, byte sizes, and other numeric values rendered in agent step summaries and structured logs are now formatted with `Intl.NumberFormat('en-US')` instead of the runner's default locale. Removes locale-sensitive separators (e.g. `1.234.567` on de_DE runners) that broke downstream parsers and made grep-driven log triage inconsistent across runners.
+- **Agent loop strips `cache_control` from all blocks in the prior tool-results turn** — previously only the trailing block was sanitized, so multi-block tool-result turns left stale cache-control markers on earlier blocks, occasionally tripping `cache_control` validation errors on subsequent Anthropic calls.
+- **`timeout-minutes` removed from remaining composite-action steps + validation test added** — completes the v0.8.1 fix by stripping `timeout-minutes:` from any remaining composite-action steps in the bundled actions and adding a structural test (`composite-action.test.ts`) that fails CI if a composite step ever reintroduces the unsupported key (#232, follow-up to #229).
+
+---
+
 ## [0.8.2] — 2026-05-05
 
 ### Fixed
@@ -243,7 +257,8 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
-[Unreleased]: https://github.com/big-emotion/ferry/compare/v0.8.2...HEAD
+[Unreleased]: https://github.com/big-emotion/ferry/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/big-emotion/ferry/releases/tag/v0.9.0
 [0.8.2]: https://github.com/big-emotion/ferry/releases/tag/v0.8.2
 [0.8.1]: https://github.com/big-emotion/ferry/releases/tag/v0.8.1
 [0.8.0]: https://github.com/big-emotion/ferry/releases/tag/v0.8.0
