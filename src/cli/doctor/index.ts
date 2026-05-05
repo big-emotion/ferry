@@ -72,8 +72,16 @@ function parseConfig(argv: string[]): DoctorConfig {
     jiraApiToken: getArg(argv, '--jira-token') ?? process.env['FERRY_JIRA_API_TOKEN'] ?? '',
     jiraProjectKey: getArg(argv, '--jira-project') ?? process.env['FERRY_JIRA_PROJECT_KEY'] ?? '',
     anthropicApiKey: getArg(argv, '--anthropic-key') ?? process.env['ANTHROPIC_API_KEY'] ?? '',
-    openaiApiKey: getArg(argv, '--openai-key') ?? process.env['FERRY_OPENAI_KEY'] ?? '',
-    googleApiKey: getArg(argv, '--google-key') ?? process.env['FERRY_GOOGLE_AI_KEY'] ?? '',
+    openaiApiKey:
+      getArg(argv, '--openai-key') ??
+      process.env['OPENAI_API_KEY'] ??
+      process.env['FERRY_OPENAI_KEY'] ??
+      '',
+    googleApiKey:
+      getArg(argv, '--google-key') ??
+      process.env['GOOGLE_API_KEY'] ??
+      process.env['FERRY_GOOGLE_AI_KEY'] ??
+      '',
     ferryVersion: getArg(argv, '--version') ?? 'v1',
     repoRoot: getArg(argv, '--repo-root') ?? process.cwd(),
     noDispatch: hasFlag(argv, '--no-dispatch'),
@@ -156,6 +164,7 @@ Exit code: 0 if all checks green/yellow, 1 if any check red.
       openaiApiKey: config.openaiApiKey,
       googleApiKey: config.googleApiKey,
       repoRoot: config.repoRoot,
+      repo: config.repo,
     }),
     checkSyntheticDispatch({ repo: config.repo, noDispatch: config.noDispatch }),
     checkWorkflowDrift({ repoRoot: config.repoRoot, ferryVersion: config.ferryVersion }),

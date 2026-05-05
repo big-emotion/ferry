@@ -5,8 +5,13 @@ export function workflowTemplates(version: string): WorkflowEntry[] {
     {
       filename: 'ferry-refine.yml',
       content: `# Managed by ferry-init. Re-run \`npx -p @big-emotion/ferry ferry-init\` to update.
-# Required secrets: FERRY_JIRA_BASE_URL, FERRY_JIRA_EMAIL, FERRY_JIRA_API_TOKEN, ANTHROPIC_API_KEY
+# Required secrets: FERRY_JIRA_BASE_URL, FERRY_JIRA_EMAIL, FERRY_JIRA_API_TOKEN
+#                   ANTHROPIC_API_KEY  — required when FERRY_REFINER_PROVIDER=anthropic (default)
+#                   OPENAI_API_KEY     — required when FERRY_REFINER_PROVIDER=openai
+#                   GOOGLE_API_KEY     — required when FERRY_REFINER_PROVIDER=google
 # Required variables: FERRY_AUDIT_ISSUE (GitHub Issue number for the audit log)
+# Optional variables: FERRY_REFINER_PROVIDER (default: anthropic; also: openai, google)
+#                     FERRY_REFINER_MODEL (default: claude-sonnet-4-6; use model ID matching your provider)
 
 name: Ferry — Refine
 
@@ -58,6 +63,8 @@ jobs:
           jira_email: \${{ secrets.FERRY_JIRA_EMAIL }}
           jira_api_token: \${{ secrets.FERRY_JIRA_API_TOKEN }}
           anthropic_api_key: \${{ secrets.ANTHROPIC_API_KEY }}
+          openai_api_key: \${{ secrets.OPENAI_API_KEY }}
+          google_api_key: \${{ secrets.GOOGLE_API_KEY }}
           ferry_refiner_model: claude-sonnet-4-6
 
   emit-audit:
@@ -88,8 +95,15 @@ jobs:
       filename: 'ferry-dev.yml',
       content: `# Managed by ferry-init. Re-run \`npx -p @big-emotion/ferry ferry-init\` to update.
 # Required secrets: FERRY_JIRA_BASE_URL, FERRY_JIRA_EMAIL, FERRY_JIRA_API_TOKEN,
-#                   ANTHROPIC_API_KEY, FERRY_REVIEW_TRANSITION_ID
+#                   FERRY_REVIEW_TRANSITION_ID
+#                   ANTHROPIC_API_KEY  — required when FERRY_DEV_PROVIDER=anthropic (default)
+#                   OPENAI_API_KEY     — required when FERRY_DEV_PROVIDER=openai
+#                   GOOGLE_API_KEY     — required when FERRY_DEV_PROVIDER=google
 # Required variables: FERRY_AUDIT_ISSUE (GitHub Issue number for the audit log)
+# Optional variables: FERRY_DEV_PROVIDER (default: anthropic; also: openai, google)
+#                     FERRY_DEV_MODEL (default: claude-sonnet-4-6; use model ID matching your provider)
+#
+# Note: MCP server support is not available for non-Anthropic providers in the Developer agent.
 
 name: Ferry — Dev
 
@@ -148,6 +162,8 @@ jobs:
           jira_api_token: \${{ secrets.FERRY_JIRA_API_TOKEN }}
           ferry_review_transition_id: \${{ secrets.FERRY_REVIEW_TRANSITION_ID }}
           anthropic_api_key: \${{ secrets.ANTHROPIC_API_KEY }}
+          openai_api_key: \${{ secrets.OPENAI_API_KEY }}
+          google_api_key: \${{ secrets.GOOGLE_API_KEY }}
           github_token: \${{ github.token }}
           github_repo: \${{ github.repository }}
           ferry_dev_model: claude-sonnet-4-6
@@ -182,9 +198,15 @@ jobs:
       filename: 'ferry-review.yml',
       content: `# Managed by ferry-init. Re-run \`npx -p @big-emotion/ferry ferry-init\` to update.
 # Required secrets: FERRY_JIRA_BASE_URL, FERRY_JIRA_EMAIL, FERRY_JIRA_API_TOKEN,
-#                   ANTHROPIC_API_KEY, FERRY_ITER_TRANSITION_ID
+#                   FERRY_ITER_TRANSITION_ID
+#                   ANTHROPIC_API_KEY  — required when FERRY_REVIEW_PROVIDER=anthropic (default)
+#                   OPENAI_API_KEY     — required when FERRY_REVIEW_PROVIDER=openai
+#                   GOOGLE_API_KEY     — required when FERRY_REVIEW_PROVIDER=google
 # Required variables: FERRY_AUDIT_ISSUE (GitHub Issue number for the audit log)
-# Optional variables: FERRY_REVIEW_MODEL (default: claude-sonnet-4-6)
+# Optional variables: FERRY_REVIEW_PROVIDER (default: anthropic; also: openai, google)
+#                     FERRY_REVIEW_MODEL (default: claude-sonnet-4-6; use model ID matching your provider)
+#
+# Note: MCP server support is not available for non-Anthropic providers in the Reviewer agent.
 
 name: Ferry — Review
 
@@ -245,6 +267,8 @@ jobs:
           jira_api_token: \${{ secrets.FERRY_JIRA_API_TOKEN }}
           ferry_iter_transition_id: \${{ secrets.FERRY_ITER_TRANSITION_ID }}
           anthropic_api_key: \${{ secrets.ANTHROPIC_API_KEY }}
+          openai_api_key: \${{ secrets.OPENAI_API_KEY }}
+          google_api_key: \${{ secrets.GOOGLE_API_KEY }}
           github_token: \${{ github.token }}
           github_repo: \${{ github.repository }}
           ferry_review_model: \${{ vars.FERRY_REVIEW_MODEL || 'claude-sonnet-4-6' }}
@@ -279,10 +303,16 @@ jobs:
       filename: 'ferry-iterate.yml',
       content: `# Managed by ferry-init. Re-run \`npx -p @big-emotion/ferry ferry-init\` to update.
 # Required secrets: FERRY_JIRA_BASE_URL, FERRY_JIRA_EMAIL, FERRY_JIRA_API_TOKEN,
-#                   ANTHROPIC_API_KEY, FERRY_REVIEW_TRANSITION_ID
+#                   FERRY_REVIEW_TRANSITION_ID
+#                   ANTHROPIC_API_KEY  — required when FERRY_ITER_PROVIDER=anthropic (default)
+#                   OPENAI_API_KEY     — required when FERRY_ITER_PROVIDER=openai
+#                   GOOGLE_API_KEY     — required when FERRY_ITER_PROVIDER=google
 # Required variables: FERRY_AUDIT_ISSUE (GitHub Issue number for the audit log)
-# Optional variables: FERRY_ITER_MODEL (default: claude-sonnet-4-6)
+# Optional variables: FERRY_ITER_PROVIDER (default: anthropic; also: openai, google)
+#                     FERRY_ITER_MODEL (default: claude-sonnet-4-6; use model ID matching your provider)
 #                     FERRY_ITER_MAX_INPUT_TOKENS (default: 500000)
+#
+# Note: MCP server support is not available for non-Anthropic providers in the Iterator agent.
 
 name: Ferry — Iterate
 
@@ -344,6 +374,8 @@ jobs:
           jira_api_token: \${{ secrets.FERRY_JIRA_API_TOKEN }}
           ferry_review_transition_id: \${{ secrets.FERRY_REVIEW_TRANSITION_ID }}
           anthropic_api_key: \${{ secrets.ANTHROPIC_API_KEY }}
+          openai_api_key: \${{ secrets.OPENAI_API_KEY }}
+          google_api_key: \${{ secrets.GOOGLE_API_KEY }}
           github_token: \${{ github.token }}
           github_repo: \${{ github.repository }}
           ferry_iter_model: \${{ vars.FERRY_ITER_MODEL || 'claude-sonnet-4-6' }}

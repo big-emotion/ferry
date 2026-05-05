@@ -20,7 +20,7 @@ import { installWorkflows, scaffoldCodeowners } from './steps/workflows.js';
 import { stepJiraBundle, DEFAULT_STATUS_NAMES } from './steps/jira-bundle.js';
 import { resolveJiraWorkspaceId, resolveJiraProjectId } from './steps/jira-resolve.js';
 import { stepVerify } from './steps/verify.js';
-import type { FerryConfig } from './types.js';
+import type { FerryConfig, LlmProvider } from './types.js';
 
 const FERRY_VERSION_DEFAULT = 'v1';
 
@@ -154,8 +154,45 @@ async function main(): Promise<void> {
   const iteratorAutoTransition = await ask('Iterator → after iteration (moves to)', 'In Review');
 
   print('');
-  print('LLM provider:');
+  print('LLM provider per phase (anthropic / openai / google, default: anthropic):');
+  print('  Note: MCP server support (labels, context7, etc.) requires Anthropic.');
+
+  function validateProvider(input: string): LlmProvider {
+    const lower = input.toLowerCase().trim();
+    if (lower === 'openai' || lower === 'google' || lower === 'anthropic') return lower;
+    return 'anthropic';
+  }
+
+  const refinerProviderRaw = await ask('Refiner provider', 'anthropic');
+  const devProviderRaw = await ask('Developer provider', 'anthropic');
+  const reviewProviderRaw = await ask('Reviewer provider', 'anthropic');
+  const iterateProviderRaw = await ask('Iterator provider', 'anthropic');
+
+  const refinerProvider = validateProvider(refinerProviderRaw);
+  const devProvider = validateProvider(devProviderRaw);
+  const reviewProvider = validateProvider(reviewProviderRaw);
+  const iterateProvider = validateProvider(iterateProviderRaw);
+
+  const needsOpenAI = [refinerProvider, devProvider, reviewProvider, iterateProvider].includes(
+    'openai',
+  );
+  const needsGoogle = [refinerProvider, devProvider, reviewProvider, iterateProvider].includes(
+    'google',
+  );
+
+  print('');
+  print('API keys:');
   const anthropicApiKey = await askSecret('Anthropic API key (sk-ant-...)');
+
+  let openaiApiKey = '';
+  if (needsOpenAI) {
+    openaiApiKey = await askSecret('OpenAI API key (sk-...)');
+  }
+
+  let googleApiKey = '';
+  if (needsGoogle) {
+    googleApiKey = await askSecret('Google AI API key');
+  }
 
   closePrompt();
 
@@ -172,6 +209,12 @@ async function main(): Promise<void> {
     jiraWorkspaceId: workspaceId,
     jiraProjectId: projectId,
     anthropicApiKey,
+    openaiApiKey: openaiApiKey || undefined,
+    googleApiKey: googleApiKey || undefined,
+    refinerProvider,
+    devProvider,
+    reviewProvider,
+    iterateProvider,
   };
 
   // ── Step 2: Secrets ───────────────────────────────────────────────────────
@@ -193,7 +236,36 @@ async function main(): Promise<void> {
   const configPath = join(repoRoot, 'ferry.config.yaml');
   if (!existsSync(configPath) || overwrite) {
     const nullable = (val: string): string => (val.trim() ? `"${val.trim()}"` : 'null');
+
+    const DEFAULT_MODELS: Record<string, string> = {
+      anthropic: 'claude-sonnet-4-6',
+      openai: 'gpt-4o',
+      google: 'gemini-2.5-pro',
+    };
+
+    const phaseProviders: Array<[string, string]> = [
+      ['refiner', refinerProvider],
+      ['dev', devProvider],
+      ['review', reviewProvider],
+      ['iterate', iterateProvider],
+    ];
+    const nonDefaultPhases = phaseProviders.filter(([, p]) => p !== 'anthropic');
+
+    const modelsBlock =
+      nonDefaultPhases.length > 0
+        ? [
+            'models:',
+            ...nonDefaultPhases.flatMap(([phase, provider]) => [
+              `  ${phase}:`,
+              `    provider: ${provider}`,
+              `    model: ${DEFAULT_MODELS[provider] ?? 'gpt-4o'}`,
+            ]),
+            '',
+          ]
+        : [];
+
     const workflowYaml = [
+      ...modelsBlock,
       'workflow:',
       '  agents:',
       '    refiner:',
@@ -213,6 +285,11 @@ async function main(): Promise<void> {
     ].join('\n');
     writeFileSync(configPath, workflowYaml, 'utf8');
     printSuccess('Generated ferry.config.yaml with workflow.agents settings');
+    if (nonDefaultPhases.length > 0) {
+      printSuccess(
+        `Added models block for non-default providers: ${nonDefaultPhases.map(([p]) => p).join(', ')}`,
+      );
+    }
   } else {
     printSkip('ferry.config.yaml already exists — skipping (use --overwrite to replace)');
   }
@@ -245,7 +322,18 @@ async function main(): Promise<void> {
   print('  3. Set spend caps on provider billing pages (see links above)');
   print('  4. Set FERRY_AUDIT_ISSUE repository variable to a GitHub Issue number');
   print('     for the audit log (create a blank issue and use its number)');
-  print('  5. Move a Jira ticket to "Refinement" — watch the Actions tab!');
+  let nextStep = 5;
+  if (needsOpenAI) {
+    print(`  ${nextStep++}. OpenAI key was set as OPENAI_API_KEY secret.`);
+    print(
+      '     Set spend limits: https://platform.openai.com/settings/organization/billing/limits',
+    );
+  }
+  if (needsGoogle) {
+    print(`  ${nextStep++}. Google AI key was set as GOOGLE_API_KEY secret.`);
+    print('     Enable budget alerts: https://console.cloud.google.com/billing');
+  }
+  print(`  ${nextStep}. Move a Jira ticket to "Refinement" — watch the Actions tab!`);
   print('');
 
   if (!secretsResult.ok || !verifyResult.ok) {
