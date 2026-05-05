@@ -201,6 +201,7 @@ function assertBashAllowed(command) {
 
 // src/agents/developer/tools.ts
 var MAX_BASH_OUTPUT_DEFAULT = 64 * 1024;
+var MAX_READ_FILE_BYTES_DEFAULT = 64 * 1024;
 var DEFAULT_BASH_TIMEOUT_MS_DEFAULT = 6e4;
 var MAX_BASH_TIMEOUT_MS_DEFAULT = 3e5;
 var MAX_SEARCH_MATCHES = 200;
@@ -392,11 +393,22 @@ async function executeTool(repoRoot, name, input) {
   switch (name) {
     case "read_file": {
       const resolved = assertPathUnderRoot(repoRoot, input.path);
+      let content;
       try {
-        return await fsp.readFile(resolved, "utf8");
+        content = await fsp.readFile(resolved, "utf8");
       } catch (e) {
         throw new Error(`read_file failed: ${e.message}`);
       }
+      const maxBytes = parseInt(process.env.FERRY_READ_FILE_MAX_BYTES ?? "", 10) || MAX_READ_FILE_BYTES_DEFAULT;
+      if (content.length <= maxBytes) return content;
+      const headSize = Math.floor(maxBytes / 2);
+      const tailSize = maxBytes - headSize;
+      const head = content.slice(0, headSize);
+      const tail = content.slice(content.length - tailSize);
+      const elided = content.length - headSize - tailSize;
+      return `${head}
+[truncated: ${elided} bytes elided]
+${tail}`;
     }
     case "write_file": {
       const resolved = assertPathUnderRoot(repoRoot, input.path);
