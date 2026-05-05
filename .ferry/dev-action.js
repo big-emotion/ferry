@@ -121,7 +121,7 @@ var require_fast_content_type_parse = __commonJS({
 });
 
 // src/agents/developer/dev-action.ts
-import { execFileSync as execFileSync4 } from "node:child_process";
+import { execFileSync as execFileSync5 } from "node:child_process";
 import * as fsp2 from "node:fs/promises";
 import * as path6 from "node:path";
 
@@ -6473,6 +6473,103 @@ function assertDevOutputContract(outcome, outputs) {
   }
 }
 
+// src/agents/developer/wip-finalizer.ts
+import { execFileSync as execFileSync4 } from "node:child_process";
+function classifyError(err) {
+  if (err instanceof FerryError) {
+    const reason = err.context?.reason ?? "unknown";
+    if (err.code === "spend-cap") {
+      const cap = err.context?.cap;
+      const consumed = err.context?.consumed;
+      const detail = cap != null && consumed != null ? `spend cap exceeded (used ${Math.round(Number(consumed)).toLocaleString()} / ${Math.round(Number(cap)).toLocaleString()} tokens)` : "spend cap exceeded";
+      return { code: err.code, detail };
+    }
+    if (err.code === "state-invariant" && reason === "iteration-cap-exceeded") {
+      return {
+        code: err.code,
+        detail: `max iterations reached (cap: ${err.context?.cap ?? "unknown"})`
+      };
+    }
+    return { code: err.code, detail: reason };
+  }
+  const msg = err?.message ?? String(err);
+  return { code: "unknown", detail: msg.slice(0, 200) };
+}
+async function runWipFinalizer(opts) {
+  const {
+    error,
+    ticketKey,
+    eventId,
+    branchName,
+    repoRoot,
+    secretScan,
+    tracker,
+    logger,
+    dryRun,
+    model,
+    provider
+  } = opts;
+  const { code, detail } = classifyError(error);
+  logger.info("wip_finalizer", { code, detail, branch: branchName });
+  let committed = false;
+  try {
+    execFileSync4("git", ["add", "-A"], { cwd: repoRoot });
+    const status = execFileSync4("git", ["status", "--porcelain"], {
+      cwd: repoRoot,
+      encoding: "utf8"
+    });
+    if (status.trim()) {
+      await secretScan();
+      const wipMsg = `wip(${ticketKey}): interrupted \u2014 ${code}
+
+[ferry:dev:${eventId}]`;
+      execFileSync4("git", ["commit", "-m", wipMsg], { cwd: repoRoot });
+      committed = true;
+      logger.info("wip_committed", { branch: branchName });
+    } else {
+      logger.info("wip_nothing_to_commit");
+    }
+  } catch (commitErr) {
+    logger.error("wip_commit_failed", { error: commitErr.message });
+  }
+  let pushed = false;
+  if (!dryRun) {
+    try {
+      execFileSync4("git", ["push", "origin", branchName, "--force-with-lease"], {
+        cwd: repoRoot,
+        stdio: "pipe"
+      });
+      pushed = true;
+    } catch {
+      try {
+        execFileSync4("git", ["push", "origin", branchName], { cwd: repoRoot, stdio: "pipe" });
+        pushed = true;
+      } catch (pushErr) {
+        logger.error("wip_push_failed", { error: pushErr.message });
+      }
+    }
+    if (pushed) {
+      logger.info("wip_pushed", { branch: branchName, committed });
+    }
+  } else {
+    logger.info("DRY_RUN \u2014 wip push skipped");
+  }
+  if (!dryRun) {
+    const wipMarker = `[ferry:dev:wip:${eventId}]`;
+    const branchRef = pushed ? ` WIP pushed to branch \`${branchName}\`.` : "";
+    const comment = `${wipMarker} \u26A0\uFE0F Dev run interrupted \u2014 ${detail}.${branchRef} The next run will resume from this state.`;
+    try {
+      await tracker.postComment(ticketKey, comment);
+      logger.info("wip_jira_comment_posted");
+    } catch (commentErr) {
+      logger.error("wip_jira_comment_failed", { error: commentErr.message });
+    }
+  } else {
+    logger.info("DRY_RUN \u2014 wip Jira comment skipped", { detail });
+  }
+  appendOutput({ input_tokens: 0, output_tokens: 0, model, provider });
+}
+
 // src/agents/developer/dev-action.ts
 var REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
 async function main(envelope, logger) {
@@ -6522,13 +6619,13 @@ ${pkgManagerHint}`] : []
   let resumeContext = "";
   let branchHeadSha = "";
   try {
-    execFileSync4("git", ["ls-remote", "--exit-code", "--heads", "origin", branchName], {
+    execFileSync5("git", ["ls-remote", "--exit-code", "--heads", "origin", branchName], {
       cwd: REPO_ROOT,
       stdio: "pipe"
     });
-    execFileSync4("git", ["fetch", "origin", branchName], { cwd: REPO_ROOT });
-    execFileSync4("git", ["checkout", branchName], { cwd: REPO_ROOT });
-    const existingLog = execFileSync4("git", ["log", `origin/${baseBranch}..HEAD`, "--oneline"], {
+    execFileSync5("git", ["fetch", "origin", branchName], { cwd: REPO_ROOT });
+    execFileSync5("git", ["checkout", branchName], { cwd: REPO_ROOT });
+    const existingLog = execFileSync5("git", ["log", `origin/${baseBranch}..HEAD`, "--oneline"], {
       cwd: REPO_ROOT,
       encoding: "utf8"
     }).trim();
@@ -6541,12 +6638,12 @@ ${existingLog}`;
         prior_commits: existingLog.split("\n").length
       });
     }
-    branchHeadSha = execFileSync4("git", ["rev-parse", "HEAD"], {
+    branchHeadSha = execFileSync5("git", ["rev-parse", "HEAD"], {
       cwd: REPO_ROOT,
       encoding: "utf8"
     }).trim();
   } catch {
-    execFileSync4("git", ["checkout", "-B", branchName], { cwd: REPO_ROOT });
+    execFileSync5("git", ["checkout", "-B", branchName], { cwd: REPO_ROOT });
     logger.info("created branch", { branch: branchName });
   }
   let existingPrUrl = "";
@@ -6617,15 +6714,34 @@ ${tree}`,
     }),
     logger
   });
-  const { done, usage, iterations } = await loop.run({
-    system,
-    initialPrompt: initialPrompt + resumeContext + existingPrContext,
-    tools: allToolSchemas,
-    repoRoot: REPO_ROOT,
-    branchName,
-    secretScan,
-    mcpServers
-  });
+  let loopResult;
+  try {
+    loopResult = await loop.run({
+      system,
+      initialPrompt: initialPrompt + resumeContext + existingPrContext,
+      tools: allToolSchemas,
+      repoRoot: REPO_ROOT,
+      branchName,
+      secretScan,
+      mcpServers
+    });
+  } catch (loopErr) {
+    await runWipFinalizer({
+      error: loopErr,
+      ticketKey,
+      eventId,
+      branchName,
+      repoRoot: REPO_ROOT,
+      secretScan,
+      tracker,
+      logger,
+      dryRun,
+      model,
+      provider: devProvider
+    });
+    throw loopErr;
+  }
+  const { done, usage, iterations } = loopResult;
   const resolvedOutcome = done.outcome ?? (done.actionable ? "implemented" : "blocked");
   logger.info("done", {
     iterations,
@@ -6675,20 +6791,20 @@ ${tree}`,
       await fsp2.writeFile(verificationPath, verificationContent, "utf8");
       verificationNoteWritten = true;
     }
-    execFileSync4("git", ["add", "-A"], { cwd: REPO_ROOT });
-    const finalStatus = execFileSync4("git", ["status", "--porcelain"], {
+    execFileSync5("git", ["add", "-A"], { cwd: REPO_ROOT });
+    const finalStatus = execFileSync5("git", ["status", "--porcelain"], {
       cwd: REPO_ROOT,
       encoding: "utf8"
     });
     if (finalStatus.trim()) {
       await secretScan();
       const msg = resolvedOutcome === "already_satisfied" ? `chore(${ticketKey}): add verification note \u2014 spec already satisfied` : done.commit_message ?? commitMessage;
-      execFileSync4("git", ["commit", "-m", msg], { cwd: REPO_ROOT });
+      execFileSync5("git", ["commit", "-m", msg], { cwd: REPO_ROOT });
     }
     if (dryRun) {
       let diffOutput = "(no local changes)";
       try {
-        diffOutput = execFileSync4(
+        diffOutput = execFileSync5(
           "sh",
           [
             "-c",
@@ -6707,7 +6823,7 @@ ${tree}`,
       appendOutput({ ...usage, model, provider: devProvider });
       process.exit(0);
     }
-    execFileSync4("git", ["push", "origin", branchName, "--force-with-lease"], { cwd: REPO_ROOT });
+    execFileSync5("git", ["push", "origin", branchName, "--force-with-lease"], { cwd: REPO_ROOT });
     const branchPushed = true;
     const prTitle = resolvedOutcome === "already_satisfied" ? `verify(${ticketKey}): existing implementation satisfies spec` : formatPullRequestTitle({ ticketKey, summary: done.summary });
     const prBody = formatPullRequestBody({
