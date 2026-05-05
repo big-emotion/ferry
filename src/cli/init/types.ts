@@ -1,3 +1,5 @@
+export type LlmProvider = 'anthropic' | 'openai' | 'google';
+
 export interface FerryConfig {
   owner: string;
   repo: string;
@@ -11,6 +13,12 @@ export interface FerryConfig {
   jiraWorkspaceId: string;
   jiraProjectId: string;
   anthropicApiKey: string;
+  openaiApiKey?: string;
+  googleApiKey?: string;
+  refinerProvider: LlmProvider;
+  devProvider: LlmProvider;
+  reviewProvider: LlmProvider;
+  iterateProvider: LlmProvider;
 }
 
 export interface SecretEntry {

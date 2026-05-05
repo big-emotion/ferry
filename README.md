@@ -102,7 +102,7 @@ All auto-transitions are configurable via `workflow.agents` in `ferry.config.yam
 npx -p @big-emotion/ferry ferry-init
 ```
 
-The wizard collects your Jira URL, credentials, and column status names (prompts with defaults: **Refinement** / **In Development** / **In Review** / **Changes Requested** / **Ready to Merge**), generates the Jira Automation rules, and copies the 4 consumer workflow stubs into `.github/workflows/`. Custom status names work — enter them when prompted.
+The wizard collects your Jira URL, credentials, column status names (prompts with defaults: **Refinement** / **In Development** / **In Review** / **Changes Requested** / **Ready to Merge**), and LLM provider selection per phase. Ferry supports **Anthropic** (default), **OpenAI**, and **Google AI** — see the [provider × phase matrix](docs/CONFIGURATION.md#provider--phase-matrix) for a full breakdown and caveats. Custom status names work — enter them when prompted.
 
 After the wizard finishes, complete four manual steps:
 

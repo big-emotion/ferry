@@ -1,9 +1,12 @@
 # Copy this file to .github/workflows/ferry-refine.yml in your repository.
 # Replace @v0.9.0 with the Ferry release tag you want to pin.
-# Required secrets: FERRY_JIRA_BASE_URL, FERRY_JIRA_EMAIL, FERRY_JIRA_API_TOKEN, ANTHROPIC_API_KEY
+# Required secrets: FERRY_JIRA_BASE_URL, FERRY_JIRA_EMAIL, FERRY_JIRA_API_TOKEN
+#                   ANTHROPIC_API_KEY    — required when FERRY_REFINER_PROVIDER=anthropic (default)
+#                   OPENAI_API_KEY       — required when FERRY_REFINER_PROVIDER=openai
+#                   GOOGLE_API_KEY       — required when FERRY_REFINER_PROVIDER=google
 # Required variables: FERRY_AUDIT_ISSUE (GitHub Issue number for the audit log)
-# Optional variables: FERRY_REFINER_MODEL (default: claude-sonnet-4-6)
-#                     FERRY_REFINER_PROVIDER (default: anthropic)
+# Optional variables: FERRY_REFINER_MODEL (default: claude-sonnet-4-6; use model ID matching your provider)
+#                     FERRY_REFINER_PROVIDER (default: anthropic; also: openai, google)
 #                     FERRY_REFINER_SUBTASK_CAP (default: 12)
 #                     FERRY_MAX_COST_EUR_PER_RUN (default: 10)
 #                     FERRY_LLM_RETRY_MAX_ATTEMPTS (default: 3)
@@ -62,6 +65,8 @@ jobs:
           jira_email: ${{ secrets.FERRY_JIRA_EMAIL }}
           jira_api_token: ${{ secrets.FERRY_JIRA_API_TOKEN }}
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          openai_api_key: ${{ secrets.OPENAI_API_KEY }}
+          google_api_key: ${{ secrets.GOOGLE_API_KEY }}
           ferry_refiner_model: ${{ vars.FERRY_REFINER_MODEL || 'claude-sonnet-4-6' }}
           ferry_refiner_provider: ${{ vars.FERRY_REFINER_PROVIDER }}
           ferry_refiner_subtask_cap: ${{ vars.FERRY_REFINER_SUBTASK_CAP }}
