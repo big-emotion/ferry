@@ -52,11 +52,11 @@
     "lint:fix": "eslint src --fix",
     "format:check": "prettier --check 'src/**/*.ts'",
     "audit:ci": "node scripts/npm-audit-check.mjs",
-    "check:bundle": "npm run build:ferry && git diff --exit-code .ferry/",
+    "check:bundle": "npm run build:ferry && git diff --exit-code .ferry/ .github/actions/",
     "smoke:bundle": "bash scripts/smoke-bundle.sh",
     "check:fr-drift": "bash scripts/check-fr-drift.sh",
     "prepare": "husky",
-    "version": "npm run build:ferry && git add .ferry/"
+    "version": "npm run build:ferry && git add -f .ferry/ && git add .github/actions/ferry-envelope-validate/ .github/actions/ferry-emit-audit/ .github/actions/ferry-run-refiner/ .github/actions/ferry-run-developer/ .github/actions/ferry-run-reviewer/ .github/actions/ferry-run-iterator/"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
