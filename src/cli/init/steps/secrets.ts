@@ -9,8 +9,10 @@ export function buildSecrets(config: {
   jiraEmail: string;
   jiraApiToken: string;
   anthropicApiKey: string;
+  openaiApiKey?: string;
+  googleApiKey?: string;
 }): SecretEntry[] {
-  return [
+  const secrets: SecretEntry[] = [
     { name: 'FERRY_APP_ID', value: config.appId, description: 'GitHub App numeric ID' },
     {
       name: 'FERRY_PRIVATE_KEY',
@@ -30,6 +32,23 @@ export function buildSecrets(config: {
       description: 'Anthropic API key',
     },
   ];
+
+  if (config.openaiApiKey) {
+    secrets.push({
+      name: 'OPENAI_API_KEY',
+      value: config.openaiApiKey,
+      description: 'OpenAI API key',
+    });
+  }
+  if (config.googleApiKey) {
+    secrets.push({
+      name: 'GOOGLE_API_KEY',
+      value: config.googleApiKey,
+      description: 'Google AI API key',
+    });
+  }
+
+  return secrets;
 }
 
 export function listExistingSecrets(repo: string): string[] {

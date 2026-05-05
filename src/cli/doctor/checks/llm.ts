@@ -1,5 +1,6 @@
 import { httpsPost } from '../../http.js';
 import { loadFerryConfig } from '../../../lib/config.js';
+import { listRepoSecrets } from './secrets.js';
 import type { CheckResult } from '../types.js';
 
 async function probeAnthropic(apiKey: string): Promise<{ ok: boolean; detail: string }> {
@@ -45,8 +46,9 @@ export async function checkLlmKeys(opts: {
   openaiApiKey?: string;
   googleApiKey?: string;
   repoRoot?: string;
+  repo?: string;
 }): Promise<CheckResult> {
-  const { anthropicApiKey, openaiApiKey = '', googleApiKey = '', repoRoot } = opts;
+  const { anthropicApiKey, openaiApiKey = '', googleApiKey = '', repoRoot, repo } = opts;
 
   // Determine which providers are required by the ferry config.
   const requiredProviders = new Set<string>(['anthropic']);
@@ -59,6 +61,15 @@ export async function checkLlmKeys(opts: {
     } catch {
       // Config may not exist in doctor context; fall back to Anthropic-only check.
     }
+  }
+
+  // Lazily fetch repo secrets once if we need to cross-check missing keys.
+  let repoSecrets: string[] | null = null;
+  function getRepoSecrets(): string[] {
+    if (repoSecrets === null) {
+      repoSecrets = repo ? listRepoSecrets(repo) : [];
+    }
+    return repoSecrets;
   }
 
   const missing: string[] = [];
@@ -85,7 +96,15 @@ export async function checkLlmKeys(opts: {
 
   if (requiredProviders.has('openai')) {
     if (!openaiApiKey) {
-      missing.push('FERRY_OPENAI_KEY (required for openai provider)');
+      // Cross-check repo secrets: workflows use OPENAI_API_KEY; legacy env uses FERRY_OPENAI_KEY.
+      const secrets = getRepoSecrets();
+      if (secrets.includes('OPENAI_API_KEY') || secrets.includes('FERRY_OPENAI_KEY')) {
+        details.push('OpenAI key present in repo secrets (not verifiable locally)');
+      } else {
+        missing.push(
+          'OPENAI_API_KEY (required for openai provider — set via `gh secret set OPENAI_API_KEY`)',
+        );
+      }
     } else {
       details.push('OpenAI key present');
     }
@@ -93,7 +112,15 @@ export async function checkLlmKeys(opts: {
 
   if (requiredProviders.has('google')) {
     if (!googleApiKey) {
-      missing.push('FERRY_GOOGLE_AI_KEY (required for google provider)');
+      // Cross-check repo secrets: workflows use GOOGLE_API_KEY; legacy env uses FERRY_GOOGLE_AI_KEY.
+      const secrets = getRepoSecrets();
+      if (secrets.includes('GOOGLE_API_KEY') || secrets.includes('FERRY_GOOGLE_AI_KEY')) {
+        details.push('Google AI key present in repo secrets (not verifiable locally)');
+      } else {
+        missing.push(
+          'GOOGLE_API_KEY (required for google provider — set via `gh secret set GOOGLE_API_KEY`)',
+        );
+      }
     } else {
       details.push('Google AI key present');
     }

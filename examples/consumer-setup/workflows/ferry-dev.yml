@@ -1,10 +1,15 @@
 # Copy this file to .github/workflows/ferry-dev.yml in your repository.
 # Replace @v0.9.0 with the Ferry release tag you want to pin.
 # Required secrets: FERRY_JIRA_BASE_URL, FERRY_JIRA_EMAIL, FERRY_JIRA_API_TOKEN,
-#                   ANTHROPIC_API_KEY, FERRY_REVIEW_TRANSITION_ID
+#                   FERRY_REVIEW_TRANSITION_ID
+#                   ANTHROPIC_API_KEY    — required when FERRY_DEV_PROVIDER=anthropic (default)
+#                   OPENAI_API_KEY       — required when FERRY_DEV_PROVIDER=openai
+#                   GOOGLE_API_KEY       — required when FERRY_DEV_PROVIDER=google
 # Required variables: FERRY_AUDIT_ISSUE (GitHub Issue number for the audit log)
-# Optional variables: FERRY_DEV_MODEL (default: claude-sonnet-4-6)
-#                     FERRY_DEV_PROVIDER (default: anthropic)
+# Optional variables: FERRY_DEV_MODEL (default: claude-sonnet-4-6; use model ID matching your provider)
+#                     FERRY_DEV_PROVIDER (default: anthropic; also: openai, google)
+#
+# Note: MCP server support is not available for non-Anthropic providers in the Developer agent.
 #                     FERRY_DEV_MAX_INPUT_TOKENS (default: 500000)
 #                     FERRY_DEV_MAX_TOKENS (default: 16384)
 #                     FERRY_DEV_MAX_ITERATIONS (default: 200)
@@ -73,6 +78,8 @@ jobs:
           jira_api_token: ${{ secrets.FERRY_JIRA_API_TOKEN }}
           ferry_review_transition_id: ${{ secrets.FERRY_REVIEW_TRANSITION_ID }}
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          openai_api_key: ${{ secrets.OPENAI_API_KEY }}
+          google_api_key: ${{ secrets.GOOGLE_API_KEY }}
           github_token: ${{ github.token }}
           github_repo: ${{ github.repository }}
           ferry_dev_model: ${{ vars.FERRY_DEV_MODEL || 'claude-sonnet-4-6' }}
