@@ -11,6 +11,14 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.10.1] — 2026-05-05
+
+### Fixed
+
+- **Provider SDKs missing from Developer / Reviewer / Iterator action bundles** — after the multi-provider agent-loop port (#234), `dev-action.js`, `review-action.js`, and `iterate-action.js` statically import `openai` and `@google/genai` (the agent-loop modules are evaluated at import time, not lazily), but the per-action `package.json` files for `ferry-run-developer`, `ferry-run-reviewer`, and `ferry-run-iterator` only declared `@anthropic-ai/sdk`. Action runtime `npm ci` therefore omitted those packages, and every Developer / Reviewer / Iterator run on a v0.10.0 consumer crashed with `ERR_MODULE_NOT_FOUND: Cannot find package 'openai'` before reaching any provider-routing code — even when the configured provider was Anthropic. `scripts/build-ferry-actions.mjs` now ships all three provider SDKs in every agent action's `package.json`.
+
+---
+
 ## [0.10.0] — 2026-05-05
 
 ### Added
@@ -270,7 +278,8 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
-[Unreleased]: https://github.com/big-emotion/ferry/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/big-emotion/ferry/compare/v0.10.1...HEAD
+[0.10.1]: https://github.com/big-emotion/ferry/releases/tag/v0.10.1
 [0.10.0]: https://github.com/big-emotion/ferry/releases/tag/v0.10.0
 [0.9.0]: https://github.com/big-emotion/ferry/releases/tag/v0.9.0
 [0.8.2]: https://github.com/big-emotion/ferry/releases/tag/v0.8.2
