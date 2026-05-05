@@ -1,0 +1,6 @@
+paths-ignore:
+  # Generated esbuild bundles — third-party library code vendored into the repo.
+  # Findings in these files are not actionable; exclude them from all queries.
+  - '.ferry/**'
+  - '.github/actions/**/*-action.js'
+  - '.github/actions/**/skip-task-type-action.js'
