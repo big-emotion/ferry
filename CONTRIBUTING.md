@@ -92,6 +92,28 @@ npx vitest run src/lib/envelope/validate.test.ts
 
 The `src/agents/__lint-fixtures__/` directory contains intentionally broken code used by ESLint rule tests — don't fix it.
 
+## Composite action validation
+
+Two gates prevent structurally-invalid composite action manifests from shipping (the class of bug that caused the v0.8.0 outage — `timeout-minutes:` on a composite step, which GitHub rejects at job setup time with no warning during local development):
+
+### Layer 1 — Vitest step-key allowlist (local + CI)
+
+`src/lib/actions/composite-action.test.ts` walks every `.github/actions/*/action.yml`, extracts the top-level key names from each `runs.steps` item, and asserts they are all in the GitHub-supported allowlist:
+
+```
+id  if  name  uses  run  shell  with  env  working-directory  continue-on-error
+```
+
+It runs as part of `npm test` with no extra tooling. Adding `timeout-minutes:` (or any other unsupported key) to a composite step will make `npm test` fail immediately.
+
+### Layer 2 — actionlint in CI
+
+`ferry-ci.yml` runs [actionlint](https://github.com/rhysd/actionlint) (pinned by SHA) on every push and PR. actionlint understands the full GitHub Actions schema — including the composite-vs-workflow step distinction — and catches bad `${{ }}` references, mistyped `shell:` values, undefined outputs, and more. Any actionlint error blocks the PR from merging.
+
+### Before adding keys to composite action steps
+
+Check the [GitHub Actions composite action documentation](https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/using-composite-actions) and update the allowlist in `src/lib/actions/composite-action.test.ts` only if GitHub has added support for the key. If a job-level setting is needed (e.g. timeout), it must be set in the consumer's workflow file, not in the composite action manifest.
+
 ## Shared library conventions
 
 - All external writes (GitHub comments, Jira comments) must go through `checkIdempotencyMarker` / `appendMarker` (`src/lib/io/idempotency.ts`) — every comment must carry a `[ferry:<role>:<run-id>]` prefix.

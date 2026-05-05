@@ -108,7 +108,6 @@ runs:
     - name: Pre-agent setup
       if: inputs.pre_agent_command != ''
       shell: bash
-      timeout-minutes: ${{ fromJSON(inputs.pre_agent_timeout_minutes) }}
       run: ${{ inputs.pre_agent_command }}
     - name: Run Iterator agent
       id: run-iterator
