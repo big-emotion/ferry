@@ -92,9 +92,9 @@ describe('loadFerryConfigFromBaseBranch', () => {
     mockFetchSuccess();
     mockGitShow(JSON.stringify({ models: { dev: { provider: 'invalid', model: 'x' } } }));
 
-    expect(() =>
-      loadFerryConfigFromBaseBranch(BASE_BRANCH, REPO_ROOT, fallback),
-    ).toThrowError(/invalid-ferry-config/);
+    expect(() => loadFerryConfigFromBaseBranch(BASE_BRANCH, REPO_ROOT, fallback)).toThrowError(
+      /invalid-ferry-config/,
+    );
   });
 
   it('returns empty-object config (all defaults) when base_branch has empty ferry.config.json', () => {

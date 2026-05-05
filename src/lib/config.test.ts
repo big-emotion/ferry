@@ -683,9 +683,7 @@ describe('parseFerryConfigJson', () => {
   });
 
   it('parses a valid JSON string and returns merged config', () => {
-    const cfg = parseFerryConfigJson(
-      JSON.stringify({ limits: { max_tokens_per_run: 5_000_000 } }),
-    );
+    const cfg = parseFerryConfigJson(JSON.stringify({ limits: { max_tokens_per_run: 5_000_000 } }));
     expect(cfg.limits.max_tokens_per_run).toBe(5_000_000);
     expect(cfg.limits.max_iterations).toBe(DEFAULT_FERRY_CONFIG.limits.max_iterations);
   });

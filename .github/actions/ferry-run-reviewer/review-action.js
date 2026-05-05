@@ -6902,6 +6902,664 @@ output_tokens=${usage.output_tokens}
   }
 }
 
+// src/lib/agent-runtime/config-reload.ts
+import { execFileSync } from "node:child_process";
+
+// src/lib/config.ts
+import { existsSync as existsSync3, readFileSync as readFileSync3 } from "node:fs";
+import * as path3 from "node:path";
+import { createRequire as createRequire2 } from "node:module";
+var _require2 = createRequire2(import.meta.url);
+var DEFAULT_FERRY_CONFIG = {
+  models: {
+    refiner: { provider: "anthropic", model: "claude-sonnet-4-6" },
+    dev: { provider: "anthropic", model: "claude-opus-4-5" },
+    review: { provider: "anthropic", model: "claude-sonnet-4-6" },
+    iterate: { provider: "anthropic", model: "claude-sonnet-4-6" }
+  },
+  limits: {
+    max_iterations: 3,
+    max_agent_iterations: 200,
+    max_tokens_per_run: 5e5,
+    max_tokens_per_message: 16384,
+    max_cost_eur_per_run: 10,
+    bash_timeout_ms: 6e4,
+    bash_timeout_max_ms: 3e5,
+    grep_timeout_ms: 3e4,
+    anthropic_verify_timeout_ms: 1e4,
+    jira_retry_base_delay_ms: 2e3,
+    jira_retry_max_attempts: 3,
+    envelope_instructions_chars: 2e3,
+    project_snippet_bytes: 2048,
+    agent_extension_bytes: 4096,
+    tldr_total_chars: 500,
+    tldr_verdict_chars: 40,
+    file_display_chars: 4e4,
+    refiner_subtask_cap: 12,
+    refiner_touch_paths_cap: 20,
+    reviewer_max_iterations: 40,
+    reviewer_max_tokens: 16384,
+    reconciler_stale_window_minutes: 20
+  },
+  ticket_types: {
+    refine_allowlist: ["Story", "Bug", "Spike"],
+    dev_allowlist: ["Story", "Bug", "Spike"]
+  },
+  git: {
+    base_branch: null,
+    target_branch: null,
+    working_branch_prefix: "ferry/"
+  },
+  workflow: {
+    agents: {
+      refiner: { trigger_column: "Refinement", auto_transition: null },
+      developer: { trigger_column: "In Development", auto_transition: "In Review" },
+      reviewer: {
+        trigger_column: "In Review",
+        auto_transition_approve: null,
+        auto_transition_changes: "Changes Requested"
+      },
+      iterator: { trigger_column: "Changes Requested", auto_transition: "In Review" }
+    }
+  }
+};
+function validateProvider(val, fieldPath) {
+  if (val !== "anthropic" && val !== "openai" && val !== "google") {
+    return [`${fieldPath}: must be "anthropic", "openai", or "google"`];
+  }
+  return [];
+}
+function validateLlmRoute(val, fieldPath) {
+  if (!val || typeof val !== "object") return [`${fieldPath}: must be an object`];
+  const r = val;
+  return [
+    ...validateProvider(r.provider, `${fieldPath}.provider`),
+    ...typeof r.model !== "string" || r.model.length === 0 ? [`${fieldPath}.model: must be a non-empty string`] : []
+  ];
+}
+function validatePosInt(val, fieldPath) {
+  if (typeof val !== "number" || !Number.isInteger(val) || val <= 0) {
+    return [`${fieldPath}: must be a positive integer`];
+  }
+  return [];
+}
+function validatePosNumber(val, fieldPath) {
+  if (typeof val !== "number" || val <= 0) {
+    return [`${fieldPath}: must be a positive number`];
+  }
+  return [];
+}
+function validateStringArray(val, fieldPath) {
+  if (!Array.isArray(val) || val.some((v) => typeof v !== "string")) {
+    return [`${fieldPath}: must be an array of strings`];
+  }
+  return [];
+}
+function validateStringOrNull(val, fieldPath) {
+  if (val !== null && typeof val !== "string") {
+    return [`${fieldPath}: must be a string or null`];
+  }
+  return [];
+}
+function validateWorkflowAgentBase(val, fieldPath) {
+  if (!val || typeof val !== "object") return [`${fieldPath}: must be an object`];
+  const v = val;
+  if (v.trigger_column !== void 0 && typeof v.trigger_column !== "string") {
+    return [`${fieldPath}.trigger_column: must be a string`];
+  }
+  return [];
+}
+function validateWorkflow(val) {
+  if (!val || typeof val !== "object") return ["workflow: must be an object"];
+  const w = val;
+  const errs = [];
+  if (w.agents === void 0) return errs;
+  if (!w.agents || typeof w.agents !== "object") {
+    errs.push("workflow.agents: must be an object");
+    return errs;
+  }
+  const agents = w.agents;
+  if (agents.refiner !== void 0) {
+    errs.push(...validateWorkflowAgentBase(agents.refiner, "workflow.agents.refiner"));
+  }
+  if (agents.developer !== void 0) {
+    errs.push(...validateWorkflowAgentBase(agents.developer, "workflow.agents.developer"));
+    const dev = agents.developer;
+    if ("auto_transition" in dev && dev.auto_transition !== void 0) {
+      errs.push(
+        ...validateStringOrNull(dev.auto_transition, "workflow.agents.developer.auto_transition")
+      );
+    }
+  }
+  if (agents.reviewer !== void 0) {
+    errs.push(...validateWorkflowAgentBase(agents.reviewer, "workflow.agents.reviewer"));
+    const rev = agents.reviewer;
+    if ("auto_transition_approve" in rev && rev.auto_transition_approve !== void 0) {
+      errs.push(
+        ...validateStringOrNull(
+          rev.auto_transition_approve,
+          "workflow.agents.reviewer.auto_transition_approve"
+        )
+      );
+    }
+    if ("auto_transition_changes" in rev && rev.auto_transition_changes !== void 0) {
+      errs.push(
+        ...validateStringOrNull(
+          rev.auto_transition_changes,
+          "workflow.agents.reviewer.auto_transition_changes"
+        )
+      );
+    }
+  }
+  if (agents.iterator !== void 0) {
+    errs.push(...validateWorkflowAgentBase(agents.iterator, "workflow.agents.iterator"));
+    const iter = agents.iterator;
+    if ("auto_transition" in iter && iter.auto_transition !== void 0) {
+      errs.push(
+        ...validateStringOrNull(iter.auto_transition, "workflow.agents.iterator.auto_transition")
+      );
+    }
+  }
+  return errs;
+}
+function validateConfigShape(raw) {
+  if (!raw || typeof raw !== "object") return ["config: must be an object"];
+  const c = raw;
+  const errs = [];
+  if (c.models !== void 0) {
+    if (!c.models || typeof c.models !== "object") {
+      errs.push("models: must be an object");
+    } else {
+      const m = c.models;
+      for (const key of ["refiner", "dev", "review", "iterate"]) {
+        if (m[key] !== void 0) {
+          errs.push(...validateLlmRoute(m[key], `models.${String(key)}`));
+        }
+      }
+    }
+  }
+  if (c.limits !== void 0) {
+    if (!c.limits || typeof c.limits !== "object") {
+      errs.push("limits: must be an object");
+    } else {
+      const l = c.limits;
+      if (l.max_iterations !== void 0)
+        errs.push(...validatePosInt(l.max_iterations, "limits.max_iterations"));
+      if (l.max_agent_iterations !== void 0)
+        errs.push(...validatePosInt(l.max_agent_iterations, "limits.max_agent_iterations"));
+      if (l.max_tokens_per_run !== void 0)
+        errs.push(...validatePosInt(l.max_tokens_per_run, "limits.max_tokens_per_run"));
+      if (l.max_tokens_per_message !== void 0)
+        errs.push(...validatePosInt(l.max_tokens_per_message, "limits.max_tokens_per_message"));
+      if (l.max_cost_eur_per_run !== void 0)
+        errs.push(...validatePosNumber(l.max_cost_eur_per_run, "limits.max_cost_eur_per_run"));
+      if (l.bash_timeout_ms !== void 0)
+        errs.push(...validatePosInt(l.bash_timeout_ms, "limits.bash_timeout_ms"));
+      if (l.bash_timeout_max_ms !== void 0)
+        errs.push(...validatePosInt(l.bash_timeout_max_ms, "limits.bash_timeout_max_ms"));
+      if (l.grep_timeout_ms !== void 0)
+        errs.push(...validatePosInt(l.grep_timeout_ms, "limits.grep_timeout_ms"));
+      if (l.anthropic_verify_timeout_ms !== void 0)
+        errs.push(
+          ...validatePosInt(l.anthropic_verify_timeout_ms, "limits.anthropic_verify_timeout_ms")
+        );
+      if (l.jira_retry_base_delay_ms !== void 0)
+        errs.push(...validatePosInt(l.jira_retry_base_delay_ms, "limits.jira_retry_base_delay_ms"));
+      if (l.jira_retry_max_attempts !== void 0)
+        errs.push(...validatePosInt(l.jira_retry_max_attempts, "limits.jira_retry_max_attempts"));
+      if (l.envelope_instructions_chars !== void 0)
+        errs.push(
+          ...validatePosInt(l.envelope_instructions_chars, "limits.envelope_instructions_chars")
+        );
+      if (l.project_snippet_bytes !== void 0)
+        errs.push(...validatePosInt(l.project_snippet_bytes, "limits.project_snippet_bytes"));
+      if (l.agent_extension_bytes !== void 0)
+        errs.push(...validatePosInt(l.agent_extension_bytes, "limits.agent_extension_bytes"));
+      if (l.tldr_total_chars !== void 0)
+        errs.push(...validatePosInt(l.tldr_total_chars, "limits.tldr_total_chars"));
+      if (l.tldr_verdict_chars !== void 0)
+        errs.push(...validatePosInt(l.tldr_verdict_chars, "limits.tldr_verdict_chars"));
+      if (l.file_display_chars !== void 0)
+        errs.push(...validatePosInt(l.file_display_chars, "limits.file_display_chars"));
+      if (l.refiner_subtask_cap !== void 0)
+        errs.push(...validatePosInt(l.refiner_subtask_cap, "limits.refiner_subtask_cap"));
+      if (l.refiner_touch_paths_cap !== void 0)
+        errs.push(...validatePosInt(l.refiner_touch_paths_cap, "limits.refiner_touch_paths_cap"));
+      if (l.reviewer_max_iterations !== void 0)
+        errs.push(...validatePosInt(l.reviewer_max_iterations, "limits.reviewer_max_iterations"));
+      if (l.reviewer_max_tokens !== void 0)
+        errs.push(...validatePosInt(l.reviewer_max_tokens, "limits.reviewer_max_tokens"));
+      if (l.reconciler_stale_window_minutes !== void 0)
+        errs.push(
+          ...validatePosInt(
+            l.reconciler_stale_window_minutes,
+            "limits.reconciler_stale_window_minutes"
+          )
+        );
+    }
+  }
+  if (c.ticket_types !== void 0) {
+    if (!c.ticket_types || typeof c.ticket_types !== "object") {
+      errs.push("ticket_types: must be an object");
+    } else {
+      const t = c.ticket_types;
+      if (t.refine_allowlist !== void 0)
+        errs.push(...validateStringArray(t.refine_allowlist, "ticket_types.refine_allowlist"));
+      if (t.dev_allowlist !== void 0)
+        errs.push(...validateStringArray(t.dev_allowlist, "ticket_types.dev_allowlist"));
+    }
+  }
+  if (c.git !== void 0) {
+    if (!c.git || typeof c.git !== "object" || Array.isArray(c.git)) {
+      errs.push("git: must be an object");
+    } else {
+      const g = c.git;
+      if (g.base_branch !== void 0 && g.base_branch !== null && typeof g.base_branch !== "string") {
+        errs.push("git.base_branch: must be a string or null");
+      }
+      if (g.base_branch !== void 0 && typeof g.base_branch === "string" && g.base_branch.trim() === "") {
+        errs.push("git.base_branch: must be a non-empty string or null");
+      }
+      if (g.target_branch !== void 0 && g.target_branch !== null && typeof g.target_branch !== "string") {
+        errs.push("git.target_branch: must be a string or null");
+      }
+      if (g.target_branch !== void 0 && typeof g.target_branch === "string" && g.target_branch.trim() === "") {
+        errs.push("git.target_branch: must be a non-empty string or null");
+      }
+      if (g.working_branch_prefix !== void 0) {
+        if (typeof g.working_branch_prefix !== "string" || g.working_branch_prefix.length === 0) {
+          errs.push("git.working_branch_prefix: must be a non-empty string");
+        }
+      }
+    }
+  }
+  if (c.labels !== void 0) {
+    if (!c.labels || typeof c.labels !== "object" || Array.isArray(c.labels)) {
+      errs.push("labels: must be an object mapping label names to capability entries");
+    } else {
+      for (const [labelName, entry] of Object.entries(c.labels)) {
+        const fieldPath = `labels.${labelName}`;
+        if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+          errs.push(`${fieldPath}: must be an object`);
+          continue;
+        }
+        const e = entry;
+        if (e.mcp_servers !== void 0)
+          errs.push(...validateStringArray(e.mcp_servers, `${fieldPath}.mcp_servers`));
+        if (e.tools !== void 0) errs.push(...validateStringArray(e.tools, `${fieldPath}.tools`));
+      }
+    }
+  }
+  if (c.workflow !== void 0) {
+    errs.push(...validateWorkflow(c.workflow));
+  }
+  return errs;
+}
+function readJsonConfig(filePath) {
+  const raw = readFileSync3(filePath, "utf8");
+  try {
+    return JSON.parse(raw);
+  } catch (e) {
+    throw new FerryError("state-invariant", {
+      reason: "invalid-ferry-config",
+      file: path3.basename(filePath),
+      error: e.message
+    });
+  }
+}
+function readYamlConfig(filePath) {
+  let parseYaml;
+  try {
+    const mod = _require2("yaml");
+    parseYaml = mod.parse;
+  } catch {
+    throw new FerryError("state-invariant", {
+      reason: "invalid-ferry-config",
+      file: path3.basename(filePath),
+      error: 'YAML config requires the "yaml" package: npm install yaml'
+    });
+  }
+  const raw = readFileSync3(filePath, "utf8");
+  try {
+    return parseYaml(raw);
+  } catch (e) {
+    throw new FerryError("state-invariant", {
+      reason: "invalid-ferry-config",
+      file: path3.basename(filePath),
+      error: e.message
+    });
+  }
+}
+function findAndReadConfigFile(repoRoot) {
+  const candidates = [
+    { file: "ferry.config.json", reader: readJsonConfig },
+    { file: "ferry.config.yaml", reader: readYamlConfig },
+    { file: "ferry.config.yml", reader: readYamlConfig }
+  ];
+  for (const { file, reader } of candidates) {
+    const filePath = path3.join(repoRoot, file);
+    if (!existsSync3(filePath)) continue;
+    return reader(filePath);
+  }
+  return null;
+}
+function mergeWithDefaults(raw) {
+  const m = raw.models ?? {};
+  const l = raw.limits ?? {};
+  const t = raw.ticket_types ?? {};
+  const g = raw.git ?? {};
+  const route = (val, def) => {
+    if (!val || typeof val !== "object") return def;
+    const r = val;
+    return {
+      provider: r.provider ?? def.provider,
+      model: r.model ?? def.model
+    };
+  };
+  const num = (val, def) => typeof val === "number" ? val : def;
+  const strArr = (val, def) => Array.isArray(val) ? val : def;
+  const nullableStr = (val, def) => {
+    if (val === null) return null;
+    if (typeof val === "string") return val;
+    return def;
+  };
+  const labelsRaw = raw.labels;
+  let labels;
+  if (labelsRaw && typeof labelsRaw === "object" && !Array.isArray(labelsRaw)) {
+    labels = {};
+    for (const [name, entry] of Object.entries(labelsRaw)) {
+      if (entry && typeof entry === "object" && !Array.isArray(entry)) {
+        const e = entry;
+        labels[name] = {
+          ...Array.isArray(e.mcp_servers) ? { mcp_servers: e.mcp_servers } : {},
+          ...Array.isArray(e.tools) ? { tools: e.tools } : {}
+        };
+      }
+    }
+  }
+  return {
+    models: {
+      refiner: route(m.refiner, DEFAULT_FERRY_CONFIG.models.refiner),
+      dev: route(m.dev, DEFAULT_FERRY_CONFIG.models.dev),
+      review: route(m.review, DEFAULT_FERRY_CONFIG.models.review),
+      iterate: route(m.iterate, DEFAULT_FERRY_CONFIG.models.iterate)
+    },
+    limits: {
+      max_iterations: num(l.max_iterations, DEFAULT_FERRY_CONFIG.limits.max_iterations),
+      max_agent_iterations: num(
+        l.max_agent_iterations,
+        DEFAULT_FERRY_CONFIG.limits.max_agent_iterations
+      ),
+      max_tokens_per_run: num(l.max_tokens_per_run, DEFAULT_FERRY_CONFIG.limits.max_tokens_per_run),
+      max_tokens_per_message: num(
+        l.max_tokens_per_message,
+        DEFAULT_FERRY_CONFIG.limits.max_tokens_per_message
+      ),
+      max_cost_eur_per_run: num(
+        l.max_cost_eur_per_run,
+        DEFAULT_FERRY_CONFIG.limits.max_cost_eur_per_run
+      ),
+      bash_timeout_ms: num(l.bash_timeout_ms, DEFAULT_FERRY_CONFIG.limits.bash_timeout_ms),
+      bash_timeout_max_ms: num(
+        l.bash_timeout_max_ms,
+        DEFAULT_FERRY_CONFIG.limits.bash_timeout_max_ms
+      ),
+      grep_timeout_ms: num(l.grep_timeout_ms, DEFAULT_FERRY_CONFIG.limits.grep_timeout_ms),
+      anthropic_verify_timeout_ms: num(
+        l.anthropic_verify_timeout_ms,
+        DEFAULT_FERRY_CONFIG.limits.anthropic_verify_timeout_ms
+      ),
+      jira_retry_base_delay_ms: num(
+        l.jira_retry_base_delay_ms,
+        DEFAULT_FERRY_CONFIG.limits.jira_retry_base_delay_ms
+      ),
+      jira_retry_max_attempts: num(
+        l.jira_retry_max_attempts,
+        DEFAULT_FERRY_CONFIG.limits.jira_retry_max_attempts
+      ),
+      envelope_instructions_chars: num(
+        l.envelope_instructions_chars,
+        DEFAULT_FERRY_CONFIG.limits.envelope_instructions_chars
+      ),
+      project_snippet_bytes: num(
+        l.project_snippet_bytes,
+        DEFAULT_FERRY_CONFIG.limits.project_snippet_bytes
+      ),
+      agent_extension_bytes: num(
+        l.agent_extension_bytes,
+        DEFAULT_FERRY_CONFIG.limits.agent_extension_bytes
+      ),
+      tldr_total_chars: num(l.tldr_total_chars, DEFAULT_FERRY_CONFIG.limits.tldr_total_chars),
+      tldr_verdict_chars: num(l.tldr_verdict_chars, DEFAULT_FERRY_CONFIG.limits.tldr_verdict_chars),
+      file_display_chars: num(l.file_display_chars, DEFAULT_FERRY_CONFIG.limits.file_display_chars),
+      refiner_subtask_cap: num(
+        l.refiner_subtask_cap,
+        DEFAULT_FERRY_CONFIG.limits.refiner_subtask_cap
+      ),
+      refiner_touch_paths_cap: num(
+        l.refiner_touch_paths_cap,
+        DEFAULT_FERRY_CONFIG.limits.refiner_touch_paths_cap
+      ),
+      reviewer_max_iterations: num(
+        l.reviewer_max_iterations,
+        DEFAULT_FERRY_CONFIG.limits.reviewer_max_iterations
+      ),
+      reviewer_max_tokens: num(
+        l.reviewer_max_tokens,
+        DEFAULT_FERRY_CONFIG.limits.reviewer_max_tokens
+      ),
+      reconciler_stale_window_minutes: num(
+        l.reconciler_stale_window_minutes,
+        DEFAULT_FERRY_CONFIG.limits.reconciler_stale_window_minutes
+      )
+    },
+    ticket_types: {
+      refine_allowlist: strArr(
+        t.refine_allowlist,
+        DEFAULT_FERRY_CONFIG.ticket_types.refine_allowlist
+      ),
+      dev_allowlist: strArr(t.dev_allowlist, DEFAULT_FERRY_CONFIG.ticket_types.dev_allowlist)
+    },
+    git: {
+      base_branch: "base_branch" in g ? nullableStr(g.base_branch, null) : DEFAULT_FERRY_CONFIG.git.base_branch,
+      target_branch: "target_branch" in g ? nullableStr(g.target_branch, null) : DEFAULT_FERRY_CONFIG.git.target_branch,
+      working_branch_prefix: typeof g.working_branch_prefix === "string" ? g.working_branch_prefix : DEFAULT_FERRY_CONFIG.git.working_branch_prefix
+    },
+    ...labels !== void 0 ? { labels } : {},
+    workflow: mergeWorkflow(raw.workflow)
+  };
+}
+function mergeWorkflow(rawWorkflow) {
+  const def = DEFAULT_FERRY_CONFIG.workflow;
+  if (!rawWorkflow || typeof rawWorkflow !== "object") return def;
+  const w = rawWorkflow;
+  if (!w.agents || typeof w.agents !== "object") return def;
+  const agents = w.agents;
+  const str = (val, def2) => typeof val === "string" ? val : def2;
+  const strOrNull = (obj, key, def2) => key in obj ? obj[key] === null ? null : typeof obj[key] === "string" ? obj[key] : def2 : def2;
+  const refinerRaw = agents.refiner && typeof agents.refiner === "object" ? agents.refiner : {};
+  const devRaw = agents.developer && typeof agents.developer === "object" ? agents.developer : {};
+  const revRaw = agents.reviewer && typeof agents.reviewer === "object" ? agents.reviewer : {};
+  const iterRaw = agents.iterator && typeof agents.iterator === "object" ? agents.iterator : {};
+  return {
+    agents: {
+      refiner: {
+        trigger_column: str(refinerRaw.trigger_column, def.agents.refiner.trigger_column),
+        auto_transition: null
+      },
+      developer: {
+        trigger_column: str(devRaw.trigger_column, def.agents.developer.trigger_column),
+        auto_transition: strOrNull(devRaw, "auto_transition", def.agents.developer.auto_transition)
+      },
+      reviewer: {
+        trigger_column: str(revRaw.trigger_column, def.agents.reviewer.trigger_column),
+        auto_transition_approve: strOrNull(
+          revRaw,
+          "auto_transition_approve",
+          def.agents.reviewer.auto_transition_approve
+        ),
+        auto_transition_changes: strOrNull(
+          revRaw,
+          "auto_transition_changes",
+          def.agents.reviewer.auto_transition_changes
+        )
+      },
+      iterator: {
+        trigger_column: str(iterRaw.trigger_column, def.agents.iterator.trigger_column),
+        auto_transition: strOrNull(iterRaw, "auto_transition", def.agents.iterator.auto_transition)
+      }
+    }
+  };
+}
+function applyEnvOverrides(cfg) {
+  const models = { ...cfg.models };
+  const limits = { ...cfg.limits };
+  const providerFromEnv = (val) => {
+    if (val === "anthropic" || val === "openai" || val === "google") return val;
+    return void 0;
+  };
+  const refinerProvider = providerFromEnv(process.env.FERRY_REFINER_PROVIDER);
+  if (refinerProvider) models.refiner = { ...models.refiner, provider: refinerProvider };
+  if (process.env.FERRY_REFINER_MODEL) {
+    models.refiner = { ...models.refiner, model: process.env.FERRY_REFINER_MODEL };
+  }
+  const devProvider = providerFromEnv(process.env.FERRY_DEV_PROVIDER);
+  if (devProvider) models.dev = { ...models.dev, provider: devProvider };
+  if (process.env.FERRY_DEV_MODEL) {
+    models.dev = { ...models.dev, model: process.env.FERRY_DEV_MODEL };
+  }
+  const reviewProvider = providerFromEnv(process.env.FERRY_REVIEW_PROVIDER);
+  if (reviewProvider) models.review = { ...models.review, provider: reviewProvider };
+  if (process.env.FERRY_REVIEW_MODEL) {
+    models.review = { ...models.review, model: process.env.FERRY_REVIEW_MODEL };
+  }
+  const iterProvider = providerFromEnv(process.env.FERRY_ITER_PROVIDER);
+  if (iterProvider) models.iterate = { ...models.iterate, provider: iterProvider };
+  if (process.env.FERRY_ITER_MODEL) {
+    models.iterate = { ...models.iterate, model: process.env.FERRY_ITER_MODEL };
+  }
+  const maxAgentIter = parseInt(process.env.FERRY_DEV_MAX_ITERATIONS ?? "", 10);
+  if (Number.isFinite(maxAgentIter)) limits.max_agent_iterations = maxAgentIter;
+  const maxInputTok = parseInt(process.env.FERRY_DEV_MAX_INPUT_TOKENS ?? "", 10);
+  if (Number.isFinite(maxInputTok)) limits.max_tokens_per_run = maxInputTok;
+  const maxTok = parseInt(process.env.FERRY_DEV_MAX_TOKENS ?? "", 10);
+  if (Number.isFinite(maxTok)) limits.max_tokens_per_message = maxTok;
+  const maxCost = parseFloat(process.env.FERRY_MAX_COST_EUR_PER_RUN ?? "");
+  if (Number.isFinite(maxCost)) limits.max_cost_eur_per_run = maxCost;
+  const envInt = (key) => {
+    const v = parseInt(process.env[key] ?? "", 10);
+    return Number.isFinite(v) ? v : void 0;
+  };
+  const bashTimeoutMs = envInt("FERRY_BASH_TIMEOUT_MS");
+  if (bashTimeoutMs !== void 0) limits.bash_timeout_ms = bashTimeoutMs;
+  const bashTimeoutMaxMs = envInt("FERRY_BASH_TIMEOUT_MAX_MS");
+  if (bashTimeoutMaxMs !== void 0) limits.bash_timeout_max_ms = bashTimeoutMaxMs;
+  const grepTimeoutMs = envInt("FERRY_GREP_TIMEOUT_MS");
+  if (grepTimeoutMs !== void 0) limits.grep_timeout_ms = grepTimeoutMs;
+  const anthropicVerifyTimeoutMs = envInt("FERRY_ANTHROPIC_VERIFY_TIMEOUT_MS");
+  if (anthropicVerifyTimeoutMs !== void 0)
+    limits.anthropic_verify_timeout_ms = anthropicVerifyTimeoutMs;
+  const jiraRetryBaseDelayMs = envInt("FERRY_JIRA_RETRY_BASE_DELAY_MS");
+  if (jiraRetryBaseDelayMs !== void 0) limits.jira_retry_base_delay_ms = jiraRetryBaseDelayMs;
+  const jiraRetryMaxAttempts = envInt("FERRY_JIRA_RETRY_MAX_ATTEMPTS");
+  if (jiraRetryMaxAttempts !== void 0) limits.jira_retry_max_attempts = jiraRetryMaxAttempts;
+  const envelopeInstructionsChars = envInt("FERRY_ENVELOPE_INSTRUCTIONS_CHARS");
+  if (envelopeInstructionsChars !== void 0)
+    limits.envelope_instructions_chars = envelopeInstructionsChars;
+  const projectSnippetBytes = envInt("FERRY_PROJECT_SNIPPET_BYTES");
+  if (projectSnippetBytes !== void 0) limits.project_snippet_bytes = projectSnippetBytes;
+  const agentExtensionBytes = envInt("FERRY_AGENT_EXTENSION_BYTES");
+  if (agentExtensionBytes !== void 0) limits.agent_extension_bytes = agentExtensionBytes;
+  const tldrTotalChars = envInt("FERRY_TLDR_TOTAL_CHARS");
+  if (tldrTotalChars !== void 0) limits.tldr_total_chars = tldrTotalChars;
+  const tldrVerdictChars = envInt("FERRY_TLDR_VERDICT_CHARS");
+  if (tldrVerdictChars !== void 0) limits.tldr_verdict_chars = tldrVerdictChars;
+  const fileDisplayChars = envInt("FERRY_FILE_DISPLAY_CHARS");
+  if (fileDisplayChars !== void 0) limits.file_display_chars = fileDisplayChars;
+  const refinerSubtaskCap = envInt("FERRY_REFINER_SUBTASK_CAP");
+  if (refinerSubtaskCap !== void 0) limits.refiner_subtask_cap = refinerSubtaskCap;
+  const refinerTouchPathsCap = envInt("FERRY_REFINER_TOUCH_PATHS_CAP");
+  if (refinerTouchPathsCap !== void 0) limits.refiner_touch_paths_cap = refinerTouchPathsCap;
+  const reviewerMaxIterations = envInt("FERRY_REVIEWER_MAX_ITERATIONS");
+  if (reviewerMaxIterations !== void 0) limits.reviewer_max_iterations = reviewerMaxIterations;
+  const reviewerMaxTokens = envInt("FERRY_REVIEWER_MAX_TOKENS");
+  if (reviewerMaxTokens !== void 0) limits.reviewer_max_tokens = reviewerMaxTokens;
+  const reconcilerStaleWindowMinutes = envInt("FERRY_RECONCILER_STALE_WINDOW_MINUTES");
+  if (reconcilerStaleWindowMinutes !== void 0)
+    limits.reconciler_stale_window_minutes = reconcilerStaleWindowMinutes;
+  process.env.FERRY_BASH_TIMEOUT_MS = String(limits.bash_timeout_ms);
+  process.env.FERRY_BASH_TIMEOUT_MAX_MS = String(limits.bash_timeout_max_ms);
+  process.env.FERRY_GREP_TIMEOUT_MS = String(limits.grep_timeout_ms);
+  process.env.FERRY_ANTHROPIC_VERIFY_TIMEOUT_MS = String(limits.anthropic_verify_timeout_ms);
+  process.env.FERRY_JIRA_RETRY_BASE_DELAY_MS = String(limits.jira_retry_base_delay_ms);
+  process.env.FERRY_JIRA_RETRY_MAX_ATTEMPTS = String(limits.jira_retry_max_attempts);
+  process.env.FERRY_ENVELOPE_INSTRUCTIONS_CHARS = String(limits.envelope_instructions_chars);
+  process.env.FERRY_PROJECT_SNIPPET_BYTES = String(limits.project_snippet_bytes);
+  process.env.FERRY_AGENT_EXTENSION_BYTES = String(limits.agent_extension_bytes);
+  process.env.FERRY_TLDR_TOTAL_CHARS = String(limits.tldr_total_chars);
+  process.env.FERRY_TLDR_VERDICT_CHARS = String(limits.tldr_verdict_chars);
+  process.env.FERRY_FILE_DISPLAY_CHARS = String(limits.file_display_chars);
+  process.env.FERRY_REFINER_SUBTASK_CAP = String(limits.refiner_subtask_cap);
+  process.env.FERRY_REFINER_TOUCH_PATHS_CAP = String(limits.refiner_touch_paths_cap);
+  process.env.FERRY_REVIEWER_MAX_ITERATIONS = String(limits.reviewer_max_iterations);
+  process.env.FERRY_REVIEWER_MAX_TOKENS = String(limits.reviewer_max_tokens);
+  process.env.FERRY_RECONCILER_STALE_WINDOW_MINUTES = String(
+    limits.reconciler_stale_window_minutes
+  );
+  return { ...cfg, models, limits };
+}
+function parseFerryConfigJson(jsonContent) {
+  let raw;
+  try {
+    raw = JSON.parse(jsonContent);
+  } catch (e) {
+    throw new FerryError("state-invariant", {
+      reason: "invalid-ferry-config",
+      error: e.message
+    });
+  }
+  const errors = validateConfigShape(raw);
+  if (errors.length > 0) {
+    throw new FerryError("state-invariant", { reason: "invalid-ferry-config", errors });
+  }
+  return applyEnvOverrides(mergeWithDefaults(raw));
+}
+function loadFerryConfig(repoRoot) {
+  const root = repoRoot ?? process.env.GITHUB_WORKSPACE ?? process.cwd();
+  const raw = findAndReadConfigFile(root);
+  if (raw === null) {
+    return applyEnvOverrides(DEFAULT_FERRY_CONFIG);
+  }
+  const errors = validateConfigShape(raw);
+  if (errors.length > 0) {
+    throw new FerryError("state-invariant", {
+      reason: "invalid-ferry-config",
+      errors
+    });
+  }
+  return applyEnvOverrides(mergeWithDefaults(raw));
+}
+
+// src/lib/agent-runtime/config-reload.ts
+function loadFerryConfigFromBaseBranch(baseBranch, repoRoot, fallback) {
+  try {
+    execFileSync("git", ["fetch", "origin", baseBranch], { cwd: repoRoot, stdio: "pipe" });
+  } catch {
+    return fallback;
+  }
+  let jsonContent;
+  try {
+    jsonContent = execFileSync("git", ["show", `origin/${baseBranch}:ferry.config.json`], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      stdio: "pipe"
+    });
+  } catch {
+    return fallback;
+  }
+  return parseFerryConfigJson(jsonContent);
+}
+
 // src/lib/agent-runtime/labels.ts
 function logCapabilities(logger, capabilities) {
   if (capabilities.triggeredLabels.length > 0) {
@@ -10930,625 +11588,6 @@ function createTrackerFromEnv() {
   return new JiraTracker(createJiraRestClientFromEnv());
 }
 
-// src/lib/config.ts
-import { existsSync as existsSync3, readFileSync as readFileSync3 } from "node:fs";
-import * as path3 from "node:path";
-import { createRequire as createRequire2 } from "node:module";
-var _require2 = createRequire2(import.meta.url);
-var DEFAULT_FERRY_CONFIG = {
-  models: {
-    refiner: { provider: "anthropic", model: "claude-sonnet-4-6" },
-    dev: { provider: "anthropic", model: "claude-opus-4-5" },
-    review: { provider: "anthropic", model: "claude-sonnet-4-6" },
-    iterate: { provider: "anthropic", model: "claude-sonnet-4-6" }
-  },
-  limits: {
-    max_iterations: 3,
-    max_agent_iterations: 200,
-    max_tokens_per_run: 5e5,
-    max_tokens_per_message: 16384,
-    max_cost_eur_per_run: 10,
-    bash_timeout_ms: 6e4,
-    bash_timeout_max_ms: 3e5,
-    grep_timeout_ms: 3e4,
-    anthropic_verify_timeout_ms: 1e4,
-    jira_retry_base_delay_ms: 2e3,
-    jira_retry_max_attempts: 3,
-    envelope_instructions_chars: 2e3,
-    project_snippet_bytes: 2048,
-    agent_extension_bytes: 4096,
-    tldr_total_chars: 500,
-    tldr_verdict_chars: 40,
-    file_display_chars: 4e4,
-    refiner_subtask_cap: 12,
-    refiner_touch_paths_cap: 20,
-    reviewer_max_iterations: 40,
-    reviewer_max_tokens: 16384,
-    reconciler_stale_window_minutes: 20
-  },
-  ticket_types: {
-    refine_allowlist: ["Story", "Bug", "Spike"],
-    dev_allowlist: ["Story", "Bug", "Spike"]
-  },
-  git: {
-    base_branch: null,
-    target_branch: null,
-    working_branch_prefix: "ferry/"
-  },
-  workflow: {
-    agents: {
-      refiner: { trigger_column: "Refinement", auto_transition: null },
-      developer: { trigger_column: "In Development", auto_transition: "In Review" },
-      reviewer: {
-        trigger_column: "In Review",
-        auto_transition_approve: null,
-        auto_transition_changes: "Changes Requested"
-      },
-      iterator: { trigger_column: "Changes Requested", auto_transition: "In Review" }
-    }
-  }
-};
-function validateProvider(val, fieldPath) {
-  if (val !== "anthropic" && val !== "openai" && val !== "google") {
-    return [`${fieldPath}: must be "anthropic", "openai", or "google"`];
-  }
-  return [];
-}
-function validateLlmRoute(val, fieldPath) {
-  if (!val || typeof val !== "object") return [`${fieldPath}: must be an object`];
-  const r = val;
-  return [
-    ...validateProvider(r.provider, `${fieldPath}.provider`),
-    ...typeof r.model !== "string" || r.model.length === 0 ? [`${fieldPath}.model: must be a non-empty string`] : []
-  ];
-}
-function validatePosInt(val, fieldPath) {
-  if (typeof val !== "number" || !Number.isInteger(val) || val <= 0) {
-    return [`${fieldPath}: must be a positive integer`];
-  }
-  return [];
-}
-function validatePosNumber(val, fieldPath) {
-  if (typeof val !== "number" || val <= 0) {
-    return [`${fieldPath}: must be a positive number`];
-  }
-  return [];
-}
-function validateStringArray(val, fieldPath) {
-  if (!Array.isArray(val) || val.some((v) => typeof v !== "string")) {
-    return [`${fieldPath}: must be an array of strings`];
-  }
-  return [];
-}
-function validateStringOrNull(val, fieldPath) {
-  if (val !== null && typeof val !== "string") {
-    return [`${fieldPath}: must be a string or null`];
-  }
-  return [];
-}
-function validateWorkflowAgentBase(val, fieldPath) {
-  if (!val || typeof val !== "object") return [`${fieldPath}: must be an object`];
-  const v = val;
-  if (v.trigger_column !== void 0 && typeof v.trigger_column !== "string") {
-    return [`${fieldPath}.trigger_column: must be a string`];
-  }
-  return [];
-}
-function validateWorkflow(val) {
-  if (!val || typeof val !== "object") return ["workflow: must be an object"];
-  const w = val;
-  const errs = [];
-  if (w.agents === void 0) return errs;
-  if (!w.agents || typeof w.agents !== "object") {
-    errs.push("workflow.agents: must be an object");
-    return errs;
-  }
-  const agents = w.agents;
-  if (agents.refiner !== void 0) {
-    errs.push(...validateWorkflowAgentBase(agents.refiner, "workflow.agents.refiner"));
-  }
-  if (agents.developer !== void 0) {
-    errs.push(...validateWorkflowAgentBase(agents.developer, "workflow.agents.developer"));
-    const dev = agents.developer;
-    if ("auto_transition" in dev && dev.auto_transition !== void 0) {
-      errs.push(
-        ...validateStringOrNull(dev.auto_transition, "workflow.agents.developer.auto_transition")
-      );
-    }
-  }
-  if (agents.reviewer !== void 0) {
-    errs.push(...validateWorkflowAgentBase(agents.reviewer, "workflow.agents.reviewer"));
-    const rev = agents.reviewer;
-    if ("auto_transition_approve" in rev && rev.auto_transition_approve !== void 0) {
-      errs.push(
-        ...validateStringOrNull(
-          rev.auto_transition_approve,
-          "workflow.agents.reviewer.auto_transition_approve"
-        )
-      );
-    }
-    if ("auto_transition_changes" in rev && rev.auto_transition_changes !== void 0) {
-      errs.push(
-        ...validateStringOrNull(
-          rev.auto_transition_changes,
-          "workflow.agents.reviewer.auto_transition_changes"
-        )
-      );
-    }
-  }
-  if (agents.iterator !== void 0) {
-    errs.push(...validateWorkflowAgentBase(agents.iterator, "workflow.agents.iterator"));
-    const iter = agents.iterator;
-    if ("auto_transition" in iter && iter.auto_transition !== void 0) {
-      errs.push(
-        ...validateStringOrNull(iter.auto_transition, "workflow.agents.iterator.auto_transition")
-      );
-    }
-  }
-  return errs;
-}
-function validateConfigShape(raw) {
-  if (!raw || typeof raw !== "object") return ["config: must be an object"];
-  const c = raw;
-  const errs = [];
-  if (c.models !== void 0) {
-    if (!c.models || typeof c.models !== "object") {
-      errs.push("models: must be an object");
-    } else {
-      const m = c.models;
-      for (const key of ["refiner", "dev", "review", "iterate"]) {
-        if (m[key] !== void 0) {
-          errs.push(...validateLlmRoute(m[key], `models.${String(key)}`));
-        }
-      }
-    }
-  }
-  if (c.limits !== void 0) {
-    if (!c.limits || typeof c.limits !== "object") {
-      errs.push("limits: must be an object");
-    } else {
-      const l = c.limits;
-      if (l.max_iterations !== void 0)
-        errs.push(...validatePosInt(l.max_iterations, "limits.max_iterations"));
-      if (l.max_agent_iterations !== void 0)
-        errs.push(...validatePosInt(l.max_agent_iterations, "limits.max_agent_iterations"));
-      if (l.max_tokens_per_run !== void 0)
-        errs.push(...validatePosInt(l.max_tokens_per_run, "limits.max_tokens_per_run"));
-      if (l.max_tokens_per_message !== void 0)
-        errs.push(...validatePosInt(l.max_tokens_per_message, "limits.max_tokens_per_message"));
-      if (l.max_cost_eur_per_run !== void 0)
-        errs.push(...validatePosNumber(l.max_cost_eur_per_run, "limits.max_cost_eur_per_run"));
-      if (l.bash_timeout_ms !== void 0)
-        errs.push(...validatePosInt(l.bash_timeout_ms, "limits.bash_timeout_ms"));
-      if (l.bash_timeout_max_ms !== void 0)
-        errs.push(...validatePosInt(l.bash_timeout_max_ms, "limits.bash_timeout_max_ms"));
-      if (l.grep_timeout_ms !== void 0)
-        errs.push(...validatePosInt(l.grep_timeout_ms, "limits.grep_timeout_ms"));
-      if (l.anthropic_verify_timeout_ms !== void 0)
-        errs.push(
-          ...validatePosInt(l.anthropic_verify_timeout_ms, "limits.anthropic_verify_timeout_ms")
-        );
-      if (l.jira_retry_base_delay_ms !== void 0)
-        errs.push(...validatePosInt(l.jira_retry_base_delay_ms, "limits.jira_retry_base_delay_ms"));
-      if (l.jira_retry_max_attempts !== void 0)
-        errs.push(...validatePosInt(l.jira_retry_max_attempts, "limits.jira_retry_max_attempts"));
-      if (l.envelope_instructions_chars !== void 0)
-        errs.push(
-          ...validatePosInt(l.envelope_instructions_chars, "limits.envelope_instructions_chars")
-        );
-      if (l.project_snippet_bytes !== void 0)
-        errs.push(...validatePosInt(l.project_snippet_bytes, "limits.project_snippet_bytes"));
-      if (l.agent_extension_bytes !== void 0)
-        errs.push(...validatePosInt(l.agent_extension_bytes, "limits.agent_extension_bytes"));
-      if (l.tldr_total_chars !== void 0)
-        errs.push(...validatePosInt(l.tldr_total_chars, "limits.tldr_total_chars"));
-      if (l.tldr_verdict_chars !== void 0)
-        errs.push(...validatePosInt(l.tldr_verdict_chars, "limits.tldr_verdict_chars"));
-      if (l.file_display_chars !== void 0)
-        errs.push(...validatePosInt(l.file_display_chars, "limits.file_display_chars"));
-      if (l.refiner_subtask_cap !== void 0)
-        errs.push(...validatePosInt(l.refiner_subtask_cap, "limits.refiner_subtask_cap"));
-      if (l.refiner_touch_paths_cap !== void 0)
-        errs.push(...validatePosInt(l.refiner_touch_paths_cap, "limits.refiner_touch_paths_cap"));
-      if (l.reviewer_max_iterations !== void 0)
-        errs.push(...validatePosInt(l.reviewer_max_iterations, "limits.reviewer_max_iterations"));
-      if (l.reviewer_max_tokens !== void 0)
-        errs.push(...validatePosInt(l.reviewer_max_tokens, "limits.reviewer_max_tokens"));
-      if (l.reconciler_stale_window_minutes !== void 0)
-        errs.push(
-          ...validatePosInt(
-            l.reconciler_stale_window_minutes,
-            "limits.reconciler_stale_window_minutes"
-          )
-        );
-    }
-  }
-  if (c.ticket_types !== void 0) {
-    if (!c.ticket_types || typeof c.ticket_types !== "object") {
-      errs.push("ticket_types: must be an object");
-    } else {
-      const t = c.ticket_types;
-      if (t.refine_allowlist !== void 0)
-        errs.push(...validateStringArray(t.refine_allowlist, "ticket_types.refine_allowlist"));
-      if (t.dev_allowlist !== void 0)
-        errs.push(...validateStringArray(t.dev_allowlist, "ticket_types.dev_allowlist"));
-    }
-  }
-  if (c.git !== void 0) {
-    if (!c.git || typeof c.git !== "object" || Array.isArray(c.git)) {
-      errs.push("git: must be an object");
-    } else {
-      const g = c.git;
-      if (g.base_branch !== void 0 && g.base_branch !== null && typeof g.base_branch !== "string") {
-        errs.push("git.base_branch: must be a string or null");
-      }
-      if (g.base_branch !== void 0 && typeof g.base_branch === "string" && g.base_branch.trim() === "") {
-        errs.push("git.base_branch: must be a non-empty string or null");
-      }
-      if (g.target_branch !== void 0 && g.target_branch !== null && typeof g.target_branch !== "string") {
-        errs.push("git.target_branch: must be a string or null");
-      }
-      if (g.target_branch !== void 0 && typeof g.target_branch === "string" && g.target_branch.trim() === "") {
-        errs.push("git.target_branch: must be a non-empty string or null");
-      }
-      if (g.working_branch_prefix !== void 0) {
-        if (typeof g.working_branch_prefix !== "string" || g.working_branch_prefix.length === 0) {
-          errs.push("git.working_branch_prefix: must be a non-empty string");
-        }
-      }
-    }
-  }
-  if (c.labels !== void 0) {
-    if (!c.labels || typeof c.labels !== "object" || Array.isArray(c.labels)) {
-      errs.push("labels: must be an object mapping label names to capability entries");
-    } else {
-      for (const [labelName, entry] of Object.entries(c.labels)) {
-        const fieldPath = `labels.${labelName}`;
-        if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
-          errs.push(`${fieldPath}: must be an object`);
-          continue;
-        }
-        const e = entry;
-        if (e.mcp_servers !== void 0)
-          errs.push(...validateStringArray(e.mcp_servers, `${fieldPath}.mcp_servers`));
-        if (e.tools !== void 0) errs.push(...validateStringArray(e.tools, `${fieldPath}.tools`));
-      }
-    }
-  }
-  if (c.workflow !== void 0) {
-    errs.push(...validateWorkflow(c.workflow));
-  }
-  return errs;
-}
-function readJsonConfig(filePath) {
-  const raw = readFileSync3(filePath, "utf8");
-  try {
-    return JSON.parse(raw);
-  } catch (e) {
-    throw new FerryError("state-invariant", {
-      reason: "invalid-ferry-config",
-      file: path3.basename(filePath),
-      error: e.message
-    });
-  }
-}
-function readYamlConfig(filePath) {
-  let parseYaml;
-  try {
-    const mod = _require2("yaml");
-    parseYaml = mod.parse;
-  } catch {
-    throw new FerryError("state-invariant", {
-      reason: "invalid-ferry-config",
-      file: path3.basename(filePath),
-      error: 'YAML config requires the "yaml" package: npm install yaml'
-    });
-  }
-  const raw = readFileSync3(filePath, "utf8");
-  try {
-    return parseYaml(raw);
-  } catch (e) {
-    throw new FerryError("state-invariant", {
-      reason: "invalid-ferry-config",
-      file: path3.basename(filePath),
-      error: e.message
-    });
-  }
-}
-function findAndReadConfigFile(repoRoot) {
-  const candidates = [
-    { file: "ferry.config.json", reader: readJsonConfig },
-    { file: "ferry.config.yaml", reader: readYamlConfig },
-    { file: "ferry.config.yml", reader: readYamlConfig }
-  ];
-  for (const { file, reader } of candidates) {
-    const filePath = path3.join(repoRoot, file);
-    if (!existsSync3(filePath)) continue;
-    return reader(filePath);
-  }
-  return null;
-}
-function mergeWithDefaults(raw) {
-  const m = raw.models ?? {};
-  const l = raw.limits ?? {};
-  const t = raw.ticket_types ?? {};
-  const g = raw.git ?? {};
-  const route = (val, def) => {
-    if (!val || typeof val !== "object") return def;
-    const r = val;
-    return {
-      provider: r.provider ?? def.provider,
-      model: r.model ?? def.model
-    };
-  };
-  const num = (val, def) => typeof val === "number" ? val : def;
-  const strArr = (val, def) => Array.isArray(val) ? val : def;
-  const nullableStr = (val, def) => {
-    if (val === null) return null;
-    if (typeof val === "string") return val;
-    return def;
-  };
-  const labelsRaw = raw.labels;
-  let labels;
-  if (labelsRaw && typeof labelsRaw === "object" && !Array.isArray(labelsRaw)) {
-    labels = {};
-    for (const [name, entry] of Object.entries(labelsRaw)) {
-      if (entry && typeof entry === "object" && !Array.isArray(entry)) {
-        const e = entry;
-        labels[name] = {
-          ...Array.isArray(e.mcp_servers) ? { mcp_servers: e.mcp_servers } : {},
-          ...Array.isArray(e.tools) ? { tools: e.tools } : {}
-        };
-      }
-    }
-  }
-  return {
-    models: {
-      refiner: route(m.refiner, DEFAULT_FERRY_CONFIG.models.refiner),
-      dev: route(m.dev, DEFAULT_FERRY_CONFIG.models.dev),
-      review: route(m.review, DEFAULT_FERRY_CONFIG.models.review),
-      iterate: route(m.iterate, DEFAULT_FERRY_CONFIG.models.iterate)
-    },
-    limits: {
-      max_iterations: num(l.max_iterations, DEFAULT_FERRY_CONFIG.limits.max_iterations),
-      max_agent_iterations: num(
-        l.max_agent_iterations,
-        DEFAULT_FERRY_CONFIG.limits.max_agent_iterations
-      ),
-      max_tokens_per_run: num(l.max_tokens_per_run, DEFAULT_FERRY_CONFIG.limits.max_tokens_per_run),
-      max_tokens_per_message: num(
-        l.max_tokens_per_message,
-        DEFAULT_FERRY_CONFIG.limits.max_tokens_per_message
-      ),
-      max_cost_eur_per_run: num(
-        l.max_cost_eur_per_run,
-        DEFAULT_FERRY_CONFIG.limits.max_cost_eur_per_run
-      ),
-      bash_timeout_ms: num(l.bash_timeout_ms, DEFAULT_FERRY_CONFIG.limits.bash_timeout_ms),
-      bash_timeout_max_ms: num(
-        l.bash_timeout_max_ms,
-        DEFAULT_FERRY_CONFIG.limits.bash_timeout_max_ms
-      ),
-      grep_timeout_ms: num(l.grep_timeout_ms, DEFAULT_FERRY_CONFIG.limits.grep_timeout_ms),
-      anthropic_verify_timeout_ms: num(
-        l.anthropic_verify_timeout_ms,
-        DEFAULT_FERRY_CONFIG.limits.anthropic_verify_timeout_ms
-      ),
-      jira_retry_base_delay_ms: num(
-        l.jira_retry_base_delay_ms,
-        DEFAULT_FERRY_CONFIG.limits.jira_retry_base_delay_ms
-      ),
-      jira_retry_max_attempts: num(
-        l.jira_retry_max_attempts,
-        DEFAULT_FERRY_CONFIG.limits.jira_retry_max_attempts
-      ),
-      envelope_instructions_chars: num(
-        l.envelope_instructions_chars,
-        DEFAULT_FERRY_CONFIG.limits.envelope_instructions_chars
-      ),
-      project_snippet_bytes: num(
-        l.project_snippet_bytes,
-        DEFAULT_FERRY_CONFIG.limits.project_snippet_bytes
-      ),
-      agent_extension_bytes: num(
-        l.agent_extension_bytes,
-        DEFAULT_FERRY_CONFIG.limits.agent_extension_bytes
-      ),
-      tldr_total_chars: num(l.tldr_total_chars, DEFAULT_FERRY_CONFIG.limits.tldr_total_chars),
-      tldr_verdict_chars: num(l.tldr_verdict_chars, DEFAULT_FERRY_CONFIG.limits.tldr_verdict_chars),
-      file_display_chars: num(l.file_display_chars, DEFAULT_FERRY_CONFIG.limits.file_display_chars),
-      refiner_subtask_cap: num(
-        l.refiner_subtask_cap,
-        DEFAULT_FERRY_CONFIG.limits.refiner_subtask_cap
-      ),
-      refiner_touch_paths_cap: num(
-        l.refiner_touch_paths_cap,
-        DEFAULT_FERRY_CONFIG.limits.refiner_touch_paths_cap
-      ),
-      reviewer_max_iterations: num(
-        l.reviewer_max_iterations,
-        DEFAULT_FERRY_CONFIG.limits.reviewer_max_iterations
-      ),
-      reviewer_max_tokens: num(
-        l.reviewer_max_tokens,
-        DEFAULT_FERRY_CONFIG.limits.reviewer_max_tokens
-      ),
-      reconciler_stale_window_minutes: num(
-        l.reconciler_stale_window_minutes,
-        DEFAULT_FERRY_CONFIG.limits.reconciler_stale_window_minutes
-      )
-    },
-    ticket_types: {
-      refine_allowlist: strArr(
-        t.refine_allowlist,
-        DEFAULT_FERRY_CONFIG.ticket_types.refine_allowlist
-      ),
-      dev_allowlist: strArr(t.dev_allowlist, DEFAULT_FERRY_CONFIG.ticket_types.dev_allowlist)
-    },
-    git: {
-      base_branch: "base_branch" in g ? nullableStr(g.base_branch, null) : DEFAULT_FERRY_CONFIG.git.base_branch,
-      target_branch: "target_branch" in g ? nullableStr(g.target_branch, null) : DEFAULT_FERRY_CONFIG.git.target_branch,
-      working_branch_prefix: typeof g.working_branch_prefix === "string" ? g.working_branch_prefix : DEFAULT_FERRY_CONFIG.git.working_branch_prefix
-    },
-    ...labels !== void 0 ? { labels } : {},
-    workflow: mergeWorkflow(raw.workflow)
-  };
-}
-function mergeWorkflow(rawWorkflow) {
-  const def = DEFAULT_FERRY_CONFIG.workflow;
-  if (!rawWorkflow || typeof rawWorkflow !== "object") return def;
-  const w = rawWorkflow;
-  if (!w.agents || typeof w.agents !== "object") return def;
-  const agents = w.agents;
-  const str = (val, def2) => typeof val === "string" ? val : def2;
-  const strOrNull = (obj, key, def2) => key in obj ? obj[key] === null ? null : typeof obj[key] === "string" ? obj[key] : def2 : def2;
-  const refinerRaw = agents.refiner && typeof agents.refiner === "object" ? agents.refiner : {};
-  const devRaw = agents.developer && typeof agents.developer === "object" ? agents.developer : {};
-  const revRaw = agents.reviewer && typeof agents.reviewer === "object" ? agents.reviewer : {};
-  const iterRaw = agents.iterator && typeof agents.iterator === "object" ? agents.iterator : {};
-  return {
-    agents: {
-      refiner: {
-        trigger_column: str(refinerRaw.trigger_column, def.agents.refiner.trigger_column),
-        auto_transition: null
-      },
-      developer: {
-        trigger_column: str(devRaw.trigger_column, def.agents.developer.trigger_column),
-        auto_transition: strOrNull(devRaw, "auto_transition", def.agents.developer.auto_transition)
-      },
-      reviewer: {
-        trigger_column: str(revRaw.trigger_column, def.agents.reviewer.trigger_column),
-        auto_transition_approve: strOrNull(
-          revRaw,
-          "auto_transition_approve",
-          def.agents.reviewer.auto_transition_approve
-        ),
-        auto_transition_changes: strOrNull(
-          revRaw,
-          "auto_transition_changes",
-          def.agents.reviewer.auto_transition_changes
-        )
-      },
-      iterator: {
-        trigger_column: str(iterRaw.trigger_column, def.agents.iterator.trigger_column),
-        auto_transition: strOrNull(iterRaw, "auto_transition", def.agents.iterator.auto_transition)
-      }
-    }
-  };
-}
-function applyEnvOverrides(cfg) {
-  const models = { ...cfg.models };
-  const limits = { ...cfg.limits };
-  const providerFromEnv = (val) => {
-    if (val === "anthropic" || val === "openai" || val === "google") return val;
-    return void 0;
-  };
-  const refinerProvider = providerFromEnv(process.env.FERRY_REFINER_PROVIDER);
-  if (refinerProvider) models.refiner = { ...models.refiner, provider: refinerProvider };
-  if (process.env.FERRY_REFINER_MODEL) {
-    models.refiner = { ...models.refiner, model: process.env.FERRY_REFINER_MODEL };
-  }
-  const devProvider = providerFromEnv(process.env.FERRY_DEV_PROVIDER);
-  if (devProvider) models.dev = { ...models.dev, provider: devProvider };
-  if (process.env.FERRY_DEV_MODEL) {
-    models.dev = { ...models.dev, model: process.env.FERRY_DEV_MODEL };
-  }
-  const reviewProvider = providerFromEnv(process.env.FERRY_REVIEW_PROVIDER);
-  if (reviewProvider) models.review = { ...models.review, provider: reviewProvider };
-  if (process.env.FERRY_REVIEW_MODEL) {
-    models.review = { ...models.review, model: process.env.FERRY_REVIEW_MODEL };
-  }
-  const iterProvider = providerFromEnv(process.env.FERRY_ITER_PROVIDER);
-  if (iterProvider) models.iterate = { ...models.iterate, provider: iterProvider };
-  if (process.env.FERRY_ITER_MODEL) {
-    models.iterate = { ...models.iterate, model: process.env.FERRY_ITER_MODEL };
-  }
-  const maxAgentIter = parseInt(process.env.FERRY_DEV_MAX_ITERATIONS ?? "", 10);
-  if (Number.isFinite(maxAgentIter)) limits.max_agent_iterations = maxAgentIter;
-  const maxInputTok = parseInt(process.env.FERRY_DEV_MAX_INPUT_TOKENS ?? "", 10);
-  if (Number.isFinite(maxInputTok)) limits.max_tokens_per_run = maxInputTok;
-  const maxTok = parseInt(process.env.FERRY_DEV_MAX_TOKENS ?? "", 10);
-  if (Number.isFinite(maxTok)) limits.max_tokens_per_message = maxTok;
-  const maxCost = parseFloat(process.env.FERRY_MAX_COST_EUR_PER_RUN ?? "");
-  if (Number.isFinite(maxCost)) limits.max_cost_eur_per_run = maxCost;
-  const envInt = (key) => {
-    const v = parseInt(process.env[key] ?? "", 10);
-    return Number.isFinite(v) ? v : void 0;
-  };
-  const bashTimeoutMs = envInt("FERRY_BASH_TIMEOUT_MS");
-  if (bashTimeoutMs !== void 0) limits.bash_timeout_ms = bashTimeoutMs;
-  const bashTimeoutMaxMs = envInt("FERRY_BASH_TIMEOUT_MAX_MS");
-  if (bashTimeoutMaxMs !== void 0) limits.bash_timeout_max_ms = bashTimeoutMaxMs;
-  const grepTimeoutMs = envInt("FERRY_GREP_TIMEOUT_MS");
-  if (grepTimeoutMs !== void 0) limits.grep_timeout_ms = grepTimeoutMs;
-  const anthropicVerifyTimeoutMs = envInt("FERRY_ANTHROPIC_VERIFY_TIMEOUT_MS");
-  if (anthropicVerifyTimeoutMs !== void 0)
-    limits.anthropic_verify_timeout_ms = anthropicVerifyTimeoutMs;
-  const jiraRetryBaseDelayMs = envInt("FERRY_JIRA_RETRY_BASE_DELAY_MS");
-  if (jiraRetryBaseDelayMs !== void 0) limits.jira_retry_base_delay_ms = jiraRetryBaseDelayMs;
-  const jiraRetryMaxAttempts = envInt("FERRY_JIRA_RETRY_MAX_ATTEMPTS");
-  if (jiraRetryMaxAttempts !== void 0) limits.jira_retry_max_attempts = jiraRetryMaxAttempts;
-  const envelopeInstructionsChars = envInt("FERRY_ENVELOPE_INSTRUCTIONS_CHARS");
-  if (envelopeInstructionsChars !== void 0)
-    limits.envelope_instructions_chars = envelopeInstructionsChars;
-  const projectSnippetBytes = envInt("FERRY_PROJECT_SNIPPET_BYTES");
-  if (projectSnippetBytes !== void 0) limits.project_snippet_bytes = projectSnippetBytes;
-  const agentExtensionBytes = envInt("FERRY_AGENT_EXTENSION_BYTES");
-  if (agentExtensionBytes !== void 0) limits.agent_extension_bytes = agentExtensionBytes;
-  const tldrTotalChars = envInt("FERRY_TLDR_TOTAL_CHARS");
-  if (tldrTotalChars !== void 0) limits.tldr_total_chars = tldrTotalChars;
-  const tldrVerdictChars = envInt("FERRY_TLDR_VERDICT_CHARS");
-  if (tldrVerdictChars !== void 0) limits.tldr_verdict_chars = tldrVerdictChars;
-  const fileDisplayChars = envInt("FERRY_FILE_DISPLAY_CHARS");
-  if (fileDisplayChars !== void 0) limits.file_display_chars = fileDisplayChars;
-  const refinerSubtaskCap = envInt("FERRY_REFINER_SUBTASK_CAP");
-  if (refinerSubtaskCap !== void 0) limits.refiner_subtask_cap = refinerSubtaskCap;
-  const refinerTouchPathsCap = envInt("FERRY_REFINER_TOUCH_PATHS_CAP");
-  if (refinerTouchPathsCap !== void 0) limits.refiner_touch_paths_cap = refinerTouchPathsCap;
-  const reviewerMaxIterations = envInt("FERRY_REVIEWER_MAX_ITERATIONS");
-  if (reviewerMaxIterations !== void 0) limits.reviewer_max_iterations = reviewerMaxIterations;
-  const reviewerMaxTokens = envInt("FERRY_REVIEWER_MAX_TOKENS");
-  if (reviewerMaxTokens !== void 0) limits.reviewer_max_tokens = reviewerMaxTokens;
-  const reconcilerStaleWindowMinutes = envInt("FERRY_RECONCILER_STALE_WINDOW_MINUTES");
-  if (reconcilerStaleWindowMinutes !== void 0)
-    limits.reconciler_stale_window_minutes = reconcilerStaleWindowMinutes;
-  process.env.FERRY_BASH_TIMEOUT_MS = String(limits.bash_timeout_ms);
-  process.env.FERRY_BASH_TIMEOUT_MAX_MS = String(limits.bash_timeout_max_ms);
-  process.env.FERRY_GREP_TIMEOUT_MS = String(limits.grep_timeout_ms);
-  process.env.FERRY_ANTHROPIC_VERIFY_TIMEOUT_MS = String(limits.anthropic_verify_timeout_ms);
-  process.env.FERRY_JIRA_RETRY_BASE_DELAY_MS = String(limits.jira_retry_base_delay_ms);
-  process.env.FERRY_JIRA_RETRY_MAX_ATTEMPTS = String(limits.jira_retry_max_attempts);
-  process.env.FERRY_ENVELOPE_INSTRUCTIONS_CHARS = String(limits.envelope_instructions_chars);
-  process.env.FERRY_PROJECT_SNIPPET_BYTES = String(limits.project_snippet_bytes);
-  process.env.FERRY_AGENT_EXTENSION_BYTES = String(limits.agent_extension_bytes);
-  process.env.FERRY_TLDR_TOTAL_CHARS = String(limits.tldr_total_chars);
-  process.env.FERRY_TLDR_VERDICT_CHARS = String(limits.tldr_verdict_chars);
-  process.env.FERRY_FILE_DISPLAY_CHARS = String(limits.file_display_chars);
-  process.env.FERRY_REFINER_SUBTASK_CAP = String(limits.refiner_subtask_cap);
-  process.env.FERRY_REFINER_TOUCH_PATHS_CAP = String(limits.refiner_touch_paths_cap);
-  process.env.FERRY_REVIEWER_MAX_ITERATIONS = String(limits.reviewer_max_iterations);
-  process.env.FERRY_REVIEWER_MAX_TOKENS = String(limits.reviewer_max_tokens);
-  process.env.FERRY_RECONCILER_STALE_WINDOW_MINUTES = String(
-    limits.reconciler_stale_window_minutes
-  );
-  return { ...cfg, models, limits };
-}
-function loadFerryConfig(repoRoot) {
-  const root = repoRoot ?? process.env.GITHUB_WORKSPACE ?? process.cwd();
-  const raw = findAndReadConfigFile(root);
-  if (raw === null) {
-    return applyEnvOverrides(DEFAULT_FERRY_CONFIG);
-  }
-  const errors = validateConfigShape(raw);
-  if (errors.length > 0) {
-    throw new FerryError("state-invariant", {
-      reason: "invalid-ferry-config",
-      errors
-    });
-  }
-  return applyEnvOverrides(mergeWithDefaults(raw));
-}
-
 // src/lib/agent-runtime/context.ts
 function createGitHubContext(repoRoot) {
   const githubToken = requireEnv("GITHUB_TOKEN");
@@ -11563,6 +11602,14 @@ function createGitHubContext(repoRoot) {
   return { owner, repo, runner, tracker, ferryCfg };
 }
 
+// src/lib/agent-runtime/resolve-git-config.ts
+async function resolveGitConfig(ferryCfg, runner, owner, repo) {
+  const { base_branch, target_branch, working_branch_prefix } = ferryCfg.git;
+  const baseBranch = base_branch ?? await runner.getRepoDefaultBranch(owner, repo);
+  const targetBranch = target_branch ?? baseBranch;
+  return { baseBranch, targetBranch, workingBranchPrefix: working_branch_prefix };
+}
+
 // src/agents/reviewer/changes-guard.ts
 function countPriorIterations(existingComments) {
   return existingComments.filter(
@@ -11574,7 +11621,9 @@ function countPriorIterations(existingComments) {
 var REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
 async function main(envelope, logger) {
   const { ticket_key: ticketKey, event_id: eventId } = envelope;
-  const { owner, repo, runner, tracker, ferryCfg } = createGitHubContext(REPO_ROOT);
+  const { owner, repo, runner, tracker, ferryCfg: initialCfg } = createGitHubContext(REPO_ROOT);
+  const { baseBranch } = await resolveGitConfig(initialCfg, runner, owner, repo);
+  const ferryCfg = loadFerryConfigFromBaseBranch(baseBranch, REPO_ROOT, initialCfg);
   const { provider, model } = ferryCfg.models.review;
   if (provider !== "anthropic") {
     throw new FerryError("state-invariant", {
