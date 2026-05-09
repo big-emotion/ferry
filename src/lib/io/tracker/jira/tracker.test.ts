@@ -57,6 +57,7 @@ describe('JiraTracker', () => {
       expect(issue.comments).toEqual([adfToText(makeAdf(commentText))]);
       expect(issue.labels).toEqual(['bug']);
       expect(issue.issueType).toBe('Story');
+      expect(issue.issueTypeRaw).toBe('Story');
       expect(client.getIssue).toHaveBeenCalledWith('PROJ-1');
     });
 
@@ -75,6 +76,49 @@ describe('JiraTracker', () => {
 
       const issue = await tracker.getIssue('PROJ-2');
       expect(issue.description).toBe('');
+    });
+  });
+
+  describe('locale normalization (FR6 + issue #245)', () => {
+    it.each([
+      ['Tâche', 'Task'],
+      ['tâche', 'Task'],
+      ['Bogue', 'Bug'],
+      ['Histoire', 'Story'],
+      ['Épique', 'Epic'],
+      ['Sous-tâche', 'Sub-task'],
+    ])('normalizes "%s" → "%s"', async (rawName, expected) => {
+      vi.mocked(client.getIssue).mockResolvedValue({
+        id: '99',
+        key: 'FR-1',
+        fields: {
+          summary: 'Test',
+          description: null,
+          comment: { comments: [] },
+          labels: [],
+          issuetype: { name: rawName },
+        },
+      });
+      const issue = await tracker.getIssue('FR-1');
+      expect(issue.issueType).toBe(expected);
+      expect(issue.issueTypeRaw).toBe(rawName);
+    });
+
+    it('passes through unknown types unchanged', async () => {
+      vi.mocked(client.getIssue).mockResolvedValue({
+        id: '100',
+        key: 'FR-2',
+        fields: {
+          summary: 'Test',
+          description: null,
+          comment: { comments: [] },
+          labels: [],
+          issuetype: { name: 'CustomType' },
+        },
+      });
+      const issue = await tracker.getIssue('FR-2');
+      expect(issue.issueType).toBe('CustomType');
+      expect(issue.issueTypeRaw).toBe('CustomType');
     });
   });
 

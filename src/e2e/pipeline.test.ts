@@ -186,6 +186,7 @@ function buildMockIO(): MockIO {
     comments: [],
     labels: [],
     issueType: 'Story',
+    issueTypeRaw: 'Story',
   });
 
   const runner = new GitHubActionsRunner(octokit, OWNER, REPO);

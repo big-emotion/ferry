@@ -14,6 +14,7 @@ function makeTracker(parentKey: string, subtasks: TrackerSubtask[] = []) {
     comments: [],
     labels: [],
     issueType: 'Story',
+    issueTypeRaw: 'Story',
   });
   for (const s of subtasks) {
     tracker.seed({
@@ -23,6 +24,7 @@ function makeTracker(parentKey: string, subtasks: TrackerSubtask[] = []) {
       comments: [],
       labels: [],
       issueType: 'Sub-task',
+      issueTypeRaw: 'Sub-task',
     });
   }
   tracker.seedSubtaskDetails(parentKey, subtasks);

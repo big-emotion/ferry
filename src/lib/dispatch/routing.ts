@@ -44,7 +44,7 @@ export function phaseToDispatchType(phase: keyof RoutingTable): DispatchType {
  * sub-tasks, and re-running on those would loop. Other types pass through.
  */
 export function shouldSkipForTaskType(issueType: string): { skip: boolean; reason?: string } {
-  if (issueType === 'Task') {
+  if (issueType.toLowerCase() === 'task') {
     return { skip: true, reason: 'ticket type Task is not processed by Ferry' };
   }
   return { skip: false };

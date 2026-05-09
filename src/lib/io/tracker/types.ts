@@ -4,7 +4,10 @@ export interface TrackerIssue {
   description: string;
   comments: string[];
   labels: string[];
+  /** Canonical (normalized) English issue type name. */
   issueType: string;
+  /** Verbatim issue type name as returned by the tracker (may be a non-English locale). */
+  issueTypeRaw: string;
 }
 
 export interface TrackerSubtask {

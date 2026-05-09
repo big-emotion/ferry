@@ -47,6 +47,7 @@ function makeTracker(): InMemoryTracker {
     comments: [],
     labels: [],
     issueType: 'Story',
+    issueTypeRaw: 'Story',
   });
   return tracker;
 }
@@ -115,6 +116,7 @@ describe('refiner-action re-trigger scenario', () => {
       comments: ['[ferry:refiner:old-evt] Refined. Created 2...'],
       labels: [],
       issueType: 'Story',
+      issueTypeRaw: 'Story',
     });
 
     await run(envelope, { tracker, callLlm: makeMockLlm(noopPlan) });
