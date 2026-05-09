@@ -341,6 +341,8 @@ Maps Jira ticket labels to MCP server capabilities. If this section is omitted, 
 > - **Per-ticket activation** — declared here in `ferry.config.yaml` § `labels:`. A `ferry:*` label on the Jira ticket selects which servers from the pool are active for that ticket.
 >
 > A label entry that names a server not present in `AGENT_MCP_SERVERS` is silently ignored at runtime. The pool variable is not part of `ferry.config.yaml`.
+>
+> **Default MCP servers:** Context7 (`https://mcp.context7.com/mcp`) is enabled by default for all agents that support MCP. To opt out, set the `FERRY_MCP_DEFAULTS_DISABLED` repository variable to `true`. Consumer entries in `AGENT_MCP_SERVERS` that share a name with a default (e.g. `"context7"`) automatically shadow and replace the default, so you can point to your own proxy without disabling defaults entirely.
 
 **Adding a new MCP server — 3 steps:**
 

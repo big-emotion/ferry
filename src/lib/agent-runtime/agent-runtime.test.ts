@@ -25,19 +25,30 @@ describe('requireEnv', () => {
 });
 
 describe('loadMcpServers', () => {
-  it('returns empty array when AGENT_MCP_SERVERS is unset', () => {
+  const CONTEXT7 = { name: 'context7', url: 'https://mcp.context7.com/mcp' };
+
+  it('returns context7 default when AGENT_MCP_SERVERS is unset', () => {
     delete process.env.AGENT_MCP_SERVERS;
+    vi.stubEnv('FERRY_MCP_DEFAULTS_DISABLED', '');
+    expect(loadMcpServers()).toEqual([CONTEXT7]);
+  });
+
+  it('returns empty array when FERRY_MCP_DEFAULTS_DISABLED=true and no consumer servers', () => {
+    delete process.env.AGENT_MCP_SERVERS;
+    vi.stubEnv('FERRY_MCP_DEFAULTS_DISABLED', 'true');
     expect(loadMcpServers()).toEqual([]);
   });
 
-  it('returns empty array when AGENT_MCP_SERVERS is invalid JSON', () => {
+  it('returns context7 default when AGENT_MCP_SERVERS is invalid JSON', () => {
     vi.stubEnv('AGENT_MCP_SERVERS', 'not-json');
-    expect(loadMcpServers()).toEqual([]);
+    vi.stubEnv('FERRY_MCP_DEFAULTS_DISABLED', '');
+    expect(loadMcpServers()).toEqual([CONTEXT7]);
   });
 
-  it('returns empty array when AGENT_MCP_SERVERS is not an array', () => {
+  it('returns context7 default when AGENT_MCP_SERVERS is not an array', () => {
     vi.stubEnv('AGENT_MCP_SERVERS', '{"name":"x","url":"http://x"}');
-    expect(loadMcpServers()).toEqual([]);
+    vi.stubEnv('FERRY_MCP_DEFAULTS_DISABLED', '');
+    expect(loadMcpServers()).toEqual([CONTEXT7]);
   });
 
   it('filters out entries without name or url or stdio command', () => {
@@ -51,9 +62,11 @@ describe('loadMcpServers', () => {
         { name: 'stdio-no-command', type: 'stdio' },
       ]),
     );
+    vi.stubEnv('FERRY_MCP_DEFAULTS_DISABLED', '');
     const result = loadMcpServers();
-    expect(result).toHaveLength(1);
-    expect(result[0].name).toBe('valid');
+    expect(result).toHaveLength(2);
+    expect(result[0]).toMatchObject(CONTEXT7);
+    expect(result[1].name).toBe('valid');
   });
 
   it('returns valid HTTP servers with all fields preserved', () => {
@@ -63,8 +76,11 @@ describe('loadMcpServers', () => {
         { name: 'srv', url: 'http://srv', authorization_token: 'tok', allowed_tools: ['foo'] },
       ]),
     );
+    vi.stubEnv('FERRY_MCP_DEFAULTS_DISABLED', '');
     const result = loadMcpServers();
-    expect(result[0]).toMatchObject({
+    expect(result).toHaveLength(2);
+    expect(result[0]).toMatchObject(CONTEXT7);
+    expect(result[1]).toMatchObject({
       name: 'srv',
       url: 'http://srv',
       authorization_token: 'tok',
@@ -84,9 +100,11 @@ describe('loadMcpServers', () => {
         },
       ]),
     );
+    vi.stubEnv('FERRY_MCP_DEFAULTS_DISABLED', '');
     const result = loadMcpServers();
-    expect(result).toHaveLength(1);
-    expect(result[0]).toMatchObject({
+    expect(result).toHaveLength(2);
+    expect(result[0]).toMatchObject(CONTEXT7);
+    expect(result[1]).toMatchObject({
       type: 'stdio',
       name: 'filesystem',
       command: 'npx',
@@ -103,10 +121,21 @@ describe('loadMcpServers', () => {
         { type: 'stdio', name: 'local', command: 'node', args: ['mcp-server.js'] },
       ]),
     );
+    vi.stubEnv('FERRY_MCP_DEFAULTS_DISABLED', '');
     const result = loadMcpServers();
-    expect(result).toHaveLength(2);
-    expect(result[0].name).toBe('remote');
-    expect(result[1].name).toBe('local');
+    expect(result).toHaveLength(3);
+    expect(result[0]).toMatchObject(CONTEXT7);
+    expect(result[1].name).toBe('remote');
+    expect(result[2].name).toBe('local');
+  });
+
+  it('consumer entry named context7 shadows the default', () => {
+    const custom = { name: 'context7', url: 'https://my-context7-proxy.example.com' };
+    vi.stubEnv('AGENT_MCP_SERVERS', JSON.stringify([custom]));
+    vi.stubEnv('FERRY_MCP_DEFAULTS_DISABLED', '');
+    const result = loadMcpServers();
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({ url: 'https://my-context7-proxy.example.com' });
   });
 });
 

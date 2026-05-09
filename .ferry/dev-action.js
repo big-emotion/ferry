@@ -164,16 +164,24 @@ function isValidMcpServer(s) {
   }
   return typeof obj.url === "string" && obj.url.length > 0;
 }
+var DEFAULT_MCP_SERVERS = [
+  { name: "context7", url: "https://mcp.context7.com/mcp" }
+];
 function loadMcpServers() {
+  const defaults = process.env.FERRY_MCP_DEFAULTS_DISABLED === "true" ? [] : [...DEFAULT_MCP_SERVERS];
   const raw = process.env.AGENT_MCP_SERVERS;
-  if (!raw) return [];
+  if (!raw) return defaults;
+  let consumer;
   try {
     const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter(isValidMcpServer);
+    if (!Array.isArray(parsed)) return defaults;
+    consumer = parsed.filter(isValidMcpServer);
   } catch {
-    return [];
+    return defaults;
   }
+  const consumerNames = new Set(consumer.map((s) => s.name));
+  const filteredDefaults = defaults.filter((d) => !consumerNames.has(d.name));
+  return [...filteredDefaults, ...consumer];
 }
 
 // src/lib/envelope/validate.ts

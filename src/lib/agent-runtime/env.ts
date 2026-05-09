@@ -18,14 +18,29 @@ function isValidMcpServer(s: unknown): s is McpServerConfig {
   return typeof obj.url === 'string' && obj.url.length > 0;
 }
 
+/** Context7 is enabled by default for all agents. Set FERRY_MCP_DEFAULTS_DISABLED=true to opt out. */
+export const DEFAULT_MCP_SERVERS: McpServerConfig[] = [
+  { name: 'context7', url: 'https://mcp.context7.com/mcp' },
+];
+
 export function loadMcpServers(): McpServerConfig[] {
+  const defaults =
+    process.env.FERRY_MCP_DEFAULTS_DISABLED === 'true' ? [] : [...DEFAULT_MCP_SERVERS];
+
   const raw = process.env.AGENT_MCP_SERVERS;
-  if (!raw) return [];
+  if (!raw) return defaults;
+
+  let consumer: McpServerConfig[];
   try {
     const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter(isValidMcpServer);
+    if (!Array.isArray(parsed)) return defaults;
+    consumer = parsed.filter(isValidMcpServer);
   } catch {
-    return [];
+    return defaults;
   }
+
+  // Consumer entries with the same name shadow the default (allows disabling context7 by name)
+  const consumerNames = new Set(consumer.map((s) => s.name));
+  const filteredDefaults = defaults.filter((d) => !consumerNames.has(d.name));
+  return [...filteredDefaults, ...consumer];
 }
