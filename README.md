@@ -397,6 +397,7 @@ Each HTTP/SSE entry accepts:
 - Tool calls only — MCP prompts and resources are not in scope.
 - Only available when the developer agent uses the Anthropic provider; not supported on Bedrock or Vertex.
 - Not eligible for Anthropic Zero Data Retention.
+- Uses the Anthropic beta connector `mcp-client-2025-11-20`. The API contract may change before GA. The routing logic is covered by unit tests with a mocked Anthropic client; there are no live-network integration tests for this path.
 
 ### Stdio servers (client-side)
 
