@@ -361,7 +361,7 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
     const prTitle =
       resolvedOutcome === 'already_satisfied'
         ? `verify(${ticketKey}): existing implementation satisfies spec`
-        : formatPullRequestTitle({ ticketKey, summary: done.summary });
+        : formatPullRequestTitle({ ticketKey, summary: issue.summary });
     const prBody = formatPullRequestBody({
       ticketKey,
       jiraBaseUrl,

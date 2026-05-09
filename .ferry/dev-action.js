@@ -7747,7 +7747,7 @@ ${tree}`,
       summaryFilesTouched = diff.trim().split("\n").filter(Boolean);
     } catch {
     }
-    const prTitle = resolvedOutcome === "already_satisfied" ? `verify(${ticketKey}): existing implementation satisfies spec` : formatPullRequestTitle({ ticketKey, summary: done.summary });
+    const prTitle = resolvedOutcome === "already_satisfied" ? `verify(${ticketKey}): existing implementation satisfies spec` : formatPullRequestTitle({ ticketKey, summary: issue.summary });
     const prBody = formatPullRequestBody({
       ticketKey,
       jiraBaseUrl,
