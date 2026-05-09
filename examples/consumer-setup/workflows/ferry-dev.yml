@@ -58,6 +58,7 @@ jobs:
     outputs:
       input_tokens: ${{ steps.run-developer.outputs.input_tokens }}
       output_tokens: ${{ steps.run-developer.outputs.output_tokens }}
+      cost_eur: ${{ steps.run-developer.outputs.cost_eur }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -116,6 +117,7 @@ jobs:
           outcome: ${{ needs.run-agent.result }}
           input_tokens: ${{ needs.run-agent.outputs.input_tokens || '0' }}
           output_tokens: ${{ needs.run-agent.outputs.output_tokens || '0' }}
+          cost_eur: ${{ needs.run-agent.outputs.cost_eur || '0' }}
           start_ms: ${{ github.run_id }}
           audit_issue: ${{ vars.FERRY_AUDIT_ISSUE }}
           github_token: ${{ github.token }}

@@ -91,6 +91,15 @@ outputs:
   output_tokens:
     description: Number of LLM output tokens consumed
     value: ${{ steps.run-developer.outputs.output_tokens }}
+  cost_eur:
+    description: Cost in EUR for this agent run
+    value: ${{ steps.run-developer.outputs.cost_eur }}
+  cache_read_tokens:
+    description: Number of cache read input tokens consumed
+    value: ${{ steps.run-developer.outputs.cache_read_tokens }}
+  cache_write_tokens:
+    description: Number of cache write input tokens consumed
+    value: ${{ steps.run-developer.outputs.cache_write_tokens }}
 runs:
   using: composite
   steps:
