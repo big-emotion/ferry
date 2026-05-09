@@ -56,3 +56,15 @@ export function totalStats(groups: GroupStats[]): GroupStats {
     { key: 'total', calls: 0, inputTokens: 0, outputTokens: 0, costEur: 0 },
   );
 }
+
+export function groupByModel(lines: AuditLine[]): GroupStats[] {
+  const map = new Map<string, GroupStats>();
+  for (const line of lines) accumulate(map, line.model, line);
+  return Array.from(map.values()).sort((a, b) => b.costEur - a.costEur);
+}
+
+export function groupByDay(lines: AuditLine[]): GroupStats[] {
+  const map = new Map<string, GroupStats>();
+  for (const line of lines) accumulate(map, line.timestamp.slice(0, 10), line);
+  return Array.from(map.values()).sort((a, b) => a.key.localeCompare(b.key));
+}

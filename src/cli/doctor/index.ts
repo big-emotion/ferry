@@ -14,6 +14,7 @@ import { checkConfigLimits, checkGitConfig } from './checks/config.js';
 import { checkWorkflowColumns } from './checks/workflow-columns.js';
 import { checkEnvVarSanity } from './checks/env-vars.js';
 import { checkAuditIssue } from './checks/audit-issue.js';
+import { checkAuditLog } from './checks/audit-log.js';
 import { renderTable } from './table.js';
 import type { DoctorConfig } from './types.js';
 
@@ -129,6 +130,7 @@ Checks run in order:
   11. Env var sanity         — warn if any FERRY_* env var override is set to an obviously bad value
   12. Workflow columns       — validate workflow.agents column names exist in Jira project
   13. Audit issue            — FERRY_AUDIT_ISSUE variable set and referenced issue is open
+  14. Audit log file         — ferry-audit.jsonl present and non-empty
 
 Exit code: 0 if all checks green/yellow, 1 if any check red.
 `);
@@ -181,6 +183,7 @@ Exit code: 0 if all checks green/yellow, 1 if any check red.
       jiraProjectKey: config.jiraProjectKey,
     }),
     checkAuditIssue(config.repo),
+    checkAuditLog(config.repoRoot),
   ]);
 
   process.stdout.write(renderTable(results));

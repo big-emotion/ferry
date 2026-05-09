@@ -253,6 +253,8 @@ Quick install checklist:
 
 For on-call playbooks (stalled ticket, cost spike, agent-loop runaway, rollback), see [`docs/RUNBOOK.md`](docs/RUNBOOK.md).
 
+For on-demand spend breakdowns, see [`docs/COST.md`](docs/COST.md) — `ferry-cost-report` reads your local `ferry-audit.jsonl` and renders a markdown report with per-phase, per-model, per-ticket, and daily tables plus ASCII sparklines.
+
 ---
 
 ## Lifecycle commands
