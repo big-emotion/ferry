@@ -1,3 +1,12 @@
 {
-  "allowlist": []
+  "allowlist": [
+    {
+      "id": "1117870",
+      "rationale": "Pre-existing high-severity advisory in fast-uri (transitive dep via ajv). Not introduced by this repo — ajv pins fast-uri@^3.0.1 and no patched 3.x release is available yet. fast-uri is used only for URI format validation inside AJV's JSON-schema checks; Ferry never passes untrusted user input as a URI to fast-uri directly. Track upstream for a patched release and remove this entry when ajv ships one."
+    },
+    {
+      "id": "1117884",
+      "rationale": "Pre-existing high-severity advisory in fast-uri (transitive dep via ajv). Not introduced by this repo — ajv pins fast-uri@^3.0.1 and no patched 3.x release is available yet. fast-uri is used only for URI format validation inside AJV's JSON-schema checks; Ferry never passes untrusted user input as a URI to fast-uri directly. Track upstream for a patched release and remove this entry when ajv ships one."
+    }
+  ]
 }
