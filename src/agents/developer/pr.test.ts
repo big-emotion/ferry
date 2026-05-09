@@ -7,6 +7,19 @@ describe('formatPullRequestTitle (Story 4-4 FR16)', () => {
       'CHAN-27 Add login button',
     );
   });
+
+  it('uses the summary verbatim — dev-action must pass issue.summary not done.summary', () => {
+    // Regression for #250: dev-action was using done.summary (LLM output) instead of
+    // issue.summary (verbatim Jira title). The call site fix is in dev-action.ts.
+    const issueSummary = 'Fix login on mobile';
+    const doneSummary = 'Implemented mobile authentication improvements';
+    expect(formatPullRequestTitle({ ticketKey: 'PROJ-123', summary: issueSummary })).toBe(
+      'PROJ-123 Fix login on mobile',
+    );
+    expect(formatPullRequestTitle({ ticketKey: 'PROJ-123', summary: doneSummary })).not.toBe(
+      'PROJ-123 Fix login on mobile',
+    );
+  });
 });
 
 describe('formatPullRequestBody (Story 4-4)', () => {
