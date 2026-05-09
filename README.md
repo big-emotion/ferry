@@ -357,6 +357,12 @@ The Developer and Iterator agents can call **MCP servers** of two kinds, both co
 
 The Refiner runs a single-turn LLM call and the Reviewer uses its own agentic tool loop — neither reads `AGENT_MCP_SERVERS`.
 
+### Default MCP servers
+
+**Context7** (`https://mcp.context7.com/mcp`) is enabled by default for all MCP-capable agents — no configuration required. It gives the Developer and Iterator access to up-to-date library documentation during their agent loops.
+
+To opt out, set the `FERRY_MCP_DEFAULTS_DISABLED` repository variable to `true`. To replace the default Context7 endpoint with your own proxy, add an entry named `"context7"` to `AGENT_MCP_SERVERS` — it will automatically shadow the built-in default.
+
 ### HTTP/SSE servers (Anthropic-proxied)
 
 Set the `AGENT_MCP_SERVERS` environment variable (repository variable or secret) to a JSON array with one entry per server:
@@ -432,11 +438,7 @@ Each stdio entry accepts:
 
 **First-party example — context7**
 
-[context7](https://github.com/upstash/context7) serves up-to-date library documentation as an MCP tool. To enable it:
-
-```json
-AGENT_MCP_SERVERS=[{"name":"context7","url":"https://mcp.context7.com/mcp"}]
-```
+[context7](https://github.com/upstash/context7) serves up-to-date library documentation as an MCP tool. It is **enabled by default** — see [Default MCP servers](#default-mcp-servers) above. No configuration is needed unless you want to opt out or point to a custom proxy.
 
 **End-to-end example — Figma for UI refactors**
 
