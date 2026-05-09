@@ -38,6 +38,7 @@ describe('dry-run tracker isolation', () => {
       comments: [],
       labels: [],
       issueType: 'Story',
+      issueTypeRaw: 'Story',
     });
 
     const postCommentSpy = vi.spyOn(tracker, 'postComment');
@@ -67,6 +68,7 @@ describe('dry-run tracker isolation', () => {
       comments: [],
       labels: [],
       issueType: 'Story',
+      issueTypeRaw: 'Story',
     });
 
     const dryRun = isDryRun();

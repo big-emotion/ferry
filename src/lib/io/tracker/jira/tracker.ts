@@ -2,6 +2,19 @@ import { JiraRestClient } from '../../jira-rest.js';
 import { adfToText, textToAdf } from '../../jira-adf.js';
 import type { IssueTracker, TrackerIssue, TrackerSubtask } from '../types.js';
 
+const ISSUE_TYPE_LOCALE_MAP: Record<string, string> = {
+  // French
+  tâche: 'Task',
+  bogue: 'Bug',
+  histoire: 'Story',
+  épique: 'Epic',
+  'sous-tâche': 'Sub-task',
+};
+
+function normalizeIssueType(raw: string): string {
+  return ISSUE_TYPE_LOCALE_MAP[raw.toLowerCase()] ?? raw;
+}
+
 export class JiraTracker implements IssueTracker {
   constructor(private readonly client: JiraRestClient) {}
 
@@ -13,7 +26,8 @@ export class JiraTracker implements IssueTracker {
       description: adfToText(issue.fields.description),
       comments: issue.fields.comment.comments.map((c) => adfToText(c.body)),
       labels: issue.fields.labels,
-      issueType: issue.fields.issuetype.name,
+      issueType: normalizeIssueType(issue.fields.issuetype.name),
+      issueTypeRaw: issue.fields.issuetype.name,
     };
   }
 

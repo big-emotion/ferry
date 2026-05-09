@@ -27,6 +27,7 @@ function makeTracker(ticketKey: string): InMemoryTracker {
     comments: [],
     labels: [],
     issueType: 'Story',
+    issueTypeRaw: 'Story',
   });
   return tracker;
 }

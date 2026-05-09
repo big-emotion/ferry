@@ -43,6 +43,17 @@ describe('shouldSkipForTaskType (FR6 task-type filter)', () => {
     });
   });
 
+  it('is case-insensitive (normalized French "Tâche" maps to "Task" before this call)', () => {
+    expect(shouldSkipForTaskType('task')).toEqual({
+      skip: true,
+      reason: 'ticket type Task is not processed by Ferry',
+    });
+    expect(shouldSkipForTaskType('TASK')).toEqual({
+      skip: true,
+      reason: 'ticket type Task is not processed by Ferry',
+    });
+  });
+
   it('does not skip Story / Bug / Spike issue types', () => {
     expect(shouldSkipForTaskType('Story')).toEqual({ skip: false });
     expect(shouldSkipForTaskType('Bug')).toEqual({ skip: false });

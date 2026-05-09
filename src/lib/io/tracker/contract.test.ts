@@ -9,6 +9,7 @@ const SAMPLE_ISSUE: TrackerIssue = {
   comments: ['First comment', 'Second comment'],
   labels: ['bug'],
   issueType: 'Story',
+  issueTypeRaw: 'Story',
 };
 
 describe('IssueTracker contract — InMemoryTracker', () => {
