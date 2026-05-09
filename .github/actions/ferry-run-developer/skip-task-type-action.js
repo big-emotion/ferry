@@ -396,7 +396,7 @@ var PHASE_TO_WORKFLOW = Object.freeze({
   iterate: Object.freeze({ workflow: "ferry-iterate.yml", dispatchType: "ferry-iterate" })
 });
 function shouldSkipForTaskType(issueType2) {
-  if (issueType2 === "Task") {
+  if (issueType2.toLowerCase() === "task") {
     return { skip: true, reason: "ticket type Task is not processed by Ferry" };
   }
   return { skip: false };

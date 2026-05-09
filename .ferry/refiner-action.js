@@ -5213,6 +5213,17 @@ function adfToText(adf) {
 }
 
 // src/lib/io/tracker/jira/tracker.ts
+var ISSUE_TYPE_LOCALE_MAP = {
+  // French
+  t\u00E2che: "Task",
+  bogue: "Bug",
+  histoire: "Story",
+  \u00E9pique: "Epic",
+  "sous-t\xE2che": "Sub-task"
+};
+function normalizeIssueType(raw) {
+  return ISSUE_TYPE_LOCALE_MAP[raw.toLowerCase()] ?? raw;
+}
 var JiraTracker = class {
   constructor(client) {
     this.client = client;
@@ -5226,7 +5237,8 @@ var JiraTracker = class {
       description: adfToText(issue.fields.description),
       comments: issue.fields.comment.comments.map((c) => adfToText(c.body)),
       labels: issue.fields.labels,
-      issueType: issue.fields.issuetype.name
+      issueType: normalizeIssueType(issue.fields.issuetype.name),
+      issueTypeRaw: issue.fields.issuetype.name
     };
   }
   async postComment(key, body) {

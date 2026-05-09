@@ -4,10 +4,10 @@ import type { IssueTracker, TrackerIssue, TrackerSubtask } from '../types.js';
 
 const ISSUE_TYPE_LOCALE_MAP: Record<string, string> = {
   // French
-  'tâche': 'Task',
-  'bogue': 'Bug',
-  'histoire': 'Story',
-  'épique': 'Epic',
+  tâche: 'Task',
+  bogue: 'Bug',
+  histoire: 'Story',
+  épique: 'Epic',
   'sous-tâche': 'Sub-task',
 };
 
