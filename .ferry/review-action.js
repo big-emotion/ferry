@@ -1027,11 +1027,62 @@ ${opts.comments}` : ""
 
 // src/lib/agent-runtime/output.ts
 import { appendFileSync } from "node:fs";
+
+// src/lib/llm/pricing.ts
+var RATES = {
+  "anthropic/claude-sonnet-4-6": { inputPer1M: 2.79, outputPer1M: 13.95 },
+  "anthropic/claude-opus": { inputPer1M: 13.95, outputPer1M: 69.75 },
+  "anthropic/claude-haiku": { inputPer1M: 0.23, outputPer1M: 1.16 },
+  "openai/gpt-4.1-nano": { inputPer1M: 0.09, outputPer1M: 0.37 },
+  "openai/gpt-4.1-mini": { inputPer1M: 0.14, outputPer1M: 0.56 },
+  "openai/gpt-4.": { inputPer1M: 2.79, outputPer1M: 8.37 },
+  "openai/gpt-5.": { inputPer1M: 2.79, outputPer1M: 8.37 },
+  "google/gemini-2.5-flash": { inputPer1M: 0.07, outputPer1M: 0.28 },
+  "google/gemini-2.5-pro": { inputPer1M: 1.05, outputPer1M: 4.2 }
+};
+var PROVIDER_FALLBACK = {
+  anthropic: RATES["anthropic/claude-opus"],
+  openai: RATES["openai/gpt-4."],
+  google: RATES["google/gemini-2.5-pro"]
+};
+function lookupRates(provider, model) {
+  const exactKey = `${provider}/${model}`;
+  if (RATES[exactKey]) return RATES[exactKey];
+  for (const key of Object.keys(RATES)) {
+    if (key !== exactKey && key.startsWith(`${provider}/`) && model.startsWith(key.slice(provider.length + 1))) {
+      return RATES[key];
+    }
+  }
+  return PROVIDER_FALLBACK[provider];
+}
+function computeCostEur(provider, model, inputTokens, outputTokens) {
+  const rates = lookupRates(provider, model);
+  const cost = inputTokens / 1e6 * rates.inputPer1M + outputTokens / 1e6 * rates.outputPer1M;
+  return Math.round(cost * 1e4) / 1e4;
+}
+
+// src/lib/agent-runtime/output.ts
 function appendOutput(usage) {
   const githubOutput = process.env.GITHUB_OUTPUT;
   if (githubOutput) {
+    const cacheRead = usage.cache_read_input_tokens ?? 0;
+    const cacheWrite = usage.cache_creation_input_tokens ?? 0;
+    let costEur = 0;
+    if (usage.provider && usage.model && usage.model !== "placeholder") {
+      costEur = computeCostEur(
+        usage.provider,
+        usage.model,
+        usage.input_tokens,
+        usage.output_tokens
+      );
+    }
     let out = `input_tokens=${usage.input_tokens}
 output_tokens=${usage.output_tokens}
+`;
+    out += `cache_read_tokens=${cacheRead}
+cache_write_tokens=${cacheWrite}
+`;
+    out += `cost_eur=${costEur}
 `;
     if (usage.model) out += `model=${usage.model}
 `;

@@ -66,7 +66,12 @@ describe('appendOutput', () => {
   });
 
   it('writes zero cache tokens on early-exit calls', () => {
-    appendOutput({ input_tokens: 0, output_tokens: 0, model: 'claude-sonnet-4-6', provider: 'anthropic' });
+    appendOutput({
+      input_tokens: 0,
+      output_tokens: 0,
+      model: 'claude-sonnet-4-6',
+      provider: 'anthropic',
+    });
     const content = readFileSync(outputFile, 'utf8');
     expect(content).toContain('cache_read_tokens=0');
     expect(content).toContain('cache_write_tokens=0');
