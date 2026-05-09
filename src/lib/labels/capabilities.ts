@@ -2,6 +2,73 @@ import type { LabelCapability } from '../config.js';
 import type { McpServerConfig } from '../llm/agent-loop/types.js';
 import type { Logger } from '../logger/index.js';
 
+/**
+ * Overrides derived from built-in ferry:type:* labels on the Jira ticket.
+ *
+ * These labels are always recognised regardless of the consumer's ferry.config.json
+ * — they are not consumer-configurable.
+ */
+export interface TicketOverrides {
+  /** When true, the ticket bypasses the Task skip (FR6) and is processed as a Story. */
+  bypassTaskSkip: boolean;
+  /**
+   * Normalised issue type that agents should use instead of the Jira-reported type.
+   * Only set when a ferry:type:force-* label is present.
+   */
+  typeOverride?: string;
+  /**
+   * The raw label that triggered the typeOverride, for audit logging.
+   * Only set when typeOverride is present.
+   */
+  forceLabel?: string;
+}
+
+/** Built-in label → normalised issue type mapping. Order matters: last match wins. */
+const FORCE_TYPE_LABELS: Readonly<Record<string, string>> = Object.freeze({
+  'ferry:type:force-bug': 'Bug',
+  'ferry:type:force-spike': 'Spike',
+  'ferry:type:force-story': 'Story',
+});
+
+const ENABLE_TASK_LABEL = 'ferry:type:enable-task';
+
+/** All recognised built-in ferry:type:* labels (used to suppress unknown-label warnings). */
+const BUILTIN_TYPE_LABELS: ReadonlySet<string> = new Set([
+  ENABLE_TASK_LABEL,
+  ...Object.keys(FORCE_TYPE_LABELS),
+]);
+
+/**
+ * Resolves built-in ferry:type:* labels from the ticket label list.
+ *
+ * This is a pure function with no config dependency — these labels are always
+ * recognised and do not need to be declared in ferry.config.json.
+ */
+export function resolveTypeOverrides(labels: string[]): TicketOverrides {
+  let bypassTaskSkip = false;
+  let typeOverride: string | undefined;
+  let forceLabel: string | undefined;
+
+  for (const label of labels) {
+    if (label === ENABLE_TASK_LABEL) {
+      bypassTaskSkip = true;
+    } else if (Object.prototype.hasOwnProperty.call(FORCE_TYPE_LABELS, label)) {
+      typeOverride = FORCE_TYPE_LABELS[label];
+      forceLabel = label;
+    }
+  }
+
+  return { bypassTaskSkip, typeOverride, forceLabel };
+}
+
+/**
+ * Returns true when a label is a recognised built-in ferry:type:* label.
+ * Used by resolveCapabilities to suppress unknown-label warnings.
+ */
+export function isBuiltinTypeLabel(label: string): boolean {
+  return BUILTIN_TYPE_LABELS.has(label);
+}
+
 export interface ResolvedCapabilities {
   mcpServerNames: string[];
   serverAllowedTools: Record<string, string[]>; // server name → tools (empty = all allowed)
@@ -52,8 +119,11 @@ export function resolveCapabilities(
         }
       }
     } else if (label.startsWith('ferry:')) {
-      unknownFerryLabels.push(label);
-      logger?.warn('unknown ferry label ignored', { label });
+      // Built-in type labels (ferry:type:*) are always recognised — suppress the warning.
+      if (!isBuiltinTypeLabel(label)) {
+        unknownFerryLabels.push(label);
+        logger?.warn('unknown ferry label ignored', { label });
+      }
     }
   }
 

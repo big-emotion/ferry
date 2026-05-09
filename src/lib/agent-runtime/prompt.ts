@@ -44,12 +44,13 @@ export function loadOptionalPrompt(
 export function buildTicketBlock(
   ticketKey: string,
   issue: { summary: string; issueType: string; description: string },
-  opts?: { labels?: string; comments?: string },
+  opts?: { labels?: string; comments?: string; typeOverride?: string },
 ): string {
+  const effectiveType = opts?.typeOverride ?? issue.issueType;
   return [
     `TICKET: ${ticketKey}`,
     `TITLE: ${issue.summary}`,
-    `TYPE: ${issue.issueType}`,
+    `TYPE: ${effectiveType}`,
     opts?.labels !== undefined ? `LABELS: ${opts.labels || 'none'}` : null,
     `DESCRIPTION:\n${issue.description}`,
     opts?.comments ? `COMMENTS:\n${opts.comments}` : '',

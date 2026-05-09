@@ -7,6 +7,7 @@
  */
 
 import type { EventPhase } from '../envelope/types.js';
+import type { TicketOverrides } from '../labels/capabilities.js';
 
 export type WorkflowFile =
   | 'ferry-refine.yml'
@@ -42,8 +43,21 @@ export function phaseToDispatchType(phase: keyof RoutingTable): DispatchType {
  *
  * Ferry only re-processes Task issues defensively — the Refiner creates them as
  * sub-tasks, and re-running on those would loop. Other types pass through.
+ *
+ * When overrides.bypassTaskSkip is true (set by the ferry:type:enable-task label),
+ * the Task skip is bypassed for this ticket and { skip: false } is returned.
+ *
+ * Note: `overrides` is only available inside agent actions (where the Jira issue has been
+ * fetched). The `skip-task-type-action.ts` pre-flight step runs from the event envelope
+ * only and does not receive labels — the bypass therefore cannot be honoured there.
  */
-export function shouldSkipForTaskType(issueType: string): { skip: boolean; reason?: string } {
+export function shouldSkipForTaskType(
+  issueType: string,
+  overrides?: TicketOverrides,
+): { skip: boolean; reason?: string } {
+  if (overrides?.bypassTaskSkip) {
+    return { skip: false };
+  }
   if (issueType.toLowerCase() === 'task') {
     return { skip: true, reason: 'ticket type Task is not processed by Ferry' };
   }
