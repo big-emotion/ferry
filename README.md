@@ -511,6 +511,8 @@ Then add the matching label to your Jira ticket (e.g. `ferry:mcp/context7`). Fer
 
 **Backward compatibility.** If the `labels:` section is absent from `ferry.config`, all servers in `AGENT_MCP_SERVERS` are passed through unchanged — existing behaviour is preserved.
 
+See **[docs/MCP.md](docs/MCP.md)** for the full reference: server registry, config schema, per-ticket label scoping, end-to-end Figma example, and audit log format.
+
 ---
 
 ## Cost governance

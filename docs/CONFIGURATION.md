@@ -333,6 +333,8 @@ git:
 
 Maps Jira ticket labels to MCP server capabilities. If this section is omitted, the full MCP server pool is used unchanged. If the section is present, only MCP servers enabled by the ticket's labels are activated.
 
+> For a full registry of supported MCP servers, transport-type schemas, end-to-end examples, and audit log format, see **[docs/MCP.md](MCP.md)**.
+
 > **MCP configuration is split across two locations:**
 >
 > - **Pool of servers** (name, URL/command, credentials) — declared in the `AGENT_MCP_SERVERS` GitHub Actions repo **variable** (`gh variable set AGENT_MCP_SERVERS '...'`). This is where all known MCP servers are registered. Two transport types are supported:
