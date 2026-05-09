@@ -86,6 +86,15 @@ outputs:
   model:
     description: Model ID actually used
     value: ${{ steps.run-reviewer.outputs.model }}
+  cost_eur:
+    description: Cost in EUR for this agent run
+    value: ${{ steps.run-reviewer.outputs.cost_eur }}
+  cache_read_tokens:
+    description: Number of cache read input tokens consumed
+    value: ${{ steps.run-reviewer.outputs.cache_read_tokens }}
+  cache_write_tokens:
+    description: Number of cache write input tokens consumed
+    value: ${{ steps.run-reviewer.outputs.cache_write_tokens }}
 runs:
   using: composite
   steps:
