@@ -9,6 +9,11 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **`ferry-cost-report` CLI** — `npx -p @big-emotion/ferry ferry-cost-report` reads `ferry-audit.jsonl` and renders a spend breakdown with per-phase, per-model, per-ticket (top 20), and daily tables plus ASCII sparklines for daily spend and tokens/run trends. Supports `--from`, `--to`, `--ticket`, `--phase`, `--format` (`md`/`json`/`csv`), `--out`, and `--audit-log` flags. An anomalies section flags runs above p95 cost. See [`docs/COST.md`](docs/COST.md) for full usage.
+- **`ferry-doctor` audit-log check** — a new check (#14) warns when `ferry-audit.jsonl` is missing, empty, or has fewer than 5 entries, so consumers know the file is ready before running `ferry-cost-report`.
+
 ---
 
 ## [0.10.3] — 2026-05-05

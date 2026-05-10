@@ -7,7 +7,8 @@
     "ferry-init": "./dist/cli/init/index.js",
     "ferry-doctor": "./dist/cli/doctor/index.js",
     "ferry-uninstall": "./dist/cli/uninstall/index.js",
-    "ferry-update": "./dist/cli/update/index.js"
+    "ferry-update": "./dist/cli/update/index.js",
+    "ferry-cost-report": "./dist/cli/cost/run.js"
   },
   "files": [
     "dist/cli/",
@@ -44,6 +45,7 @@
     "ferry-update": "tsx src/cli/update/index.ts",
     "ferry-reconcile": "tsx src/reconciler/run.ts",
     "ferry-cost-check": "tsx src/cost-governance/run.ts",
+    "ferry-cost-report": "tsx src/cli/cost/run.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",

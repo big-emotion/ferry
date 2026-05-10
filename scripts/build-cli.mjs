@@ -5,6 +5,7 @@ mkdirSync('dist/cli/init', { recursive: true });
 mkdirSync('dist/cli/doctor', { recursive: true });
 mkdirSync('dist/cli/uninstall', { recursive: true });
 mkdirSync('dist/cli/update', { recursive: true });
+mkdirSync('dist/cli/cost', { recursive: true });
 
 const shared = {
   bundle: true,
@@ -35,11 +36,17 @@ await Promise.all([
     entryPoints: ['src/cli/update/index.ts'],
     outfile: 'dist/cli/update/index.js',
   }),
+  build({
+    ...shared,
+    entryPoints: ['src/cli/cost/run.ts'],
+    outfile: 'dist/cli/cost/run.js',
+  }),
 ]);
 
 chmodSync('dist/cli/init/index.js', 0o755);
 chmodSync('dist/cli/doctor/index.js', 0o755);
 chmodSync('dist/cli/uninstall/index.js', 0o755);
 chmodSync('dist/cli/update/index.js', 0o755);
+chmodSync('dist/cli/cost/run.js', 0o755);
 
 console.log('Built dist/cli/ bundles.');
