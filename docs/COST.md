@@ -166,3 +166,46 @@ npx -p @big-emotion/ferry ferry-cost-reconcile \
 ### Provider support
 
 Today only `--provider anthropic` is implemented. OpenAI and Google billing exports follow different CSV schemas — follow-up issues will add them.
+
+---
+
+## Cost optimisation recommendations (`ferry-cost-advice`)
+
+`ferry-cost-advice` reads your `ferry-audit.jsonl` and surfaces ranked, actionable findings to lower spend.
+
+### Usage
+
+```bash
+npx -p @big-emotion/ferry ferry-cost-advice [options]
+```
+
+### Options
+
+| Flag                 | Description                                       | Default               |
+| -------------------- | ------------------------------------------------- | --------------------- |
+| `--audit-log <path>` | Ferry audit log path                              | `./ferry-audit.jsonl` |
+| `--from <date>`      | ISO date lower bound                              | 30 days ago           |
+| `--to <date>`        | ISO date upper bound                              | now                   |
+| `--severity <level>` | Minimum severity: `info` or `warn`                | `info`                |
+| `--format <md\|json>`| Output format                                     | `md`                  |
+| `--out <path>`       | Write output to file instead of stdout            |                       |
+| `-h, --help`         | Show usage                                        |                       |
+
+The CLI always exits 0, even when findings are present — use it in CI without breaking builds.
+
+### Built-in heuristics
+
+| ID | Signal | Severity | Source issue |
+| -- | ------ | -------- | ------------ |
+| `low-cache-hit` | `cache_read / total_input < 30%` per phase | warn | [#176](https://github.com/big-emotion/ferry/issues/176) |
+| `iterator-cap` | >30% of iterate tickets have ≥3 runs (cap hit) | warn | [#168](https://github.com/big-emotion/ferry/issues/168), [#187](https://github.com/big-emotion/ferry/issues/187) |
+| `refiner-input-heavy` | Refiner avg input > 50k tokens | warn | [#178](https://github.com/big-emotion/ferry/issues/178), [#182](https://github.com/big-emotion/ferry/issues/182), [#185](https://github.com/big-emotion/ferry/issues/185) |
+| `cost-outlier` | Ticket above p90 and >3× median spend | warn | — |
+| `provider-phase-mismatch` | Opus used for Refiner phase (Sonnet is sufficient) | info | [#142](https://github.com/big-emotion/ferry/issues/142) |
+| `high-output-ratio` | Dev/iterate output tokens >15% of total | info | RTK insight |
+
+Each finding includes: severity, evidence (run IDs / tickets), estimated EUR saving per month, and an action with file/config reference.
+
+### Claude Code skill
+
+The skill ships alongside Ferry in `.claude/skills/ferry-cost-advice/`. Install it by registering the skill in your Claude Code configuration, then invoke it with `/ferry-cost-advice` for an interactive session that runs the CLI and guides you through each fix.

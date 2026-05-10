@@ -5,6 +5,8 @@ export interface AuditLine {
   model: string;
   input_tokens: number;
   output_tokens: number;
+  /** Cache-read input tokens (populated in audit logs from Ferry ≥ v0.11). */
+  cache_read_input_tokens?: number;
   cost_eur: number;
   outcome: string;
   duration_ms: number;
