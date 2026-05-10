@@ -41,6 +41,11 @@ await Promise.all([
     entryPoints: ['src/cli/cost/run.ts'],
     outfile: 'dist/cli/cost/run.js',
   }),
+  build({
+    ...shared,
+    entryPoints: ['src/cli/cost/reconcile-cmd.ts'],
+    outfile: 'dist/cli/cost/reconcile-cmd.js',
+  }),
 ]);
 
 chmodSync('dist/cli/init/index.js', 0o755);
@@ -48,5 +53,6 @@ chmodSync('dist/cli/doctor/index.js', 0o755);
 chmodSync('dist/cli/uninstall/index.js', 0o755);
 chmodSync('dist/cli/update/index.js', 0o755);
 chmodSync('dist/cli/cost/run.js', 0o755);
+chmodSync('dist/cli/cost/reconcile-cmd.js', 0o755);
 
 console.log('Built dist/cli/ bundles.');
