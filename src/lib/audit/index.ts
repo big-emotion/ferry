@@ -16,6 +16,7 @@ export interface AuditPayload {
   start: number;
   triggeredLabels?: string[];
   resolvedMcpServers?: string[];
+  estimatedCostUsdRange?: { lo: number; hi: number };
 }
 
 export interface AuditOpts {
@@ -118,6 +119,7 @@ export async function emitAudit(payload: AuditPayload, opts: AuditOpts): Promise
     start,
     triggeredLabels,
     resolvedMcpServers,
+    estimatedCostUsdRange,
   } = payload;
 
   let rotatedTo: number | undefined;
@@ -172,6 +174,8 @@ export async function emitAudit(payload: AuditPayload, opts: AuditOpts): Promise
 
   if (triggeredLabels !== undefined) auditLine.triggered_labels = triggeredLabels;
   if (resolvedMcpServers !== undefined) auditLine.resolved_mcp_servers = resolvedMcpServers;
+  if (estimatedCostUsdRange !== undefined)
+    auditLine.estimated_cost_usd_range = estimatedCostUsdRange;
 
   const body = `${marker}\n${JSON.stringify(auditLine)}`;
 

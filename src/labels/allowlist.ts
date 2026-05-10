@@ -27,6 +27,8 @@ export const LABELS_ALLOWLIST = [
   'ferry:type:force-story',
   // Routing (user-applied, not agent-applied)
   'critical',
+  // Dynamic cost-estimate labels (prefix only; full label is "ferry:cost-estimate:<lo>-<hi>")
+  'ferry:cost-estimate:',
   // Logger component identifiers (not GitHub labels — used in createLogger calls)
   'ferry:refiner-action',
   'ferry:dev-action',

@@ -10,7 +10,8 @@
     "ferry-update": "./dist/cli/update/index.js",
     "ferry-cost-report": "./dist/cli/cost/run.js",
     "ferry-cost-reconcile": "./dist/cli/cost/reconcile-cmd.js",
-    "ferry-cost-advice": "./dist/cli/cost/advice-cmd.js"
+    "ferry-cost-advice": "./dist/cli/cost/advice-cmd.js",
+    "ferry-cost-stats": "./dist/cli/cost/stats.js"
   },
   "files": [
     "dist/cli/",
@@ -50,6 +51,7 @@
     "ferry-cost-report": "tsx src/cli/cost/run.ts",
     "ferry-cost-reconcile": "tsx src/cli/cost/reconcile-cmd.ts",
     "ferry-cost-advice": "tsx src/cli/cost/advice-cmd.ts",
+    "ferry-cost-stats": "tsx src/cli/cost/stats-cmd.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
