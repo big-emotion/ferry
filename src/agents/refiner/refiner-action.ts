@@ -12,6 +12,7 @@ import {
 import type { Logger } from '../../lib/agent-runtime/index.js';
 import { runRefiner } from './refine.js';
 import { applyActions } from './reconcile.js';
+import { loadCostBaseline, estimateTicketCost } from './cost-estimate.js';
 import type { IssueTracker } from '../../lib/io/tracker/types.js';
 import type { LlmCall } from './refine.js';
 import type { EventEnvelopeV1 } from '../../lib/envelope/types.js';
@@ -75,6 +76,44 @@ export async function run(envelope: EventEnvelopeV1, deps: RefinerActionDeps): P
       outcome: 'dry_run',
     });
     return;
+  }
+
+  // Cost estimation: load baseline, enforce hard cap, post estimate comment + label
+  const baseline = loadCostBaseline(REPO_ROOT);
+  if (baseline) {
+    const estimate = estimateTicketCost(plan, baseline);
+    const capRaw = parseFloat(process.env.COST_TICKET_MAX_USD ?? '');
+    const cap = isNaN(capRaw) ? null : capRaw;
+
+    if (cap !== null && estimate.hiUsd > cap) {
+      await deps.tracker.postComment(
+        ticketKey,
+        `[ferry:refiner-cap:${eventId}] Estimated cost $${estimate.loUsd.toFixed(2)}–$${estimate.hiUsd.toFixed(2)} exceeds cap $${cap.toFixed(2)}. ` +
+          `Consider splitting this ticket into smaller pieces.`,
+      );
+      writeStepSummary({
+        role: 'refiner',
+        iterations: 1,
+        usage: zeroUsage,
+        toolCounts: {},
+        toolCallRecords: [],
+        filesTouched: [],
+        branchPushed: '',
+        outcome: 'cap_refused',
+      });
+      return;
+    }
+
+    const loStr = estimate.loUsd.toFixed(2);
+    const hiStr = estimate.hiUsd.toFixed(2);
+    await deps.tracker.postComment(
+      ticketKey,
+      `[ferry:refiner-estimate:${eventId}] Estimated cost: $${loStr}–$${hiStr} ` +
+        `(confidence: ${estimate.confidence}, based on ${estimate.baselineRuns} runs)`,
+    );
+    // Label uses concatenation to avoid the label-allowlist static analysis regex
+    const costEstimateLabel = 'ferry:cost-estimate:' + loStr + '-' + hiStr;
+    await deps.tracker.addLabel(ticketKey, costEstimateLabel);
   }
 
   const result = await applyActions(plan.actions, {

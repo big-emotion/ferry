@@ -3824,7 +3824,8 @@ async function emitAudit(payload, opts) {
     usage,
     start: start2,
     triggeredLabels,
-    resolvedMcpServers
+    resolvedMcpServers,
+    estimatedCostUsdRange
   } = payload;
   let rotatedTo;
   const issueData = await octokit2.rest.issues.get({
@@ -3870,6 +3871,8 @@ async function emitAudit(payload, opts) {
   };
   if (triggeredLabels !== void 0) auditLine.triggered_labels = triggeredLabels;
   if (resolvedMcpServers !== void 0) auditLine.resolved_mcp_servers = resolvedMcpServers;
+  if (estimatedCostUsdRange !== void 0)
+    auditLine.estimated_cost_usd_range = estimatedCostUsdRange;
   const body = `${marker}
 ${JSON.stringify(auditLine)}`;
   await octokit2.rest.issues.createComment({

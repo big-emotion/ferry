@@ -183,6 +183,7 @@ function retry(fn, options) {
 import Anthropic from "@anthropic-ai/sdk";
 
 // src/lib/llm/pricing.ts
+var EUR_TO_USD = 1 / 0.93;
 var RATES = {
   "anthropic/claude-sonnet-4-6": { inputPer1M: 2.79, outputPer1M: 13.95 },
   "anthropic/claude-opus": { inputPer1M: 13.95, outputPer1M: 69.75 },
@@ -5415,6 +5416,17 @@ var REFINER_OUTPUT_SCHEMA = {
     attachments: {
       type: "array",
       items: { type: "string", minLength: 1, maxLength: 400 }
+    },
+    cost_estimate: {
+      type: "object",
+      required: ["loUsd", "hiUsd", "confidence", "baselineRuns"],
+      additionalProperties: false,
+      properties: {
+        loUsd: { type: "number", minimum: 0 },
+        hiUsd: { type: "number", minimum: 0 },
+        confidence: { enum: ["low", "medium", "high"] },
+        baselineRuns: { type: "integer", minimum: 0 }
+      }
     }
   }
 };
@@ -5636,6 +5648,42 @@ async function applyActions(actions, ctx) {
   return { createdCount, keptCount, staledCount, noop: false };
 }
 
+// src/agents/refiner/cost-estimate.ts
+import { readFileSync as readFileSync2 } from "node:fs";
+import { join as join2 } from "node:path";
+var ITERATION_FACTOR = 1.4;
+var ITERATED_PHASES = /* @__PURE__ */ new Set(["developer", "dev", "iterator", "iterate"]);
+function loadCostBaseline(repoRoot) {
+  const filePath = join2(repoRoot, "cost-baseline.json");
+  let raw;
+  try {
+    raw = readFileSync2(filePath, "utf8");
+  } catch (err) {
+    if (err.code === "ENOENT") return null;
+    throw err;
+  }
+  return JSON.parse(raw);
+}
+function estimateTicketCost(_plan, baseline) {
+  let loUsd = 0;
+  let hiUsd = 0;
+  for (const phaseBaseline of baseline.byPhase) {
+    const factor = ITERATED_PHASES.has(phaseBaseline.phase) ? ITERATION_FACTOR : 1;
+    loUsd += phaseBaseline.medianUsd;
+    hiUsd += phaseBaseline.p90Usd * factor;
+  }
+  const baselineRuns = baseline.windowRuns;
+  let confidence;
+  if (baselineRuns < 10) {
+    confidence = "low";
+  } else if (baselineRuns < 50) {
+    confidence = "medium";
+  } else {
+    confidence = "high";
+  }
+  return { loUsd, hiUsd, confidence, baselineRuns };
+}
+
 // src/agents/refiner/refiner-action.ts
 var REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
 var PRIOR_RUN_MARKER = /\[ferry:refiner:[^\]]+\]/;
@@ -5683,6 +5731,37 @@ async function run(envelope, deps) {
       outcome: "dry_run"
     });
     return;
+  }
+  const baseline = loadCostBaseline(REPO_ROOT);
+  if (baseline) {
+    const estimate = estimateTicketCost(plan, baseline);
+    const capRaw = parseFloat(process.env.COST_TICKET_MAX_USD ?? "");
+    const cap = isNaN(capRaw) ? null : capRaw;
+    if (cap !== null && estimate.hiUsd > cap) {
+      await deps.tracker.postComment(
+        ticketKey,
+        `[ferry:refiner-cap:${eventId}] Estimated cost $${estimate.loUsd.toFixed(2)}\u2013$${estimate.hiUsd.toFixed(2)} exceeds cap $${cap.toFixed(2)}. Consider splitting this ticket into smaller pieces.`
+      );
+      writeStepSummary({
+        role: "refiner",
+        iterations: 1,
+        usage: zeroUsage,
+        toolCounts: {},
+        toolCallRecords: [],
+        filesTouched: [],
+        branchPushed: "",
+        outcome: "cap_refused"
+      });
+      return;
+    }
+    const loStr = estimate.loUsd.toFixed(2);
+    const hiStr = estimate.hiUsd.toFixed(2);
+    await deps.tracker.postComment(
+      ticketKey,
+      `[ferry:refiner-estimate:${eventId}] Estimated cost: $${loStr}\u2013$${hiStr} (confidence: ${estimate.confidence}, based on ${estimate.baselineRuns} runs)`
+    );
+    const costEstimateLabel = "ferry:cost-estimate:" + loStr + "-" + hiStr;
+    await deps.tracker.addLabel(ticketKey, costEstimateLabel);
   }
   const result = await applyActions(plan.actions, {
     ticketKey,

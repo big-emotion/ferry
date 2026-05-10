@@ -5,6 +5,9 @@ interface TokenRates {
   outputPer1M: number;
 }
 
+/** EUR/USD exchange rate pinned 2025-Q2. 1 EUR = 1/0.93 USD. */
+export const EUR_TO_USD = 1 / 0.93;
+
 // EUR/USD ≈ 0.93; rates pinned 2025-Q2
 const RATES: Record<string, TokenRates> = {
   'anthropic/claude-sonnet-4-6': { inputPer1M: 2.79, outputPer1M: 13.95 },

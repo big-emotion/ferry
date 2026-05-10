@@ -51,6 +51,11 @@ await Promise.all([
     entryPoints: ['src/cli/cost/advice-cmd.ts'],
     outfile: 'dist/cli/cost/advice-cmd.js',
   }),
+  build({
+    ...shared,
+    entryPoints: ['src/cli/cost/stats-cmd.ts'],
+    outfile: 'dist/cli/cost/stats.js',
+  }),
 ]);
 
 chmodSync('dist/cli/init/index.js', 0o755);
@@ -60,5 +65,6 @@ chmodSync('dist/cli/update/index.js', 0o755);
 chmodSync('dist/cli/cost/run.js', 0o755);
 chmodSync('dist/cli/cost/reconcile-cmd.js', 0o755);
 chmodSync('dist/cli/cost/advice-cmd.js', 0o755);
+chmodSync('dist/cli/cost/stats.js', 0o755);
 
 console.log('Built dist/cli/ bundles.');

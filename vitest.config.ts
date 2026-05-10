@@ -22,6 +22,10 @@ export default defineConfig({
         'src/cli/**/index.ts',
         'src/cli/**/prompt.ts',
         'src/cli/cost/run.ts',
+        // CLI cost entrypoints — same role as index.ts, exercised via integration runs.
+        'src/cli/cost/stats-cmd.ts',
+        'src/cli/cost/advice-cmd.ts',
+        'src/cli/cost/reconcile-cmd.ts',
       ],
       // Ratcheted up after adding CLI module tests (issue #85).
       thresholds: {

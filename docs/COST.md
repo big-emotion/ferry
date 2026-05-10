@@ -209,3 +209,103 @@ Each finding includes: severity, evidence (run IDs / tickets), estimated EUR sav
 ### Claude Code skill
 
 The skill ships alongside Ferry in `.claude/skills/ferry-cost-advice/`. Install it by registering the skill in your Claude Code configuration, then invoke it with `/ferry-cost-advice` for an interactive session that runs the CLI and guides you through each fix.
+
+---
+
+## Cost-based ticket estimation
+
+After refining a ticket, Ferry posts an estimated cost range as a Jira comment and applies a label. This gives teams a heads-up before development starts, and allows hard-cap enforcement to refuse tickets that are likely too expensive.
+
+### How it works
+
+1. **Generate a baseline** — run `ferry-cost-stats` against your `ferry-audit.jsonl` to produce `cost-baseline.json` with per-phase median and p90 cost figures.
+2. **Refiner reads the baseline** — when `cost-baseline.json` is present in the repo root, the Refiner loads it after producing the plan and computes an estimated cost range.
+3. **Comment + label** — the estimate is posted as a Jira comment and a label `ferry:cost-estimate:<lo>-<hi>` is applied.
+4. **Hard cap** — if `COST_TICKET_MAX_USD` is set and the estimated high exceeds it, the Refiner posts a cap-refusal comment and exits without creating subtasks.
+
+### Generating the baseline with `ferry-cost-stats`
+
+```bash
+npx -p @big-emotion/ferry ferry-cost-stats \
+  --audit-log ./ferry-audit.jsonl \
+  --repo your-org/your-repo \
+  --out ./cost-baseline.json
+```
+
+Commit `cost-baseline.json` to your repo root so the Refiner can read it at runtime.
+
+#### Options
+
+| Flag                  | Description                                               | Default                                       |
+| --------------------- | --------------------------------------------------------- | --------------------------------------------- |
+| `--audit-log <path>`  | Ferry audit log                                           | `./ferry-audit.jsonl`                         |
+| `--repo <owner/repo>` | Repository name (for metadata only)                       | `GITHUB_REPOSITORY` env, or `unknown/unknown` |
+| `--out <path>`        | Output path for the baseline JSON                         | `./cost-baseline.json`                        |
+| `-h, --help`          | Show usage                                                |                                               |
+
+#### Sample output (`cost-baseline.json`)
+
+```json
+{
+  "repo": "your-org/your-repo",
+  "generatedAt": "2026-05-10T00:00:00.000Z",
+  "windowRuns": 47,
+  "byPhase": [
+    {
+      "phase": "developer",
+      "runs": 20,
+      "medianUsd": 0.54,
+      "p90Usd": 1.21,
+      "medianInputTokens": 12000
+    },
+    {
+      "phase": "refiner",
+      "runs": 10,
+      "medianUsd": 0.06,
+      "p90Usd": 0.12,
+      "medianInputTokens": 2500
+    }
+  ]
+}
+```
+
+### Refiner estimate comment
+
+When a baseline exists, the Refiner posts a comment like:
+
+```
+[ferry:refiner-estimate:<event-id>] Estimated cost: $0.60–$1.89
+(confidence: medium, based on 47 runs)
+```
+
+And applies the label: `ferry:cost-estimate:0.60-1.89`
+
+### Enforcing a hard cap
+
+Set the `COST_TICKET_MAX_USD` environment variable in your `ferry-refine.yml` workflow:
+
+```yaml
+env:
+  COST_TICKET_MAX_USD: '5.00'
+```
+
+When the estimated high exceeds the cap, the Refiner posts:
+
+```
+[ferry:refiner-cap:<event-id>] Estimated cost $0.60–$6.20 exceeds cap $5.00.
+Consider splitting this ticket into smaller pieces.
+```
+
+And exits without creating subtasks. The ticket remains in its current column for human review.
+
+### Confidence levels
+
+| Confidence | Condition                    |
+| ---------- | ---------------------------- |
+| `low`      | Fewer than 10 baseline runs  |
+| `medium`   | 10–49 baseline runs          |
+| `high`     | 50 or more baseline runs     |
+
+### Keeping the baseline fresh
+
+Re-run `ferry-cost-stats` periodically (e.g. weekly via a GitHub Actions schedule) and commit the updated `cost-baseline.json`. Stale baselines still work but may underestimate costs as model pricing evolves.

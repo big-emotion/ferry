@@ -37,12 +37,20 @@ export type RefinerAction =
   | RefinerActionMarkStale
   | RefinerActionNoop;
 
+export interface RefinerCostEstimate {
+  loUsd: number;
+  hiUsd: number;
+  confidence: 'low' | 'medium' | 'high';
+  baselineRuns: number;
+}
+
 export interface RefinerOutput {
   actions: RefinerAction[];
   touch_paths: string[];
   output_locale: 'en' | 'fr';
   audit_summary: string;
   attachments?: string[];
+  cost_estimate?: RefinerCostEstimate;
 }
 
 export const REFINER_OUTPUT_SCHEMA = {
@@ -108,6 +116,17 @@ export const REFINER_OUTPUT_SCHEMA = {
     attachments: {
       type: 'array',
       items: { type: 'string', minLength: 1, maxLength: 400 },
+    },
+    cost_estimate: {
+      type: 'object',
+      required: ['loUsd', 'hiUsd', 'confidence', 'baselineRuns'],
+      additionalProperties: false,
+      properties: {
+        loUsd: { type: 'number', minimum: 0 },
+        hiUsd: { type: 'number', minimum: 0 },
+        confidence: { enum: ['low', 'medium', 'high'] },
+        baselineRuns: { type: 'integer', minimum: 0 },
+      },
     },
   },
 } as const;
