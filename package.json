@@ -9,7 +9,8 @@
     "ferry-uninstall": "./dist/cli/uninstall/index.js",
     "ferry-update": "./dist/cli/update/index.js",
     "ferry-cost-report": "./dist/cli/cost/run.js",
-    "ferry-cost-reconcile": "./dist/cli/cost/reconcile-cmd.js"
+    "ferry-cost-reconcile": "./dist/cli/cost/reconcile-cmd.js",
+    "ferry-cost-advice": "./dist/cli/cost/advice-cmd.js"
   },
   "files": [
     "dist/cli/",
@@ -48,6 +49,7 @@
     "ferry-cost-check": "tsx src/cost-governance/run.ts",
     "ferry-cost-report": "tsx src/cli/cost/run.ts",
     "ferry-cost-reconcile": "tsx src/cli/cost/reconcile-cmd.ts",
+    "ferry-cost-advice": "tsx src/cli/cost/advice-cmd.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
