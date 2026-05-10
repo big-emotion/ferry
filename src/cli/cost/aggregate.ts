@@ -68,3 +68,13 @@ export function groupByDay(lines: AuditLine[]): GroupStats[] {
   for (const line of lines) accumulate(map, line.timestamp.slice(0, 10), line);
   return Array.from(map.values()).sort((a, b) => a.key.localeCompare(b.key));
 }
+
+/** Groups by ISO date + model ID, key format: "YYYY-MM-DD/model-id". Used by ferry-cost-reconcile. */
+export function groupByDateModel(lines: AuditLine[]): GroupStats[] {
+  const map = new Map<string, GroupStats>();
+  for (const line of lines) {
+    const date = line.timestamp.slice(0, 10);
+    accumulate(map, `${date}/${line.model}`, line);
+  }
+  return Array.from(map.values()).sort((a, b) => a.key.localeCompare(b.key));
+}
