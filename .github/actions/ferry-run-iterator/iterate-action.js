@@ -2281,6 +2281,7 @@ ${opts.comments}` : ""
 import { appendFileSync } from "node:fs";
 
 // src/lib/llm/pricing.ts
+var EUR_TO_USD = 1 / 0.93;
 var RATES = {
   "anthropic/claude-sonnet-4-6": { inputPer1M: 2.79, outputPer1M: 13.95 },
   "anthropic/claude-opus": { inputPer1M: 13.95, outputPer1M: 69.75 },
