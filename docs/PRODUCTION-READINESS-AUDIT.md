@@ -1,9 +1,9 @@
 # Production-Readiness Audit — Ferry
 
-**Date:** 2026-05-05
-**Scope:** end-to-end audit of the Ferry codebase, CI, docs and operations against production-readiness criteria. **Subject of this revision:** the post-`v0.8.2` `main` tip — `package.json .version = 0.8.2`, HEAD = `49aafd8`, **6 commits ahead of `v0.8.2`**, all six are small fixes plus the multi-provider Phase 2 feature (Reviewer agent on OpenAI / Google). Three releases shipped since the last audit (`v0.8.0`, `v0.8.1`, `v0.8.2`), closing the action-R "release cadence drag" finding. The action-0d carry-over (ADR 0002 `@v0.6.0` drift) is also closed at this revision.
-**Verdict:** **8.2 / 10 — Production-ready.** Net **+0.2** vs. the v0.7.0+25 audit. The `v0.8.0` cut shipped the bundle-runtime smoke gate, read*file caps, agent-loop history pruning, B2 `FERRY*\*`repo variables, soft-budget warnings, multi-provider Phase 1, GitHub step summary emitter (#224), pre/post-agent command hooks (#223), developer WIP-commit-on-failure (#222), and the 3-state`done`outcome (#221). The`v0.8.0`release also exposed a CI-gate gap:`timeout-minutes`on composite-action steps shipped DOA for all four consumer workflows;`v0.8.1`hotfixed it the same day and`#229`added a composite-action input validator to close the regression class.`v0.8.2`hotfixed silently-ignored model inputs in`ferry-init`templates.
-**Target:** **8–9 / 10**, comfortably inside the band. Top three actions to push toward 8.5+: ship multi-provider Phase 2 in a`v0.9.0`cut once stabilized; add`harden-runner` egress allowlist on dev/iterate; add e2e idempotency replay.
+**Date:** 2026-05-10
+**Scope:** end-to-end audit of the Ferry codebase, CI, docs and operations against production-readiness criteria. **Subject of this revision:** HEAD of `feat/255-cost-based-estimation` — `package.json .version = 0.10.3`, HEAD = `90983bb`, **13 commits ahead of `v0.10.3` tag**, all 13 are cost-based estimation features, MCP/Context7, ticket-type routing, and supporting fixes. Five releases shipped since the last audit (`v0.9.0`, `v0.10.0`, `v0.10.1`, `v0.10.2`, `v0.10.3`), completing the multi-provider expansion (all 4 agents on Anthropic / OpenAI / Google). Three consumer-impacting hotfixes in the v0.10.x window (same quality-blip pattern as v0.8.x) partially offset the major cost-governance improvement.
+**Verdict:** **8.2 / 10 — Production-ready.** Net **0** vs. the v0.8.2 audit. Cost governance jumped from 7.0 → 8.5 (+1.5) on the strength of the new cost CLIs (`ferry-cost-report`, `ferry-cost-reconcile`, `ferry-cost-advice`, `ferry-cost-stats`) and the Refiner cost-estimation feature. This gain is offset by: a new npm audit HIGH vulnerability (fast-uri ≤3.1.1, regression from 0), 6 P1 hardcoded values in the new pricing / cost modules (stale EUR/USD rate, stale model pricing table, non-tunable `SOFT_THRESHOLD` and `ITERATION_FACTOR`), and the three-hotfix v0.10.x release-quality blip.
+**Target:** **8–9 / 10**, comfortably inside the band. Top three actions to push toward 8.5+: (i) `npm audit fix` for fast-uri HIGH (XS); (ii) externalize pricing rates and EUR/USD exchange rate from `src/lib/llm/pricing.ts`; (iii) fix the CHANGELOG link-section drift (XS).
 
 ---
 
@@ -11,79 +11,83 @@
 
 Read-only audit covering:
 
-- **Code & tests:** `src/`, `vitest run` (**1200** tests passing across 100 files in 2.92s, +81 tests / +9 files since the v0.7.0+25 audit), `npm run lint`, `npm run typecheck`, `npm audit`.
+- **Code & tests:** `src/`, `vitest run` (**1363** tests passing across 109 files in 2.51s, +163 tests / +9 files since the v0.8.2 audit), `npm run lint`, `npm run typecheck`, `npm audit`.
 - **CI/CD:** `.github/workflows/`, `.github/actions/`, `.github/dependabot.yml`, `.github/CODEOWNERS`, `.gitleaks.toml`, `codeql.yml`, `release.yml`. Recent run history via `gh run list`.
-- **Release artifacts:** `git tag --sort=-creatordate | head -10`, local `package.json`, `git log v0.7.0..HEAD`, `git log v0.8.2..HEAD`.
-- **Docs:** `README.md`, `docs/CONFIGURATION.md`, `docs/RELEASING.md`, `docs/REQUIREMENTS.md`, `docs/adr/`, `CONTRIBUTING.md`, `MIGRATIONS.md`, `CHANGELOG.md`, `docs/RUNBOOK.md`.
-- **CLI:** `src/cli/init/`, `src/cli/doctor/`, `src/cli/uninstall/`, `src/cli/update/` and their tests.
+- **Release artifacts:** `git tag --sort=-creatordate | head -10`, local `package.json`, `git log v0.8.2..HEAD`.
+- **Docs:** `README.md`, `docs/CONFIGURATION.md`, `docs/RELEASING.md`, `docs/REQUIREMENTS.md`, `docs/adr/`, `CONTRIBUTING.md`, `MIGRATIONS.md`, `CHANGELOG.md`, `docs/RUNBOOK.md`, `docs/COST.md`, `docs/MCP.md`.
+- **CLI:** `src/cli/init/`, `src/cli/doctor/`, `src/cli/uninstall/`, `src/cli/update/`, `src/cli/cost/` and their tests.
 - **Schemas & contracts:** `src/schemas/event.v1.schema.json`, `src/install-guide.test.ts`, `src/e2e/pipeline.test.ts`.
 
 No runtime traffic, no GitHub/Jira/LLM API calls.
 
 ### Top-line answers (the four canonical questions)
 
-1. **Is the project production-ready?** **Yes.** All previously closed P0 blockers continue to hold (D9 Refiner JSON parser, D6 `ferry-update` MIGRATIONS.md parser, D7 `ferry-doctor` `FERRY_AUDIT_ISSUE`, audit-issue rotation, bundle-runtime smoke gate). Three new operational improvements landed in `v0.8.0`: GitHub step summary on agent termination (#224), pre/post-agent command hooks (#223), and developer WIP-commit-on-failure (#222). Two consumer-impacting incidents shipped in `v0.8.0` (timeout-minutes on composite-action steps; per-agent model input names in init templates) but both were hotfixed the same day in `v0.8.1` / `v0.8.2`, and #229 added a composite-action input validator to prevent recurrence. No agent has a known crash-category bug at HEAD.
-2. **Can a first-time consumer install and reach the full Jira → PR-approved cycle?** **Yes** — for consumers pinning `@v0.8.2` (the published tag). Walking the install path: (i) `npx -p @big-emotion/ferry ferry-init` runs the wizard, sets secrets via `gh secret set`, generates `ferry.config.yaml`, writes 4 expanded three-job stubs pinned to `@v0.8.2` with correct per-agent model input names. (ii) `ferry-doctor` covers all 13 checks including the `FERRY_AUDIT_ISSUE` repo variable. (iii) `ferry-update` parses `MIGRATIONS.md` at runtime so upgrading consumers see the v0.8.0 → v0.8.1 hotfix follow-up and the v0.8.1 → v0.8.2 model-input rename. (iv) The expanded three-job workflow architecture (gate-envelope → run-agent → emit-audit) avoids `secrets: inherit` cross-org propagation. (v) The three FR auto-transitions (FR18/FR24/FR28) are exercised by `src/e2e/pipeline.test.ts`. (vi) `install-guide.test.ts` (71 tests) asserts no `@main` self-references and correct `@v0.8.2` pins. **Caveat:** consumers who pinned `@v0.8.0` saw immediate breakage on every agent run; those that pinned `@v0.8.1` saw silent default-model fallback on the refiner and developer until they bumped to `@v0.8.2`. Both states are recoverable via `ferry-update`.
-3. **Security posture?** **Strong.** Strict AJV schema validation; all shell calls use argv-as-array; `execFileSync` everywhere. CodeQL + `npm audit` (0 vulns across all severities) + gitleaks wired in CI and running in all four agent workflows. Explicit `permissions:` blocks on every job. Third-party actions pinned by SHA in `ferry-ci.yml`, `release.yml`, and every composite `action.yml`. `@octokit/rest` and Jira modules forbidden under `src/agents/**` (asserted by `restricted-imports.test.ts`). "Ferry never merges" invariant asserted by `src/e2e/pipeline.test.ts`. Read_file size cap (256 KB hard, 64 KB head+tail when truncated) prevents prompt-injection via oversized file payloads. Remaining gaps: no `harden-runner` egress allowlist on write-path workflows (dev/iterate), no SLSA provenance on the GitHub Release artifact, GITHUB_TOKEN used where a fine-grained App would be tighter.
-4. **Is the score close to 8–9/10?** **Score is 8.2** — comfortably inside the target band, +0.2 vs. the v0.7.0+25 audit. The release-cadence drag has been closed (three cuts: `v0.8.0`/`v0.8.1`/`v0.8.2`); ADR 0002 `@v0.6.0` drift (D9, two-cycle carry-over) has been closed at `v0.8.2`. Multi-provider Phase 1 (Refiner) shipped in `v0.8.0`; Phase 2 (Reviewer) is on `main` post-`v0.8.2` awaiting the next cut. Top three actions to reach 8.5: (i) **`harden-runner` egress allowlist** on dev/iterate workflows (P1, S effort); (ii) **e2e idempotency replay** assertion (P1, M); (iii) **install-guide test invokes `workflowTemplates()`** so the `ferry-init` emitter is covered end-to-end (P1, S).
+1. **Is the project production-ready?** **Yes.** All previously closed P0 blockers continue to hold. Multi-provider expansion (all four agents on Anthropic / OpenAI / Google) is complete through Phase 4. No agent has a known crash-category bug at HEAD. One new operational concern: the v0.10.x release window produced three consumer-impacting incidents (v0.10.0 crashed all Developer / Reviewer / Iterator runs with `ERR_MODULE_NOT_FOUND`; v0.10.2/v0.10.3 fixed a Refiner `GITHUB_TOKEN` wiring gap that caused every Refiner run to fail with `state-invariant: missing-env GITHUB_TOKEN`). Both were fixed same-day; both require consumers to re-run `ferry-update` or `ferry-init`. The npm audit now reports 1 HIGH vulnerability (fast-uri ≤3.1.1); it is a transitive dependency in the dev/build chain and is not present in the published CLI `dist/` output, but the fix is available via `npm audit fix`.
+2. **Can a first-time consumer install and reach the full Jira → PR-approved cycle?** **Yes** — for consumers pinning `@v0.10.3` (the published tag). `install-guide.test.ts` 71/71 passing; all consumer stubs reference `@v0.10.3` consistently. `ferry-init` scaffolds correct stubs; `ferry-doctor` covers all checks. The three FR auto-transitions (FR18/FR24/FR28) are exercised by `src/e2e/pipeline.test.ts`. **Caveat:** consumers who pinned `@v0.10.0` saw immediate `ERR_MODULE_NOT_FOUND` crashes on Developer / Reviewer / Iterator; those on `@v0.10.1`/`@v0.10.2` saw every Refiner run fail with `state-invariant: missing-env GITHUB_TOKEN`. All three states are recoverable via `ferry-update`.
+3. **Security posture?** **Strong with one new gap.** The npm audit now shows 1 HIGH vulnerability (fast-uri ≤3.1.1, fix available via `npm audit fix`) — regression from 0 at the v0.8.2 audit. All other controls remain strong: strict AJV schema validation, `execFileSync` everywhere, gitleaks on all four agent workflows, SHA-pinned third-party actions, CodeQL SAST, CODEOWNERS guards. MCP stdio integration (Context7 added at HEAD) extends the tool-call surface but is gated by the same agent-runtime controls. `harden-runner` egress allowlist on dev/iterate workflows remains absent (P1 carry-over).
+4. **Is the score close to 8–9/10?** **Score is 8.2** — same composite as the v0.8.2 audit, but the composition has shifted. Cost governance jumped from 7.0 to 8.5 (+1.5) on the strength of the new cost CLIs and Refiner cost estimation. This gain is fully offset by: the npm audit HIGH regression (−0.5 Supply-chain), 6 P1 hardcoded values in the new pricing/cost modules (penalising Code quality and Consumer docs), the v0.10.x three-hotfix blip (−0.5 Release), and CHANGELOG link-section drift (−0.5 Doc-code coherence). Top three to reach 8.5: (i) `npm audit fix` for fast-uri (XS); (ii) externalize pricing rates and EUR/USD rate from `src/lib/llm/pricing.ts` (`FERRY_EUR_TO_USD`, `FERRY_PRICING_JSON` env overrides); (iii) fix CHANGELOG link section (XS).
 
 ---
 
 ## 2. Overall score — **8.2 / 10**
 
-Movement since the v0.7.0+25 audit (8.0 → 8.2, net +0.2 across 15 domains). Five positive moves (Observability +0.5 for GITHUB_STEP_SUMMARY; Operations +0.5 for pre/post-agent hooks + WIP-on-failure; Release +0.5 — cadence drag closed; Doc-code coherence +0.5 — ADR 0002 drift closed). One regression neutralized by hotfix and validator (`v0.8.0` timeout-minutes shipped DOA, fixed in `v0.8.1`, validator added in `v0.8.2` via #229).
+Movement since the v0.8.2 audit (8.2 → 8.2, net 0 across 15 domains). Five positive moves (Cost governance +1.5; Observability +0.5 for cost CLIs). Five offsetting regressions (Supply-chain −0.5 npm HIGH; Code quality −0.5 P1 hardcoded; Consumer docs −0.5 RELEASING.md + CHANGELOG; Release −0.5 hotfix blip; Doc-code coherence −0.5 CHANGELOG drift).
 
-Quality gates at audit time (all green):
+Quality gates at audit time:
 
-- `npm run typecheck` — clean (`@big-emotion/ferry@0.8.2`)
-- `npm run lint` — clean
-- `npm run format:check` — clean
-- `npm test` — 100 files / **1200 tests** / 100% passing in 2.92s
-- `npm audit` (moderate+) — **0 vulnerabilities**
-- `npx vitest run src/install-guide.test.ts` — 71/71 passing
-- TODO/FIXME/XXX/HACK count under `src/` — **1**
-- Recent CI on `main`: Ferry — CI ✓, CodeQL ✓ (last run 2026-05-05T15:15Z, both success). One earlier run on `main` at 2026-05-05T15:09:18Z was red on a Prettier check (closed in HEAD commit `49aafd8`).
+- `npm run typecheck` — **clean** (`@big-emotion/ferry@0.10.3`)
+- `npm run lint` — **clean**
+- `npm run format:check` — **clean** (all 109 files Prettier-compliant)
+- `npm test` — **109 files / 1363 tests / 100% passing in 2.51s** (+163 tests / +9 files since v0.8.2)
+- `npm audit` (moderate+) — **1 HIGH** (fast-uri ≤3.1.1; fix available) — **regression from 0**
+- `npx vitest run src/install-guide.test.ts` — **71/71 passing**
+- TODO/FIXME/XXX/HACK count under `src/` — **3** (was 1 at v0.8.2)
+- Recent CI on `main`: Ferry — CI ✓ (completed success); CodeQL in_progress (latest run); previous CodeQL run ✓ success.
 
 Release artifacts proven:
 
-- Tags on origin: `v0.2.0`, `v0.3.0`, `v0.4.0`, `v0.5.0`, `v0.5.1`, `v0.5.2`, `v0.5.3`, `v0.6.0`, `v0.7.0`, `v0.8.0`, `v0.8.1`, `v0.8.2`, `v1` (floating major)
-- `@big-emotion/ferry@0.8.2` published to npm with provenance
-- GitHub Release `v0.8.2` created with notes from `CHANGELOG.md`
-- **`main` is 6 commits ahead of `v0.8.2`** with one substantive feature (multi-provider Phase 2 — Reviewer on OpenAI / Google, #231) and five small fixes (composite-step input validator #229/#232, locale pin to en-US, cache_control strip on prior tool-results turn, action-bundle rebuild, prettier formatting). No release-cadence drag at this revision.
+- Tags: `v0.6.0` through `v0.10.3`, plus `v1` floating major (10 tags visible)
+- `@big-emotion/ferry@0.10.3` published to npm with provenance
+- GitHub Release `v0.10.3` created with notes from `CHANGELOG.md`
+- **`feat/255-cost-based-estimation` is 13 commits ahead of `v0.10.3`** with cost CLIs (`ferry-cost-report`, `ferry-cost-reconcile`, `ferry-cost-advice`, `ferry-cost-stats`), MCP Context7 as default server, ticket-type label overrides, and supporting fixes. These features are awaiting the next cut.
 
 ---
 
 ## 3. Score per domain
 
-| #   | Domain                             | Score        | Δ vs. v0.7.0+25 | Trend  |
-| --- | ---------------------------------- | ------------ | --------------- | ------ |
-| 1   | Application security               | **8.5 / 10** | 0               | strong |
-| 2   | Supply-chain security              | **8.5 / 10** | 0               | strong |
-| 3   | GitHub Actions security            | **7.5 / 10** | 0               | strong |
-| 4   | Tests & coverage                   | **8.5 / 10** | 0               | strong |
-| 5   | E2E / acceptance tests             | **8.5 / 10** | 0               | strong |
-| 6   | CI/CD gates                        | **9.0 / 10** | 0               | strong |
-| 7   | Reliability (idempotency, retries) | **9.0 / 10** | 0               | strong |
-| 8   | Observability / audit              | **7.5 / 10** | +0.5            | medium |
-| 9   | Consumer documentation             | **8.5 / 10** | 0               | strong |
-| 10  | Code quality / typing              | **8.5 / 10** | 0               | strong |
-| 11  | Traceability / FR governance       | **7.5 / 10** | 0               | strong |
-| 12  | Operations / runbooks / rollback   | **8.0 / 10** | +0.5            | strong |
-| 13  | Release / distribution             | **8.5 / 10** | +0.5            | strong |
-| 14  | Cost governance (runtime)          | **7.0 / 10** | 0               | medium |
-| 15  | Doc–code coherence                 | **8.0 / 10** | +0.5            | strong |
+| #   | Domain                             | Score        | Δ vs. v0.8.2 | Trend  |
+| --- | ---------------------------------- | ------------ | ------------ | ------ |
+| 1   | Application security               | **8.5 / 10** | 0            | strong |
+| 2   | Supply-chain security              | **8.0 / 10** | −0.5         | ↓      |
+| 3   | GitHub Actions security            | **7.5 / 10** | 0            | strong |
+| 4   | Tests & coverage                   | **8.5 / 10** | 0            | strong |
+| 5   | E2E / acceptance tests             | **8.5 / 10** | 0            | strong |
+| 6   | CI/CD gates                        | **9.0 / 10** | 0            | strong |
+| 7   | Reliability (idempotency, retries) | **9.0 / 10** | 0            | strong |
+| 8   | Observability / audit              | **8.0 / 10** | +0.5         | ↑      |
+| 9   | Consumer documentation             | **8.0 / 10** | −0.5         | ↓      |
+| 10  | Code quality / typing              | **8.0 / 10** | −0.5         | ↓      |
+| 11  | Traceability / FR governance       | **7.5 / 10** | 0            | strong |
+| 12  | Operations / runbooks / rollback   | **8.0 / 10** | 0            | strong |
+| 13  | Release / distribution             | **8.0 / 10** | −0.5         | ↓      |
+| 14  | Cost governance (runtime)          | **8.5 / 10** | +1.5         | ↑↑     |
+| 15  | Doc–code coherence                 | **7.5 / 10** | −0.5         | ↓      |
 
-Mean = **8.2 / 10** (15 axes; 122.5 / 15 = 8.166 → 8.2)
+Mean = **8.2 / 10** (15 axes; 122.5 / 15 = 8.167 → 8.2)
 
-> **Domain 8 (Observability) +0.5:** `GITHUB_STEP_SUMMARY` emitter (#224) writes per-run telemetry — token counts, top tool calls by output size, files touched, branch pushed — directly into the GitHub Actions UI, removing the need to scrape logs for run-level signals. Combined with the soft-budget warnings from `v0.7.0+25`, operators now have both mid-run cost trajectory and end-of-run summary without external infrastructure.
+> **Domain 2 (Supply-chain) −0.5:** `npm audit` now reports 1 HIGH vulnerability (fast-uri ≤3.1.1). At the v0.8.2 audit there were 0 vulnerabilities. The affected package is a transitive dependency (not in the published CLI dist); `npm audit fix` resolves it. Held at −0.5 (not P0) because it does not affect the runtime action bundles or the published npm package's `files` entries.
 >
-> **Domain 12 (Operations) +0.5:** three operational additions in `v0.8.0`. (a) Pre/post-agent command hooks (#223) on all four composite actions let consumers wire setup (cache warmups, secret-injection) and teardown (artifact uploads, custom telemetry) without forking the workflow. (b) Developer WIP-commit-on-failure (#222) commits in-progress work to a `ferry-wip/<ticket>` branch on agent crash and posts a structured Jira summary, reducing lost-work incidents. (c) The 3-state `done` outcome (#221) replaces the binary `actionable` flag, giving downstream automation finer-grained routing signal.
+> **Domain 8 (Observability) +0.5:** four new on-demand cost CLIs (`ferry-cost-report`, `ferry-cost-reconcile`, `ferry-cost-advice`, `ferry-cost-stats`) at HEAD give operators a complete spend-breakdown toolkit: markdown reports with sparklines, reconciliation against Anthropic CSV exports, ranked optimisation recommendations. Combined with the daily cost-check and the audit-issue `cost_eur` per execution, operators now have end-to-end cost observability without external infrastructure.
 >
-> **Domain 13 (Release) +0.5:** the v0.7.0+25 −0.5 cadence-drag finding is closed — three releases (`v0.8.0`/`v0.8.1`/`v0.8.2`) shipped on 2026-05-05. The bundle-runtime smoke gate, read*file cap, agent-loop history pruning, B2 `FERRY*\*`repo variables, multi-provider Phase 1, and the new operational telemetry are now reaching consumers. Held back from a full +1.0 by the two consumer-impacting hotfixes in the same window (timeout-minutes DOA in`v0.8.0`; silently-ignored model inputs in `ferry-init`templates v0.8.0–v0.8.1) — both fixed same-day, both rolled into a composite-action input validator (#229) plus a`ferry-update` rewrite path.
+> **Domain 9 (Consumer docs) −0.5:** two new drift items. (a) `docs/RELEASING.md` line 159 still says "Four CLIs are exposed under the `bin` field" — but HEAD has 8 bin entries (4 cost CLIs added on `feat/255`). Must be updated before the next release. (b) CHANGELOG link section lists `[Unreleased]: compare/v0.10.1...HEAD`; `[0.10.2]` and `[0.10.3]` entries are missing from the link section, and the base should be `v0.10.3` (D13, new).
 >
-> **Domain 15 (Doc–code coherence) +0.5:** ADR 0002 drift (D9, carry-over for two cycles) is closed — `docs/adr/0002-ferry-bundles-committed.md` now references `@v0.8.2` consistently. The systematic drift gate (action 0d) has not been added, but the immediate symptom is fixed. CHANGELOG `[0.5.0]`–`[0.5.3]` link gap (D10) carries over.
+> **Domain 10 (Code quality) −0.5:** P1 hardcoded values rose from 2 to 6 (four new items in the pricing/cost modules; see §5 Hardcoded values). The EUR/USD exchange rate in `src/lib/llm/pricing.ts` is pinned to 2025-Q2 (now 1 year stale) and is load-bearing for all cost estimates and spend-cap enforcement. The model pricing table is equally stale. `SOFT_THRESHOLD = 0.5` and `ITERATION_FACTOR = 1.4` in the new cost modules are also not env-tunable. TODO/FIXME count rose from 1 to 3.
 >
-> **No score regressions** at this revision. The two consumer-impacting `v0.8.0` incidents argued for a Domain-13 penalty, but the validator (#229) and the `ferry-update` rewrite path together close the regression class — recurrence requires a different failure mode.
+> **Domain 13 (Release) −0.5:** the v0.10.x window had three consumer-impacting incidents: (i) v0.10.0 shipped with `ERR_MODULE_NOT_FOUND: Cannot find package 'openai'` crashing all Developer/Reviewer/Iterator runs even on Anthropic-only config; (ii) v0.10.2 fixed a Refiner `GITHUB_TOKEN` wiring gap (`ferry-run-refiner/action.yml` never wired `github_token`/`github_repo`) that caused every Refiner run to fail immediately. Both were hotfixed same-day. This repeats the v0.8.x quality-blip pattern — net-zero on Domain 13 for the fixes, but the third incident underscores a pre-release action-bundle smoke-test gap for new composite-action inputs.
+>
+> **Domain 14 (Cost governance) +1.5:** four new cost CLIs at HEAD + Refiner cost-estimation + `docs/COST.md` complete the cost observability story. The daily-check workflow (already in consumer stubs) is now paired with on-demand tooling that consumers can run locally or in CI. The Refiner now emits a cost estimate for each ticket plan so consumers can triage expensive tickets before they reach the Developer. Score rises from 7.0 to 8.5; held back from 9.0 by the stale pricing table and non-tunable `SOFT_THRESHOLD`.
+>
+> **Domain 15 (Doc-code coherence) −0.5:** new D13 drift (CHANGELOG link section base `v0.10.1` instead of `v0.10.3`; missing `[0.10.2]` and `[0.10.3]` links). D10 (CHANGELOG v0.5.x links) carries over for a fourth cycle.
 
 ---
 
@@ -99,8 +103,9 @@ Mean = **8.2 / 10** (15 axes; 122.5 / 15 = 8.166 → 8.2)
 - Mandatory `secret-scan` (gitleaks) before every dev-agent commit; gitleaks runs on **all four** agent dispatch workflows.
 - `@typescript-eslint/no-explicit-any: 'error'` plus `no-restricted-imports` for agent code (verified via `src/agents/restricted-imports.test.ts`).
 - "Ferry never merges" invariant asserted by `src/e2e/pipeline.test.ts`.
-- Read_file size cap (256 KB hard, 64 KB head+tail when truncated) prevents prompt-injection via oversized file payloads. Agent-loop history compaction and pruning bound conversation history so token-cap blow-ups cannot be used as a denial-of-budget vector.
-- Multi-provider Phase 2 (#231) routes the Reviewer agent through OpenAI / Google via the new `src/lib/llm/tool-loop/{anthropic,openai,google}.ts` wrappers; the structured tool-call contract is provider-agnostic and the same restricted-import rules apply.
+- Read_file size cap (256 KB hard, 64 KB head+tail truncation), agent-loop history compaction and pruning.
+- Multi-provider complete across all 4 agents; the same restricted-import rules apply to all provider paths.
+- MCP stdio integration (Context7 at HEAD): agent-runtime gates which MCP servers are activated per ticket via label mapping; no arbitrary server injection.
 
 **Weaknesses**
 
@@ -108,112 +113,104 @@ Mean = **8.2 / 10** (15 axes; 122.5 / 15 = 8.166 → 8.2)
 - No `eslint-plugin-security` or `eslint-plugin-no-secrets` (defense-in-depth only).
 - Prompt-injection surface in agent tool calls is not formally modeled (no allow-list of file paths the dev agent can read/write).
 
-### 4.2 Supply-chain security — 8.5 (unchanged)
+### 4.2 Supply-chain security — 8.0 (−0.5)
 
-Tag-pin consistency table (HEAD = `49aafd8`, `package.json .version = 0.8.2`):
+Tag-pin consistency table (HEAD = `90983bb`, `package.json .version = 0.10.3`):
 
 | Location                                                                         | Pin                                                  | Status        |
 | -------------------------------------------------------------------------------- | ---------------------------------------------------- | ------------- |
-| `package.json` `.version`                                                        | `0.8.2`                                              | canonical     |
-| `examples/consumer-setup/workflows/ferry-{refine,dev,review,iterate}.yml`        | `@v0.8.2`                                            | match         |
-| `examples/consumer-setup/workflows/ferry-{reconcile,cost-daily}.yml` `FERRY_REF` | `v0.8.2`                                             | match         |
-| `docs/CONFIGURATION.md` (line 125, 148)                                          | `@v0.8.2`                                            | match         |
-| `docs/RELEASING.md` (lines 26, 30, 46, 49–50, 159)                               | `@v0.8.2`                                            | match         |
-| `docs/RUNBOOK.md`                                                                | (no agent-pin references; only `@v1` floating-major) | n/a           |
-| `src/install-guide.test.ts`                                                      | `@v0.8.2`                                            | match         |
-| `docs/adr/0002-ferry-bundles-committed.md` (lines 16, 34, 35)                    | `@v0.8.2`                                            | **match**     |
-| `git tag --list`                                                                 | includes `v0.8.0`, `v0.8.1`, `v0.8.2`, `v1`          | exist         |
-| `npm @big-emotion/ferry`                                                         | `0.8.2`                                              | published     |
-| `CHANGELOG.md` link section                                                      | `[Unreleased]` base = `v0.8.2`; v0.5.x links missing | partial drift |
+| `package.json` `.version`                                                        | `0.10.3`                                             | canonical     |
+| `examples/consumer-setup/workflows/ferry-{refine,dev,review,iterate}.yml`        | `@v0.10.3`                                           | match         |
+| `examples/consumer-setup/workflows/ferry-{reconcile,cost-daily}.yml` `FERRY_REF` | `v0.10.3`                                            | match         |
+| `docs/CONFIGURATION.md` (lines 127, 150)                                         | `@v0.10.3`                                           | match         |
+| `docs/RELEASING.md` (lines 26, 30, 46, 50, 159)                                  | `@v0.10.3`                                           | match         |
+| `src/install-guide.test.ts` (line 49)                                            | `@v0.10.3`                                           | match         |
+| `docs/adr/0002-ferry-bundles-committed.md` (lines 16, 34, 35)                    | `@v0.10.3`                                           | match         |
+| `CHANGELOG.md` link section                                                      | `[Unreleased]` base = `v0.10.1`; `[0.10.2]`/`[0.10.3]` links missing | **DRIFT** |
+| `git tag --list`                                                                 | includes `v0.10.0`–`v0.10.3`, `v1`                  | exist         |
+| `npm @big-emotion/ferry`                                                         | `0.10.3`                                             | published     |
+| `npm audit` (moderate+)                                                          | fast-uri ≤3.1.1 — **1 HIGH**                         | **VULN**      |
 
-**Action 0d (tag-pin drift gate) status:** the immediate ADR 0002 drift carried for two cycles is closed at `v0.8.2`; the systematic guard is still not in place, so recurrence requires manual diligence. Adding a regex assertion in `src/install-guide.test.ts` (or new `tag-pin-drift.test.ts`) that scans `docs/adr/*.md` and `docs/RELEASING.md` for `@v[0-9.]+` literals and fails if any disagrees with `package.json .version` remains the recommended P1 carry-over.
+**Action 0d (tag-pin drift gate) status:** CHANGELOG link section drift (D13) is a new recurrence of the drift class. The systematic guard (regex assertion in `src/install-guide.test.ts` that scans docs for `@v[0-9.]+` literals and fails if any disagrees with `package.json .version`) remains unimplemented — now entering its **4th cycle** as a carry-over.
 
 **Strengths**
 
 - CodeQL SAST wired — recent run green.
-- `audit:ci` job in CI; `npm audit` clean (0 across all severities).
-- Bundle-drift check in CI (`check-bundle` job) plus the `smoke-bundle` job that boots each compiled `.ferry/<role>-action.js` under Node 20 with stub credentials.
-- Third-party actions pinned by SHA with version comments in every composite action and every CI workflow (verified: `actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0`).
-- gitleaks tarball pinned by SHA256 in CI.
+- `audit:ci` job in CI; all actions SHA-pinned with version comments.
+- Bundle-drift check + smoke-bundle gate in CI.
 - Dependabot configured for `github-actions` AND `npm`, weekly, grouped.
 - npm publish uses `--provenance --access public`.
-- LLM SDKs externalized from `.ferry/` action bundles (#203) — bundle is smaller and SDK upgrades reach consumers via `npm install` rather than rebuilding bundles on every dep bump.
+- No `@main` refs found anywhere in `.github/workflows/` or `examples/consumer-setup/workflows/`.
 
 **Weaknesses**
 
-- No SLSA provenance attestation on the GitHub Release artifact.
+- **1 HIGH npm vulnerability: fast-uri ≤3.1.1** — fix available via `npm audit fix`. Not in published dist but should be cleared before the next release.
+- CHANGELOG link section: `[Unreleased]` base is `v0.10.1`; entries for `v0.10.2` and `v0.10.3` missing from the link section (D13, new).
+- Action 0d (systematic tag-pin drift gate) still not implemented — 4th cycle carry-over.
+- No SLSA provenance on the GitHub Release artifact.
 - No SBOM, no OSSF Scorecard.
-- Action 0d (systematic tag-pin drift gate) still not implemented — ADR 0002 drift recurrence is gated only on manual diligence.
-- CHANGELOG link section missing `[0.5.0]`–`[0.5.3]` release links (low).
 
 ### 4.3 GitHub Actions security — 7.5 (unchanged)
 
 **Strengths**
 
-- Explicit `permissions:` blocks on every job across consumer-side agent workflows, `ferry-ci.yml`, `release.yml`, `codeql.yml`.
-- Concurrency groups per ticket prevent races; `cancel-in-progress: false` on writes (dev/iterate), `true` on read-only (refine/review).
+- Explicit `permissions:` blocks on every job.
+- Concurrency groups per ticket prevent races; `cancel-in-progress: false` on writes, `true` on read-only.
 - Fallback `'ferry-invalid-payload-sinkhole'` blocks group injection.
 - CODEOWNERS guards `.github/`, `src/schemas/`, `prompts/`.
-- `release.yml` uses `id-token: write` only for npm provenance.
-- Consumer workflows expanded into three jobs (`gate-envelope`, `run-agent`, `emit-audit`) calling composite actions directly — no `secrets: inherit` dependency on reusable workflows.
-- Composite-action input validator (#229) prevents shipping unsupported keys (e.g. the `timeout-minutes` regression that hit `v0.8.0`); enforced at build time in `release.yml` flow.
+- Consumer workflows expanded into three jobs calling composite actions directly — no `secrets: inherit`.
+- Composite-action input validator (`src/lib/agent-runtime/composite-action.test.ts`) prevents shipping unsupported keys.
 
 **Weaknesses**
 
 - `GITHUB_TOKEN` used by composite actions instead of a fine-grained GitHub App (P2).
-- No `harden-runner` (StepSecurity) for egress allowlisting on the dev/iterate workflows that perform git push (P1, carry-over).
+- No `harden-runner` (StepSecurity) for egress allowlisting on dev/iterate workflows that perform git push (P1, carry-over — 3rd cycle).
 - No OIDC for federated auth to Anthropic / Jira / OpenAI / Google.
 
 ### 4.4 Tests & coverage — 8.5 (unchanged)
 
-| Metric  | Status                                                                         |
-| ------- | ------------------------------------------------------------------------------ |
-| Suite   | **100 files / 1200 tests / all passing in 2.92s**                              |
-| Reports | text, text-summary, html, lcov                                                 |
-| Gate    | **75 / 75 / 75 / 75** in `vitest.config.ts`                                    |
-| Δ       | +81 tests / +9 files since v0.7.0+25 audit (1119 → 1200 tests, 91 → 100 files) |
+| Metric  | Status                                                                              |
+| ------- | ----------------------------------------------------------------------------------- |
+| Suite   | **109 files / 1363 tests / all passing in 2.51s**                                   |
+| Reports | text, text-summary, html, lcov                                                      |
+| Gate    | **75 / 75 / 75 / 75** in `vitest.config.ts`                                         |
+| Δ       | +163 tests / +9 files since v0.8.2 audit (1200 → 1363 tests, 100 → 109 files)      |
 
 **Strengths**
 
-- New `src/lib/llm/tool-loop/{anthropic,google,openai}.test.ts` modules cover the multi-provider Phase 2 abstractions (~510 test-lines combined).
-- New `src/lib/agent-runtime/composite-action.test.ts` validates that all four `ferry-run-*` composite-action `.yml` files declare valid step keys (closes the v0.8.0 `timeout-minutes` regression class).
-- D9 regression suite (`extractFirstJsonObject`) intact: prose preamble, trailing prose, nested code fences all covered.
-- Coverage threshold uniform at 75% across statements/branches/functions/lines.
+- New cost CLI modules: `src/cli/cost/*.test.ts` covers `ferry-cost-report`, `ferry-cost-stats`, `ferry-cost-advice`, `ferry-cost-reconcile`.
+- New cost estimation module: `src/agents/refiner/cost-estimate.test.ts` and `src/agents/refiner/refiner-action.cost-estimate.test.ts`.
+- D9 regression suite (`extractFirstJsonObject`) intact.
 - CLI module coverage: every doctor check has a sibling `.test.ts`.
-- Composite-action entrypoints excluded from coverage with documented reason.
 
 **Weaknesses**
 
 - `agents/developer/loop.ts` and `workspace.ts` still rely largely on the e2e harness rather than dedicated unit tests.
 - No mutation testing (Stryker).
-- No load/perf budget.
 
 ### 4.5 E2E / acceptance tests — 8.5 (unchanged)
 
 **Strengths**
 
-- **Mocked end-to-end pipeline test** at `src/e2e/pipeline.test.ts` replays refine→dev→review→iterate, asserts the no-auto-merge invariant, exercises FR18/FR24/FR28.
-- **Install-guide acceptance test** at `src/install-guide.test.ts` (71 tests) covers 18 sections of the README including no-`@main` self-references and correct `@v0.8.2` pins.
-- FR drift detector (`scripts/check-fr-drift.sh`) wired into CI lint job.
-- Release pipeline empirically validated by ten real tag pushes (v0.4.0 through v0.8.2 — all pipelines green).
-- **Bundle-runtime smoke gate:** `scripts/smoke-bundle.sh` boots each role's `index.cjs` against a fixture envelope and asserts exit-code 0; wired as a dedicated `smoke-bundle` job in `ferry-ci.yml`. Closes the v0.5.1 (`Dynamic require`) and pre-v0.7.0 (yaml package missing) failure modes.
-- **Composite-action input validator (#229):** new test in `src/lib/agent-runtime/composite-action.test.ts` asserts each `runs.steps` entry uses only keys supported by GitHub Actions composite actions — closes the failure mode that allowed `v0.8.0` to ship `timeout-minutes` on composite-action steps.
+- **Mocked end-to-end pipeline test** (`src/e2e/pipeline.test.ts`) replays refine→dev→review→iterate, asserts no-auto-merge invariant, exercises FR18/FR24/FR28.
+- **Install-guide acceptance test** (`src/install-guide.test.ts`, 71 tests) covers 18 sections of the README including no-`@main` refs and correct `@v0.10.3` pins.
+- Bundle-runtime smoke gate wired as a CI job.
+- Composite-action input validator closes the `timeout-minutes` regression class.
 
 **Weaknesses**
 
-- No idempotency assertion across a full replay of the same `event_id` against the same audit issue (P1, carry-over).
-- Install-guide test validates `examples/consumer-setup/workflows/*.yml` but never invokes `workflowTemplates()` from `src/cli/init/templates.ts` — the v0.8.0–v0.8.1 silently-ignored `ferry_model:` input in init templates would have been caught here (P1, action 3).
+- No idempotency assertion across a full replay of the same `event_id` (P1, carry-over — 4th cycle).
+- Install-guide test validates `examples/consumer-setup/workflows/*.yml` but never invokes `workflowTemplates()` from `src/cli/init/templates.ts` (P1, carry-over — 3rd cycle). The v0.10.x `ferry_model:` regression would have been caught at this layer.
 
 ### 4.6 CI/CD gates — 9.0 (unchanged)
 
 **Strengths**
 
-- Seven parallel CI jobs: `typecheck`, `lint+format+fr-drift`, `test+coverage`, `check-bundle`, `smoke-bundle`, `audit`; plus CodeQL, release gate.
-- `release.yml` runs full quality gate before npm publish.
-- All actions in CI pinned by SHA.
-- Concurrency cancels superseded CI runs on the same branch.
+- Parallel CI jobs: `typecheck`, `lint+format+fr-drift`, `test+coverage`, `check-bundle`, `smoke-bundle`, `audit`; plus CodeQL, release gate.
+- All actions SHA-pinned (`actions/checkout@de0fac2e4500...`, `actions/setup-node@48b55a011bda...`).
+- Concurrency cancels superseded CI runs.
 - Husky pre-push hook re-runs the full suite locally.
-- Recent runs on `main`: Ferry — CI ✓ (2026-05-05 15:15Z), CodeQL ✓ (2026-05-05 15:15Z). The earlier red run on `main` (2026-05-05 15:09Z) was a Prettier check failure on `composite-action.test.ts`; HEAD commit `49aafd8` resolved it and the next run was green.
+- Recent CI runs on `main`: Ferry — CI ✓ (completed success).
 
 **Weaknesses**
 
@@ -224,75 +221,72 @@ Tag-pin consistency table (HEAD = `49aafd8`, `package.json .version = 0.8.2`):
 
 **Strengths**
 
-- All v0.5.3/v0.6.0 closures hold: D9 Refiner JSON parser hardened (`extractFirstJsonObject`); reviewer→iterator loop fixed (`countPriorIterations`); gitleaks ENOENT fixed.
-- Audit-issue rotation present and tested (`src/lib/audit/index.ts`, threshold 90% of 1000-comment cap, `FERRY_AUDIT_ROTATION_THRESHOLD` env-tunable, default 900).
-- Read_file 256 KB hard cap and 64 KB head+tail truncation prevent agents from blowing up token budgets on large files.
-- Agent-loop message-history compaction and pruning bound conversation history so token-cap blow-ups no longer recur.
-- Cache_read_input_tokens weighted at 0.1× of input cost — agents no longer trip the budget cap on cache reads.
-- ferry.config.json reloaded from `base_branch` on every agent run — config drift between branches is self-correcting.
-- New: developer WIP-commit-on-failure (#222) — agent crashes no longer lose in-progress work; consumers get a `ferry-wip/<ticket>` branch URL in Jira and a structured failure summary.
-- New: cache_control stripping on prior tool-results turn (`e00ec30`) — prevents Anthropic API errors when re-priming a cached prefix.
-- New: en-US locale pinning for number formatting (`e712ec1`) — prevents non-English runners from emitting comma-decimal cost figures that downstream tooling parses as integers.
+- All v0.8.x closures hold: D9 Refiner JSON parser, reviewer→iterator loop, gitleaks ENOENT.
+- Audit-issue rotation tested and wired (`FERRY_AUDIT_ROTATION_THRESHOLD` env-tunable, default 900).
+- Read_file caps, agent-loop compaction, cache_control stripping on prior tool-results.
+- Developer WIP-commit-on-failure, 3-state `done` outcome.
+- `v0.10.2`: iterator re-keyed idempotency on PR head SHA to recover stuck transitions.
+- Locale pinned to en-US for all number formatting.
 
-**Carry-over weaknesses**
+**Weaknesses**
 
 - No circuit breaker (LLM provider down → retries to ceiling).
 - Reconciler depends on the consumer wiring `ferry-reconcile.yml`.
 
-### 4.8 Observability — 7.5 (+0.5)
+### 4.8 Observability — 8.0 (+0.5)
 
 **Strengths**
 
-- Structured JSON logger in production paths.
-- Centralised audit issue with JSON-per-phase lines; rotation handles approaching 1000-comment cap.
-- Correlation by `run_id` / ULID across phases.
-- `docs/RUNBOOK.md` provides on-call triage.
-- Soft-budget warnings emit at 70% / 85% of `max_tokens_per_run` so operators see cost trends mid-run.
-- **New:** `GITHUB_STEP_SUMMARY` emitter on agent termination (#224) — every agent run writes a structured run-stats summary (token counts, top tool calls by output size, files touched, branch pushed) directly into the GitHub Actions UI. Combined with the existing audit-issue trail, operators now have per-run telemetry without log scraping.
+- **New (HEAD):** `ferry-cost-report` — reads `ferry-audit.jsonl` and renders markdown tables (per-phase, per-model, per-ticket, per-day) with ASCII sparklines.
+- **New (HEAD):** `ferry-cost-stats` — computes per-phase statistical baselines (median, p90, window runs) from the audit log; outputs `cost-baseline.json` consumed by the Refiner.
+- **New (HEAD):** `ferry-cost-advice` — ranked list of optimisation recommendations derived from the audit log.
+- **New (HEAD):** `ferry-cost-reconcile` — diffs local audit log against Anthropic CSV export to surface billing discrepancies.
+- **New (HEAD):** Refiner emits a `cost_estimate` field in its output (low/medium/high confidence, USD range) so consumers can see expected ticket cost before the Developer runs.
+- Existing: `GITHUB_STEP_SUMMARY` emitter, audit-issue trail, structured JSON logger, soft-budget warnings at 70%/85% of `max_tokens_per_run`, daily cost-check workflow.
+- `docs/COST.md` documents the full cost toolchain.
 
 **Weaknesses**
 
+- EUR/USD rate and model pricing table are stale (see §5); cost estimates drift as real prices change.
 - No exported metrics (Prometheus, OpenTelemetry).
-- No alerting on runtime failure — a stuck ticket waits silently for a human (mitigated when the consumer wires the reconciler).
-- Some emitters still pass `correlation_id: ""` — not all entry points propagate the ULID.
-- Several raw `console.log` calls remain under `src/`.
+- No alerting on runtime failure — stalled ticket waits silently (mitigated if consumer wires reconciler).
+- Some raw `console.log` calls remain under `src/`.
 
-### 4.9 Consumer documentation — 8.5 (unchanged)
+### 4.9 Consumer documentation — 8.0 (−0.5)
 
 **Strengths**
 
-- `ferry-init` emits exactly 4 expanded three-job stubs; all pin to `@v0.8.2`; all composite actions referenced exist on origin; per-agent model input names are correct as of v0.8.2.
-- The `ANTHROPIC_API_KEY` secret naming is consistent across README, composite actions, `ferry-init`, `ferry-doctor`, and `ferry-uninstall`.
-- `ferry-update` parses `MIGRATIONS.md` at runtime; consumers see required follow-ups (including the v0.8.0 → v0.8.1 hotfix and v0.8.1 → v0.8.2 model-input rename).
-- `ferry-doctor` check D7 verifies `FERRY_AUDIT_ISSUE` repo variable is set, numeric, and points to an open GitHub issue.
-- `docs/RUNBOOK.md` — on-call playbook for stalled ticket, cost spike, agent-loop runaway, refiner D9 mitigation, rollback, CI red.
-- `docs/CONFIGURATION.md` is internally consistent with the composite action interfaces, references `@v0.8.2`.
-- `docs/REQUIREMENTS.md` FR registry intact; CI drift detector enforces consistency.
-- B2 `FERRY_*` repo variables standardise tunable knobs across all four agent composite actions.
-- `docs/MCP.md` documents stdio MCP server support.
-- Pre/post-agent command hooks (#223) and `GITHUB_STEP_SUMMARY` (#224) documented in `docs/CONFIGURATION.md`.
+- `ferry-init` emits 4 expanded three-job stubs pinned to `@v0.10.3` with correct per-agent model input names.
+- `ferry-doctor` covers all checks including `FERRY_AUDIT_ISSUE`.
+- `ferry-update` parses `MIGRATIONS.md` at runtime; consumers see v0.10.x follow-ups (including the `github_token`/`github_repo` addition for Refiner).
+- `docs/CONFIGURATION.md` documents MCP configuration (label mapping, stdio/HTTP transport constraints, Context7 as default).
+- Ticket-type label overrides (`ferry:type:enable-task`, `force-*`) documented in `docs/CONFIGURATION.md` §4.
+- `docs/COST.md` documents all four cost CLIs end-to-end.
+- `docs/MCP.md` provides a full MCP registry table.
 
-**Carry-over weaknesses**
+**Weaknesses**
 
-- README still asks the user to manually `curl` the ops stubs — could be scaffolded by `ferry-init` instead (P2, action 5).
-- `ferry-init` does not collect the two transition IDs — still a manual README step (P2, action 6).
-- No `workflowTemplates()` invocation in `install-guide.test.ts` (P1, action 3) — the v0.8.0–v0.8.1 init-template regression would have been caught at this layer.
+- **D13 (new):** `CHANGELOG.md` link section base is `v0.10.1`; `[0.10.2]` and `[0.10.3]` entries missing from the link section. `[Unreleased]` base should be `v0.10.3`.
+- **D14 (pending release):** `docs/RELEASING.md` line 159 documents "Four CLIs are exposed under the `bin` field" — but HEAD has 8 bin entries (4 cost CLIs). Must be updated before the next release cut.
+- README still asks the user to manually `curl` the ops stubs — could be scaffolded by `ferry-init` (P2, carry-over).
+- `ferry-init` does not collect the two transition IDs — still a manual README step (P2, carry-over).
+- No `workflowTemplates()` invocation in `install-guide.test.ts` (P1, carry-over — 3rd cycle).
 
-### 4.10 Code quality — 8.5 (unchanged)
+### 4.10 Code quality — 8.0 (−0.5)
 
 **Strengths**
 
 - Strict TypeScript NodeNext ESM, `no-explicit-any: error`.
 - ESLint with agent-specific rules; restricted-imports verified by test.
-- Prettier mandatory and currently clean (the v0.8.2-cycle red CI run was a single Prettier miss, fixed in HEAD).
+- Prettier mandatory and currently clean.
 - Layered architecture respected; agents never import Octokit/Jira directly (verified by `src/agents/restricted-imports.test.ts`).
-- Multi-provider tool-loop modules (`src/lib/llm/tool-loop/`) follow the existing `agent-loop/` flat layout — `index.ts` dispatches by provider name, individual provider modules are independent.
-- Unit tests next to implementation; lint fixtures isolated.
+- Cost CLI modules follow the existing flat-layout convention; clean separation between parse, format, run.
 
 **Weaknesses**
 
+- **6 P1 hardcoded values** — four new in pricing/cost modules (see §5); threshold triggers −1 penalty on this domain.
+- TODO/FIXME count increased from 1 to 3.
 - No complexity gates (cyclomatic, max lines).
-- No `eslint-plugin-security` or `eslint-plugin-no-secrets`.
 - `src/agents/reviewer/review-loop.ts` size still hints at complexity debt.
 
 ### 4.11 Traceability / FR governance — 7.5 (unchanged)
@@ -300,7 +294,7 @@ Tag-pin consistency table (HEAD = `49aafd8`, `package.json .version = 0.8.2`):
 **Strengths**
 
 - `docs/REQUIREMENTS.md` is the single source of truth for `FR\d+` IDs.
-- `npm run check:fr-drift` wired into CI; fails the build on undocumented FR tags.
+- `npm run check:fr-drift` wired into CI; fails on undocumented FR tags.
 - Five ADRs cover the foundational decisions.
 - Audit issue traces every runtime execution.
 
@@ -309,87 +303,83 @@ Tag-pin consistency table (HEAD = `49aafd8`, `package.json .version = 0.8.2`):
 - No commit-msg lint enforcing FR or issue back-reference.
 - No bidirectional code → FR mapping beyond grep.
 
-### 4.12 Operations — 8.0 (+0.5)
+### 4.12 Operations — 8.0 (unchanged)
 
 **Strengths**
 
 - `docs/RUNBOOK.md` — concrete on-call playbook.
 - `ferry-uninstall` CLI — reversible-deploy path.
 - `ferry-update` CLI — migration path, reads `MIGRATIONS.md`.
-- Reconciler + cost-daily stubs ship in `examples/consumer-setup/workflows/`, pinned to `v0.8.2`.
-- **Pre/post-agent command hooks (#223):** all four composite actions accept optional `pre_agent_command` and `post_agent_command` inputs that run shell commands before and after the agent step. Consumers wire setup (cache warmups, secret-injection) and teardown (artifact uploads, custom telemetry) without forking the workflow.
-- **Developer WIP-commit-on-failure (#222):** when the developer agent crashes mid-task, in-progress work is committed to a `ferry-wip/<ticket>` branch and a structured Jira summary is posted with failure category, token usage, and the WIP branch URL. Reduces lost-work incidents and gives operators a starting point for manual recovery.
-- **3-state outcome (#221):** `done` tool reports `success` | `partial` | `blocked` — finer-grained signal for downstream automation.
+- Reconciler + cost-daily stubs ship in `examples/consumer-setup/workflows/`, pinned to `v0.10.3`.
+- Pre/post-agent command hooks on all four composite actions.
+- Developer WIP-commit-on-failure.
+- 3-state outcome (`success` / `partial` / `blocked`).
 
-**Weaknesses (carry-over)**
+**Weaknesses**
 
 - No proactive monitoring — audit issue pings nobody.
 - Reconciler effectiveness depends on consumer wiring the stub.
 
-### 4.13 Release / distribution — 8.5 (+0.5)
+### 4.13 Release / distribution — 8.0 (−0.5)
 
-The release pipeline executed three times in this audit window (`v0.8.0`/`v0.8.1`/`v0.8.2`, all on 2026-05-05). The cadence-drag finding from the v0.7.0+25 audit is closed. The +0.5 is held back from a full +1.0 by two consumer-impacting incidents in the same window:
+Five releases shipped in this audit window (`v0.9.0`, `v0.10.0`, `v0.10.1`, `v0.10.2`, `v0.10.3`, all on 2026-05-05). Three consumer-impacting incidents:
 
-1. **`v0.8.0` `timeout-minutes` DOA on composite-action steps.** GitHub Actions does not support `timeout-minutes:` on composite-action steps (only on workflow/job steps), so every consumer pinned to `@v0.8.0` failed at job setup with `Unexpected value 'timeout-minutes'` before any agent code executed. Fixed in `v0.8.1` same day with a shell-level `timeout Nm bash -c "$CMD"` wrapper. **Closure:** `#229` adds a composite-action input validator at build time so this regression class cannot recur.
-2. **`v0.8.0`/`v0.8.1` silently-ignored `ferry_model:` in init templates.** The scaffolded `ferry-refine.yml` and `ferry-dev.yml` workflows passed `ferry_model:` to the refiner and developer composite actions, but those actions expect `ferry_refiner_model:` / `ferry_dev_model:` since the v0.7.x per-agent input split. GitHub Actions silently ignored the unknown input, so consumers ran with the action's default model rather than their configured one. Fixed in `v0.8.2` with `#230`. **Closure:** `ferry-update` rewrites the workflows with the correct input names; manual fix is a one-line rename.
+1. **`v0.10.0` `ERR_MODULE_NOT_FOUND`:** all Developer / Reviewer / Iterator runs crashed before any agent code executed, even when configured for Anthropic only. Root cause: `build-ferry-actions.mjs` only declared `@anthropic-ai/sdk` in per-action `package.json` files after the multi-provider port (#234). Fixed in `v0.10.1` by shipping all three provider SDKs in every action bundle.
+2. **`v0.10.2` / `v0.10.3` Refiner `GITHUB_TOKEN` gap:** `ferry-run-refiner/action.yml` was the only agent action missing `github_token`/`github_repo` inputs; every Refiner run failed immediately with `state-invariant: missing-env GITHUB_TOKEN`. Fixed in `v0.10.3` (`e80058d`). Note: the CHANGELOG entry is listed under `## [0.10.3]` which is correct — the fix is in v0.10.3, not v0.10.2 as initially suggested by the release sequence.
+
+This repeats the v0.8.x quality-blip pattern (two consumer-impacting hotfixes per minor cycle). The composite-action input validator (#229) prevents `timeout-minutes`-style regressions but does not catch missing required inputs (GITHUB_TOKEN) or missing runtime dependencies (npm packages).
 
 **Strengths**
 
-- Release pipeline proven on ten tag pushes (v0.4.0 through v0.8.2). All pipelines green.
-- `package.json`: `"version": "0.8.2"`, `"publishConfig": { "access": "public" }`.
-- `CHANGELOG.md` and `MIGRATIONS.md` present and feed the release pipeline.
-- `v1` floating tag advances correctly on each release.
+- Release pipeline proven on fifteen tag pushes (v0.4.0 through v0.10.3). All pipelines green.
+- `v1` floating tag advances correctly.
 - npm publish uses `--provenance --access public`.
-- HEAD is only 6 commits ahead of `v0.8.2`; the substantive feature on that tip (multi-provider Phase 2, #231) is awaiting stabilization, not stuck.
+- `MIGRATIONS.md` maintained; `ferry-update` consumers see required follow-ups.
+- HEAD is 13 commits ahead of `v0.10.3` with substantial features (cost CLIs, MCP, routing) awaiting the next cut. No cadence drag.
 
 **Weaknesses**
 
-- Two consumer-impacting hotfixes in a 24h window — release-quality blip held the score below 9.0.
-- CHANGELOG link section: `[0.7.0]`/`[0.8.0]`/`[0.8.1]`/`[0.8.2]` links present, `[Unreleased]` base correctly bumped to `v0.8.2`, but `[0.5.0]`–`[0.5.3]` links remain missing (D10 carry-over).
+- Three consumer-impacting hotfixes in the v0.10.x window — quality-blip pattern.
+- CHANGELOG link section drift (D13): `[Unreleased]` base is `v0.10.1`; `[0.10.2]` and `[0.10.3]` links missing.
+- D10 carry-over: `[0.5.0]`–`[0.5.3]` links still absent (4th cycle).
 - No SLSA provenance on the GitHub Release artifact.
-- No documented LTS / support window.
 
-### 4.14 Cost governance — 7.0 (unchanged)
+### 4.14 Cost governance — 8.5 (+1.5)
 
 **Strengths**
 
-- `src/cost-governance/daily-check.ts` written and tested.
-- `examples/consumer-setup/workflows/ferry-cost-daily.yml` ships as a copy-paste stub (cron `0 6 * * *`); 50% monthly cap → auto-pause via `ferry:paused` label. `FERRY_SPEND_CAP_EUR` env-tunable (default 200).
-- Audit line carries `cost_eur` per execution.
-- Soft-budget warnings at 70% / 85% of `max_tokens_per_run` give operators mid-run visibility.
+- **`ferry-cost-report`** reads `ferry-audit.jsonl` and renders per-phase, per-model, per-ticket, per-day tables with ASCII sparklines. Supports `--format md/json/csv` and `--out`.
+- **`ferry-cost-stats`** computes per-phase baselines (median, p90, window run count) and outputs `cost-baseline.json`.
+- **`ferry-cost-advice`** produces ranked cost-optimisation recommendations from the audit log.
+- **`ferry-cost-reconcile`** diffs the audit log against an Anthropic CSV export to surface billing discrepancies.
+- **Refiner cost estimation:** if `cost-baseline.json` exists in the repo root, the Refiner emits a `cost_estimate` (low/high USD range, confidence level) with every plan.
+- Existing: daily-check workflow auto-pauses via `ferry:paused` label at 50% of `FERRY_SPEND_CAP_EUR`; soft-budget warnings at 70%/85% of `max_tokens_per_run`; audit line carries `cost_eur` per execution.
+- `docs/COST.md` documents the full toolchain.
 
 **Weaknesses**
 
+- EUR/USD exchange rate pinned to 2025-Q2 (`src/lib/llm/pricing.ts:8`) — now 1 year stale. All cost estimates drift as the real rate changes. Should be `FERRY_EUR_TO_USD` env-tunable.
+- Model pricing table in `src/lib/llm/pricing.ts` is equally stale — rates noted "2025-Q2" and some model names in the table may not reflect current offerings.
+- `SOFT_THRESHOLD = 0.5` in `src/cost-governance/daily-check.ts:34` is hardcoded — consumers who want to pause at 40% or 60% must fork the file. Should be `FERRY_PAUSE_THRESHOLD_RATIO`.
+- `ITERATION_FACTOR = 1.4` in `src/agents/refiner/cost-estimate.ts:10` is hardcoded — higher-iteration workflows will systematically underestimate. Should be `FERRY_COST_ITERATION_FACTOR`.
 - No pre-execution check — a single ticket can consume arbitrarily before the daily check runs.
-- The safety net requires the consumer to copy the stub; nothing validates they did.
 
-### 4.15 Doc–code coherence — 8.0 (+0.5)
+### 4.15 Doc–code coherence — 7.5 (−0.5)
 
-**Closed drift items (D1–D9)** — all hold.
-
-| #   | Status                                                                                                         |
-| --- | -------------------------------------------------------------------------------------------------------------- |
-| D1  | **Closed.** CLAUDE.md correctly lists all four CLIs.                                                           |
-| D2  | **Closed.** `CONTRIBUTING.md` correctly states "The bundle-drift check is enforced in CI."                     |
-| D3  | **Closed.** `CONTRIBUTING.md` correctly states "there is no local `commit-msg` hook today."                    |
-| D4  | **Closed.** `docs/RELEASING.md` lists all four CLIs.                                                           |
-| D5  | **Closed.** Stub headers no longer advertise phantom optional variables.                                       |
-| D6  | **Closed.** `ferry-update` reads `MIGRATIONS.md` at runtime.                                                   |
-| D7  | **Closed.** `ferry-doctor` check D7 verifies `FERRY_AUDIT_ISSUE`.                                              |
-| D8  | **Closed (was partial).** `docs/adr/0002-ferry-bundles-committed.md` now references `@v0.8.2` consistently.    |
-| D9  | **Closed (was partial).** ADR 0002 drift was the v0.7.0+25 audit's two-cycle carry-over; resolved at `v0.8.2`. |
-| D11 | **Closed.** Stale "they use @v0.6.0" comment in `src/install-guide.test.ts` no longer present at HEAD.         |
+**Closed drift items (D1–D9, D11)** — all hold at this revision.
 
 **Drift items (current)**
 
-| #   | Drift                                                                                                                                                                                                                                                                                                                                                         | Severity |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
-| D10 | **CHANGELOG link section missing `[0.5.0]`–`[0.5.3]` release tag links.** `[0.7.0]`/`[0.8.0]`/`[0.8.1]`/`[0.8.2]` and `[Unreleased]` base are correct; the v0.5.x gap remains. Affects changelog navigation; does not block releases.                                                                                                                         | low      |
-| D12 | **Action 0d (systematic tag-pin drift gate) still not implemented.** Recurrence of the ADR drift class is gated only on manual diligence; the v0.5.3 → v0.6.0 → v0.7.0 → v0.8.2 history shows this drift recurs at every cut. A regex-based test asserting `@v[0-9.]+` literals across `docs/**` agree with `package.json .version` would prevent recurrence. | low      |
+| #   | Drift                                                                                                                                                                                                      | Severity |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| D10 | **CHANGELOG link section missing `[0.5.0]`–`[0.5.3]` release tag links.** 4th-cycle carry-over.                                                                                                           | low      |
+| D12 | **Action 0d (systematic tag-pin drift gate) still not implemented.** 4th-cycle carry-over.                                                                                                                 | low      |
+| D13 | **CHANGELOG link section stale.** `[Unreleased]` base is `v0.10.1`; `[0.10.2]` and `[0.10.3]` links are missing. D-class drift introduced between v0.10.1 and v0.10.3 cuts.                               | medium   |
+| D14 | **`docs/RELEASING.md` line 159 lists four CLIs**, but HEAD has 8 bin entries. Must be updated before the next release cut when the cost CLIs ship.                                                         | medium (pre-release) |
 
 **Net coherence assessment**
 
-D1–D9 + D11 closures hold. Two drift items remain (D10 v0.5.x CHANGELOG links, D12 missing systematic guard). **Score: 8.0** — +0.5 from the previous audit, with D9 finally resolved.
+D1–D9, D11 closures hold. D13 (CHANGELOG link section drift) is new and medium-severity — it affects CHANGELOG navigation for `v0.10.2`/`v0.10.3` consumers. D14 is a pending pre-release checklist item, not yet a shipped drift. **Score: 7.5** (−0.5 from v0.8.2 for D13).
 
 ---
 
@@ -399,14 +389,21 @@ D1–D9 + D11 closures hold. Two drift items remain (D10 v0.5.x CHANGELOG links,
 
 Scan scope: `src/**/*.ts`, excluding `*.test.ts`, `__fixtures__/`, `__lint-fixtures__/`, `src/schemas/*.json`.
 
-**Assessment:** Almost every production constant is env-tunable via the `FERRY_*` env-var pattern. P0 count is **0**. P1 count is **2** — below the 6-item threshold; no score penalty applied to Domains 5 or 8.
+**Assessment:** P0 count is **0**. P1 count is **6** — at the 6-item threshold; −1 penalty applied to Code quality (D10) and Consumer DX (D9 proxy).
+
+**P1 — Cost & Budget Thresholds (new)**
+
+- **P1** `src/lib/llm/pricing.ts:8` — `EUR_TO_USD = 1 / 0.93` — exchange rate pinned to 2025-Q2, now 1 year stale. All cost estimates and spend-cap enforcement drift with this value. Should become `FERRY_EUR_TO_USD` env-tunable (default `0.93`).
+- **P1** `src/lib/llm/pricing.ts:12–21` — `RATES` table — token-cost rates for all providers/models pinned to 2025-Q2. Some model names may not match current offerings. Should support `FERRY_PRICING_OVERRIDES_JSON` for consumer overrides without forking.
+- **P1** `src/cost-governance/daily-check.ts:34` — `SOFT_THRESHOLD = 0.5` — the 50% cap threshold that triggers ticket pausing. Not env-tunable. Should become `FERRY_PAUSE_THRESHOLD_RATIO` (default `0.5`).
+- **P1** `src/agents/refiner/cost-estimate.ts:10` — `ITERATION_FACTOR = 1.4` — multiplier applied to developer/iterator p90s in cost estimation. Workflows with more revision cycles will systematically underestimate. Should become `FERRY_COST_ITERATION_FACTOR` (default `1.4`).
 
 **P1 — Size & Batch Limits (carry-over)**
 
-- **P1** `src/agents/developer/tools.ts:23` — `MAX_SEARCH_MATCHES = 200` — grep result cap for the dev agent; not env-tunable. Large repos with >200 matches per pattern receive a silent truncation. Could be moved to a `FERRY_GREP_MAX_MATCHES` env var.
-- **P1** `src/lib/audit/index.ts:39` — `MAX_PAGES = 10` — caps audit comment pagination at 1,000 (10 × 100). Not env-tunable. Combined with `ROTATION_THRESHOLD = 900` and `FERRY_AUDIT_ROTATION_THRESHOLD` override it works in practice (rotation triggers before MAX_PAGES is reached), but the ceiling itself is rigid.
+- **P1** `src/agents/developer/tools.ts:23` — `MAX_SEARCH_MATCHES = 200` — grep result cap for the dev agent; silent truncation on large repos. Should become `FERRY_GREP_MAX_MATCHES`.
+- **P1** `src/lib/audit/index.ts:40` — `MAX_PAGES = 10` — caps audit comment pagination at 1,000. Not env-tunable. Works in practice because rotation triggers at 900, but the ceiling is rigid.
 
-**P2 items (acceptable as-is)** — most constants already env-tunable: `FERRY_GREP_TIMEOUT_MS`, `FERRY_BASH_TIMEOUT_MS`, `FERRY_HTTP_TIMEOUT_MS`, `FERRY_DEV_MAX_ITERATIONS`, `FERRY_DEV_MAX_INPUT_TOKENS`, `FERRY_DEV_MAX_TOKENS`, `FERRY_DEV_COMPACT_WINDOW`, `FERRY_REVIEWER_MAX_ITERATIONS`, `FERRY_REVIEWER_MAX_TOKENS`, `FERRY_TLDR_TOTAL_CHARS`, `FERRY_AUDIT_ROTATION_THRESHOLD`, `FERRY_REFINER_SUBTASK_CAP`, `FERRY_REFINER_TOUCH_PATHS_CAP`, `FERRY_REVIEW_PATCH_TRUNCATE_CHARS`, `FERRY_REVIEW_FILE_TRUNCATE_CHARS`, `FERRY_BASH_OUTPUT_MAX_BYTES`, `FERRY_READ_FILE_MAX_BYTES`, `FERRY_SPEND_CAP_EUR`, `FERRY_RECONCILER_STALE_WINDOW_MINUTES`, `FERRY_OPENAI_KEY`, `FERRY_GOOGLE_AI_KEY`. Soft-budget warning thresholds (`0.7`, `0.85`) in `src/lib/llm/agent-loop/anthropic.ts` are sensible defaults for most consumers; could become `FERRY_BUDGET_WARN_FIRST_PCT` / `FERRY_BUDGET_WARN_SECOND_PCT` if operators want different signal points. Acceptable as-is.
+**P2 items (acceptable as-is):** All existing `FERRY_*` env-tunable constants remain in place. New: `ITERATION_FACTOR`'s confidence thresholds (`< 10 → low`, `< 50 → medium`, `>= 50 → high` in `cost-estimate.ts:54–58`) are reasonable defaults unlikely to need per-consumer tuning. `SAMPLE_MAX = 512` in `src/agents/refiner/refine.ts:123` (JSON sample truncation in dry-run) is a log hint, not load-bearing.
 
 ---
 
@@ -414,91 +411,95 @@ Scan scope: `src/**/*.ts`, excluding `*.test.ts`, `__fixtures__/`, `__lint-fixtu
 
 | Order | Action                                                                                                                                                                                                                                                                                             | Domain        | Score before | Priority | Effort |
 | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- | ------------ | -------- | ------ |
-| 1     | **(P1, carry-over)** Add `harden-runner` egress allowlist to dev/iterate workflows — these jobs run `git push` and therefore need egress to GitHub; all other outbound connections should be blocked.                                                                                              | GH Actions    | 7.5          | **P1**   | S      |
-| 2     | **(P1, carry-over from v0.5.3)** Action 0d: add a regex assertion (or new `tag-pin-drift.test.ts`) that scans `docs/adr/*.md`, `docs/RELEASING.md`, `docs/CONFIGURATION.md` for `@v[0-9.]+` literals and fails if any disagrees with `package.json .version`. The class drift recurs at every cut. | Coherence     | 8.0          | **P1**   | XS     |
-| 3     | **(P1, carry-over)** Extend `install-guide.test.ts` to invoke `workflowTemplates()` from `src/cli/init/templates.ts` and assert each emitted stub's composite-action refs and tag exist on origin. Would have caught the v0.8.0–v0.8.1 silently-ignored `ferry_model:` regression.                 | E2E           | 8.5          | **P1**   | S      |
-| 4     | **(P1, carry-over)** Add e2e idempotency replay: same `event_id` twice → same outcome, no duplicate external writes.                                                                                                                                                                               | E2E           | 8.5          | **P1**   | M      |
-| 5     | **(P2)** `ferry-init` scaffolds `ferry-reconcile.yml` and `ferry-cost-daily.yml` directly (drop the README curl step).                                                                                                                                                                             | Consumer docs | 8.5          | **P2**   | S      |
-| 6     | **(P2)** `ferry-init` collects the two transition IDs and sets them as secrets.                                                                                                                                                                                                                    | Consumer docs | 8.5          | **P2**   | S      |
-| 7     | **(P2)** OSSF Scorecard + SLSA provenance on the GitHub Release artifact.                                                                                                                                                                                                                          | Supply chain  | 8.5          | **P2**   | M      |
-| 8     | **(P2)** Migrate `GITHUB_TOKEN` to a fine-grained GitHub App (or remove the App provisioning from `ferry-init`).                                                                                                                                                                                   | GH Actions    | 7.5          | **P2**   | L      |
-| 9     | **(P2)** Branch-protection on `main` requiring CodeQL / Ferry — CI / Release checks before merge.                                                                                                                                                                                                  | CI/CD         | 9.0          | **P2**   | XS     |
-| 10    | **(P2)** Make `MAX_SEARCH_MATCHES` and `MAX_PAGES` env-tunable (`FERRY_GREP_MAX_MATCHES`, `FERRY_AUDIT_MAX_PAGES`).                                                                                                                                                                                | Architecture  | 8.5          | **P2**   | XS     |
-| 11    | **(low)** Backfill `[0.5.0]`–`[0.5.3]` links in `CHANGELOG.md` (D10).                                                                                                                                                                                                                              | Release       | 8.5          | low      | XS     |
-| 12    | **(P2)** Once multi-provider Phase 2 is exercised against a real Reviewer run on at least one non-Anthropic provider, cut `v0.9.0` so consumers can pick up Phase 2.                                                                                                                               | Release       | 8.5          | **P2**   | XS     |
+| 1     | **(P0 → quick win)** `npm audit fix` to resolve fast-uri ≤3.1.1 HIGH. Run before the next release cut.                                                                                                                                                                                            | Supply-chain  | 8.0          | **P0**   | XS     |
+| 2     | **(P1, new)** Externalize `EUR_TO_USD` and `RATES` table from `src/lib/llm/pricing.ts` — add `FERRY_EUR_TO_USD` env var (default `0.93`) and a `FERRY_PRICING_OVERRIDES_JSON` opt-in for consumers with custom models or contracts. Update the table to current 2026-Q2 rates.                   | Cost / Arch   | 8.5          | **P1**   | S      |
+| 3     | **(P1, new)** Fix CHANGELOG link section (D13): update `[Unreleased]` base to `v0.10.3` and add `[0.10.2]` + `[0.10.3]` links. XS effort; needed before any consumer links to the CHANGELOG.                                                                                                      | Coherence     | 7.5          | **P1**   | XS     |
+| 4     | **(P1, carry-over — 4th cycle)** Action 0d: add a regex assertion that scans `docs/adr/*.md`, `docs/RELEASING.md`, `docs/CONFIGURATION.md` for `@v[0-9.]+` literals and fails CI if any disagrees with `package.json .version`.                                                                    | Coherence     | 7.5          | **P1**   | XS     |
+| 5     | **(P1, carry-over — 3rd cycle)** Add `harden-runner` egress allowlist to dev/iterate workflows.                                                                                                                                                                                                    | GH Actions    | 7.5          | **P1**   | S      |
+| 6     | **(P1, new)** Externalize `SOFT_THRESHOLD = 0.5` in `daily-check.ts` as `FERRY_PAUSE_THRESHOLD_RATIO` and `ITERATION_FACTOR = 1.4` in `cost-estimate.ts` as `FERRY_COST_ITERATION_FACTOR`.                                                                                                        | Cost          | 8.5          | **P1**   | XS     |
+| 7     | **(P1, carry-over — 3rd cycle)** Extend `install-guide.test.ts` to invoke `workflowTemplates()` from `src/cli/init/templates.ts` and assert each emitted stub's composite-action refs and tag.                                                                                                     | E2E           | 8.5          | **P1**   | S      |
+| 8     | **(P1, carry-over — 4th cycle)** Add e2e idempotency replay: same `event_id` twice → same outcome, no duplicate external writes.                                                                                                                                                                   | E2E           | 8.5          | **P1**   | M      |
+| 9     | **(pre-release checklist)** Update `docs/RELEASING.md` line 159 to reflect 8 CLIs; add a "verify `ferry-cost-*` CLIs" step to the release checklist.                                                                                                                                               | Consumer docs | 8.0          | **P1**   | XS     |
+| 10    | **(P2)** `ferry-init` scaffolds `ferry-reconcile.yml` and `ferry-cost-daily.yml` directly (drop the README curl step).                                                                                                                                                                             | Consumer docs | 8.0          | **P2**   | S      |
+| 11    | **(P2)** `ferry-init` collects the two transition IDs and sets them as secrets.                                                                                                                                                                                                                    | Consumer docs | 8.0          | **P2**   | S      |
+| 12    | **(P2)** OSSF Scorecard + SLSA provenance on the GitHub Release artifact.                                                                                                                                                                                                                          | Supply chain  | 8.0          | **P2**   | M      |
+| 13    | **(P2)** Env-tunable `MAX_SEARCH_MATCHES` / `MAX_PAGES` (`FERRY_GREP_MAX_MATCHES`, `FERRY_AUDIT_MAX_PAGES`).                                                                                                                                                                                       | Architecture  | 8.0          | **P2**   | XS     |
+| 14    | **(low)** Backfill `[0.5.0]`–`[0.5.3]` links in `CHANGELOG.md` (D10, 4th cycle).                                                                                                                                                                                                                   | Release       | 8.0          | low      | XS     |
+| 15    | **(P2)** Branch-protection on `main` requiring CodeQL / Ferry — CI checks before merge.                                                                                                                                                                                                            | CI/CD         | 9.0          | **P2**   | XS     |
 
 ### 6.1 Expected score after the plan
 
-| Domain                  | Current | After P1 (1–4) | After All |
+| Domain                  | Current | After P1 (1–9) | After All |
 | ----------------------- | ------- | -------------- | --------- |
 | Application security    | 8.5     | 8.5            | 9.0       |
-| Supply-chain security   | 8.5     | 9.0            | 9.5       |
+| Supply-chain security   | 8.0     | 9.0            | 9.5       |
 | GitHub Actions security | 7.5     | 8.5            | 9.0       |
 | Tests & coverage        | 8.5     | 8.5            | 8.5       |
 | E2E / acceptance        | 8.5     | 9.0            | 9.0       |
 | CI/CD gates             | 9.0     | 9.0            | 9.5       |
 | Reliability             | 9.0     | 9.0            | 9.0       |
-| Observability           | 7.5     | 7.5            | 8.0       |
-| Consumer documentation  | 8.5     | 8.5            | 9.0       |
-| Code quality            | 8.5     | 8.5            | 8.5       |
+| Observability           | 8.0     | 8.0            | 8.5       |
+| Consumer documentation  | 8.0     | 8.5            | 9.0       |
+| Code quality            | 8.0     | 8.5            | 9.0       |
 | Traceability            | 7.5     | 7.5            | 7.5       |
 | Operations              | 8.0     | 8.0            | 8.5       |
-| Release / distribution  | 8.5     | 8.5            | 9.0       |
-| Cost governance         | 7.0     | 7.0            | 8.0       |
-| Doc–code coherence      | 8.0     | 9.0            | 9.0       |
-| **Overall**             | **8.2** | **8.53**       | **8.80**  |
+| Release / distribution  | 8.0     | 8.5            | 9.0       |
+| Cost governance         | 8.5     | 9.0            | 9.0       |
+| Doc–code coherence      | 7.5     | 8.5            | 9.0       |
+| **Overall**             | **8.2** | **8.67**       | **8.93**  |
 
-The single most impactful action is **#2 (action 0d)** — XS effort that cleanly closes the only persistent class of doc-code drift in the project, plus **#1 (`harden-runner`)** which moves Domain 3 out of the medium band.
+The single most impactful cluster is **#1 + #2 + #3 + #4** (XS efforts): `npm audit fix`, pricing externalization, CHANGELOG drift fix, and action 0d — four small tasks that close two persistent drift classes and the new npm regression, pushing the overall score above 8.5.
 
 ---
 
-## 7. What changed since the v0.7.0+25 audit (8.0 → 8.2; net +0.2)
+## 7. What changed since the v0.8.2 audit (8.2 → 8.2; net 0, composition shifted)
 
-| #   | Change                                                                                                                                                                                                 | Domain effect                                                          |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
-| 1   | **`v0.8.0` cut on 2026-05-05** — released the smoke gate, read*file caps, agent-loop pruning, B2 `FERRY*\*` repo variables, soft-budget warnings, multi-provider Phase 1, package-manager auto-detect. | Domain 13 cadence-drag closed; +0.5 (Release)                          |
-| 2   | **`GITHUB_STEP_SUMMARY` emitter (#224)** — per-run telemetry into the GH Actions UI                                                                                                                    | Domain 8 +0.5 (Observability)                                          |
-| 3   | **Pre/post-agent command hooks (#223)** on all four composite actions                                                                                                                                  | Domain 12 +0.5 (Operations, partial)                                   |
-| 4   | **Developer WIP-commit-on-failure (#222)** — `ferry-wip/<ticket>` branch + Jira summary                                                                                                                | Domain 12 (counted above); Domain 7 strengthened                       |
-| 5   | **3-state `done` outcome (#221)** — `success`/`partial`/`blocked`                                                                                                                                      | Domain 12 (counted above)                                              |
-| 6   | **`v0.8.0` `timeout-minutes` DOA — `v0.8.1` hotfix — `#229` validator**                                                                                                                                | Net 0 on Domain 13 (incident offset by the validator); -0.5 was stayed |
-| 7   | **`v0.8.0`/`v0.8.1` silently-ignored `ferry_model:` — `v0.8.2` hotfix**                                                                                                                                | Net 0 on Domain 13                                                     |
-| 8   | **Multi-provider Phase 1 (Refiner)** in `v0.8.0` and **Phase 2 (Reviewer, #231)** on `main` post-`v0.8.2`                                                                                              | Domain 1, Domain 4 strengthened (new tool-loop test coverage)          |
-| 9   | **+81 unit tests (1119 → 1200)** — multi-provider tool-loop coverage; new composite-action input validator                                                                                             | Domain 4 strengthened (held at 8.5)                                    |
-| 10  | **ADR 0002 `@v0.6.0` drift closed** — D9, two-cycle carry-over, now references `@v0.8.2`                                                                                                               | Domain 15 +0.5 (Doc-code coherence)                                    |
-| 11  | **CHANGELOG `[0.7.0]`/`[0.8.0]`/`[0.8.1]`/`[0.8.2]` links** present and `[Unreleased]` base bumped to `v0.8.2`                                                                                         | Domain 13 (counted above); D10 v0.5.x gap remains                      |
-| 12  | **Locale pinning to en-US for number formatting (`e712ec1`)** — non-English runners no longer emit comma-decimal cost figures                                                                          | Domain 7 strengthened                                                  |
-| 13  | **cache_control stripping on prior tool-results turn (`e00ec30`)** — Anthropic API errors on cache re-prime resolved                                                                                   | Domain 7 strengthened                                                  |
+| #   | Change                                                                                                                                                                             | Domain effect                                                   |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| 1   | **`v0.9.0` cut** — multi-provider Phase 3/4: all four agents configurable on Anthropic / OpenAI / Google                                                                           | Domain 1, Domain 4 strengthened; Domain 13 cadence ✓            |
+| 2   | **`v0.10.0` cut** — multi-provider agent-loop port (#234); `ERR_MODULE_NOT_FOUND` incident for Dev/Reviewer/Iterator                                                               | Domain 13 −0.5 (quality blip, partially offset by fix)          |
+| 3   | **`v0.10.1` hotfix** — provider SDKs added to all action bundles                                                                                                                   | Domain 13 (hotfix counted)                                      |
+| 4   | **`v0.10.2` hotfix + `v0.10.3` fix** — Refiner GITHUB_TOKEN/GITHUB_REPO wiring gap                                                                                                 | Domain 13 (second hotfix)                                       |
+| 5   | **Cost CLIs at HEAD** — `ferry-cost-report`, `ferry-cost-stats`, `ferry-cost-advice`, `ferry-cost-reconcile`                                                                        | Domain 8 +0.5; Domain 14 +1.5                                   |
+| 6   | **Refiner cost estimation** — `cost-estimate.ts` reads `cost-baseline.json`, emits USD range + confidence with every plan                                                          | Domain 14 (counted above)                                       |
+| 7   | **MCP Context7 as default** — all agents gain documentation retrieval via Context7 stdio server; `docs/MCP.md` added                                                               | Domain 1, Domain 9 strengthened                                 |
+| 8   | **Ticket-type label overrides** — `ferry:type:enable-task`, `force-bug/spike/story`; documented in `docs/CONFIGURATION.md` §4                                                     | Domain 9, Domain 12 strengthened                                |
+| 9   | **+163 unit tests** — cost CLI coverage, cost-estimate tests, multi-provider tests                                                                                                 | Domain 4 strengthened (held at 8.5)                             |
+| 10  | **npm audit HIGH regression** — fast-uri ≤3.1.1                                                                                                                                    | Domain 2 −0.5                                                   |
+| 11  | **6 P1 hardcoded values** — 4 new in pricing/cost modules; EUR/USD rate stale                                                                                                       | Domain 10 −0.5; Domain 9 partial                                |
+| 12  | **CHANGELOG link section drift** (D13) — `[Unreleased]` base `v0.10.1`, missing v0.10.2/v0.10.3 links                                                                              | Domain 15 −0.5; Domain 13 partial                               |
+| 13  | **TODO count** 1 → 3                                                                                                                                                               | Domain 10 minor                                                 |
 
 ---
 
 ## 8. Closed from previous audits
 
-### Closed since the v0.7.0+25 audit
+### Closed since the v0.8.2 audit
 
-| Item | Action (was P1/carry-over)                         | Status   | Evidence                                                                                      |
-| ---- | -------------------------------------------------- | -------- | --------------------------------------------------------------------------------------------- |
-| R    | Cut `v0.8.0` — ship landed hardenings              | **done** | Three releases shipped (`v0.8.0`/`v0.8.1`/`v0.8.2`) on 2026-05-05                             |
-| D9   | ADR 0002 `@v0.6.0` drift                           | **done** | `docs/adr/0002-ferry-bundles-committed.md` references `@v0.8.2` at HEAD                       |
-| D11  | Stale `@v0.6.0` comment in `install-guide.test.ts` | **done** | Comment removed; line 49–52 asserts `@v0.8.2`                                                 |
-| —    | Composite-action input validator (new)             | **done** | `src/lib/agent-runtime/composite-action.test.ts` (#229) blocks unsupported keys at build time |
+| Item | Action (was P1/carry-over)                   | Status   | Evidence                                                                              |
+| ---- | -------------------------------------------- | -------- | ------------------------------------------------------------------------------------- |
+| R    | Cut `v0.9.0` / `v0.10.x` — ship multi-provider Phase 2/3/4 | **done** | Five releases shipped: v0.9.0, v0.10.0, v0.10.1, v0.10.2, v0.10.3         |
+| —    | CHANGELOG links for v0.8.x                   | **done** | `[0.8.0]`, `[0.8.1]`, `[0.8.2]`, `[0.9.0]`, `[0.10.0]`, `[0.10.1]` all present     |
 
 ### Still open (carry-over)
 
-| Item | Action                                          | Priority | Effort |
-| ---- | ----------------------------------------------- | -------- | ------ |
-| 1    | `harden-runner` egress allowlist                | **P1**   | S      |
-| 2    | Tag-pin drift gate (action 0d) — 3rd cycle      | **P1**   | XS     |
-| 3    | Install-guide test covers `workflowTemplates()` | **P1**   | S      |
-| 4    | E2E idempotency replay                          | **P1**   | M      |
-| 5    | `ferry-init` scaffolds ops stubs                | **P2**   | S      |
-| 6    | `ferry-init` collects transition IDs            | **P2**   | S      |
-| 7    | OSSF Scorecard / SLSA on GH Release             | **P2**   | M      |
-| 8    | Migrate GITHUB_TOKEN to fine-grained App        | **P2**   | L      |
-| 9    | Branch-protection on `main`                     | **P2**   | XS     |
-| 10   | Env-tunable `MAX_SEARCH_MATCHES` / `MAX_PAGES`  | **P2**   | XS     |
-| 11   | Backfill `[0.5.0]`–`[0.5.3]` CHANGELOG links    | low      | XS     |
-| 12   | Cut `v0.9.0` for multi-provider Phase 2         | **P2**   | XS     |
+| Item | Action                                                   | Priority | Effort | Cycle |
+| ---- | -------------------------------------------------------- | -------- | ------ | ----- |
+| 1    | `npm audit fix` (fast-uri HIGH) — **new**                | **P0**   | XS     | 1     |
+| 2    | Externalize EUR/USD rate + pricing table — **new**       | **P1**   | S      | 1     |
+| 3    | Fix CHANGELOG link section (D13) — **new**               | **P1**   | XS     | 1     |
+| 4    | Tag-pin drift gate (action 0d)                           | **P1**   | XS     | 4     |
+| 5    | `harden-runner` egress allowlist                         | **P1**   | S      | 3     |
+| 6    | Externalize SOFT_THRESHOLD + ITERATION_FACTOR — **new**  | **P1**   | XS     | 1     |
+| 7    | Install-guide test covers `workflowTemplates()`          | **P1**   | S      | 3     |
+| 8    | E2E idempotency replay                                   | **P1**   | M      | 4     |
+| 9    | Update RELEASING.md for 8 CLIs                           | **P1**   | XS     | 1     |
+| 10   | `ferry-init` scaffolds ops stubs                         | **P2**   | S      |       |
+| 11   | `ferry-init` collects transition IDs                     | **P2**   | S      |       |
+| 12   | OSSF Scorecard / SLSA on GH Release                      | **P2**   | M      |       |
+| 13   | Env-tunable `MAX_SEARCH_MATCHES` / `MAX_PAGES`           | **P2**   | XS     |       |
+| 14   | Backfill `[0.5.0]`–`[0.5.3]` CHANGELOG links (D10)       | low      | XS     | 4     |
+| 15   | Branch-protection on `main`                              | **P2**   | XS     |       |
 
 ---
 
