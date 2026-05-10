@@ -20,6 +20,11 @@ export const LABELS_ALLOWLIST = [
   'ferry:blocked',
   'needs-human',
   'status:stale',
+  // Ticket-type label overrides (user-applied, hardcoded built-ins — no config required)
+  'ferry:type:enable-task',
+  'ferry:type:force-bug',
+  'ferry:type:force-spike',
+  'ferry:type:force-story',
   // Routing (user-applied, not agent-applied)
   'critical',
   // Logger component identifiers (not GitHub labels — used in createLogger calls)

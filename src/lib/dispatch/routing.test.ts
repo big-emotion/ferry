@@ -59,6 +59,31 @@ describe('shouldSkipForTaskType (FR6 task-type filter)', () => {
     expect(shouldSkipForTaskType('Bug')).toEqual({ skip: false });
     expect(shouldSkipForTaskType('Spike')).toEqual({ skip: false });
   });
+
+  it('does not skip a Task ticket when bypassTaskSkip is true (ferry:type:enable-task)', () => {
+    expect(shouldSkipForTaskType('Task', { bypassTaskSkip: true })).toEqual({ skip: false });
+    expect(shouldSkipForTaskType('task', { bypassTaskSkip: true })).toEqual({ skip: false });
+  });
+
+  it('still skips a Task ticket when bypassTaskSkip is false', () => {
+    expect(shouldSkipForTaskType('Task', { bypassTaskSkip: false })).toEqual({
+      skip: true,
+      reason: 'ticket type Task is not processed by Ferry',
+    });
+  });
+
+  it('does not skip a non-Task ticket regardless of bypassTaskSkip', () => {
+    expect(shouldSkipForTaskType('Story', { bypassTaskSkip: false })).toEqual({ skip: false });
+    expect(shouldSkipForTaskType('Bug', { bypassTaskSkip: true })).toEqual({ skip: false });
+  });
+
+  it('is backward compatible when overrides is not provided', () => {
+    expect(shouldSkipForTaskType('Task')).toEqual({
+      skip: true,
+      reason: 'ticket type Task is not processed by Ferry',
+    });
+    expect(shouldSkipForTaskType('Story')).toEqual({ skip: false });
+  });
 });
 
 describe('buildTaskSkipComment', () => {

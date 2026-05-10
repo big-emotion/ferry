@@ -2020,6 +2020,33 @@ function formatCommitMessage(input) {
 }
 
 // src/lib/labels/capabilities.ts
+var FORCE_TYPE_LABELS = Object.freeze({
+  "ferry:type:force-bug": "Bug",
+  "ferry:type:force-spike": "Spike",
+  "ferry:type:force-story": "Story"
+});
+var ENABLE_TASK_LABEL = "ferry:type:enable-task";
+var BUILTIN_TYPE_LABELS = /* @__PURE__ */ new Set([
+  ENABLE_TASK_LABEL,
+  ...Object.keys(FORCE_TYPE_LABELS)
+]);
+function resolveTypeOverrides(labels) {
+  let bypassTaskSkip = false;
+  let typeOverride;
+  let forceLabel;
+  for (const label of labels) {
+    if (label === ENABLE_TASK_LABEL) {
+      bypassTaskSkip = true;
+    } else if (Object.prototype.hasOwnProperty.call(FORCE_TYPE_LABELS, label)) {
+      typeOverride = FORCE_TYPE_LABELS[label];
+      forceLabel = label;
+    }
+  }
+  return { bypassTaskSkip, typeOverride, forceLabel };
+}
+function isBuiltinTypeLabel(label) {
+  return BUILTIN_TYPE_LABELS.has(label);
+}
 function resolveCapabilities(ticketLabels, configLabels, logger) {
   if (!configLabels) {
     return {
@@ -2048,8 +2075,10 @@ function resolveCapabilities(ticketLabels, configLabels, logger) {
         }
       }
     } else if (label.startsWith("ferry:")) {
-      unknownFerryLabels.push(label);
-      logger?.warn("unknown ferry label ignored", { label });
+      if (!isBuiltinTypeLabel(label)) {
+        unknownFerryLabels.push(label);
+        logger?.warn("unknown ferry label ignored", { label });
+      }
     }
   }
   const serverAllowedTools = {};
@@ -2235,10 +2264,11 @@ ${projectSnippet}` : null
   return parts.join(separator);
 }
 function buildTicketBlock(ticketKey, issue, opts) {
+  const effectiveType = opts?.typeOverride ?? issue.issueType;
   return [
     `TICKET: ${ticketKey}`,
     `TITLE: ${issue.summary}`,
-    `TYPE: ${issue.issueType}`,
+    `TYPE: ${effectiveType}`,
     opts?.labels !== void 0 ? `LABELS: ${opts.labels || "none"}` : null,
     `DESCRIPTION:
 ${issue.description}`,
@@ -3212,6 +3242,17 @@ function logCapabilities(logger, capabilities) {
   }
   if (capabilities.unknownFerryLabels.length > 0) {
     logger.warn("unknown ferry labels (ignored)", { labels: capabilities.unknownFerryLabels });
+  }
+}
+function logTypeOverrides(logger, overrides) {
+  if (overrides.typeOverride) {
+    logger.info("type override active", {
+      override: overrides.forceLabel,
+      effectiveType: overrides.typeOverride
+    });
+  }
+  if (overrides.bypassTaskSkip) {
+    logger.info("task skip bypassed (ferry:type:enable-task)");
   }
 }
 
@@ -7313,7 +7354,9 @@ async function main(envelope, logger) {
   const capabilities = resolveCapabilities(issue.labels, ferryCfg.labels);
   const hasLabelsConfig = ferryCfg.labels !== void 0;
   const mcpServers = filterMcpServers(mcpPool, capabilities, hasLabelsConfig);
+  const typeOverrides = resolveTypeOverrides(issue.labels);
   logCapabilities(logger, capabilities);
+  logTypeOverrides(logger, typeOverrides);
   const priorIterations = existingComments.filter(
     (c) => c.includes("[ferry:iterator:") && c.includes("complete. Pushed fixes to PR#")
   ).length;
@@ -7398,7 +7441,9 @@ async function main(envelope, logger) {
     cwd: REPO_ROOT,
     encoding: "utf8"
   }).trim();
-  const ticketBlock = buildTicketBlock(ticketKey, issue);
+  const ticketBlock = buildTicketBlock(ticketKey, issue, {
+    typeOverride: typeOverrides.typeOverride
+  });
   const initialPrompt = [
     "## Jira Ticket",
     delimitUntrusted(ticketBlock),

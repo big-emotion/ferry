@@ -13,6 +13,7 @@ import {
   makeCommitProgress,
   makeSecretScan,
   logCapabilities,
+  logTypeOverrides,
   createGitHubContext,
   resolveGitConfig,
   loadFerryConfigFromBaseBranch,
@@ -31,7 +32,11 @@ import {
 } from './tools.js';
 import { createAgentLoop } from '../../lib/llm/agent-loop/index.js';
 import type { AgentLoop } from '../../lib/llm/agent-loop/types.js';
-import { resolveCapabilities, filterMcpServers } from '../../lib/labels/capabilities.js';
+import {
+  resolveCapabilities,
+  filterMcpServers,
+  resolveTypeOverrides,
+} from '../../lib/labels/capabilities.js';
 import { detectTestRunner, repoTree, packageJsonPath, detectPackageManager } from './workspace.js';
 import { assertDevOutputContract } from './outcome-guard.js';
 import { runWipFinalizer } from './wip-finalizer.js';
@@ -69,9 +74,15 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
   const jiraBaseUrl = requireEnv('FERRY_JIRA_BASE_URL');
 
   const issue = await tracker.getIssue(ticketKey);
+  const typeOverrides = resolveTypeOverrides(issue.labels);
+  logTypeOverrides(logger, typeOverrides);
   const labels = issue.labels.join(', ');
   const comments = issue.comments.map((c) => `Comment: ${c}`).join('\n');
-  const ticketBlock = buildTicketBlock(ticketKey, issue, { labels, comments });
+  const ticketBlock = buildTicketBlock(ticketKey, issue, {
+    labels,
+    comments,
+    typeOverride: typeOverrides.typeOverride,
+  });
 
   const subtasks = await tracker.getSubtasks(ticketKey);
   const testRunner = detectTestRunner(packageJsonPath(REPO_ROOT));
@@ -382,10 +393,15 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
     }
     const transitionNote = shouldAutoTransition ? ' Moved to Review.' : '';
 
+    const forceOverrideName = typeOverrides.forceLabel?.split(':').at(-1);
+    const overrideNote = typeOverrides.typeOverride
+      ? ` [type override: ${JSON.stringify({ issuetype: typeOverrides.typeOverride, issuetype_raw: issue.issueType, override: forceOverrideName })}]`
+      : '';
+
     const terminalComment =
       resolvedOutcome === 'already_satisfied'
-        ? `${idempotencyMarker} Spec already satisfied — verification PR: ${prUrl}.${transitionNote}`
-        : `${idempotencyMarker} Implementation complete — PR: ${prUrl}.${transitionNote}`;
+        ? `${idempotencyMarker} Spec already satisfied — verification PR: ${prUrl}.${transitionNote}${overrideNote}`
+        : `${idempotencyMarker} Implementation complete — PR: ${prUrl}.${transitionNote}${overrideNote}`;
 
     await tracker.postComment(ticketKey, terminalComment);
   } catch (err) {

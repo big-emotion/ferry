@@ -349,10 +349,11 @@ ${projectSnippet}` : null
   return parts.join(separator);
 }
 function buildTicketBlock(ticketKey, issue, opts) {
+  const effectiveType = opts?.typeOverride ?? issue.issueType;
   return [
     `TICKET: ${ticketKey}`,
     `TITLE: ${issue.summary}`,
-    `TYPE: ${issue.issueType}`,
+    `TYPE: ${effectiveType}`,
     opts?.labels !== void 0 ? `LABELS: ${opts.labels || "none"}` : null,
     `DESCRIPTION:
 ${issue.description}`,
@@ -1304,6 +1305,17 @@ function logCapabilities(logger, capabilities) {
   }
   if (capabilities.unknownFerryLabels.length > 0) {
     logger.warn("unknown ferry labels (ignored)", { labels: capabilities.unknownFerryLabels });
+  }
+}
+function logTypeOverrides(logger, overrides) {
+  if (overrides.typeOverride) {
+    logger.info("type override active", {
+      override: overrides.forceLabel,
+      effectiveType: overrides.typeOverride
+    });
+  }
+  if (overrides.bypassTaskSkip) {
+    logger.info("task skip bypassed (ferry:type:enable-task)");
   }
 }
 
@@ -7207,6 +7219,33 @@ function createAgentLoop(opts) {
 }
 
 // src/lib/labels/capabilities.ts
+var FORCE_TYPE_LABELS = Object.freeze({
+  "ferry:type:force-bug": "Bug",
+  "ferry:type:force-spike": "Spike",
+  "ferry:type:force-story": "Story"
+});
+var ENABLE_TASK_LABEL = "ferry:type:enable-task";
+var BUILTIN_TYPE_LABELS = /* @__PURE__ */ new Set([
+  ENABLE_TASK_LABEL,
+  ...Object.keys(FORCE_TYPE_LABELS)
+]);
+function resolveTypeOverrides(labels) {
+  let bypassTaskSkip = false;
+  let typeOverride;
+  let forceLabel;
+  for (const label of labels) {
+    if (label === ENABLE_TASK_LABEL) {
+      bypassTaskSkip = true;
+    } else if (Object.prototype.hasOwnProperty.call(FORCE_TYPE_LABELS, label)) {
+      typeOverride = FORCE_TYPE_LABELS[label];
+      forceLabel = label;
+    }
+  }
+  return { bypassTaskSkip, typeOverride, forceLabel };
+}
+function isBuiltinTypeLabel(label) {
+  return BUILTIN_TYPE_LABELS.has(label);
+}
 function resolveCapabilities(ticketLabels, configLabels, logger) {
   if (!configLabels) {
     return {
@@ -7235,8 +7274,10 @@ function resolveCapabilities(ticketLabels, configLabels, logger) {
         }
       }
     } else if (label.startsWith("ferry:")) {
-      unknownFerryLabels.push(label);
-      logger?.warn("unknown ferry label ignored", { label });
+      if (!isBuiltinTypeLabel(label)) {
+        unknownFerryLabels.push(label);
+        logger?.warn("unknown ferry label ignored", { label });
+      }
     }
   }
   const serverAllowedTools = {};
@@ -7492,9 +7533,15 @@ async function main(envelope, logger) {
   const reviewTransitionId = dryRun || !shouldAutoTransition ? "" : requireEnv("FERRY_REVIEW_TRANSITION_ID");
   const jiraBaseUrl = requireEnv("FERRY_JIRA_BASE_URL");
   const issue = await tracker.getIssue(ticketKey);
+  const typeOverrides = resolveTypeOverrides(issue.labels);
+  logTypeOverrides(logger, typeOverrides);
   const labels = issue.labels.join(", ");
   const comments = issue.comments.map((c) => `Comment: ${c}`).join("\n");
-  const ticketBlock = buildTicketBlock(ticketKey, issue, { labels, comments });
+  const ticketBlock = buildTicketBlock(ticketKey, issue, {
+    labels,
+    comments,
+    typeOverride: typeOverrides.typeOverride
+  });
   const subtasks = await tracker.getSubtasks(ticketKey);
   const testRunner = detectTestRunner(packageJsonPath(REPO_ROOT));
   const pkgManagerHint = detectPackageManager(REPO_ROOT);
@@ -7763,7 +7810,9 @@ ${tree}`,
       await tracker.postTransition(ticketKey, reviewTransitionId);
     }
     const transitionNote = shouldAutoTransition ? " Moved to Review." : "";
-    const terminalComment = resolvedOutcome === "already_satisfied" ? `${idempotencyMarker} Spec already satisfied \u2014 verification PR: ${prUrl}.${transitionNote}` : `${idempotencyMarker} Implementation complete \u2014 PR: ${prUrl}.${transitionNote}`;
+    const forceOverrideName = typeOverrides.forceLabel?.split(":").at(-1);
+    const overrideNote = typeOverrides.typeOverride ? ` [type override: ${JSON.stringify({ issuetype: typeOverrides.typeOverride, issuetype_raw: issue.issueType, override: forceOverrideName })}]` : "";
+    const terminalComment = resolvedOutcome === "already_satisfied" ? `${idempotencyMarker} Spec already satisfied \u2014 verification PR: ${prUrl}.${transitionNote}${overrideNote}` : `${idempotencyMarker} Implementation complete \u2014 PR: ${prUrl}.${transitionNote}${overrideNote}`;
     await tracker.postComment(ticketKey, terminalComment);
   } catch (err) {
     if (!dryRun) {

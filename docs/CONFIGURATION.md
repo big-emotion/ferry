@@ -375,7 +375,26 @@ Maps Jira ticket labels to MCP server capabilities. If this section is omitted, 
 
 **Merging behaviour:** When a ticket has multiple `ferry:*` labels, their server and tool lists are merged (union). If one label grants all tools (`tools` omitted) and another restricts tools for the same server, the "all tools" grant wins for that server.
 
-**Unknown labels:** Any `ferry:*` label on a ticket that is not declared in `labels` is logged to stderr and silently ignored.
+**Unknown labels:** Any `ferry:*` label on a ticket that is not declared in `labels` is logged to stderr and silently ignored — with one exception: the built-in `ferry:type:*` labels described in the next section are always recognised and never trigger this warning.
+
+---
+
+#### Built-in ticket-type label overrides (`ferry:type:*`)
+
+These four labels are **hardcoded built-ins** — they require no `ferry.config.json` entry and are always recognised by the Developer, Reviewer, and Iterator agents. Apply them directly to your Jira ticket.
+
+| Label | Effect |
+| --- | --- |
+| `ferry:type:enable-task` | Bypass the Task skip (FR6) for this ticket only. Ferry processes it as if it were a Story. Useful for one-off Tasks that should be implemented by Ferry without touching the Refiner. |
+| `ferry:type:force-bug` | Treat the ticket as a **Bug** regardless of its Jira issue type. The agent sees `TYPE: Bug` in the prompt. |
+| `ferry:type:force-spike` | Treat the ticket as a **Spike** regardless of its Jira issue type. |
+| `ferry:type:force-story` | Treat the ticket as a **Story** regardless of its Jira issue type. |
+
+**How it works:**
+
+- `ferry:type:enable-task` bypasses the FR6 Task filter inside agent actions (Developer, Reviewer, Iterator). The pre-flight `skip-task-type-action` step runs before the Jira issue is fetched and therefore cannot honour this label — if the envelope issue type is `Task`, the pre-flight step still skips and posts a comment. Add the label to a ticket that starts in a non-Task Jira column to avoid the pre-flight trigger entirely, or trigger the agent directly via `repository_dispatch` with a non-Task `issue_type`.
+- `ferry:type:force-*` labels replace `issue.issueType` in the prompt without mutating the original Jira record. When active, the terminal Jira comment includes an audit note in the format: `[type override: {"issuetype":"Bug","issuetype_raw":"Story","override":"force-bug"}]`.
+- If multiple `force-*` labels are present, the last one in the label list wins.
 
 #### `workflow.agents`
 

@@ -3,7 +3,7 @@ import { delimitUntrusted } from '../../lib/llm/delimit-untrusted.js';
 import { checkIdempotencyMarker } from '../../lib/io/idempotency.js';
 import { gateCi } from './ci-gate.js';
 import { detectMergeConflicts, buildFileList, runReviewLoop } from './review-loop.js';
-import { resolveCapabilities } from '../../lib/labels/capabilities.js';
+import { resolveCapabilities, resolveTypeOverrides } from '../../lib/labels/capabilities.js';
 import {
   requireEnv,
   appendOutput,
@@ -15,6 +15,7 @@ import {
   resolveGitConfig,
   loadFerryConfigFromBaseBranch,
   logCapabilities,
+  logTypeOverrides,
   byEventId,
   byPrHeadSha,
   runAgent,
@@ -46,6 +47,9 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
 
   const capabilities = resolveCapabilities(issue.labels, ferryCfg.labels, logger);
   logCapabilities(logger, capabilities);
+
+  const typeOverrides = resolveTypeOverrides(issue.labels);
+  logTypeOverrides(logger, typeOverrides);
 
   // Find PR for this ticket's branch
   const branchName = `ferry/${ticketKey}`;
@@ -126,7 +130,9 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
     .map((c) => `${c.sha.slice(0, 7)} ${c.message.split('\n')[0]}`)
     .join('\n');
 
-  const ticketBlock = buildTicketBlock(ticketKey, issue);
+  const ticketBlock = buildTicketBlock(ticketKey, issue, {
+    typeOverride: typeOverrides.typeOverride,
+  });
 
   const mergeConflictWarning = hasMergeConflicts
     ? `\n⚠️  MERGE CONFLICTS DETECTED — mergeable=${String(mergeable)}${conflictedFiles.length > 0 ? `, conflicted files: ${conflictedFiles.join(', ')}` : ''}`

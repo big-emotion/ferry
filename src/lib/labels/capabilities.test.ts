@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { resolveCapabilities, filterMcpServers } from './capabilities.js';
+import { resolveCapabilities, filterMcpServers, resolveTypeOverrides } from './capabilities.js';
 import { createTestLogger } from '../logger/index.js';
 import type { LabelCapability } from '../config.js';
 import type { McpServerConfig } from '../llm/agent-loop/types.js';
@@ -154,5 +154,64 @@ describe('filterMcpServers', () => {
     const poolWithoutPlaywright = POOL.filter((s) => s.name !== 'playwright');
     const result = filterMcpServers(poolWithoutPlaywright, caps, true);
     expect(result.map((s) => s.name)).toEqual(['context7']);
+  });
+});
+
+describe('resolveTypeOverrides', () => {
+  it('returns defaults when no ferry:type:* labels are present', () => {
+    const result = resolveTypeOverrides(['bug', 'priority:high']);
+    expect(result.bypassTaskSkip).toBe(false);
+    expect(result.typeOverride).toBeUndefined();
+    expect(result.forceLabel).toBeUndefined();
+  });
+
+  it('sets bypassTaskSkip when ferry:type:enable-task is present', () => {
+    const result = resolveTypeOverrides(['ferry:type:enable-task']);
+    expect(result.bypassTaskSkip).toBe(true);
+    expect(result.typeOverride).toBeUndefined();
+  });
+
+  it('sets typeOverride to Bug for ferry:type:force-bug', () => {
+    const result = resolveTypeOverrides(['ferry:type:force-bug']);
+    expect(result.bypassTaskSkip).toBe(false);
+    expect(result.typeOverride).toBe('Bug');
+    expect(result.forceLabel).toBe('ferry:type:force-bug');
+  });
+
+  it('sets typeOverride to Spike for ferry:type:force-spike', () => {
+    const result = resolveTypeOverrides(['ferry:type:force-spike']);
+    expect(result.typeOverride).toBe('Spike');
+    expect(result.forceLabel).toBe('ferry:type:force-spike');
+  });
+
+  it('sets typeOverride to Story for ferry:type:force-story', () => {
+    const result = resolveTypeOverrides(['ferry:type:force-story']);
+    expect(result.typeOverride).toBe('Story');
+    expect(result.forceLabel).toBe('ferry:type:force-story');
+  });
+
+  it('combines bypassTaskSkip and typeOverride from separate labels', () => {
+    const result = resolveTypeOverrides(['ferry:type:enable-task', 'ferry:type:force-bug']);
+    expect(result.bypassTaskSkip).toBe(true);
+    expect(result.typeOverride).toBe('Bug');
+  });
+
+  it('last force-* label wins when multiple are present', () => {
+    // force-story comes after force-bug in the label list
+    const result = resolveTypeOverrides(['ferry:type:force-bug', 'ferry:type:force-story']);
+    expect(result.typeOverride).toBe('Story');
+    expect(result.forceLabel).toBe('ferry:type:force-story');
+  });
+
+  it('built-in type labels do not appear in unknownFerryLabels when mixed with config labels', () => {
+    const { logger, records } = createTestLogger('c', 'ferry:capabilities');
+    const result = resolveCapabilities(
+      ['ferry:type:enable-task', 'ferry:type:force-bug'],
+      CONFIG,
+      logger,
+    );
+    // Built-in type labels should not trigger a warning
+    expect(records).toHaveLength(0);
+    expect(result.unknownFerryLabels).toEqual([]);
   });
 });

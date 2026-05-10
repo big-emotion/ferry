@@ -7,7 +7,11 @@ import { assertIterOutputContract } from './outcome-guard.js';
 import { checkIterationCap } from './cap.js';
 import { decideIteratorTransition } from './transition.js';
 import { formatCommitMessage } from './prompt.js';
-import { resolveCapabilities, filterMcpServers } from '../../lib/labels/capabilities.js';
+import {
+  resolveCapabilities,
+  filterMcpServers,
+  resolveTypeOverrides,
+} from '../../lib/labels/capabilities.js';
 import {
   requireEnv,
   loadMcpServers,
@@ -19,6 +23,7 @@ import {
   makeCommitProgress,
   makeSecretScan,
   logCapabilities,
+  logTypeOverrides,
   fetchAndMergeBase,
   checkoutExistingBranch,
   createGitHubContext,
@@ -64,7 +69,9 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
   const hasLabelsConfig = ferryCfg.labels !== undefined;
   const mcpServers = filterMcpServers(mcpPool, capabilities, hasLabelsConfig);
 
+  const typeOverrides = resolveTypeOverrides(issue.labels);
   logCapabilities(logger, capabilities);
+  logTypeOverrides(logger, typeOverrides);
 
   const priorIterations = existingComments.filter(
     (c) => c.includes('[ferry:iterator:') && c.includes('complete. Pushed fixes to PR#'),
@@ -169,7 +176,9 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
     encoding: 'utf8',
   }).trim();
 
-  const ticketBlock = buildTicketBlock(ticketKey, issue);
+  const ticketBlock = buildTicketBlock(ticketKey, issue, {
+    typeOverride: typeOverrides.typeOverride,
+  });
 
   const initialPrompt = [
     '## Jira Ticket',
