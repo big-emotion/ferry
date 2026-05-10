@@ -21,6 +21,7 @@ export default defineConfig({
         // ferry-init / ferry-doctor integration runs.
         'src/cli/**/index.ts',
         'src/cli/**/prompt.ts',
+        'src/cli/cost/run.ts',
       ],
       // Ratcheted up after adding CLI module tests (issue #85).
       thresholds: {
