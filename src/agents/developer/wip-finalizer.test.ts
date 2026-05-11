@@ -60,6 +60,32 @@ describe('classifyError', () => {
     expect(detail).toContain('500,000');
   });
 
+  it('formats token counts in en-US regardless of host locale (regression #226)', () => {
+    // Simulate a non-English host locale: patch toLocaleString to use 'fr-FR' when
+    // no explicit locale is passed. If production code ever drops the 'en-US' argument,
+    // French formatting will cause these assertions to fail.
+    const original = Number.prototype.toLocaleString;
+    Number.prototype.toLocaleString = function (
+      locale?: string | string[],
+      opts?: Intl.NumberFormatOptions,
+    ) {
+      return original.call(this, locale ?? 'fr-FR', opts);
+    };
+    try {
+      const err = new FerryError('spend-cap', {
+        reason: 'input-token-budget-exceeded',
+        cap: 500_000,
+        consumed: 520_000,
+      });
+      const { code, detail } = classifyError(err);
+      expect(code).toBe('spend-cap');
+      expect(detail).toContain('520,000');
+      expect(detail).toContain('500,000');
+    } finally {
+      Number.prototype.toLocaleString = original;
+    }
+  });
+
   it('classifies spend-cap without counts when context is missing', () => {
     const err = new FerryError('spend-cap', {});
     const { code, detail } = classifyError(err);
