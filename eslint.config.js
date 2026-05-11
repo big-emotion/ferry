@@ -60,6 +60,11 @@ export default [
               group: ['node-fetch', 'undici'],
               message: 'Do not fetch APIs directly from agents; use the IO layer',
             },
+            {
+              group: ['**/labels/**'],
+              message:
+                'Import label utilities through src/lib/agent-runtime/ (not directly from labels/)',
+            },
           ],
         },
       ],

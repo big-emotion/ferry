@@ -383,18 +383,95 @@ Maps Jira ticket labels to MCP server capabilities. If this section is omitted, 
 
 These four labels are **hardcoded built-ins** — they require no `ferry.config.json` entry and are always recognised by the Developer, Reviewer, and Iterator agents. Apply them directly to your Jira ticket.
 
-| Label | Effect |
-| --- | --- |
+| Label                    | Effect                                                                                                                                                                                |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ferry:type:enable-task` | Bypass the Task skip (FR6) for this ticket only. Ferry processes it as if it were a Story. Useful for one-off Tasks that should be implemented by Ferry without touching the Refiner. |
-| `ferry:type:force-bug` | Treat the ticket as a **Bug** regardless of its Jira issue type. The agent sees `TYPE: Bug` in the prompt. |
-| `ferry:type:force-spike` | Treat the ticket as a **Spike** regardless of its Jira issue type. |
-| `ferry:type:force-story` | Treat the ticket as a **Story** regardless of its Jira issue type. |
+| `ferry:type:force-bug`   | Treat the ticket as a **Bug** regardless of its Jira issue type. The agent sees `TYPE: Bug` in the prompt.                                                                            |
+| `ferry:type:force-spike` | Treat the ticket as a **Spike** regardless of its Jira issue type.                                                                                                                    |
+| `ferry:type:force-story` | Treat the ticket as a **Story** regardless of its Jira issue type.                                                                                                                    |
 
 **How it works:**
 
 - `ferry:type:enable-task` bypasses the FR6 Task filter inside agent actions (Developer, Reviewer, Iterator). The pre-flight `skip-task-type-action` step runs before the Jira issue is fetched and therefore cannot honour this label — if the envelope issue type is `Task`, the pre-flight step still skips and posts a comment. Add the label to a ticket that starts in a non-Task Jira column to avoid the pre-flight trigger entirely, or trigger the agent directly via `repository_dispatch` with a non-Task `issue_type`.
 - `ferry:type:force-*` labels replace `issue.issueType` in the prompt without mutating the original Jira record. When active, the terminal Jira comment includes an audit note in the format: `[type override: {"issuetype":"Bug","issuetype_raw":"Story","override":"force-bug"}]`.
 - If multiple `force-*` labels are present, the last one in the label list wins.
+
+---
+
+#### Configuration override labels (`ferry:model/*`, `ferry:provider/*`, `ferry:budget/*`, …)
+
+Beyond the MCP capability labels (`ferry:mcp/*`, `ferry:profile/*`) and the ticket-type labels (`ferry:type:*`), Ferry recognises a set of **configuration override labels** that are always active — they require no entry in `ferry.config.yaml` and are parsed by every agent at runtime.
+
+These labels follow the label-wins-over-config precedence: **Jira label > `ferry.config.yaml` > env vars > defaults**.
+
+When one or more override labels are present, the agent posts an audit comment immediately after resolving them:
+
+```
+[ferry:<role>:<run-id>] overrides applied: {"modelOverrides":{"dev":{"model":"claude-opus-4-7"}},...}
+```
+
+##### Model and provider (`ferry:model/*`, `ferry:provider/*`)
+
+Override the model or provider for a specific agent phase without touching `ferry.config.yaml`.
+
+| Label pattern                       | Example                           | Effect                                                 |
+| ----------------------------------- | --------------------------------- | ------------------------------------------------------ |
+| `ferry:model/<phase>/<model-id>`    | `ferry:model/dev/claude-opus-4-7` | Use `claude-opus-4-7` for the Developer on this ticket |
+| `ferry:model/<phase>/<model-id>`    | `ferry:model/review/gpt-4o`       | Use `gpt-4o` for the Reviewer on this ticket           |
+| `ferry:provider/<phase>/<provider>` | `ferry:provider/dev/openai`       | Use the `openai` provider for the Developer            |
+
+Valid `<phase>` values: `refiner`, `dev`, `review`, `iterate`.
+Valid `<provider>` values: `anthropic`, `openai`, `google`.
+
+**Conflict rule:** two labels that set the model (or provider) for the same phase to different values are a conflict — the agent posts a Jira comment explaining the conflict and exits non-zero. Remove the conflicting label and re-trigger.
+
+##### Budget (`ferry:budget/*`)
+
+Override cost or token budgets for this ticket only.
+
+| Label pattern                 | Example                          | Effect                                                                    |
+| ----------------------------- | -------------------------------- | ------------------------------------------------------------------------- |
+| `ferry:budget/max-cost/<eur>` | `ferry:budget/max-cost/5`        | Cap spend at EUR 5 for this run (overrides `limits.max_cost_eur_per_run`) |
+| `ferry:budget/max-tokens/<n>` | `ferry:budget/max-tokens/200000` | Cap input tokens at 200 000 (overrides `limits.max_tokens_per_run`)       |
+
+The `<eur>` value accepts decimals (e.g. `2.5`). The `<n>` value must be a positive integer.
+
+##### Phase skips (`ferry:skip/*`)
+
+Force a specific phase to exit immediately without doing any work.
+
+| Label                | Effect                      |
+| -------------------- | --------------------------- |
+| `ferry:skip/refine`  | Refiner exits immediately   |
+| `ferry:skip/dev`     | Developer exits immediately |
+| `ferry:skip/review`  | Reviewer exits immediately  |
+| `ferry:skip/iterate` | Iterator exits immediately  |
+
+Multiple `ferry:skip/*` labels can coexist without conflict.
+
+##### Extended thinking (`ferry:thinking/*`)
+
+| Label                | Effect                                                         |
+| -------------------- | -------------------------------------------------------------- |
+| `ferry:thinking/on`  | Enable extended-thinking mode for this ticket (Anthropic only) |
+| `ferry:thinking/off` | Disable extended-thinking mode                                 |
+
+**Conflict rule:** `ferry:thinking/on` and `ferry:thinking/off` on the same ticket is a conflict.
+
+##### Git overrides (`ferry:git/*`)
+
+| Label             | Effect                                                             |
+| ----------------- | ------------------------------------------------------------------ |
+| `ferry:git/no-pr` | Developer skips PR creation (branch is pushed but no PR is opened) |
+
+##### Safety labels
+
+| Label             | Applied by               | Effect                                                                                                                                            |
+| ----------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ferry:paused`    | Cost-governance workflow | Agent exits immediately without processing. Applied automatically when spend reaches 50% of the monthly cap. Remove the label manually to resume. |
+| `ferry:spend-cap` | Cost-governance workflow | Informational — marks tickets that triggered the spend cap check. No direct effect on agent execution.                                            |
+
+---
 
 #### `workflow.agents`
 

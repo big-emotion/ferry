@@ -11,7 +11,7 @@ import {
   resolveCapabilities,
   filterMcpServers,
   resolveTypeOverrides,
-} from '../../lib/labels/capabilities.js';
+} from '../../lib/agent-runtime/index.js';
 import {
   requireEnv,
   loadMcpServers,

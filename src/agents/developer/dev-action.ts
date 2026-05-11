@@ -36,7 +36,7 @@ import {
   resolveCapabilities,
   filterMcpServers,
   resolveTypeOverrides,
-} from '../../lib/labels/capabilities.js';
+} from '../../lib/agent-runtime/index.js';
 import { detectTestRunner, repoTree, packageJsonPath, detectPackageManager } from './workspace.js';
 import { assertDevOutputContract } from './outcome-guard.js';
 import { runWipFinalizer } from './wip-finalizer.js';
