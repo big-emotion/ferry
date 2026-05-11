@@ -3,7 +3,15 @@ import { delimitUntrusted } from '../../lib/llm/delimit-untrusted.js';
 import { checkIdempotencyMarker } from '../../lib/io/idempotency.js';
 import { gateCi } from './ci-gate.js';
 import { detectMergeConflicts, buildFileList, runReviewLoop } from './review-loop.js';
-import { resolveCapabilities, resolveTypeOverrides } from '../../lib/agent-runtime/index.js';
+import {
+  resolveCapabilities,
+  resolveTicketOverrides,
+  applyTicketOverrides,
+  hasNonDefaultOverrides,
+  buildOverridesAuditComment,
+  buildConflictComment,
+  LabelConflictError,
+} from '../../lib/agent-runtime/index.js';
 import {
   requireEnv,
   appendOutput,
@@ -16,7 +24,7 @@ import {
   resolveBranchPrefix,
   loadFerryConfigFromBaseBranch,
   logCapabilities,
-  logTypeOverrides,
+  logTicketOverrides,
   byEventId,
   byPrHeadSha,
   runAgent,
@@ -34,7 +42,6 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
   // Reload config from base_branch — the workspace may contain the default branch's config.
   const { baseBranch } = await resolveGitConfig(initialCfg, runner, owner, repo);
   const ferryCfg = loadFerryConfigFromBaseBranch(baseBranch, REPO_ROOT, initialCfg);
-  const { provider, model } = ferryCfg.models.review;
   const reviewerWorkflow = ferryCfg.workflow.agents.reviewer;
   const shouldTransitionChanges = reviewerWorkflow.auto_transition_changes !== null;
   const shouldTransitionApprove = reviewerWorkflow.auto_transition_approve !== null;
@@ -46,14 +53,35 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
   const issue = await tracker.getIssue(ticketKey);
   const existingComments = issue.comments;
 
-  const capabilities = resolveCapabilities(issue.labels, ferryCfg.labels, logger);
+  // Resolve label overrides (model/provider/budget/…) — Jira labels take highest precedence.
+  let effectiveCfg = ferryCfg;
+  let typeOverride: string | undefined;
+  try {
+    const overrides = resolveTicketOverrides(issue.labels, logger);
+    typeOverride = overrides.typeOverride;
+    effectiveCfg = applyTicketOverrides(ferryCfg, overrides);
+    logTicketOverrides(logger, overrides);
+    if (hasNonDefaultOverrides(overrides)) {
+      await tracker.postComment(
+        ticketKey,
+        buildOverridesAuditComment('reviewer', eventId, overrides),
+      );
+    }
+  } catch (err) {
+    if (err instanceof LabelConflictError) {
+      await tracker.postComment(ticketKey, buildConflictComment('reviewer', eventId, err));
+      process.exit(1);
+    }
+    throw err;
+  }
+
+  const { provider, model } = effectiveCfg.models.review;
+
+  const capabilities = resolveCapabilities(issue.labels, effectiveCfg.labels, logger);
   logCapabilities(logger, capabilities);
 
-  const typeOverrides = resolveTypeOverrides(issue.labels);
-  logTypeOverrides(logger, typeOverrides);
-
   // Find PR for this ticket's branch
-  const branchName = `${resolveBranchPrefix(ferryCfg.git.working_branch_prefix, issue)}${ticketKey}`;
+  const branchName = `${resolveBranchPrefix(effectiveCfg.git.working_branch_prefix, issue)}${ticketKey}`;
   const prs = await runner.listPRsForBranch(owner, repo, branchName);
 
   if (prs.length === 0) {
@@ -132,7 +160,7 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
     .join('\n');
 
   const ticketBlock = buildTicketBlock(ticketKey, issue, {
-    typeOverride: typeOverrides.typeOverride,
+    typeOverride,
   });
 
   const mergeConflictWarning = hasMergeConflicts
@@ -183,8 +211,8 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
     owner,
     repo,
     headSha,
-    maxIterations: ferryCfg.limits.reviewer_max_iterations,
-    maxTokens: ferryCfg.limits.reviewer_max_tokens,
+    maxIterations: effectiveCfg.limits.reviewer_max_iterations,
+    maxTokens: effectiveCfg.limits.reviewer_max_tokens,
     logger,
   });
 
@@ -226,7 +254,7 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
     }
   } else {
     const priorIterations = countPriorIterations(existingComments);
-    const cap = ferryCfg.limits.max_iterations;
+    const cap = effectiveCfg.limits.max_iterations;
     const capReached = priorIterations >= cap;
 
     await runner.commentOnPR({ owner, repo, prNumber }, review.comment);

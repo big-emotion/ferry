@@ -10,7 +10,12 @@ import { formatCommitMessage } from './prompt.js';
 import {
   resolveCapabilities,
   filterMcpServers,
-  resolveTypeOverrides,
+  resolveTicketOverrides,
+  applyTicketOverrides,
+  hasNonDefaultOverrides,
+  buildOverridesAuditComment,
+  buildConflictComment,
+  LabelConflictError,
 } from '../../lib/agent-runtime/index.js';
 import {
   requireEnv,
@@ -23,7 +28,7 @@ import {
   makeCommitProgress,
   makeSecretScan,
   logCapabilities,
-  logTypeOverrides,
+  logTicketOverrides,
   fetchAndMergeBase,
   checkoutExistingBranch,
   createGitHubContext,
@@ -50,7 +55,6 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
   const { baseBranch } = await resolveGitConfig(initialCfg, runner, owner, repo);
   const ferryCfg = loadFerryConfigFromBaseBranch(baseBranch, REPO_ROOT, initialCfg);
 
-  const { provider: iterProvider, model } = ferryCfg.models.iterate;
   const iteratorWorkflow = ferryCfg.workflow.agents.iterator;
   const shouldAutoTransition = iteratorWorkflow.auto_transition !== null;
   const reviewTransitionId = shouldAutoTransition ? requireEnv('FERRY_REVIEW_TRANSITION_ID') : '';
@@ -58,25 +62,46 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
   const issue = await tracker.getIssue(ticketKey);
   const existingComments = issue.comments;
 
+  // Resolve label overrides (model/provider/budget/…) — Jira labels take highest precedence.
   // Labels are re-read from Jira on each iterate-action invocation (each review→iterate cycle),
   // so a label added between iterations takes effect on the next cycle.
+  let effectiveCfg = ferryCfg;
+  let typeOverride: string | undefined;
+  try {
+    const overrides = resolveTicketOverrides(issue.labels, logger);
+    typeOverride = overrides.typeOverride;
+    effectiveCfg = applyTicketOverrides(ferryCfg, overrides);
+    logTicketOverrides(logger, overrides);
+    if (hasNonDefaultOverrides(overrides)) {
+      await tracker.postComment(
+        ticketKey,
+        buildOverridesAuditComment('iterator', eventId, overrides),
+      );
+    }
+  } catch (err) {
+    if (err instanceof LabelConflictError) {
+      await tracker.postComment(ticketKey, buildConflictComment('iterator', eventId, err));
+      process.exit(1);
+    }
+    throw err;
+  }
+
+  const { provider: iterProvider, model } = effectiveCfg.models.iterate;
   const mcpPool = loadMcpServers();
-  const capabilities = resolveCapabilities(issue.labels, ferryCfg.labels);
-  const hasLabelsConfig = ferryCfg.labels !== undefined;
+  const capabilities = resolveCapabilities(issue.labels, effectiveCfg.labels);
+  const hasLabelsConfig = effectiveCfg.labels !== undefined;
   const mcpServers = filterMcpServers(mcpPool, capabilities, hasLabelsConfig);
 
-  const typeOverrides = resolveTypeOverrides(issue.labels);
   logCapabilities(logger, capabilities);
-  logTypeOverrides(logger, typeOverrides);
 
   const priorIterations = existingComments.filter(
     (c) => c.includes('[ferry:iterator:') && c.includes('complete. Pushed fixes to PR#'),
   ).length;
   checkIterationCap(
     { iteration: priorIterations, hasFindings: true },
-    ferryCfg.limits.max_iterations,
+    effectiveCfg.limits.max_iterations,
   );
-  const branchName = `${resolveBranchPrefix(ferryCfg.git.working_branch_prefix, issue)}${ticketKey}`;
+  const branchName = `${resolveBranchPrefix(effectiveCfg.git.working_branch_prefix, issue)}${ticketKey}`;
   const prs = await runner.listPRsForBranch(owner, repo, branchName);
 
   if (prs.length === 0) {
@@ -173,7 +198,7 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
   }).trim();
 
   const ticketBlock = buildTicketBlock(ticketKey, issue, {
-    typeOverride: typeOverrides.typeOverride,
+    typeOverride,
   });
 
   const initialPrompt = [
@@ -198,9 +223,9 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
   const loop = createAgentLoop({
     provider: iterProvider,
     model,
-    maxIterations: ferryCfg.limits.max_agent_iterations,
-    maxInputTokens: ferryCfg.limits.max_tokens_per_run,
-    maxTokens: ferryCfg.limits.max_tokens_per_message,
+    maxIterations: effectiveCfg.limits.max_agent_iterations,
+    maxInputTokens: effectiveCfg.limits.max_tokens_per_run,
+    maxTokens: effectiveCfg.limits.max_tokens_per_message,
     executeTool,
     commitProgress: makeCommitProgress(logger),
     logger,

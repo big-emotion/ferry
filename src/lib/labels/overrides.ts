@@ -4,6 +4,7 @@ import { resolveTypeOverrides, isBuiltinTypeLabel } from './capabilities.js';
 import type { TicketOverrides, AgentPhase, PhaseModelOverride } from './capabilities.js';
 
 const AGENT_PHASES: ReadonlySet<string> = new Set(['refiner', 'dev', 'review', 'iterate']);
+const PHASES_ORDERED: readonly AgentPhase[] = ['refiner', 'dev', 'review', 'iterate'];
 const LLM_PROVIDERS: ReadonlySet<string> = new Set(['anthropic', 'openai', 'google']);
 
 /**
@@ -87,6 +88,11 @@ export function resolveTicketOverrides(labels: string[], logger?: Logger): Ticke
   const modelSources: Partial<Record<AgentPhase, string>> = {};
   const providerSources: Partial<Record<AgentPhase, string>> = {};
 
+  let blanketModel: string | undefined;
+  let blanketModelSource: string | undefined;
+  let blanketProvider: 'anthropic' | 'openai' | 'google' | undefined;
+  let blanketProviderSource: string | undefined;
+
   let budgetMaxCostLabel: string | undefined;
   let budgetMaxTokensLabel: string | undefined;
   let budgetMaxCostEur: number | undefined;
@@ -103,41 +109,71 @@ export function resolveTicketOverrides(labels: string[], logger?: Logger): Ticke
     if (!label.startsWith('ferry:')) continue;
     if (isKnownNonOverrideLabel(label)) continue;
 
-    // ferry:model/<phase>/<model-id>
+    // ferry:model/<name>              — blanket: override model for all agent phases
+    // ferry:model/<phase>/<model-id>  — per-phase: override model for a specific phase only
     if (label.startsWith('ferry:model/')) {
       const rest = label.slice('ferry:model/'.length);
+      if (!rest) {
+        logger?.warn('malformed ferry:model label (empty model name)', { label });
+        continue;
+      }
       const slashIdx = rest.indexOf('/');
-      if (slashIdx < 1) {
-        logger?.warn('malformed ferry:model label (expected ferry:model/<phase>/<model-id>)', {
-          label,
-        });
+      if (slashIdx < 0) {
+        // Blanket form: ferry:model/<name> — no slash, applies to all phases
+        if (blanketModelSource !== undefined) {
+          throw new LabelConflictError(blanketModelSource, label, 'model');
+        }
+        blanketModel = rest;
+        blanketModelSource = label;
         continue;
       }
-      const phase = rest.slice(0, slashIdx);
-      const modelId = rest.slice(slashIdx + 1);
-      if (!AGENT_PHASES.has(phase)) {
-        logger?.warn('unknown phase in ferry:model label', { label, phase });
-        continue;
+      const firstSegment = rest.slice(0, slashIdx);
+      const remainder = rest.slice(slashIdx + 1);
+      if (AGENT_PHASES.has(firstSegment)) {
+        // Per-phase form: ferry:model/<phase>/<model-id>
+        const p = firstSegment as AgentPhase;
+        if (!remainder) {
+          logger?.warn('empty model-id in ferry:model label', { label });
+          continue;
+        }
+        if (modelSources[p] !== undefined) {
+          throw new LabelConflictError(modelSources[p]!, label, `model.${firstSegment}`);
+        }
+        modelSources[p] = label;
+        modelOverrides[p] = { ...modelOverrides[p], model: remainder };
+      } else {
+        // Non-phase first segment: blanket model with org/model slash in name
+        // e.g. ferry:model/openai/gpt-4o → blanket model "openai/gpt-4o"
+        if (blanketModelSource !== undefined) {
+          throw new LabelConflictError(blanketModelSource, label, 'model');
+        }
+        blanketModel = rest;
+        blanketModelSource = label;
       }
-      if (!modelId) {
-        logger?.warn('empty model-id in ferry:model label', { label });
-        continue;
-      }
-      const p = phase as AgentPhase;
-      if (modelSources[p] !== undefined) {
-        throw new LabelConflictError(modelSources[p]!, label, `model.${phase}`);
-      }
-      modelSources[p] = label;
-      modelOverrides[p] = { ...modelOverrides[p], model: modelId };
       continue;
     }
 
-    // ferry:provider/<phase>/<provider>
+    // ferry:provider/<provider>              — blanket: switch provider for all agent phases
+    // ferry:provider/<phase>/<provider>      — per-phase: switch provider for one phase only
     if (label.startsWith('ferry:provider/')) {
       const parts = label.slice('ferry:provider/'.length).split('/');
+      if (parts.length === 1) {
+        // Blanket form: ferry:provider/<provider>
+        const provider = parts[0];
+        if (!LLM_PROVIDERS.has(provider)) {
+          logger?.warn('unknown provider in blanket ferry:provider label', { label, provider });
+          continue;
+        }
+        if (blanketProviderSource !== undefined) {
+          throw new LabelConflictError(blanketProviderSource, label, 'provider');
+        }
+        blanketProvider = provider as 'anthropic' | 'openai' | 'google';
+        blanketProviderSource = label;
+        continue;
+      }
       if (parts.length !== 2) {
         logger?.warn(
-          'malformed ferry:provider label (expected ferry:provider/<phase>/<provider>)',
+          'malformed ferry:provider label (expected ferry:provider/<provider> or ferry:provider/<phase>/<provider>)',
           { label },
         );
         continue;
@@ -234,6 +270,23 @@ export function resolveTicketOverrides(labels: string[], logger?: Logger): Ticke
 
     // Unrecognised ferry:* label in override namespace — log and ignore
     logger?.warn('unknown ferry override label ignored', { label });
+  }
+
+  // Apply blanket model/provider to phases not already overridden per-phase.
+  // Per-phase labels take precedence: blanket only fills phases with no explicit per-phase override.
+  if (blanketModel !== undefined) {
+    for (const phase of PHASES_ORDERED) {
+      if (modelSources[phase] === undefined) {
+        modelOverrides[phase] = { ...modelOverrides[phase], model: blanketModel };
+      }
+    }
+  }
+  if (blanketProvider !== undefined) {
+    for (const phase of PHASES_ORDERED) {
+      if (providerSources[phase] === undefined) {
+        modelOverrides[phase] = { ...modelOverrides[phase], provider: blanketProvider };
+      }
+    }
   }
 
   const hasModelOverrides = Object.keys(modelOverrides).length > 0;
