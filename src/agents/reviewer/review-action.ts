@@ -54,7 +54,7 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
   const existingComments = issue.comments;
 
   // Resolve label overrides (model/provider/budget/…) — Jira labels take highest precedence.
-  let effectiveCfg = ferryCfg;
+  let effectiveCfg: typeof ferryCfg;
   let typeOverride: string | undefined;
   try {
     const overrides = resolveTicketOverrides(issue.labels, logger);
