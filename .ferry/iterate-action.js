@@ -3188,6 +3188,39 @@ function logTypeOverrides(logger, overrides) {
     logger.info("task skip bypassed (ferry:type:enable-task)");
   }
 }
+function logTicketOverrides(logger, overrides) {
+  logTypeOverrides(logger, overrides);
+  if (overrides.modelOverrides) {
+    for (const [phase, mo] of Object.entries(overrides.modelOverrides)) {
+      if (mo?.model) logger.info(`model override (${phase})`, { model: mo.model });
+      if (mo?.provider) logger.info(`provider override (${phase})`, { provider: mo.provider });
+    }
+  }
+  if (overrides.budget) {
+    if (overrides.budget.maxCostEurPerRun !== void 0) {
+      logger.info("budget override: max cost", {
+        maxCostEurPerRun: overrides.budget.maxCostEurPerRun
+      });
+    }
+    if (overrides.budget.maxTokensPerRun !== void 0) {
+      logger.info("budget override: max tokens", {
+        maxTokensPerRun: overrides.budget.maxTokensPerRun
+      });
+    }
+  }
+  if (overrides.skipPhases && overrides.skipPhases.length > 0) {
+    logger.info("phase skip active", { phases: overrides.skipPhases });
+  }
+  if (overrides.thinking !== void 0) {
+    logger.info("thinking override", { thinking: overrides.thinking });
+  }
+  if (overrides.git?.noPr) {
+    logger.info("git override: no-pr (PR creation skipped)");
+  }
+  if (overrides.paused) {
+    logger.warn("ticket is paused (ferry:paused) \u2014 agent will exit without processing");
+  }
+}
 
 // node_modules/universal-user-agent/index.js
 function getUserAgent() {
@@ -7362,6 +7395,307 @@ function filterMcpServers(pool, capabilities, hasLabelsConfig) {
   });
 }
 
+// src/lib/labels/overrides.ts
+var AGENT_PHASES = /* @__PURE__ */ new Set(["refiner", "dev", "review", "iterate"]);
+var PHASES_ORDERED = ["refiner", "dev", "review", "iterate"];
+var LLM_PROVIDERS = /* @__PURE__ */ new Set(["anthropic", "openai", "google"]);
+var LabelConflictError = class extends Error {
+  label1;
+  label2;
+  field;
+  constructor(label1, label2, field) {
+    super(`Conflicting ferry labels for "${field}": "${label1}" and "${label2}"`);
+    this.name = "LabelConflictError";
+    this.label1 = label1;
+    this.label2 = label2;
+    this.field = field;
+  }
+};
+function parsePositiveFloat(s) {
+  const n = Number(s);
+  return Number.isFinite(n) && n > 0 ? n : void 0;
+}
+function parsePositiveInt(s) {
+  const n = Number(s);
+  return Number.isInteger(n) && n > 0 ? n : void 0;
+}
+var MCP_LABEL_PREFIX = "ferry:mcp/";
+var PROFILE_LABEL_PREFIX = "ferry:profile/";
+var KNOWN_STATUS_LABELS = /* @__PURE__ */ new Set([
+  "ferry:refining",
+  "ferry:developing",
+  "ferry:reviewing",
+  "ferry:iterating",
+  "ferry:ready",
+  "ferry:approved",
+  "ferry:cancelled",
+  "ferry:blocked",
+  "ferry:spend-cap",
+  "ferry:audit-log:active"
+]);
+function isKnownNonOverrideLabel(label) {
+  if (isBuiltinTypeLabel(label)) return true;
+  if (KNOWN_STATUS_LABELS.has(label)) return true;
+  if (label.startsWith("ferry:cost-estimate:")) return true;
+  if (label.startsWith(MCP_LABEL_PREFIX)) return true;
+  if (label.startsWith(PROFILE_LABEL_PREFIX)) return true;
+  return false;
+}
+function resolveTicketOverrides(labels, logger) {
+  const typeOverrides = resolveTypeOverrides(labels);
+  const modelOverrides = {};
+  const modelSources = {};
+  const providerSources = {};
+  let blanketModel;
+  let blanketModelSource;
+  let blanketProvider;
+  let blanketProviderSource;
+  let budgetMaxCostLabel;
+  let budgetMaxTokensLabel;
+  let budgetMaxCostEur;
+  let budgetMaxTokens;
+  let thinkingLabel;
+  let thinking;
+  let noPr = false;
+  let paused = false;
+  const skipPhases = [];
+  for (const label of labels) {
+    if (!label.startsWith("ferry:")) continue;
+    if (isKnownNonOverrideLabel(label)) continue;
+    if (label.startsWith("ferry:model/")) {
+      const rest = label.slice("ferry:model/".length);
+      if (!rest) {
+        logger?.warn("malformed ferry:model label (empty model name)", { label });
+        continue;
+      }
+      const slashIdx = rest.indexOf("/");
+      if (slashIdx < 0) {
+        if (blanketModelSource !== void 0) {
+          throw new LabelConflictError(blanketModelSource, label, "model");
+        }
+        blanketModel = rest;
+        blanketModelSource = label;
+        continue;
+      }
+      const firstSegment = rest.slice(0, slashIdx);
+      const remainder = rest.slice(slashIdx + 1);
+      if (AGENT_PHASES.has(firstSegment)) {
+        const p = firstSegment;
+        if (!remainder) {
+          logger?.warn("empty model-id in ferry:model label", { label });
+          continue;
+        }
+        if (modelSources[p] !== void 0) {
+          throw new LabelConflictError(modelSources[p], label, `model.${firstSegment}`);
+        }
+        modelSources[p] = label;
+        modelOverrides[p] = { ...modelOverrides[p], model: remainder };
+      } else {
+        if (blanketModelSource !== void 0) {
+          throw new LabelConflictError(blanketModelSource, label, "model");
+        }
+        blanketModel = rest;
+        blanketModelSource = label;
+      }
+      continue;
+    }
+    if (label.startsWith("ferry:provider/")) {
+      const parts = label.slice("ferry:provider/".length).split("/");
+      if (parts.length === 1) {
+        const provider2 = parts[0];
+        if (!LLM_PROVIDERS.has(provider2)) {
+          logger?.warn("unknown provider in blanket ferry:provider label", { label, provider: provider2 });
+          continue;
+        }
+        if (blanketProviderSource !== void 0) {
+          throw new LabelConflictError(blanketProviderSource, label, "provider");
+        }
+        blanketProvider = provider2;
+        blanketProviderSource = label;
+        continue;
+      }
+      if (parts.length !== 2) {
+        logger?.warn(
+          "malformed ferry:provider label (expected ferry:provider/<provider> or ferry:provider/<phase>/<provider>)",
+          { label }
+        );
+        continue;
+      }
+      const [phase, provider] = parts;
+      if (!AGENT_PHASES.has(phase)) {
+        logger?.warn("unknown phase in ferry:provider label", { label, phase });
+        continue;
+      }
+      if (!LLM_PROVIDERS.has(provider)) {
+        logger?.warn("unknown provider in ferry:provider label", { label, provider });
+        continue;
+      }
+      const p = phase;
+      if (providerSources[p] !== void 0) {
+        throw new LabelConflictError(providerSources[p], label, `provider.${phase}`);
+      }
+      providerSources[p] = label;
+      modelOverrides[p] = {
+        ...modelOverrides[p],
+        provider
+      };
+      continue;
+    }
+    if (label.startsWith("ferry:budget/max-cost/")) {
+      const raw = label.slice("ferry:budget/max-cost/".length);
+      const val = parsePositiveFloat(raw);
+      if (val === void 0) {
+        logger?.warn("invalid cost value in ferry:budget/max-cost label", { label });
+        continue;
+      }
+      if (budgetMaxCostLabel !== void 0) {
+        throw new LabelConflictError(budgetMaxCostLabel, label, "budget.maxCostEurPerRun");
+      }
+      budgetMaxCostLabel = label;
+      budgetMaxCostEur = val;
+      continue;
+    }
+    if (label.startsWith("ferry:budget/max-tokens/")) {
+      const raw = label.slice("ferry:budget/max-tokens/".length);
+      const val = parsePositiveInt(raw);
+      if (val === void 0) {
+        logger?.warn("invalid token count in ferry:budget/max-tokens label", { label });
+        continue;
+      }
+      if (budgetMaxTokensLabel !== void 0) {
+        throw new LabelConflictError(budgetMaxTokensLabel, label, "budget.maxTokensPerRun");
+      }
+      budgetMaxTokensLabel = label;
+      budgetMaxTokens = val;
+      continue;
+    }
+    if (label.startsWith("ferry:skip/")) {
+      const phase = label.slice("ferry:skip/".length);
+      if (!AGENT_PHASES.has(phase)) {
+        logger?.warn("unknown phase in ferry:skip label", { label, phase });
+        continue;
+      }
+      const p = phase;
+      if (!skipPhases.includes(p)) skipPhases.push(p);
+      continue;
+    }
+    if (label === "ferry:thinking/on" || label === "ferry:thinking/off") {
+      const val = label === "ferry:thinking/on" ? "on" : "off";
+      if (thinking !== void 0 && thinking !== val) {
+        throw new LabelConflictError(thinkingLabel, label, "thinking");
+      }
+      if (thinking === void 0) {
+        thinking = val;
+        thinkingLabel = label;
+      }
+      continue;
+    }
+    if (label === "ferry:git/no-pr") {
+      noPr = true;
+      continue;
+    }
+    if (label === "ferry:paused") {
+      paused = true;
+      continue;
+    }
+    logger?.warn("unknown ferry override label ignored", { label });
+  }
+  if (blanketModel !== void 0) {
+    for (const phase of PHASES_ORDERED) {
+      if (modelSources[phase] === void 0) {
+        modelOverrides[phase] = { ...modelOverrides[phase], model: blanketModel };
+      }
+    }
+  }
+  if (blanketProvider !== void 0) {
+    for (const phase of PHASES_ORDERED) {
+      if (providerSources[phase] === void 0) {
+        modelOverrides[phase] = { ...modelOverrides[phase], provider: blanketProvider };
+      }
+    }
+  }
+  const hasModelOverrides = Object.keys(modelOverrides).length > 0;
+  const hasBudget = budgetMaxCostEur !== void 0 || budgetMaxTokens !== void 0;
+  return {
+    ...typeOverrides,
+    ...hasModelOverrides ? { modelOverrides } : {},
+    ...hasBudget ? {
+      budget: {
+        ...budgetMaxCostEur !== void 0 ? { maxCostEurPerRun: budgetMaxCostEur } : {},
+        ...budgetMaxTokens !== void 0 ? { maxTokensPerRun: budgetMaxTokens } : {}
+      }
+    } : {},
+    ...skipPhases.length > 0 ? { skipPhases } : {},
+    ...thinking !== void 0 ? { thinking } : {},
+    ...noPr ? { git: { noPr: true } } : {},
+    ...paused ? { paused: true } : {}
+  };
+}
+function applyTicketOverrides(cfg, overrides) {
+  if (!overrides.modelOverrides && !overrides.budget) return cfg;
+  const models = { ...cfg.models };
+  const limits = { ...cfg.limits };
+  const mo = overrides.modelOverrides;
+  if (mo) {
+    if (mo.refiner) {
+      models.refiner = {
+        provider: mo.refiner.provider ?? models.refiner.provider,
+        model: mo.refiner.model ?? models.refiner.model
+      };
+    }
+    if (mo.dev) {
+      models.dev = {
+        provider: mo.dev.provider ?? models.dev.provider,
+        model: mo.dev.model ?? models.dev.model
+      };
+    }
+    if (mo.review) {
+      models.review = {
+        provider: mo.review.provider ?? models.review.provider,
+        model: mo.review.model ?? models.review.model
+      };
+    }
+    if (mo.iterate) {
+      models.iterate = {
+        provider: mo.iterate.provider ?? models.iterate.provider,
+        model: mo.iterate.model ?? models.iterate.model
+      };
+    }
+  }
+  if (overrides.budget) {
+    if (overrides.budget.maxCostEurPerRun !== void 0) {
+      limits.max_cost_eur_per_run = overrides.budget.maxCostEurPerRun;
+    }
+    if (overrides.budget.maxTokensPerRun !== void 0) {
+      limits.max_tokens_per_run = overrides.budget.maxTokensPerRun;
+    }
+  }
+  return { ...cfg, models, limits };
+}
+function hasNonDefaultOverrides(overrides) {
+  return overrides.bypassTaskSkip || overrides.typeOverride !== void 0 || overrides.modelOverrides !== void 0 || overrides.budget !== void 0 || (overrides.skipPhases?.length ?? 0) > 0 || overrides.thinking !== void 0 || overrides.git?.noPr === true || overrides.paused === true;
+}
+function buildOverridesAuditComment(role, runId, overrides) {
+  const payload = {};
+  if (overrides.bypassTaskSkip) payload.bypassTaskSkip = true;
+  if (overrides.typeOverride !== void 0) payload.typeOverride = overrides.typeOverride;
+  if (overrides.modelOverrides !== void 0) payload.modelOverrides = overrides.modelOverrides;
+  if (overrides.budget !== void 0) payload.budget = overrides.budget;
+  if ((overrides.skipPhases?.length ?? 0) > 0) payload.skipPhases = overrides.skipPhases;
+  if (overrides.thinking !== void 0) payload.thinking = overrides.thinking;
+  if (overrides.git?.noPr) payload.git = overrides.git;
+  if (overrides.paused) payload.paused = true;
+  return `[ferry:${role}:${runId}] overrides applied: ${JSON.stringify(payload)}`;
+}
+function buildConflictComment(role, runId, err) {
+  return [
+    `[ferry:${role}:${runId}] label conflict \u2014 remove one of the contradicting labels and re-trigger:`,
+    `  field: ${err.field}`,
+    `  label 1: ${err.label1}`,
+    `  label 2: ${err.label2}`
+  ].join("\n");
+}
+
 // src/agents/iterator/iterate-action.ts
 var REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
 async function main(envelope, logger) {
@@ -7369,27 +7703,45 @@ async function main(envelope, logger) {
   const { owner, repo, runner, tracker, ferryCfg: initialCfg } = createGitHubContext(REPO_ROOT);
   const { baseBranch } = await resolveGitConfig(initialCfg, runner, owner, repo);
   const ferryCfg = loadFerryConfigFromBaseBranch(baseBranch, REPO_ROOT, initialCfg);
-  const { provider: iterProvider, model } = ferryCfg.models.iterate;
   const iteratorWorkflow = ferryCfg.workflow.agents.iterator;
   const shouldAutoTransition = iteratorWorkflow.auto_transition !== null;
   const reviewTransitionId = shouldAutoTransition ? requireEnv2("FERRY_REVIEW_TRANSITION_ID") : "";
   const issue = await tracker.getIssue(ticketKey);
   const existingComments = issue.comments;
+  let effectiveCfg = ferryCfg;
+  let typeOverride;
+  try {
+    const overrides = resolveTicketOverrides(issue.labels, logger);
+    typeOverride = overrides.typeOverride;
+    effectiveCfg = applyTicketOverrides(ferryCfg, overrides);
+    logTicketOverrides(logger, overrides);
+    if (hasNonDefaultOverrides(overrides)) {
+      await tracker.postComment(
+        ticketKey,
+        buildOverridesAuditComment("iterator", eventId, overrides)
+      );
+    }
+  } catch (err) {
+    if (err instanceof LabelConflictError) {
+      await tracker.postComment(ticketKey, buildConflictComment("iterator", eventId, err));
+      process.exit(1);
+    }
+    throw err;
+  }
+  const { provider: iterProvider, model } = effectiveCfg.models.iterate;
   const mcpPool = loadMcpServers();
-  const capabilities = resolveCapabilities(issue.labels, ferryCfg.labels);
-  const hasLabelsConfig = ferryCfg.labels !== void 0;
+  const capabilities = resolveCapabilities(issue.labels, effectiveCfg.labels);
+  const hasLabelsConfig = effectiveCfg.labels !== void 0;
   const mcpServers = filterMcpServers(mcpPool, capabilities, hasLabelsConfig);
-  const typeOverrides = resolveTypeOverrides(issue.labels);
   logCapabilities(logger, capabilities);
-  logTypeOverrides(logger, typeOverrides);
   const priorIterations = existingComments.filter(
     (c) => c.includes("[ferry:iterator:") && c.includes("complete. Pushed fixes to PR#")
   ).length;
   checkIterationCap(
     { iteration: priorIterations, hasFindings: true },
-    ferryCfg.limits.max_iterations
+    effectiveCfg.limits.max_iterations
   );
-  const branchName = `${resolveBranchPrefix(ferryCfg.git.working_branch_prefix, issue)}${ticketKey}`;
+  const branchName = `${resolveBranchPrefix(effectiveCfg.git.working_branch_prefix, issue)}${ticketKey}`;
   const prs = await runner.listPRsForBranch(owner, repo, branchName);
   if (prs.length === 0) {
     const eventMarker = byEventId("iterator", eventId);
@@ -7467,7 +7819,7 @@ async function main(envelope, logger) {
     encoding: "utf8"
   }).trim();
   const ticketBlock = buildTicketBlock(ticketKey, issue, {
-    typeOverride: typeOverrides.typeOverride
+    typeOverride
   });
   const initialPrompt = [
     "## Jira Ticket",
@@ -7487,9 +7839,9 @@ ${existingLog}` : "",
   const loop = createAgentLoop({
     provider: iterProvider,
     model,
-    maxIterations: ferryCfg.limits.max_agent_iterations,
-    maxInputTokens: ferryCfg.limits.max_tokens_per_run,
-    maxTokens: ferryCfg.limits.max_tokens_per_message,
+    maxIterations: effectiveCfg.limits.max_agent_iterations,
+    maxInputTokens: effectiveCfg.limits.max_tokens_per_run,
+    maxTokens: effectiveCfg.limits.max_tokens_per_message,
     executeTool,
     commitProgress: makeCommitProgress(logger),
     logger
