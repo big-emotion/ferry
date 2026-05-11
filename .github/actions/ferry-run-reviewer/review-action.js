@@ -6101,6 +6101,12 @@ function resolveTicketOverrides(labels, logger) {
   let budgetMaxTokensLabel;
   let budgetMaxCostEur;
   let budgetMaxTokens;
+  let budgetEurLabel;
+  let budgetEur;
+  let maxIterationsLabel;
+  let maxIterations;
+  let maxTokensLabel;
+  let maxTokens;
   let thinkingLabel;
   let thinking;
   let noPr = false;
@@ -6188,32 +6194,76 @@ function resolveTicketOverrides(labels, logger) {
       };
       continue;
     }
-    if (label.startsWith("ferry:budget/max-cost/")) {
-      const raw = label.slice("ferry:budget/max-cost/".length);
-      const val = parsePositiveFloat(raw);
-      if (val === void 0) {
-        logger?.warn("invalid cost value in ferry:budget/max-cost label", { label });
+    if (label.startsWith("ferry:budget/")) {
+      const rest = label.slice("ferry:budget/".length);
+      if (rest.startsWith("max-cost/")) {
+        const raw = rest.slice("max-cost/".length);
+        const val2 = parsePositiveFloat(raw);
+        if (val2 === void 0) {
+          logger?.warn("invalid cost value in ferry:budget/max-cost label", { label });
+          continue;
+        }
+        if (budgetMaxCostLabel !== void 0) {
+          throw new LabelConflictError(budgetMaxCostLabel, label, "budget.maxCostEurPerRun");
+        }
+        budgetMaxCostLabel = label;
+        budgetMaxCostEur = val2;
         continue;
       }
-      if (budgetMaxCostLabel !== void 0) {
-        throw new LabelConflictError(budgetMaxCostLabel, label, "budget.maxCostEurPerRun");
+      if (rest.startsWith("max-tokens/")) {
+        const raw = rest.slice("max-tokens/".length);
+        const val2 = parsePositiveInt(raw);
+        if (val2 === void 0) {
+          logger?.warn("invalid token count in ferry:budget/max-tokens label", { label });
+          continue;
+        }
+        if (budgetMaxTokensLabel !== void 0) {
+          throw new LabelConflictError(budgetMaxTokensLabel, label, "budget.maxTokensPerRun");
+        }
+        budgetMaxTokensLabel = label;
+        budgetMaxTokens = val2;
+        continue;
       }
-      budgetMaxCostLabel = label;
-      budgetMaxCostEur = val;
+      const val = parsePositiveInt(rest);
+      if (val === void 0) {
+        logger?.warn("invalid EUR value in ferry:budget label (expected positive integer)", {
+          label
+        });
+        continue;
+      }
+      if (budgetEurLabel !== void 0) {
+        throw new LabelConflictError(budgetEurLabel, label, "budgetEur");
+      }
+      budgetEurLabel = label;
+      budgetEur = val;
       continue;
     }
-    if (label.startsWith("ferry:budget/max-tokens/")) {
-      const raw = label.slice("ferry:budget/max-tokens/".length);
+    if (label.startsWith("ferry:max-iterations/")) {
+      const raw = label.slice("ferry:max-iterations/".length);
       const val = parsePositiveInt(raw);
       if (val === void 0) {
-        logger?.warn("invalid token count in ferry:budget/max-tokens label", { label });
+        logger?.warn("invalid count in ferry:max-iterations label", { label });
         continue;
       }
-      if (budgetMaxTokensLabel !== void 0) {
-        throw new LabelConflictError(budgetMaxTokensLabel, label, "budget.maxTokensPerRun");
+      if (maxIterationsLabel !== void 0) {
+        throw new LabelConflictError(maxIterationsLabel, label, "maxIterations");
       }
-      budgetMaxTokensLabel = label;
-      budgetMaxTokens = val;
+      maxIterationsLabel = label;
+      maxIterations = val;
+      continue;
+    }
+    if (label.startsWith("ferry:max-tokens/")) {
+      const raw = label.slice("ferry:max-tokens/".length);
+      const val = parsePositiveInt(raw);
+      if (val === void 0) {
+        logger?.warn("invalid count in ferry:max-tokens label", { label });
+        continue;
+      }
+      if (maxTokensLabel !== void 0) {
+        throw new LabelConflictError(maxTokensLabel, label, "maxTokens");
+      }
+      maxTokensLabel = label;
+      maxTokens = val;
       continue;
     }
     if (label.startsWith("ferry:skip/")) {
@@ -6272,6 +6322,9 @@ function resolveTicketOverrides(labels, logger) {
         ...budgetMaxTokens !== void 0 ? { maxTokensPerRun: budgetMaxTokens } : {}
       }
     } : {},
+    ...budgetEur !== void 0 ? { budgetEur } : {},
+    ...maxIterations !== void 0 ? { maxIterations } : {},
+    ...maxTokens !== void 0 ? { maxTokens } : {},
     ...skipPhases.length > 0 ? { skipPhases } : {},
     ...thinking !== void 0 ? { thinking } : {},
     ...noPr ? { git: { noPr: true } } : {},
@@ -6279,7 +6332,8 @@ function resolveTicketOverrides(labels, logger) {
   };
 }
 function applyTicketOverrides(cfg, overrides) {
-  if (!overrides.modelOverrides && !overrides.budget) return cfg;
+  if (!overrides.modelOverrides && !overrides.budget && overrides.budgetEur === void 0 && overrides.maxIterations === void 0 && overrides.maxTokens === void 0)
+    return cfg;
   const models = { ...cfg.models };
   const limits = { ...cfg.limits };
   const mo = overrides.modelOverrides;
@@ -6317,10 +6371,19 @@ function applyTicketOverrides(cfg, overrides) {
       limits.max_tokens_per_run = overrides.budget.maxTokensPerRun;
     }
   }
+  if (overrides.budgetEur !== void 0) {
+    limits.max_cost_eur_per_run = overrides.budgetEur;
+  }
+  if (overrides.maxIterations !== void 0) {
+    limits.max_agent_iterations = overrides.maxIterations;
+  }
+  if (overrides.maxTokens !== void 0) {
+    limits.max_tokens_per_message = overrides.maxTokens;
+  }
   return { ...cfg, models, limits };
 }
 function hasNonDefaultOverrides(overrides) {
-  return overrides.bypassTaskSkip || overrides.typeOverride !== void 0 || overrides.modelOverrides !== void 0 || overrides.budget !== void 0 || (overrides.skipPhases?.length ?? 0) > 0 || overrides.thinking !== void 0 || overrides.git?.noPr === true || overrides.paused === true;
+  return overrides.bypassTaskSkip || overrides.typeOverride !== void 0 || overrides.modelOverrides !== void 0 || overrides.budget !== void 0 || overrides.budgetEur !== void 0 || overrides.maxIterations !== void 0 || overrides.maxTokens !== void 0 || (overrides.skipPhases?.length ?? 0) > 0 || overrides.thinking !== void 0 || overrides.git?.noPr === true || overrides.paused === true;
 }
 function buildOverridesAuditComment(role, runId, overrides) {
   const payload = {};
@@ -6328,6 +6391,9 @@ function buildOverridesAuditComment(role, runId, overrides) {
   if (overrides.typeOverride !== void 0) payload.typeOverride = overrides.typeOverride;
   if (overrides.modelOverrides !== void 0) payload.modelOverrides = overrides.modelOverrides;
   if (overrides.budget !== void 0) payload.budget = overrides.budget;
+  if (overrides.budgetEur !== void 0) payload.budgetEur = overrides.budgetEur;
+  if (overrides.maxIterations !== void 0) payload.maxIterations = overrides.maxIterations;
+  if (overrides.maxTokens !== void 0) payload.maxTokens = overrides.maxTokens;
   if ((overrides.skipPhases?.length ?? 0) > 0) payload.skipPhases = overrides.skipPhases;
   if (overrides.thinking !== void 0) payload.thinking = overrides.thinking;
   if (overrides.git?.noPr) payload.git = overrides.git;
@@ -6364,7 +6430,7 @@ async function main(envelope, logger) {
   const approveTransitionId = shouldTransitionApprove ? requireEnv2("FERRY_APPROVE_TRANSITION_ID") : "";
   const issue = await tracker.getIssue(ticketKey);
   const existingComments = issue.comments;
-  let effectiveCfg = ferryCfg;
+  let effectiveCfg;
   let typeOverride;
   try {
     const overrides = resolveTicketOverrides(issue.labels, logger);
