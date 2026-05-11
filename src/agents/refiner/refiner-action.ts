@@ -8,6 +8,13 @@ import {
   resolveGitConfig,
   loadFerryConfigFromBaseBranch,
   writeStepSummary,
+  resolveTicketOverrides,
+  applyTicketOverrides,
+  hasNonDefaultOverrides,
+  buildOverridesAuditComment,
+  buildConflictComment,
+  LabelConflictError,
+  logTicketOverrides,
 } from '../../lib/agent-runtime/index.js';
 import type { Logger } from '../../lib/agent-runtime/index.js';
 import { runRefiner } from './refine.js';
@@ -169,11 +176,34 @@ export async function run(envelope: EventEnvelopeV1, deps: RefinerActionDeps): P
 }
 
 async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
+  const { ticket_key: ticketKey, event_id: eventId } = envelope;
   const { owner, repo, runner, tracker, ferryCfg: initialCfg } = createGitHubContext(REPO_ROOT);
   // Reload config from base_branch — the workspace may contain the default branch's config.
   const { baseBranch } = await resolveGitConfig(initialCfg, runner, owner, repo);
   const ferryCfg = loadFerryConfigFromBaseBranch(baseBranch, REPO_ROOT, initialCfg);
-  const route = ferryCfg.models.refiner;
+
+  // Resolve label overrides (model/provider/budget/…) before creating the LLM call.
+  const issueForLabels = await tracker.getIssue(ticketKey);
+  let effectiveCfg;
+  try {
+    const overrides = resolveTicketOverrides(issueForLabels.labels, logger);
+    logTicketOverrides(logger, overrides);
+    effectiveCfg = applyTicketOverrides(ferryCfg, overrides);
+    if (hasNonDefaultOverrides(overrides)) {
+      await tracker.postComment(
+        ticketKey,
+        buildOverridesAuditComment('refiner', eventId, overrides),
+      );
+    }
+  } catch (err) {
+    if (err instanceof LabelConflictError) {
+      await tracker.postComment(ticketKey, buildConflictComment('refiner', eventId, err));
+      process.exit(1);
+    }
+    throw err;
+  }
+
+  const route = effectiveCfg.models.refiner;
   const callLlm: LlmCall = createLlmCall(route);
   await run(envelope, { tracker, callLlm, logger });
 }

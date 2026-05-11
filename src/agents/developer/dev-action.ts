@@ -13,7 +13,7 @@ import {
   makeCommitProgress,
   makeSecretScan,
   logCapabilities,
-  logTypeOverrides,
+  logTicketOverrides,
   createGitHubContext,
   resolveGitConfig,
   resolveBranchPrefix,
@@ -36,7 +36,12 @@ import type { AgentLoop } from '../../lib/llm/agent-loop/types.js';
 import {
   resolveCapabilities,
   filterMcpServers,
-  resolveTypeOverrides,
+  resolveTicketOverrides,
+  applyTicketOverrides,
+  hasNonDefaultOverrides,
+  buildOverridesAuditComment,
+  buildConflictComment,
+  LabelConflictError,
 } from '../../lib/agent-runtime/index.js';
 import { detectTestRunner, repoTree, packageJsonPath, detectPackageManager } from './workspace.js';
 import { assertDevOutputContract } from './outcome-guard.js';
@@ -62,7 +67,6 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
   // `git log origin/<base>..HEAD` work correctly later in this function.
   const ferryCfg = loadFerryConfigFromBaseBranch(baseBranch, REPO_ROOT, initialCfg);
 
-  const { provider: devProvider } = ferryCfg.models.dev;
   const devWorkflow = ferryCfg.workflow.agents.developer;
   const shouldAutoTransition = devWorkflow.auto_transition !== null;
   const reviewTransitionId =
@@ -70,14 +74,38 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
   const jiraBaseUrl = requireEnv('FERRY_JIRA_BASE_URL');
 
   const issue = await tracker.getIssue(ticketKey);
-  const typeOverrides = resolveTypeOverrides(issue.labels);
-  logTypeOverrides(logger, typeOverrides);
+
+  // Resolve label overrides (model/provider/budget/…) — Jira labels take highest precedence.
+  let effectiveCfg = ferryCfg;
+  let typeOverride: string | undefined;
+  let forceLabel: string | undefined;
+  try {
+    const overrides = resolveTicketOverrides(issue.labels, logger);
+    typeOverride = overrides.typeOverride;
+    forceLabel = overrides.forceLabel;
+    effectiveCfg = applyTicketOverrides(ferryCfg, overrides);
+    logTicketOverrides(logger, overrides);
+    if (hasNonDefaultOverrides(overrides)) {
+      await tracker.postComment(
+        ticketKey,
+        buildOverridesAuditComment('developer', eventId, overrides),
+      );
+    }
+  } catch (err) {
+    if (err instanceof LabelConflictError) {
+      await tracker.postComment(ticketKey, buildConflictComment('developer', eventId, err));
+      process.exit(1);
+    }
+    throw err;
+  }
+
+  const { provider: devProvider } = effectiveCfg.models.dev;
   const labels = issue.labels.join(', ');
   const comments = issue.comments.map((c) => `Comment: ${c}`).join('\n');
   const ticketBlock = buildTicketBlock(ticketKey, issue, {
     labels,
     comments,
-    typeOverride: typeOverrides.typeOverride,
+    typeOverride,
   });
 
   const subtasks = await tracker.getSubtasks(ticketKey);
@@ -88,10 +116,10 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
   const system = buildSystem('dev', REPO_ROOT, {
     extraParts: pkgManagerHint ? [`## Detected package manager\n\n${pkgManagerHint}`] : [],
   });
-  const model = ferryCfg.models.dev.model;
+  const model = effectiveCfg.models.dev.model;
 
   // Branch is determined upfront from the ticket key so restarts resume the same branch.
-  const branchName = `${resolveBranchPrefix(ferryCfg.git.working_branch_prefix, issue)}${ticketKey}`;
+  const branchName = `${resolveBranchPrefix(effectiveCfg.git.working_branch_prefix, issue)}${ticketKey}`;
 
   configureFerryGitUser(REPO_ROOT);
 
@@ -168,8 +196,8 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
 
   const secretScan = makeSecretScan(REPO_ROOT);
   const mcpPool = loadMcpServers();
-  const capabilities = resolveCapabilities(issue.labels, ferryCfg.labels);
-  const hasLabelsConfig = ferryCfg.labels !== undefined;
+  const capabilities = resolveCapabilities(issue.labels, effectiveCfg.labels);
+  const hasLabelsConfig = effectiveCfg.labels !== undefined;
   const mcpServers = filterMcpServers(mcpPool, capabilities, hasLabelsConfig);
 
   logCapabilities(logger, capabilities);
@@ -183,9 +211,9 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
   loop = createAgentLoop({
     provider: devProvider,
     model,
-    maxIterations: ferryCfg.limits.max_agent_iterations,
-    maxInputTokens: ferryCfg.limits.max_tokens_per_run,
-    maxTokens: ferryCfg.limits.max_tokens_per_message,
+    maxIterations: effectiveCfg.limits.max_agent_iterations,
+    maxInputTokens: effectiveCfg.limits.max_tokens_per_run,
+    maxTokens: effectiveCfg.limits.max_tokens_per_message,
     executeTool,
     commitProgress: makeCommitProgress(logger, { dryRun }),
     spawnSubagent: (task) =>
@@ -389,9 +417,9 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
     }
     const transitionNote = shouldAutoTransition ? ' Moved to Review.' : '';
 
-    const forceOverrideName = typeOverrides.forceLabel?.split(':').at(-1);
-    const overrideNote = typeOverrides.typeOverride
-      ? ` [type override: ${JSON.stringify({ issuetype: typeOverrides.typeOverride, issuetype_raw: issue.issueType, override: forceOverrideName })}]`
+    const forceOverrideName = forceLabel?.split(':').at(-1);
+    const overrideNote = typeOverride
+      ? ` [type override: ${JSON.stringify({ issuetype: typeOverride, issuetype_raw: issue.issueType, override: forceOverrideName })}]`
       : '';
 
     const terminalComment =

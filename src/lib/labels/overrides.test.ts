@@ -113,16 +113,52 @@ describe('resolveTicketOverrides — model overrides (ferry:model/*)', () => {
     expect(err?.field).toBe('model.dev');
   });
 
-  it('logs a warning and ignores malformed ferry:model label (no phase)', () => {
-    const { logger, records } = createTestLogger('t', 'test');
-    const r = resolveTicketOverrides(['ferry:model/notamodel'], logger);
-    expect(r.modelOverrides).toBeUndefined();
-    expect(records.some((rec) => rec.level === 'warn')).toBe(true);
+  it('treats ferry:model/<name> (no slash) as a blanket model override for all phases', () => {
+    const r = resolveTicketOverrides(['ferry:model/claude-opus-4-7']);
+    expect(r.modelOverrides?.refiner?.model).toBe('claude-opus-4-7');
+    expect(r.modelOverrides?.dev?.model).toBe('claude-opus-4-7');
+    expect(r.modelOverrides?.review?.model).toBe('claude-opus-4-7');
+    expect(r.modelOverrides?.iterate?.model).toBe('claude-opus-4-7');
   });
 
-  it('logs a warning and ignores unknown phase in ferry:model label', () => {
+  it('treats ferry:model/<non-phase>/<rest> as blanket model with full rest as name', () => {
+    const r = resolveTicketOverrides(['ferry:model/openai/gpt-4o']);
+    expect(r.modelOverrides?.refiner?.model).toBe('openai/gpt-4o');
+    expect(r.modelOverrides?.dev?.model).toBe('openai/gpt-4o');
+    expect(r.modelOverrides?.review?.model).toBe('openai/gpt-4o');
+    expect(r.modelOverrides?.iterate?.model).toBe('openai/gpt-4o');
+  });
+
+  it('blanket model applies only to phases without a per-phase override (per-phase wins)', () => {
+    const r = resolveTicketOverrides([
+      'ferry:model/claude-opus-4-7',
+      'ferry:model/dev/claude-sonnet-4-6',
+    ]);
+    expect(r.modelOverrides?.dev?.model).toBe('claude-sonnet-4-6');
+    expect(r.modelOverrides?.refiner?.model).toBe('claude-opus-4-7');
+    expect(r.modelOverrides?.review?.model).toBe('claude-opus-4-7');
+    expect(r.modelOverrides?.iterate?.model).toBe('claude-opus-4-7');
+  });
+
+  it('throws LabelConflictError when two blanket model labels conflict', () => {
+    expect(() =>
+      resolveTicketOverrides(['ferry:model/claude-opus-4-7', 'ferry:model/gpt-4o']),
+    ).toThrow(LabelConflictError);
+  });
+
+  it('includes field "model" (not "model.<phase>") in LabelConflictError for blanket conflict', () => {
+    let err: LabelConflictError | undefined;
+    try {
+      resolveTicketOverrides(['ferry:model/model-a', 'ferry:model/model-b']);
+    } catch (e) {
+      err = e as LabelConflictError;
+    }
+    expect(err?.field).toBe('model');
+  });
+
+  it('logs a warning and ignores malformed ferry:model label (empty name)', () => {
     const { logger, records } = createTestLogger('t', 'test');
-    const r = resolveTicketOverrides(['ferry:model/badphase/some-model'], logger);
+    const r = resolveTicketOverrides(['ferry:model/'], logger);
     expect(r.modelOverrides).toBeUndefined();
     expect(records.some((rec) => rec.level === 'warn')).toBe(true);
   });
@@ -162,6 +198,45 @@ describe('resolveTicketOverrides — provider overrides (ferry:provider/*)', () 
   it('logs a warning and ignores unknown provider', () => {
     const { logger, records } = createTestLogger('t', 'test');
     const r = resolveTicketOverrides(['ferry:provider/dev/notaprovider'], logger);
+    expect(r.modelOverrides).toBeUndefined();
+    expect(records.some((rec) => rec.level === 'warn')).toBe(true);
+  });
+
+  it('treats ferry:provider/<provider> (one segment) as a blanket provider for all phases', () => {
+    const r = resolveTicketOverrides(['ferry:provider/openai']);
+    expect(r.modelOverrides?.refiner?.provider).toBe('openai');
+    expect(r.modelOverrides?.dev?.provider).toBe('openai');
+    expect(r.modelOverrides?.review?.provider).toBe('openai');
+    expect(r.modelOverrides?.iterate?.provider).toBe('openai');
+  });
+
+  it('blanket provider applies only to phases without a per-phase provider override (per-phase wins)', () => {
+    const r = resolveTicketOverrides(['ferry:provider/openai', 'ferry:provider/dev/google']);
+    expect(r.modelOverrides?.dev?.provider).toBe('google');
+    expect(r.modelOverrides?.refiner?.provider).toBe('openai');
+    expect(r.modelOverrides?.review?.provider).toBe('openai');
+    expect(r.modelOverrides?.iterate?.provider).toBe('openai');
+  });
+
+  it('throws LabelConflictError when two blanket provider labels conflict', () => {
+    expect(() =>
+      resolveTicketOverrides(['ferry:provider/openai', 'ferry:provider/anthropic']),
+    ).toThrow(LabelConflictError);
+  });
+
+  it('includes field "provider" in LabelConflictError for blanket provider conflict', () => {
+    let err: LabelConflictError | undefined;
+    try {
+      resolveTicketOverrides(['ferry:provider/openai', 'ferry:provider/google']);
+    } catch (e) {
+      err = e as LabelConflictError;
+    }
+    expect(err?.field).toBe('provider');
+  });
+
+  it('logs a warning and ignores unknown provider in blanket ferry:provider label', () => {
+    const { logger, records } = createTestLogger('t', 'test');
+    const r = resolveTicketOverrides(['ferry:provider/notaprovider'], logger);
     expect(r.modelOverrides).toBeUndefined();
     expect(records.some((rec) => rec.level === 'warn')).toBe(true);
   });
@@ -450,6 +525,40 @@ describe('applyTicketOverrides', () => {
     expect(cfg.models.dev.model).toBe('dev-model');
     expect(cfg.models.review.model).toBe('review-model');
     expect(cfg.models.iterate.model).toBe('iter-model');
+  });
+
+  it('applies a blanket model override to all four phases', () => {
+    const overrides = resolveTicketOverrides(['ferry:model/claude-opus-4-7']);
+    const cfg = applyTicketOverrides(BASE_CFG, overrides);
+    expect(cfg.models.refiner.model).toBe('claude-opus-4-7');
+    expect(cfg.models.dev.model).toBe('claude-opus-4-7');
+    expect(cfg.models.review.model).toBe('claude-opus-4-7');
+    expect(cfg.models.iterate.model).toBe('claude-opus-4-7');
+    // providers unchanged
+    expect(cfg.models.dev.provider).toBe(BASE_CFG.models.dev.provider);
+  });
+
+  it('blanket model + per-phase model: per-phase wins for that phase, blanket fills the rest', () => {
+    const overrides = resolveTicketOverrides([
+      'ferry:model/claude-opus-4-7',
+      'ferry:model/dev/claude-sonnet-4-6',
+    ]);
+    const cfg = applyTicketOverrides(BASE_CFG, overrides);
+    expect(cfg.models.dev.model).toBe('claude-sonnet-4-6');
+    expect(cfg.models.refiner.model).toBe('claude-opus-4-7');
+    expect(cfg.models.review.model).toBe('claude-opus-4-7');
+    expect(cfg.models.iterate.model).toBe('claude-opus-4-7');
+  });
+
+  it('applies a blanket provider override to all four phases', () => {
+    const overrides = resolveTicketOverrides(['ferry:provider/openai']);
+    const cfg = applyTicketOverrides(BASE_CFG, overrides);
+    expect(cfg.models.refiner.provider).toBe('openai');
+    expect(cfg.models.dev.provider).toBe('openai');
+    expect(cfg.models.review.provider).toBe('openai');
+    expect(cfg.models.iterate.provider).toBe('openai');
+    // models unchanged
+    expect(cfg.models.dev.model).toBe(BASE_CFG.models.dev.model);
   });
 });
 

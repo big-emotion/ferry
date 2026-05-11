@@ -435,18 +435,28 @@ When one or more override labels are present, the agent posts an audit comment i
 
 ##### Model and provider (`ferry:model/*`, `ferry:provider/*`)
 
-Override the model or provider for a specific agent phase without touching `ferry.config.yaml`.
+Override the model or provider for any or all agent phases without touching `ferry.config.yaml`.
 
-| Label pattern                       | Example                           | Effect                                                 |
-| ----------------------------------- | --------------------------------- | ------------------------------------------------------ |
-| `ferry:model/<phase>/<model-id>`    | `ferry:model/dev/claude-opus-4-7` | Use `claude-opus-4-7` for the Developer on this ticket |
-| `ferry:model/<phase>/<model-id>`    | `ferry:model/review/gpt-4o`       | Use `gpt-4o` for the Reviewer on this ticket           |
-| `ferry:provider/<phase>/<provider>` | `ferry:provider/dev/openai`       | Use the `openai` provider for the Developer            |
+| Label pattern                       | Example                           | Effect                                                                      |
+| ----------------------------------- | --------------------------------- | --------------------------------------------------------------------------- |
+| `ferry:model/<model-id>`            | `ferry:model/claude-opus-4-7`     | Use `claude-opus-4-7` for **all four agents** on this ticket                |
+| `ferry:model/<phase>/<model-id>`    | `ferry:model/dev/claude-opus-4-7` | Use `claude-opus-4-7` for the Developer only                                |
+| `ferry:model/<phase>/<model-id>`    | `ferry:model/review/gpt-4o`       | Use `gpt-4o` for the Reviewer only                                          |
+| `ferry:provider/<provider>`         | `ferry:provider/openai`           | Switch to the `openai` provider for **all four agents** — model from config |
+| `ferry:provider/<phase>/<provider>` | `ferry:provider/dev/openai`       | Switch to the `openai` provider for the Developer only                      |
 
 Valid `<phase>` values: `refiner`, `dev`, `review`, `iterate`.
 Valid `<provider>` values: `anthropic`, `openai`, `google`.
+`<model-id>` is a free string passed to the provider SDK (e.g. `claude-opus-4-7`, `gpt-4o`, or an org-scoped name like `openai/gpt-4o`).
 
-**Conflict rule:** two labels that set the model (or provider) for the same phase to different values are a conflict — the agent posts a Jira comment explaining the conflict and exits non-zero. Remove the conflicting label and re-trigger.
+**Conflict rules:**
+
+- `ferry:model/<x>` (blanket) + `ferry:model/dev/<y>` (per-phase) — no conflict; per-phase wins for Dev, blanket applies to the other three agents.
+- `ferry:model/dev/<x>` + `ferry:model/dev/<y>` (two per-phase labels for the same phase) — conflict; the agent posts a Jira comment and exits non-zero.
+- Two blanket model labels (`ferry:model/<x>` + `ferry:model/<y>`) — conflict.
+- Same rules apply to provider labels.
+
+**Use case:** keep Sonnet as the repo default; tag the two hardest tickets of the sprint with `ferry:model/claude-opus-4-7` so they get higher-quality output while routine work stays cheap.
 
 ##### Budget (`ferry:budget/*`)
 
