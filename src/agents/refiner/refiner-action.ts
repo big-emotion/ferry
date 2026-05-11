@@ -184,7 +184,7 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
 
   // Resolve label overrides (model/provider/budget/…) before creating the LLM call.
   const issueForLabels = await tracker.getIssue(ticketKey);
-  let effectiveCfg = ferryCfg;
+  let effectiveCfg;
   try {
     const overrides = resolveTicketOverrides(issueForLabels.labels, logger);
     logTicketOverrides(logger, overrides);
