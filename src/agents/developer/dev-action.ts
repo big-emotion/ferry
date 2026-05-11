@@ -16,6 +16,7 @@ import {
   logTypeOverrides,
   createGitHubContext,
   resolveGitConfig,
+  resolveBranchPrefix,
   loadFerryConfigFromBaseBranch,
   runAgent,
 } from '../../lib/agent-runtime/index.js';
@@ -56,12 +57,7 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
   // Resolve baseBranch before using any config values, then reload config from that branch.
   // On repository_dispatch, actions/checkout resolves to the default branch, not base_branch,
   // so the workspace may contain a stale ferry.config.json.
-  const { baseBranch, targetBranch, workingBranchPrefix } = await resolveGitConfig(
-    initialCfg,
-    runner,
-    owner,
-    repo,
-  );
+  const { baseBranch, targetBranch } = await resolveGitConfig(initialCfg, runner, owner, repo);
   // loadFerryConfigFromBaseBranch also fetches origin/<baseBranch>, which makes
   // `git log origin/<base>..HEAD` work correctly later in this function.
   const ferryCfg = loadFerryConfigFromBaseBranch(baseBranch, REPO_ROOT, initialCfg);
@@ -95,7 +91,7 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
   const model = ferryCfg.models.dev.model;
 
   // Branch is determined upfront from the ticket key so restarts resume the same branch.
-  const branchName = `${workingBranchPrefix}${ticketKey}`;
+  const branchName = `${resolveBranchPrefix(ferryCfg.git.working_branch_prefix, issue)}${ticketKey}`;
 
   configureFerryGitUser(REPO_ROOT);
 

@@ -313,11 +313,11 @@ Controls which Jira issue types Ferry will process.
 
 Controls the Git branching strategy used by the Developer and Iterator agents. All three fields default to values that work without any configuration — omit this section entirely to use the defaults.
 
-| Field                       | Default    | Description                                                                                                                                            |
-| --------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `git.base_branch`           | `null`     | Branch the Developer checks out from when creating a working branch. `null` resolves to the repository's default branch at runtime via the GitHub API. |
-| `git.target_branch`         | `null`     | Branch the PR is opened against. `null` defaults to the same branch as `base_branch`.                                                                  |
-| `git.working_branch_prefix` | `"ferry/"` | Prefix for working branches created by the Developer agent (e.g., `ferry/PROJ-123`). Must be a non-empty string.                                       |
+| Field                       | Default    | Description                                                                                                                                                                      |
+| --------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `git.base_branch`           | `null`     | Branch the Developer checks out from when creating a working branch. `null` resolves to the repository's default branch at runtime via the GitHub API.                           |
+| `git.target_branch`         | `null`     | Branch the PR is opened against. `null` defaults to the same branch as `base_branch`.                                                                                            |
+| `git.working_branch_prefix` | `"ferry/"` | Prefix for working branches. Accepts a **string** (static, e.g. `"ferry/"`) or a **mapping** object (dynamic per Jira issue type — see below). Mapping requires a `default` key. |
 
 Teams using `develop`, `next`, `release/*`, or any other integration branch as their default should set `base_branch` to that branch name. If `target_branch` differs (e.g., PRs target a staging branch while work branches off `main`), set it explicitly.
 
@@ -328,6 +328,29 @@ git:
   target_branch: develop # branch PRs are opened against (omit to default to base_branch)
   working_branch_prefix: ferry/
 ```
+
+##### Conventional Branch naming (opt-in)
+
+Ferry supports [Conventional Branch](https://conventional-branch.github.io/) naming where the branch prefix encodes the type of work (`feature/`, `bugfix/`, `chore/`, `hotfix/`). Set `working_branch_prefix` to a mapping object whose keys are Jira issue type names and whose `default` key covers anything unmatched:
+
+```yaml
+# ferry.config.yaml — Conventional Branch recipe
+git:
+  working_branch_prefix:
+    Bug: bugfix/
+    Story: feature/
+    Task: chore/
+    Epic: feature/
+    default: feature/ # fallback for any unrecognised issue type
+```
+
+Resolution order at runtime:
+
+1. If the Jira ticket has a `ferry:type:<name>` label and `<name>` is a key in the mapping → use that prefix.
+2. Else if the ticket's Jira issue type is a key in the mapping → use that prefix.
+3. Else → use `mapping.default`.
+
+When the value is a plain string (the default `"ferry/"`), resolution is always the static string — no issue type lookup is performed.
 
 #### `labels`
 
@@ -383,12 +406,12 @@ Maps Jira ticket labels to MCP server capabilities. If this section is omitted, 
 
 These four labels are **hardcoded built-ins** — they require no `ferry.config.json` entry and are always recognised by the Developer, Reviewer, and Iterator agents. Apply them directly to your Jira ticket.
 
-| Label | Effect |
-| --- | --- |
+| Label                    | Effect                                                                                                                                                                                |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ferry:type:enable-task` | Bypass the Task skip (FR6) for this ticket only. Ferry processes it as if it were a Story. Useful for one-off Tasks that should be implemented by Ferry without touching the Refiner. |
-| `ferry:type:force-bug` | Treat the ticket as a **Bug** regardless of its Jira issue type. The agent sees `TYPE: Bug` in the prompt. |
-| `ferry:type:force-spike` | Treat the ticket as a **Spike** regardless of its Jira issue type. |
-| `ferry:type:force-story` | Treat the ticket as a **Story** regardless of its Jira issue type. |
+| `ferry:type:force-bug`   | Treat the ticket as a **Bug** regardless of its Jira issue type. The agent sees `TYPE: Bug` in the prompt.                                                                            |
+| `ferry:type:force-spike` | Treat the ticket as a **Spike** regardless of its Jira issue type.                                                                                                                    |
+| `ferry:type:force-story` | Treat the ticket as a **Story** regardless of its Jira issue type.                                                                                                                    |
 
 **How it works:**
 

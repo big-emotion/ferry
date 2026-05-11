@@ -653,6 +653,64 @@ describe('loadFerryConfig', () => {
       expect(() => loadFerryConfig('/repo')).toThrow(FerryError);
     });
 
+    it('accepts a mapping working_branch_prefix with a default key', () => {
+      const mapping = { Bug: 'bugfix/', Story: 'feature/', default: 'ferry/' };
+      mockConfigFile(
+        'ferry.config.json',
+        JSON.stringify({ git: { working_branch_prefix: mapping } }),
+      );
+      const cfg = loadFerryConfig('/repo');
+      expect(cfg.git.working_branch_prefix).toEqual(mapping);
+    });
+
+    it('throws when mapping working_branch_prefix has no default key', () => {
+      mockConfigFile(
+        'ferry.config.json',
+        JSON.stringify({ git: { working_branch_prefix: { Bug: 'bugfix/', Story: 'feature/' } } }),
+      );
+      let thrown: FerryError | null = null;
+      try {
+        loadFerryConfig('/repo');
+      } catch (e) {
+        thrown = e as FerryError;
+      }
+      expect(thrown).toBeInstanceOf(FerryError);
+      const errors = thrown?.context?.errors as string[];
+      expect(errors.some((e) => e.includes('default'))).toBe(true);
+    });
+
+    it('throws when a mapping value is an empty string', () => {
+      mockConfigFile(
+        'ferry.config.json',
+        JSON.stringify({ git: { working_branch_prefix: { Bug: '', default: 'ferry/' } } }),
+      );
+      let thrown: FerryError | null = null;
+      try {
+        loadFerryConfig('/repo');
+      } catch (e) {
+        thrown = e as FerryError;
+      }
+      expect(thrown).toBeInstanceOf(FerryError);
+      const errors = thrown?.context?.errors as string[];
+      expect(errors.some((e) => e.includes('git.working_branch_prefix.Bug'))).toBe(true);
+    });
+
+    it('throws when a mapping value is not a string', () => {
+      mockConfigFile(
+        'ferry.config.json',
+        JSON.stringify({ git: { working_branch_prefix: { Bug: 42, default: 'ferry/' } } }),
+      );
+      expect(() => loadFerryConfig('/repo')).toThrow(FerryError);
+    });
+
+    it('throws when working_branch_prefix is an invalid type (array)', () => {
+      mockConfigFile(
+        'ferry.config.json',
+        JSON.stringify({ git: { working_branch_prefix: ['bugfix/'] } }),
+      );
+      expect(() => loadFerryConfig('/repo')).toThrow(FerryError);
+    });
+
     it('throws on non-string base_branch', () => {
       mockConfigFile('ferry.config.json', JSON.stringify({ git: { base_branch: 42 } }));
       let thrown: FerryError | null = null;

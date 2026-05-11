@@ -13,6 +13,7 @@ import {
   buildTicketBlock,
   createGitHubContext,
   resolveGitConfig,
+  resolveBranchPrefix,
   loadFerryConfigFromBaseBranch,
   logCapabilities,
   logTypeOverrides,
@@ -52,7 +53,7 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
   logTypeOverrides(logger, typeOverrides);
 
   // Find PR for this ticket's branch
-  const branchName = `ferry/${ticketKey}`;
+  const branchName = `${resolveBranchPrefix(ferryCfg.git.working_branch_prefix, issue)}${ticketKey}`;
   const prs = await runner.listPRsForBranch(owner, repo, branchName);
 
   if (prs.length === 0) {
