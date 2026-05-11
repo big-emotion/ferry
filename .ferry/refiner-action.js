@@ -827,8 +827,24 @@ function validateConfigShape(raw) {
         errs.push("git.target_branch: must be a non-empty string or null");
       }
       if (g.working_branch_prefix !== void 0) {
-        if (typeof g.working_branch_prefix !== "string" || g.working_branch_prefix.length === 0) {
-          errs.push("git.working_branch_prefix: must be a non-empty string");
+        if (typeof g.working_branch_prefix === "string") {
+          if (g.working_branch_prefix.length === 0) {
+            errs.push("git.working_branch_prefix: must be a non-empty string");
+          }
+        } else if (g.working_branch_prefix !== null && typeof g.working_branch_prefix === "object" && !Array.isArray(g.working_branch_prefix)) {
+          const mapping = g.working_branch_prefix;
+          if (!("default" in mapping)) {
+            errs.push('git.working_branch_prefix: mapping must include a "default" key');
+          }
+          for (const [k, v] of Object.entries(mapping)) {
+            if (typeof v !== "string" || v.length === 0) {
+              errs.push(`git.working_branch_prefix.${k}: must be a non-empty string`);
+            }
+          }
+        } else {
+          errs.push(
+            'git.working_branch_prefix: must be a non-empty string or a mapping object with a "default" key'
+          );
         }
       }
     }
@@ -1023,7 +1039,7 @@ function mergeWithDefaults(raw) {
     git: {
       base_branch: "base_branch" in g ? nullableStr(g.base_branch, null) : DEFAULT_FERRY_CONFIG.git.base_branch,
       target_branch: "target_branch" in g ? nullableStr(g.target_branch, null) : DEFAULT_FERRY_CONFIG.git.target_branch,
-      working_branch_prefix: typeof g.working_branch_prefix === "string" ? g.working_branch_prefix : DEFAULT_FERRY_CONFIG.git.working_branch_prefix
+      working_branch_prefix: typeof g.working_branch_prefix === "string" ? g.working_branch_prefix : g.working_branch_prefix !== null && typeof g.working_branch_prefix === "object" && !Array.isArray(g.working_branch_prefix) ? g.working_branch_prefix : DEFAULT_FERRY_CONFIG.git.working_branch_prefix
     },
     ...labels !== void 0 ? { labels } : {},
     workflow: mergeWorkflow(raw.workflow)
