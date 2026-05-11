@@ -25,6 +25,22 @@ export const LABELS_ALLOWLIST = [
   'ferry:type:force-bug',
   'ferry:type:force-spike',
   'ferry:type:force-story',
+  // Configuration override labels (user-applied; parsed by resolveTicketOverrides)
+  // Prefix-only entries: the actual label appends additional segments
+  'ferry:model/',
+  'ferry:provider/',
+  'ferry:budget/',
+  'ferry:budget/max-cost/',
+  'ferry:budget/max-tokens/',
+  'ferry:skip/',
+  'ferry:thinking/',
+  'ferry:thinking/on',
+  'ferry:thinking/off',
+  'ferry:git/',
+  'ferry:git/no-pr',
+  // Config-label namespace prefixes (handled by resolveCapabilities, not resolveTicketOverrides)
+  'ferry:mcp/',
+  'ferry:profile/',
   // Routing (user-applied, not agent-applied)
   'critical',
   // Dynamic cost-estimate labels (prefix only; full label is "ferry:cost-estimate:<lo>-<hi>")

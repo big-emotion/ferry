@@ -3,12 +3,29 @@ import type { McpServerConfig } from '../llm/agent-loop/types.js';
 import type { Logger } from '../logger/index.js';
 
 /**
- * Overrides derived from built-in ferry:type:* labels on the Jira ticket.
+ * Agent phase keys — match the FerryConfig.models property names.
+ * Used as the phase segment in ferry:model/<phase>/... and ferry:provider/<phase>/... labels.
+ */
+export type AgentPhase = 'refiner' | 'dev' | 'review' | 'iterate';
+
+/** Per-phase model/provider override derived from a ferry:model/* or ferry:provider/* label. */
+export interface PhaseModelOverride {
+  model?: string;
+  provider?: 'anthropic' | 'openai' | 'google';
+}
+
+/**
+ * Overrides derived from built-in ferry:* configuration labels on the Jira ticket.
  *
  * These labels are always recognised regardless of the consumer's ferry.config.json
  * — they are not consumer-configurable.
+ *
+ * The resolver (`resolveTicketOverrides` in overrides.ts) applies precedence:
+ * Jira label > ferry.config.yaml > env vars > defaults.
  */
 export interface TicketOverrides {
+  // --- ferry:type:* (ticket type) ---
+
   /** When true, the ticket bypasses the Task skip (FR6) and is processed as a Story. */
   bypassTaskSkip: boolean;
   /**
@@ -21,6 +38,60 @@ export interface TicketOverrides {
    * Only set when typeOverride is present.
    */
   forceLabel?: string;
+
+  // --- ferry:model/<phase>/<model-id> and ferry:provider/<phase>/<provider> ---
+
+  /**
+   * Per-phase model/provider overrides from ferry:model/* and ferry:provider/* labels.
+   * Keys present only when a matching label exists on the ticket.
+   */
+  modelOverrides?: Partial<Record<AgentPhase, PhaseModelOverride>>;
+
+  // --- ferry:budget/* ---
+
+  /**
+   * Cost and token budget overrides from ferry:budget/* labels.
+   * ferry:budget/max-cost/<eur> overrides limits.max_cost_eur_per_run.
+   * ferry:budget/max-tokens/<n> overrides limits.max_tokens_per_run.
+   */
+  budget?: {
+    maxCostEurPerRun?: number;
+    maxTokensPerRun?: number;
+  };
+
+  // --- ferry:skip/<phase> ---
+
+  /**
+   * Phases to skip for this ticket.
+   * ferry:skip/dev means the Developer agent exits immediately.
+   */
+  skipPhases?: AgentPhase[];
+
+  // --- ferry:thinking/* ---
+
+  /**
+   * Extended-thinking mode override.
+   * ferry:thinking/on enables thinking; ferry:thinking/off disables it.
+   */
+  thinking?: 'on' | 'off';
+
+  // --- ferry:git/* ---
+
+  /**
+   * Git behaviour overrides derived from ferry:git/* labels.
+   * ferry:git/no-pr skips PR creation at the end of a Developer run.
+   */
+  git?: {
+    noPr?: boolean;
+  };
+
+  // --- ferry:paused (safety) ---
+
+  /**
+   * True when the ticket carries the ferry:paused label (applied by cost governance).
+   * Agents should exit immediately without processing when this is true.
+   */
+  paused?: boolean;
 }
 
 /** Built-in label → normalised issue type mapping. Order matters: last match wins. */

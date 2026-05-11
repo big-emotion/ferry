@@ -3,7 +3,7 @@ import { delimitUntrusted } from '../../lib/llm/delimit-untrusted.js';
 import { checkIdempotencyMarker } from '../../lib/io/idempotency.js';
 import { gateCi } from './ci-gate.js';
 import { detectMergeConflicts, buildFileList, runReviewLoop } from './review-loop.js';
-import { resolveCapabilities, resolveTypeOverrides } from '../../lib/labels/capabilities.js';
+import { resolveCapabilities, resolveTypeOverrides } from '../../lib/agent-runtime/index.js';
 import {
   requireEnv,
   appendOutput,
