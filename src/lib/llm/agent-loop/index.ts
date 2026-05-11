@@ -36,6 +36,7 @@ export interface CreateAgentLoopOpts {
   maxIterations?: number;
   maxInputTokens?: number;
   maxTokens?: number;
+  maxCostEur?: number;
   compactWindow?: number;
   logger?: import('../../logger/index.js').Logger;
 }
@@ -60,6 +61,7 @@ export function createAgentLoop(opts: CreateAgentLoopOpts): AgentLoop {
       maxIterations: opts.maxIterations,
       maxInputTokens: opts.maxInputTokens,
       maxTokens: opts.maxTokens,
+      maxCostEur: opts.maxCostEur,
       compactWindow: opts.compactWindow,
       logger: opts.logger,
     });
@@ -75,6 +77,7 @@ export function createAgentLoop(opts: CreateAgentLoopOpts): AgentLoop {
       maxIterations: opts.maxIterations,
       maxInputTokens: opts.maxInputTokens,
       maxTokens: opts.maxTokens,
+      maxCostEur: opts.maxCostEur,
       compactWindow: opts.compactWindow,
       logger: opts.logger,
     });
@@ -90,6 +93,7 @@ export function createAgentLoop(opts: CreateAgentLoopOpts): AgentLoop {
       maxIterations: opts.maxIterations,
       maxInputTokens: opts.maxInputTokens,
       maxTokens: opts.maxTokens,
+      maxCostEur: opts.maxCostEur,
       compactWindow: opts.compactWindow,
       logger: opts.logger,
     });

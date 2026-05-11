@@ -41,6 +41,7 @@ import {
 } from '../../lib/agent-runtime/index.js';
 import type { EventEnvelopeV1 } from '../../lib/envelope/types.js';
 import type { Logger } from '../../lib/agent-runtime/index.js';
+import { FerryError } from '../../lib/errors/index.js';
 
 const REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
 
@@ -67,9 +68,11 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
   // so a label added between iterations takes effect on the next cycle.
   let effectiveCfg: typeof ferryCfg;
   let typeOverride: string | undefined;
+  let labelMaxIterations: number | undefined;
   try {
     const overrides = resolveTicketOverrides(issue.labels, logger);
     typeOverride = overrides.typeOverride;
+    labelMaxIterations = overrides.maxIterations;
     effectiveCfg = applyTicketOverrides(ferryCfg, overrides);
     logTicketOverrides(logger, overrides);
     if (hasNonDefaultOverrides(overrides)) {
@@ -226,20 +229,61 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
     maxIterations: effectiveCfg.limits.max_agent_iterations,
     maxInputTokens: effectiveCfg.limits.max_tokens_per_run,
     maxTokens: effectiveCfg.limits.max_tokens_per_message,
+    maxCostEur: effectiveCfg.limits.max_cost_eur_per_run,
     executeTool,
     commitProgress: makeCommitProgress(logger),
     logger,
   });
 
-  const loopResult = await loop.run({
-    system,
-    initialPrompt,
-    tools: [...TOOL_SCHEMAS, COMMIT_PROGRESS_SCHEMA],
-    repoRoot: REPO_ROOT,
-    branchName,
-    secretScan,
-    mcpServers,
-  });
+  let loopResult: Awaited<ReturnType<typeof loop.run>>;
+  try {
+    loopResult = await loop.run({
+      system,
+      initialPrompt,
+      tools: [...TOOL_SCHEMAS, COMMIT_PROGRESS_SCHEMA],
+      repoRoot: REPO_ROOT,
+      branchName,
+      secretScan,
+      mcpServers,
+    });
+  } catch (loopErr) {
+    // EUR budget cap: apply ferry:spend-cap label and post audit comment.
+    if (
+      loopErr instanceof FerryError &&
+      loopErr.code === 'spend-cap' &&
+      loopErr.context?.reason === 'eur-budget-exceeded'
+    ) {
+      const consumedEur = (loopErr.context.consumed as number | undefined) ?? 0;
+      const capEur = (loopErr.context.cap as number | undefined) ?? 0;
+      try {
+        await tracker.addLabel(ticketKey, 'ferry:spend-cap');
+        await tracker.postComment(
+          ticketKey,
+          `${idempotencyMarker} Budget cap €${capEur} reached — €${consumedEur.toFixed(4)} spent. Labeled ferry:spend-cap.`,
+        );
+      } catch {
+        // best-effort
+      }
+      appendOutput({ input_tokens: 0, output_tokens: 0, model, provider: iterProvider });
+      process.exit(1);
+    }
+    // ferry:max-iterations/<n> label: hitting the agent-loop iteration cap is success-of-intent.
+    if (
+      labelMaxIterations !== undefined &&
+      loopErr instanceof FerryError &&
+      loopErr.code === 'state-invariant' &&
+      loopErr.context?.reason === 'iteration-cap-exceeded'
+    ) {
+      await tracker.postComment(
+        ticketKey,
+        `${idempotencyMarker} Agent iteration cap (${labelMaxIterations}) reached per ferry:max-iterations/${labelMaxIterations} label — exiting cleanly.`,
+      );
+      appendOutput({ input_tokens: 0, output_tokens: 0, model, provider: iterProvider });
+      process.exit(0);
+    }
+    throw loopErr;
+  }
+
   const { done, usage, iterations } = loopResult;
 
   const resolvedOutcome = done.outcome ?? (done.actionable ? 'implemented' : 'blocked');
