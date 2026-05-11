@@ -20,8 +20,12 @@ export interface GitConfig {
   base_branch: string | null;
   /** Branch the PR targets. null = same as base_branch. */
   target_branch: string | null;
-  /** Prefix for working branches created by the Developer. */
-  working_branch_prefix: string;
+  /**
+   * Prefix for working branches created by the Developer.
+   * String → static prefix (e.g. "ferry/").
+   * Mapping → resolved per Jira issue type (requires a "default" key).
+   */
+  working_branch_prefix: string | Record<string, string>;
 }
 
 export interface RefinerWorkflowAgentConfig {
@@ -415,8 +419,28 @@ function validateConfigShape(raw: unknown): ValidationError[] {
         errs.push('git.target_branch: must be a non-empty string or null');
       }
       if (g.working_branch_prefix !== undefined) {
-        if (typeof g.working_branch_prefix !== 'string' || g.working_branch_prefix.length === 0) {
-          errs.push('git.working_branch_prefix: must be a non-empty string');
+        if (typeof g.working_branch_prefix === 'string') {
+          if (g.working_branch_prefix.length === 0) {
+            errs.push('git.working_branch_prefix: must be a non-empty string');
+          }
+        } else if (
+          g.working_branch_prefix !== null &&
+          typeof g.working_branch_prefix === 'object' &&
+          !Array.isArray(g.working_branch_prefix)
+        ) {
+          const mapping = g.working_branch_prefix as Record<string, unknown>;
+          if (!('default' in mapping)) {
+            errs.push('git.working_branch_prefix: mapping must include a "default" key');
+          }
+          for (const [k, v] of Object.entries(mapping)) {
+            if (typeof v !== 'string' || v.length === 0) {
+              errs.push(`git.working_branch_prefix.${k}: must be a non-empty string`);
+            }
+          }
+        } else {
+          errs.push(
+            'git.working_branch_prefix: must be a non-empty string or a mapping object with a "default" key',
+          );
         }
       }
     }
@@ -640,7 +664,11 @@ function mergeWithDefaults(raw: RawConfig): FerryConfig {
       working_branch_prefix:
         typeof g.working_branch_prefix === 'string'
           ? g.working_branch_prefix
-          : DEFAULT_FERRY_CONFIG.git.working_branch_prefix,
+          : g.working_branch_prefix !== null &&
+              typeof g.working_branch_prefix === 'object' &&
+              !Array.isArray(g.working_branch_prefix)
+            ? (g.working_branch_prefix as Record<string, string>)
+            : DEFAULT_FERRY_CONFIG.git.working_branch_prefix,
     },
     ...(labels !== undefined ? { labels } : {}),
     workflow: mergeWorkflow(raw.workflow),

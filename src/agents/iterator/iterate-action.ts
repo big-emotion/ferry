@@ -28,6 +28,7 @@ import {
   checkoutExistingBranch,
   createGitHubContext,
   resolveGitConfig,
+  resolveBranchPrefix,
   loadFerryConfigFromBaseBranch,
   byEventId,
   byPrHeadSha,
@@ -46,12 +47,7 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
   // Resolve baseBranch before using any config values, then reload config from that branch.
   // On repository_dispatch, actions/checkout resolves to the default branch, not base_branch,
   // so the workspace may contain a stale ferry.config.json.
-  const { baseBranch, workingBranchPrefix } = await resolveGitConfig(
-    initialCfg,
-    runner,
-    owner,
-    repo,
-  );
+  const { baseBranch } = await resolveGitConfig(initialCfg, runner, owner, repo);
   const ferryCfg = loadFerryConfigFromBaseBranch(baseBranch, REPO_ROOT, initialCfg);
 
   const { provider: iterProvider, model } = ferryCfg.models.iterate;
@@ -80,7 +76,7 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
     { iteration: priorIterations, hasFindings: true },
     ferryCfg.limits.max_iterations,
   );
-  const branchName = `${workingBranchPrefix}${ticketKey}`;
+  const branchName = `${resolveBranchPrefix(ferryCfg.git.working_branch_prefix, issue)}${ticketKey}`;
   const prs = await runner.listPRsForBranch(owner, repo, branchName);
 
   if (prs.length === 0) {

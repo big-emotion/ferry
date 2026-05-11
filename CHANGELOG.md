@@ -11,6 +11,12 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Configurable working branch prefix per issue type** (`git.working_branch_prefix` mapping) — `working_branch_prefix` now accepts either a plain string (existing behaviour, default `"ferry/"`) or a mapping object whose keys are Jira issue type names and whose `default` key covers unmatched types. At runtime the prefix is resolved by checking for a `ferry:type:<name>` label on the ticket first, then the ticket's Jira issue type, then `mapping.default`. This enables [Conventional Branch](https://conventional-branch.github.io/) naming out of the box — see `docs/CONFIGURATION.md` for a copy-pasteable recipe. Existing consumers are unaffected; the default remains `"ferry/"`.
+
+### Fixed
+
+- **Reviewer agent was ignoring `git.working_branch_prefix` config** — `review-action.ts` hardcoded the PR branch lookup as `` `ferry/${ticketKey}` `` instead of reading the resolved prefix from `ferry.config`. Consumers who overrode `working_branch_prefix` found the Reviewer unable to locate the PR. The Reviewer now resolves the prefix from the reloaded base-branch config, consistent with the Developer and Iterator agents.
+
 - **`ferry-cost-stats` CLI** — `npx -p @big-emotion/ferry ferry-cost-stats` reads `ferry-audit.jsonl` and writes `cost-baseline.json` with per-phase median and p90 cost in USD. Flags: `--audit-log`, `--repo`, `--out`. Commit the baseline to your repo root so the Refiner can read it at runtime. See [`docs/COST.md`](docs/COST.md) for full usage.
 - **Refiner cost estimation** — when `cost-baseline.json` is present, the Refiner now computes a `$lo–$hi` cost range after producing its plan, posts it as a Jira comment (`[ferry:refiner-estimate:<id>]`), and applies a `ferry:cost-estimate:<lo>-<hi>` label. Set `COST_TICKET_MAX_USD` to refuse tickets whose estimated high exceeds the cap (posts a `[ferry:refiner-cap:<id>]` comment and exits without creating subtasks). See [`docs/COST.md`](docs/COST.md) for configuration details.
 - **`ferry-cost-report` CLI** — `npx -p @big-emotion/ferry ferry-cost-report` reads `ferry-audit.jsonl` and renders a spend breakdown with per-phase, per-model, per-ticket (top 20), and daily tables plus ASCII sparklines for daily spend and tokens/run trends. Supports `--from`, `--to`, `--ticket`, `--phase`, `--format` (`md`/`json`/`csv`), `--out`, and `--audit-log` flags. An anomalies section flags runs above p95 cost. See [`docs/COST.md`](docs/COST.md) for full usage.
