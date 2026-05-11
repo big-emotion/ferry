@@ -5396,6 +5396,90 @@ async function resolveGitConfig(ferryCfg, runner, owner, repo) {
   return { baseBranch, targetBranch, workingBranchPrefix: working_branch_prefix };
 }
 
+// src/lib/labels/capabilities.ts
+var FORCE_TYPE_LABELS = Object.freeze({
+  "ferry:type:force-bug": "Bug",
+  "ferry:type:force-spike": "Spike",
+  "ferry:type:force-story": "Story"
+});
+var ENABLE_TASK_LABEL = "ferry:type:enable-task";
+var BUILTIN_TYPE_LABELS = /* @__PURE__ */ new Set([
+  ENABLE_TASK_LABEL,
+  ...Object.keys(FORCE_TYPE_LABELS)
+]);
+function resolveTypeOverrides(labels) {
+  let bypassTaskSkip = false;
+  let typeOverride;
+  let forceLabel;
+  for (const label of labels) {
+    if (label === ENABLE_TASK_LABEL) {
+      bypassTaskSkip = true;
+    } else if (Object.prototype.hasOwnProperty.call(FORCE_TYPE_LABELS, label)) {
+      typeOverride = FORCE_TYPE_LABELS[label];
+      forceLabel = label;
+    }
+  }
+  return { bypassTaskSkip, typeOverride, forceLabel };
+}
+function isBuiltinTypeLabel(label) {
+  return BUILTIN_TYPE_LABELS.has(label);
+}
+function resolveCapabilities(ticketLabels, configLabels, logger) {
+  if (!configLabels) {
+    return {
+      mcpServerNames: [],
+      serverAllowedTools: {},
+      triggeredLabels: [],
+      unknownFerryLabels: []
+    };
+  }
+  const triggeredLabels = [];
+  const unknownFerryLabels = [];
+  const serverToolSets = {};
+  for (const label of ticketLabels) {
+    if (Object.prototype.hasOwnProperty.call(configLabels, label)) {
+      triggeredLabels.push(label);
+      const cap = configLabels[label];
+      for (const server of cap.mcp_servers ?? []) {
+        if (cap.tools && cap.tools.length > 0) {
+          if (serverToolSets[server] === void 0) {
+            serverToolSets[server] = new Set(cap.tools);
+          } else if (serverToolSets[server] !== null) {
+            for (const t of cap.tools) serverToolSets[server].add(t);
+          }
+        } else {
+          serverToolSets[server] = null;
+        }
+      }
+    } else if (label.startsWith("ferry:")) {
+      if (!isBuiltinTypeLabel(label)) {
+        unknownFerryLabels.push(label);
+        logger?.warn("unknown ferry label ignored", { label });
+      }
+    }
+  }
+  const serverAllowedTools = {};
+  for (const [server, tools] of Object.entries(serverToolSets)) {
+    serverAllowedTools[server] = tools ? [...tools] : [];
+  }
+  return {
+    mcpServerNames: Object.keys(serverToolSets),
+    serverAllowedTools,
+    triggeredLabels,
+    unknownFerryLabels
+  };
+}
+function filterMcpServers(pool, capabilities, hasLabelsConfig) {
+  if (!hasLabelsConfig) return pool;
+  return pool.filter((s) => capabilities.mcpServerNames.includes(s.name)).map((s) => {
+    const allowedTools = capabilities.serverAllowedTools[s.name];
+    if (allowedTools && allowedTools.length > 0) {
+      return { ...s, allowed_tools: allowedTools };
+    }
+    return s;
+  });
+}
+
 // src/lib/dry-run.ts
 function isDryRun() {
   return process.env.FERRY_DRY_RUN === "1" || process.env.FERRY_DRY_RUN === "true";
@@ -7216,90 +7300,6 @@ function createAgentLoop(opts) {
   throw new FerryError("state-invariant", {
     reason: "unknown-provider",
     provider: opts.provider
-  });
-}
-
-// src/lib/labels/capabilities.ts
-var FORCE_TYPE_LABELS = Object.freeze({
-  "ferry:type:force-bug": "Bug",
-  "ferry:type:force-spike": "Spike",
-  "ferry:type:force-story": "Story"
-});
-var ENABLE_TASK_LABEL = "ferry:type:enable-task";
-var BUILTIN_TYPE_LABELS = /* @__PURE__ */ new Set([
-  ENABLE_TASK_LABEL,
-  ...Object.keys(FORCE_TYPE_LABELS)
-]);
-function resolveTypeOverrides(labels) {
-  let bypassTaskSkip = false;
-  let typeOverride;
-  let forceLabel;
-  for (const label of labels) {
-    if (label === ENABLE_TASK_LABEL) {
-      bypassTaskSkip = true;
-    } else if (Object.prototype.hasOwnProperty.call(FORCE_TYPE_LABELS, label)) {
-      typeOverride = FORCE_TYPE_LABELS[label];
-      forceLabel = label;
-    }
-  }
-  return { bypassTaskSkip, typeOverride, forceLabel };
-}
-function isBuiltinTypeLabel(label) {
-  return BUILTIN_TYPE_LABELS.has(label);
-}
-function resolveCapabilities(ticketLabels, configLabels, logger) {
-  if (!configLabels) {
-    return {
-      mcpServerNames: [],
-      serverAllowedTools: {},
-      triggeredLabels: [],
-      unknownFerryLabels: []
-    };
-  }
-  const triggeredLabels = [];
-  const unknownFerryLabels = [];
-  const serverToolSets = {};
-  for (const label of ticketLabels) {
-    if (Object.prototype.hasOwnProperty.call(configLabels, label)) {
-      triggeredLabels.push(label);
-      const cap = configLabels[label];
-      for (const server of cap.mcp_servers ?? []) {
-        if (cap.tools && cap.tools.length > 0) {
-          if (serverToolSets[server] === void 0) {
-            serverToolSets[server] = new Set(cap.tools);
-          } else if (serverToolSets[server] !== null) {
-            for (const t of cap.tools) serverToolSets[server].add(t);
-          }
-        } else {
-          serverToolSets[server] = null;
-        }
-      }
-    } else if (label.startsWith("ferry:")) {
-      if (!isBuiltinTypeLabel(label)) {
-        unknownFerryLabels.push(label);
-        logger?.warn("unknown ferry label ignored", { label });
-      }
-    }
-  }
-  const serverAllowedTools = {};
-  for (const [server, tools] of Object.entries(serverToolSets)) {
-    serverAllowedTools[server] = tools ? [...tools] : [];
-  }
-  return {
-    mcpServerNames: Object.keys(serverToolSets),
-    serverAllowedTools,
-    triggeredLabels,
-    unknownFerryLabels
-  };
-}
-function filterMcpServers(pool, capabilities, hasLabelsConfig) {
-  if (!hasLabelsConfig) return pool;
-  return pool.filter((s) => capabilities.mcpServerNames.includes(s.name)).map((s) => {
-    const allowedTools = capabilities.serverAllowedTools[s.name];
-    if (allowedTools && allowedTools.length > 0) {
-      return { ...s, allowed_tools: allowedTools };
-    }
-    return s;
   });
 }
 

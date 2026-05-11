@@ -5296,6 +5296,18 @@ async function resolveGitConfig(ferryCfg, runner, owner, repo) {
   return { baseBranch, targetBranch, workingBranchPrefix: working_branch_prefix };
 }
 
+// src/lib/labels/capabilities.ts
+var FORCE_TYPE_LABELS = Object.freeze({
+  "ferry:type:force-bug": "Bug",
+  "ferry:type:force-spike": "Spike",
+  "ferry:type:force-story": "Story"
+});
+var ENABLE_TASK_LABEL = "ferry:type:enable-task";
+var BUILTIN_TYPE_LABELS = /* @__PURE__ */ new Set([
+  ENABLE_TASK_LABEL,
+  ...Object.keys(FORCE_TYPE_LABELS)
+]);
+
 // src/agents/refiner/refine.ts
 import { createRequire as createRequire3 } from "module";
 
