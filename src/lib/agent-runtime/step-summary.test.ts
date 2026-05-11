@@ -98,6 +98,28 @@ describe('formatStepSummary', () => {
     expect(out).not.toContain('5,000');
   });
 
+  it('formats numbers in en-US regardless of host locale (regression #226)', () => {
+    // Simulate a non-English host locale: patch toLocaleString to use 'fr-FR' when
+    // no explicit locale is passed. If production code ever drops the 'en-US' argument,
+    // French formatting (non-breaking-space grouping) will cause these assertions to fail.
+    const original = Number.prototype.toLocaleString;
+    Number.prototype.toLocaleString = function (
+      locale?: string | string[],
+      opts?: Intl.NumberFormatOptions,
+    ) {
+      return original.call(this, locale ?? 'fr-FR', opts);
+    };
+    try {
+      const out = formatStepSummary(baseStats);
+      expect(out).toContain('12,000');
+      expect(out).toContain('3,000');
+      expect(out).toContain('50,000');
+      expect(out).toContain('30,000');
+    } finally {
+      Number.prototype.toLocaleString = original;
+    }
+  });
+
   it('shows files touched', () => {
     const out = formatStepSummary(baseStats);
     expect(out).toContain('`src/foo.ts`');
