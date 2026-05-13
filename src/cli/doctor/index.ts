@@ -2,6 +2,7 @@
 import { execSync } from 'node:child_process';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { resolveForgeFromArgv } from '../lib/forge.js';
 import { checkSecrets } from './checks/secrets.js';
 import { checkGitHubApp } from './checks/github-app.js';
 import { checkJira } from './checks/jira.js';
@@ -91,6 +92,29 @@ function parseConfig(argv: string[]): DoctorConfig {
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
+
+  const forge = resolveForgeFromArgv(argv);
+  if (forge === 'gitlab') {
+    process.stdout.write(
+      [
+        '',
+        'ferry-doctor --forge gitlab is not yet implemented (tracked: #214).',
+        '',
+        'Until then, validate a GitLab install manually:',
+        '  1. Settings → CI/CD → Variables: confirm FERRY_GITLAB_TOKEN and the',
+        '     other secrets from examples/consumer-setup-gitlab/README.md are set',
+        '     and marked protected + masked.',
+        '  2. Settings → CI/CD → Pipeline triggers: confirm FERRY_GITLAB_PIPELINE_TRIGGER_TOKEN',
+        '     exists and your Jira Automation rule targets it.',
+        '  3. Run a dry-run pipeline by manually POSTing the trigger URL with',
+        '     a synthetic envelope and verifying the agent job picks it up.',
+        '',
+        'See docs/CONFIGURATION.md → "GitLab (experimental)" for the full reference.',
+        '',
+      ].join('\n'),
+    );
+    process.exit(0);
+  }
 
   if (hasFlag(argv, '--help') || hasFlag(argv, '-h')) {
     process.stdout.write(`

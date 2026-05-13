@@ -13,6 +13,7 @@ import {
   printError,
   printSkip,
 } from './prompt.js';
+import { resolveForgeFromArgv } from '../lib/forge.js';
 import { workflowTemplates } from './templates.js';
 import { stepGitHubApp } from './steps/github-app.js';
 import { buildSecrets, stepSecrets } from './steps/secrets.js';
@@ -48,6 +49,20 @@ function parseArgs(argv: string[]): { overwrite: boolean; version: string } {
 }
 
 async function main(): Promise<void> {
+  const forge = resolveForgeFromArgv(process.argv.slice(2));
+  if (forge === 'gitlab') {
+    print('');
+    print('ferry-init --forge gitlab is not yet implemented (tracked: #214).');
+    print('');
+    print('For the time being, scaffold a GitLab project by copying the templates');
+    print('under examples/consumer-setup-gitlab/ (see its README.md) and following');
+    print('the GitLab section in docs/CONFIGURATION.md.');
+    print('');
+    print('GitLab support is experimental — see #210 for the promotion checklist.');
+    closePrompt();
+    process.exit(0);
+  }
+
   const { overwrite, version } = parseArgs(process.argv.slice(2));
 
   print('');

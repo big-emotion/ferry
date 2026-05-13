@@ -17,6 +17,7 @@ import { buildManualSetupDoc } from '../init/steps/jira-bundle.js';
 import { detectInstalledVersion, computeWorkflowChanges } from './detect.js';
 import { getRelevantMigrations } from './migrations.js';
 import { extractJiraConfigFromSetupFile } from './extract-jira-config.js';
+import { resolveForgeFromArgv } from '../lib/forge.js';
 import type { UpdateConfig } from './types.js';
 
 const _require = createRequire(import.meta.url);
@@ -51,6 +52,26 @@ function parseArgs(argv: string[]): UpdateConfig {
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
+
+  const forge = resolveForgeFromArgv(argv);
+  if (forge === 'gitlab') {
+    process.stdout.write(
+      [
+        '',
+        'ferry-update --forge gitlab is not yet implemented (tracked: #214).',
+        '',
+        'Until then, bump GitLab includes manually:',
+        '  1. Edit your top-level .gitlab-ci.yml and the per-role includes.',
+        '  2. Bump the pinned npm version (FERRY_VERSION CI variable, or the',
+        '     `@big-emotion/ferry@<version>` reference in each role file).',
+        '  3. Re-read MIGRATIONS.md for any manual follow-ups between versions.',
+        '',
+        'See examples/consumer-setup-gitlab/ for the latest reference files.',
+        '',
+      ].join('\n'),
+    );
+    process.exit(0);
+  }
 
   if (hasFlag(argv, '--help') || hasFlag(argv, '-h')) {
     process.stdout.write(`ferry-update — bump Ferry workflow files to a newer version
