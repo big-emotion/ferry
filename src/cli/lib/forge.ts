@@ -15,8 +15,12 @@ export type ForgeKind = 'github' | 'gitlab';
 export const FORGE_HELP =
   'Use --forge github (default) or --forge gitlab. Run with --forge gitlab to scaffold a GitLab project (experimental — see https://github.com/big-emotion/ferry/issues/210).';
 
-const GITHUB_REMOTE = /github\.com[:/]([^/]+\/[^/.]+)/;
-const GITLAB_REMOTE = /gitlab\.com[:/]([^/]+\/[^/.]+)/;
+// Anchored on a remote-URL prefix (https://, git@, ssh://...@) so the host
+// is matched as the actual host and not as a substring elsewhere in the URL.
+const REMOTE_PREFIX = String.raw`^(?:https?:\/\/|git@|ssh:\/\/[^@]+@)`;
+const GITHUB_REMOTE = new RegExp(`${REMOTE_PREFIX}github\\.com[:/]([^/]+\\/[^/.]+)`);
+const GITLAB_REMOTE = new RegExp(`${REMOTE_PREFIX}gitlab\\.com[:/]([^/]+\\/[^/.]+)`);
+const SELF_MANAGED_GITLAB = new RegExp(`${REMOTE_PREFIX}[^/]*gitlab[.\\-/]`);
 
 /**
  * Parse `--forge <value>` from argv. Returns `undefined` when absent so callers
@@ -54,9 +58,9 @@ export function detectForgeFromGit(remoteOverride?: string): ForgeKind | undefin
   if (!remote) return undefined;
   if (GITHUB_REMOTE.test(remote)) return 'github';
   if (GITLAB_REMOTE.test(remote)) return 'gitlab';
-  // Self-managed GitLab instances usually expose a slug containing "/gitlab/"
-  // in their remote URL — match conservatively.
-  if (/\/gitlab[./]/.test(remote)) return 'gitlab';
+  // Self-managed GitLab instances usually have a host containing "gitlab" —
+  // matched conservatively only as the URL host, not as a substring elsewhere.
+  if (SELF_MANAGED_GITLAB.test(remote)) return 'gitlab';
   return undefined;
 }
 
