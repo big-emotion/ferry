@@ -42,12 +42,8 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
   const { baseBranch } = await resolveGitConfig(initialCfg, runner, owner, repo);
   const ferryCfg = loadFerryConfigFromBaseBranch(baseBranch, REPO_ROOT, initialCfg);
   const reviewerWorkflow = ferryCfg.workflow.agents.reviewer;
-  const shouldTransitionChanges = reviewerWorkflow.auto_transition_changes !== null;
-  const shouldTransitionApprove = reviewerWorkflow.auto_transition_approve !== null;
-  const iterTransitionId = shouldTransitionChanges ? requireEnv('FERRY_ITER_TRANSITION_ID') : '';
-  const approveTransitionId = shouldTransitionApprove
-    ? requireEnv('FERRY_APPROVE_TRANSITION_ID')
-    : '';
+  const configTransitionChanges = reviewerWorkflow.auto_transition_changes !== null;
+  const configTransitionApprove = reviewerWorkflow.auto_transition_approve !== null;
 
   const issue = await tracker.getIssue(ticketKey);
   const existingComments = issue.comments;
@@ -55,9 +51,15 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
   // Resolve label overrides (model/provider/budget/…) — Jira labels take highest precedence.
   let effectiveCfg: typeof ferryCfg;
   let typeOverride: string | undefined;
+  let autoApprove = false;
+  let noAutoTransition = false;
   try {
-    const overrides = resolveTicketOverrides(issue.labels, logger);
+    const overrides = resolveTicketOverrides(issue.labels, logger, {
+      allowSkipReview: ferryCfg.safety?.allow_skip_review === true,
+    });
     typeOverride = overrides.typeOverride;
+    autoApprove = overrides.skipPhases?.includes('review') === true;
+    noAutoTransition = overrides.noAutoTransition === true;
     effectiveCfg = applyTicketOverrides(ferryCfg, overrides);
     logTicketOverrides(logger, overrides);
     if (hasNonDefaultOverrides(overrides)) {
@@ -73,6 +75,14 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
     }
     throw err;
   }
+
+  // FR24 auto-transitions are gated by both config and the ferry:no-auto-transition label.
+  const shouldTransitionChanges = configTransitionChanges && !noAutoTransition;
+  const shouldTransitionApprove = configTransitionApprove && !noAutoTransition;
+  const iterTransitionId = shouldTransitionChanges ? requireEnv('FERRY_ITER_TRANSITION_ID') : '';
+  const approveTransitionId = shouldTransitionApprove
+    ? requireEnv('FERRY_APPROVE_TRANSITION_ID')
+    : '';
 
   const { provider, model } = effectiveCfg.models.review;
 
@@ -108,6 +118,36 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
   const { skipped } = checkIdempotencyMarker(idempotencyMarker, existingComments);
   if (skipped) {
     logger.info('already processed, skipping', { sha: headSha.slice(0, 7) });
+    appendOutput({ input_tokens: 0, output_tokens: 0, model, provider });
+    return;
+  }
+
+  // ferry:skip/review — auto-approve without running the review loop.
+  // Gated above by `safety.allow_skip_review`; this branch only runs when the opt-in is on.
+  if (autoApprove) {
+    logger.info('review phase skipped via ferry:skip/review — auto-approving', {
+      pr: prNumber,
+      sha: headSha.slice(0, 7),
+    });
+    const approveTransitionNote = shouldTransitionApprove
+      ? ' Moved to next column.'
+      : noAutoTransition
+        ? ' FR24 auto-transition skipped (ferry:no-auto-transition).'
+        : '';
+    await tracker.postComment(
+      ticketKey,
+      `${idempotencyMarker} Auto-approved via ferry:skip/review — review loop bypassed. PR#${prNumber}.${approveTransitionNote}`,
+    );
+    await runner.addLabelsToPR({ owner, repo, prNumber }, ['ferry:approved']);
+    await runner.removeLabelFromPR({ owner, repo, prNumber }, 'ferry:reviewing').catch(() => {});
+    await runner.markPRReadyForReview(owner, repo, prNumber);
+    await runner.commentOnPR(
+      { owner, repo, prNumber },
+      `${idempotencyMarker} Auto-approved via ferry:skip/review label — review skipped per ticket opt-in.`,
+    );
+    if (shouldTransitionApprove) {
+      await tracker.postTransition(ticketKey, approveTransitionId);
+    }
     appendOutput({ input_tokens: 0, output_tokens: 0, model, provider });
     return;
   }

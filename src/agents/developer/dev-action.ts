@@ -68,10 +68,7 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
   const ferryCfg = loadFerryConfigFromBaseBranch(baseBranch, REPO_ROOT, initialCfg);
 
   const devWorkflow = ferryCfg.workflow.agents.developer;
-  const shouldAutoTransition = devWorkflow.auto_transition !== null;
-  const reviewTransitionId =
-    dryRun || !shouldAutoTransition ? '' : requireEnv('FERRY_REVIEW_TRANSITION_ID');
-  const jiraBaseUrl = requireEnv('FERRY_JIRA_BASE_URL');
+  const configAutoTransition = devWorkflow.auto_transition !== null;
 
   const issue = await tracker.getIssue(ticketKey);
 
@@ -79,10 +76,14 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
   let effectiveCfg = ferryCfg;
   let typeOverride: string | undefined;
   let forceLabel: string | undefined;
+  let noAutoTransition = false;
   try {
-    const overrides = resolveTicketOverrides(issue.labels, logger);
+    const overrides = resolveTicketOverrides(issue.labels, logger, {
+      allowSkipReview: ferryCfg.safety?.allow_skip_review === true,
+    });
     typeOverride = overrides.typeOverride;
     forceLabel = overrides.forceLabel;
+    noAutoTransition = overrides.noAutoTransition === true;
     effectiveCfg = applyTicketOverrides(ferryCfg, overrides);
     logTicketOverrides(logger, overrides);
     if (hasNonDefaultOverrides(overrides)) {
@@ -91,6 +92,15 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
         buildOverridesAuditComment('developer', eventId, overrides),
       );
     }
+    // ferry:skip/dev — Developer exits immediately.
+    if (overrides.skipPhases?.includes('dev')) {
+      logger.info('dev phase skipped via ferry:skip/dev — exiting');
+      await tracker.postComment(
+        ticketKey,
+        `[ferry:developer:${eventId}] Developer skipped via ferry:skip/dev — no implementation performed.`,
+      );
+      process.exit(0);
+    }
   } catch (err) {
     if (err instanceof LabelConflictError) {
       await tracker.postComment(ticketKey, buildConflictComment('developer', eventId, err));
@@ -98,6 +108,12 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
     }
     throw err;
   }
+
+  // FR18 auto-transition is gated by both config and the ferry:no-auto-transition label.
+  const shouldAutoTransition = configAutoTransition && !noAutoTransition;
+  const reviewTransitionId =
+    dryRun || !shouldAutoTransition ? '' : requireEnv('FERRY_REVIEW_TRANSITION_ID');
+  const jiraBaseUrl = requireEnv('FERRY_JIRA_BASE_URL');
 
   const { provider: devProvider } = effectiveCfg.models.dev;
   const labels = issue.labels.join(', ');
@@ -435,7 +451,11 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
     if (shouldAutoTransition) {
       await tracker.postTransition(ticketKey, reviewTransitionId);
     }
-    const transitionNote = shouldAutoTransition ? ' Moved to Review.' : '';
+    const transitionNote = shouldAutoTransition
+      ? ' Moved to Review.'
+      : noAutoTransition
+        ? ' FR18 auto-transition skipped (ferry:no-auto-transition).'
+        : '';
 
     const forceOverrideName = forceLabel?.split(':').at(-1);
     const overrideNote = typeOverride

@@ -122,6 +122,18 @@ export interface FerryConfig {
   git: GitConfig;
   labels?: Record<string, LabelCapability>;
   workflow: WorkflowConfig;
+  /**
+   * Safety opt-ins. Currently:
+   * - `allow_skip_review`: when true, the `ferry:skip/review` label auto-approves
+   *   the PR at the Reviewer phase. Default false — the label is ignored without
+   *   this repo-level opt-in. Prevents a single Jira user from bypassing review
+   *   without the repo owner's consent.
+   */
+  safety?: SafetyConfig;
+}
+
+export interface SafetyConfig {
+  allow_skip_review?: boolean;
 }
 
 export const DEFAULT_FERRY_CONFIG: FerryConfig = {
@@ -468,6 +480,17 @@ function validateConfigShape(raw: unknown): ValidationError[] {
     errs.push(...validateWorkflow(c.workflow));
   }
 
+  if (c.safety !== undefined) {
+    if (!c.safety || typeof c.safety !== 'object' || Array.isArray(c.safety)) {
+      errs.push('safety: must be an object');
+    } else {
+      const s = c.safety as Record<string, unknown>;
+      if (s.allow_skip_review !== undefined && typeof s.allow_skip_review !== 'boolean') {
+        errs.push('safety.allow_skip_review: must be a boolean');
+      }
+    }
+  }
+
   return errs;
 }
 
@@ -672,6 +695,18 @@ function mergeWithDefaults(raw: RawConfig): FerryConfig {
     },
     ...(labels !== undefined ? { labels } : {}),
     workflow: mergeWorkflow(raw.workflow),
+    ...(raw.safety && typeof raw.safety === 'object' && !Array.isArray(raw.safety)
+      ? {
+          safety: {
+            ...(typeof (raw.safety as Record<string, unknown>).allow_skip_review === 'boolean'
+              ? {
+                  allow_skip_review: (raw.safety as Record<string, unknown>)
+                    .allow_skip_review as boolean,
+                }
+              : {}),
+          },
+        }
+      : {}),
   };
 }
 

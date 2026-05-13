@@ -57,6 +57,10 @@ export function logTicketOverrides(logger: Logger, overrides: TicketOverrides): 
     logger.info('phase skip active', { phases: overrides.skipPhases });
   }
 
+  if (overrides.noAutoTransition) {
+    logger.info('no-auto-transition active (ferry:no-auto-transition)');
+  }
+
   if (overrides.thinking !== undefined) {
     logger.info('thinking override', { thinking: overrides.thinking });
   }

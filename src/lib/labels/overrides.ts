@@ -55,6 +55,15 @@ const KNOWN_STATUS_LABELS: ReadonlySet<string> = new Set([
   'ferry:audit-log:active',
 ]);
 
+/** Map of accepted ferry:skip/<suffix> values to the AgentPhase they refer to. */
+const SKIP_PHASE_ALIASES: Readonly<Record<string, AgentPhase>> = Object.freeze({
+  refiner: 'refiner',
+  dev: 'dev',
+  review: 'review',
+  iter: 'iterate', // alias from issue #239 — "iter" maps to the Iterator phase
+  iterate: 'iterate',
+});
+
 function isKnownNonOverrideLabel(label: string): boolean {
   if (isBuiltinTypeLabel(label)) return true;
   if (KNOWN_STATUS_LABELS.has(label)) return true;
@@ -64,24 +73,42 @@ function isKnownNonOverrideLabel(label: string): boolean {
   return false;
 }
 
+/** Options for resolveTicketOverrides — repo-level opt-ins that gate dangerous labels. */
+export interface ResolveOverridesOptions {
+  /**
+   * When true, the `ferry:skip/review` label is honoured (auto-approves the PR).
+   * Defaults to false — the label is treated as unknown and a warning is emitted.
+   * Sourced from `ferry.config.yaml` § `safety.allow_skip_review`.
+   */
+  allowSkipReview?: boolean;
+}
+
 /**
  * Resolves all built-in ferry:* configuration labels into a `TicketOverrides` struct.
  *
  * Handles the following namespaces:
- * - ferry:type:*          — ticket-type overrides (via resolveTypeOverrides)
- * - ferry:model/phase/id  — per-phase model overrides
- * - ferry:provider/phase  — per-phase provider overrides
- * - ferry:budget/*        — cost / token budget overrides
- * - ferry:skip/phase      — phase skip
- * - ferry:thinking/on|off — extended-thinking toggle
- * - ferry:git/no-pr       — skip PR creation
- * - ferry:paused          — safety pause flag
+ * - ferry:type:*               — ticket-type overrides (via resolveTypeOverrides)
+ * - ferry:model/phase/id       — per-phase model overrides
+ * - ferry:provider/phase       — per-phase provider overrides
+ * - ferry:budget/*             — cost / token budget overrides
+ * - ferry:skip/phase           — phase skip (refiner | dev | review | iter | iterate)
+ * - ferry:no-auto-transition   — disable FR18 / FR24 / FR28 auto-transitions
+ * - ferry:thinking/on|off      — extended-thinking toggle
+ * - ferry:git/no-pr            — skip PR creation
+ * - ferry:paused               — safety pause flag
  *
  * Unknown ferry:* labels (that are not recognised by any layer) are logged and ignored.
  *
+ * The `ferry:skip/review` label additionally requires `options.allowSkipReview` to be
+ * true — without it, the label is logged as a warning and ignored.
+ *
  * @throws {LabelConflictError} when two labels set the same field to different values.
  */
-export function resolveTicketOverrides(labels: string[], logger?: Logger): TicketOverrides {
+export function resolveTicketOverrides(
+  labels: string[],
+  logger?: Logger,
+  options?: ResolveOverridesOptions,
+): TicketOverrides {
   const typeOverrides = resolveTypeOverrides(labels);
 
   const modelOverrides: Partial<Record<AgentPhase, PhaseModelOverride>> = {};
@@ -110,6 +137,7 @@ export function resolveTicketOverrides(labels: string[], logger?: Logger): Ticke
 
   let noPr = false;
   let paused = false;
+  let noAutoTransition = false;
   const skipPhases: AgentPhase[] = [];
 
   for (const label of labels) {
@@ -288,15 +316,29 @@ export function resolveTicketOverrides(labels: string[], logger?: Logger): Ticke
       continue;
     }
 
-    // ferry:skip/<phase>
+    // ferry:skip/<suffix> — accepts: refiner | dev | review | iter | iterate
     if (label.startsWith('ferry:skip/')) {
-      const phase = label.slice('ferry:skip/'.length);
-      if (!AGENT_PHASES.has(phase)) {
-        logger?.warn('unknown phase in ferry:skip label', { label, phase });
+      const suffix = label.slice('ferry:skip/'.length);
+      const phase = SKIP_PHASE_ALIASES[suffix];
+      if (phase === undefined) {
+        logger?.warn('unknown phase in ferry:skip label', { label, phase: suffix });
         continue;
       }
-      const p = phase as AgentPhase;
-      if (!skipPhases.includes(p)) skipPhases.push(p);
+      // `ferry:skip/review` is dangerous (auto-approve) — gate behind opt-in.
+      if (phase === 'review' && options?.allowSkipReview !== true) {
+        logger?.warn(
+          'ferry:skip/review ignored — requires safety.allow_skip_review opt-in in ferry.config.yaml',
+          { label },
+        );
+        continue;
+      }
+      if (!skipPhases.includes(phase)) skipPhases.push(phase);
+      continue;
+    }
+
+    // ferry:no-auto-transition — disable FR18/FR24/FR28 auto-transitions for this ticket
+    if (label === 'ferry:no-auto-transition') {
+      noAutoTransition = true;
       continue;
     }
 
@@ -364,6 +406,7 @@ export function resolveTicketOverrides(labels: string[], logger?: Logger): Ticke
     ...(maxIterations !== undefined ? { maxIterations } : {}),
     ...(maxTokens !== undefined ? { maxTokens } : {}),
     ...(skipPhases.length > 0 ? { skipPhases } : {}),
+    ...(noAutoTransition ? { noAutoTransition: true } : {}),
     ...(thinking !== undefined ? { thinking } : {}),
     ...(noPr ? { git: { noPr: true } } : {}),
     ...(paused ? { paused: true } : {}),
@@ -455,6 +498,7 @@ export function hasNonDefaultOverrides(overrides: TicketOverrides): boolean {
     overrides.maxIterations !== undefined ||
     overrides.maxTokens !== undefined ||
     (overrides.skipPhases?.length ?? 0) > 0 ||
+    overrides.noAutoTransition === true ||
     overrides.thinking !== undefined ||
     overrides.git?.noPr === true ||
     overrides.paused === true
@@ -482,6 +526,7 @@ export function buildOverridesAuditComment(
   if (overrides.maxIterations !== undefined) payload.maxIterations = overrides.maxIterations;
   if (overrides.maxTokens !== undefined) payload.maxTokens = overrides.maxTokens;
   if ((overrides.skipPhases?.length ?? 0) > 0) payload.skipPhases = overrides.skipPhases;
+  if (overrides.noAutoTransition) payload.noAutoTransition = true;
   if (overrides.thinking !== undefined) payload.thinking = overrides.thinking;
   if (overrides.git?.noPr) payload.git = overrides.git;
   if (overrides.paused) payload.paused = true;
