@@ -1,0 +1,54 @@
+# Ferry — GitLab CI top-level pipeline (EXPERIMENTAL — see #210)
+#
+# Copy this file to .gitlab-ci.yml at the root of your project, or include the
+# per-role files individually from your existing pipeline.
+#
+# How it works:
+#   1. Configure a Jira Automation rule (per role) that calls your GitLab
+#      pipeline-trigger endpoint:
+#        POST https://gitlab.example/api/v4/projects/:id/trigger/pipeline
+#        Form fields:
+#          token=<trigger token from Settings → CI/CD → Pipeline triggers>
+#          ref=main
+#          variables[FERRY_DISPATCH_TYPE]=ferry-<role>
+#          variables[FERRY_ENVELOPE_PAYLOAD]={json envelope}
+#   2. GitLab fires this pipeline. The `rules:` block on each role's job
+#      matches `FERRY_DISPATCH_TYPE` to run exactly one agent per pipeline.
+#
+# Required CI/CD variables (Settings → CI/CD → Variables):
+#   FERRY_VERSION              — npm version to install (e.g. v0.10.3)
+#   FERRY_JIRA_BASE_URL        — Jira Cloud base URL
+#   FERRY_JIRA_EMAIL           — Jira account email
+#   FERRY_JIRA_API_TOKEN       — Jira API token  (protected, masked)
+#   FERRY_GITLAB_TOKEN         — Project access token with `api` scope
+#                                 (protected, masked). Used by the agent to
+#                                 read/write MRs and trigger downstream pipelines.
+#   FERRY_GITLAB_PIPELINE_TRIGGER_TOKEN
+#                              — pipeline-trigger token, only required if the
+#                                 agents need to chain pipelines via dispatch()
+#   ANTHROPIC_API_KEY / OPENAI_API_KEY / GOOGLE_API_KEY — at least one LLM key
+#   FERRY_REVIEW_TRANSITION_ID / FERRY_ITER_TRANSITION_ID / FERRY_APPROVE_TRANSITION_ID
+#                              — Jira transition IDs (see docs/CONFIGURATION.md)
+#   FERRY_AUDIT_ISSUE          — Jira issue key used as the audit log
+
+variables:
+  FERRY_FORGE: gitlab
+  FERRY_GITLAB_API_BASE: '$CI_API_V4_URL'
+  FERRY_GITLAB_TRIGGER_REF: '$CI_DEFAULT_BRANCH'
+  # GitLab projects use a single string "owner/repo" — derive it from CI_PROJECT_PATH.
+  GITHUB_REPO: '$CI_PROJECT_PATH'
+  GITHUB_TOKEN: '$FERRY_GITLAB_TOKEN'
+
+include:
+  - local: refine.gitlab-ci.yml
+  - local: dev.gitlab-ci.yml
+  - local: review.gitlab-ci.yml
+  - local: iterate.gitlab-ci.yml
+
+# Scheduled work (optional — wire to CI/CD → Schedules with the matching CI variable):
+#   - schedule_reconcile=true → reconciler sweep (every 10 minutes recommended)
+#   - schedule_cost_daily=true → cost-governance daily audit
+# See reconcile.gitlab-ci.yml and cost-daily.gitlab-ci.yml.
+#
+#  - local: reconcile.gitlab-ci.yml
+#  - local: cost-daily.gitlab-ci.yml

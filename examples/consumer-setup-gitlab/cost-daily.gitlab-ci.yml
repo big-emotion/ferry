@@ -1,0 +1,12 @@
+# Ferry — Cost-governance daily audit (GitLab CI, EXPERIMENTAL)
+# Wire this to a scheduled pipeline with the CI variable schedule_cost_daily=true.
+# Recommended cadence: once per day.
+
+ferry-cost-daily:
+  stage: build
+  image: node:20-alpine
+  rules:
+    - if: '$schedule_cost_daily == "true"'
+  script:
+    - npm install -g "@big-emotion/ferry@${FERRY_VERSION}"
+    - ferry-cost-check

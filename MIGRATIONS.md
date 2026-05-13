@@ -19,6 +19,12 @@ If there are no consumer-visible changes, omit the section (or note `(none — i
 
 ---
 
+## v0.10.x → v0.11.0 (pending — GitLab support)
+
+- **(info)** **GitLab support added behind an `FERRY_FORGE=gitlab` flag — experimental.** GitHub users are not affected; the default forge remains GitHub Actions. The GitLab adapter is shipped under [#210](https://github.com/big-emotion/ferry/issues/210) with templates in `examples/consumer-setup-gitlab/`. The experimental flag is expected to drop once a real consumer has run a full Refiner→Developer→Reviewer→Iterator cycle in production for two weeks. Until then, the bundled artifact may break across minor releases. See the promotion checklist on #210.
+
+---
+
 ## v0.10.2 → v0.10.3
 
 - **(action)** Update `ferry-refine.yml` to pass `github_token: ${{ github.token }}` and `github_repo: ${{ github.repository }}` to the `ferry-run-refiner` step. Without these inputs, the Refiner agent crashes immediately on startup with `[ferry:state-invariant] missing-env GITHUB_TOKEN` (the underlying `createGitHubContext()` requires both env vars). Run `npx -p @big-emotion/ferry@v0.10.3 ferry-update` to apply the updated stub automatically, or edit the file by hand — the new lines belong alongside the existing `jira_*`, `*_api_key`, and `ferry_refiner_*` inputs.
