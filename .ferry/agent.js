@@ -5929,6 +5929,8 @@ function resolveTicketOverrides(labels, logger, options) {
   let noPr = false;
   let paused = false;
   let noAutoTransition = false;
+  let dryRun = false;
+  let readOnly = false;
   const skipPhases = [];
   for (const label of labels) {
     if (!label.startsWith("ferry:")) continue;
@@ -6124,6 +6126,14 @@ function resolveTicketOverrides(labels, logger, options) {
       paused = true;
       continue;
     }
+    if (label === "ferry:dry-run") {
+      dryRun = true;
+      continue;
+    }
+    if (label === "ferry:read-only") {
+      readOnly = true;
+      continue;
+    }
     logger?.warn("unknown ferry override label ignored", { label });
   }
   if (blanketModel !== void 0) {
@@ -6158,7 +6168,9 @@ function resolveTicketOverrides(labels, logger, options) {
     ...noAutoTransition ? { noAutoTransition: true } : {},
     ...thinking !== void 0 ? { thinking } : {},
     ...noPr ? { git: { noPr: true } } : {},
-    ...paused ? { paused: true } : {}
+    ...paused ? { paused: true } : {},
+    ...dryRun ? { dryRun: true } : {},
+    ...readOnly ? { readOnly: true } : {}
   };
 }
 function applyTicketOverrides(cfg, overrides) {
@@ -6213,7 +6225,7 @@ function applyTicketOverrides(cfg, overrides) {
   return { ...cfg, models, limits };
 }
 function hasNonDefaultOverrides(overrides) {
-  return overrides.bypassTaskSkip || overrides.typeOverride !== void 0 || overrides.modelOverrides !== void 0 || overrides.budget !== void 0 || overrides.budgetEur !== void 0 || overrides.maxIterations !== void 0 || overrides.maxTokens !== void 0 || (overrides.skipPhases?.length ?? 0) > 0 || overrides.noAutoTransition === true || overrides.thinking !== void 0 || overrides.git?.noPr === true || overrides.paused === true;
+  return overrides.bypassTaskSkip || overrides.typeOverride !== void 0 || overrides.modelOverrides !== void 0 || overrides.budget !== void 0 || overrides.budgetEur !== void 0 || overrides.maxIterations !== void 0 || overrides.maxTokens !== void 0 || (overrides.skipPhases?.length ?? 0) > 0 || overrides.noAutoTransition === true || overrides.thinking !== void 0 || overrides.git?.noPr === true || overrides.paused === true || overrides.dryRun === true || overrides.readOnly === true;
 }
 function buildOverridesAuditComment(role, runId, overrides) {
   const payload = {};
@@ -6229,7 +6241,16 @@ function buildOverridesAuditComment(role, runId, overrides) {
   if (overrides.thinking !== void 0) payload.thinking = overrides.thinking;
   if (overrides.git?.noPr) payload.git = overrides.git;
   if (overrides.paused) payload.paused = true;
-  return `[ferry:${role}:${runId}] overrides applied: ${JSON.stringify(payload)}`;
+  if (overrides.dryRun) payload.dryRun = true;
+  if (overrides.readOnly) payload.readOnly = true;
+  const body = `[ferry:${role}:${runId}] overrides applied: ${JSON.stringify(payload)}`;
+  return applyDryRunMarker(body, overrides.dryRun);
+}
+function applyDryRunMarker(body, dryRun) {
+  if (dryRun !== true) return body;
+  const match = body.match(/^(\[ferry:[^\]]+\])\s+(.*)$/s);
+  if (!match) return body;
+  return `${match[1]} [dry-run] ${match[2]}`;
 }
 function buildConflictComment(role, runId, err) {
   return [
@@ -9063,7 +9084,7 @@ async function runWipFinalizer(opts) {
 var REPO_ROOT2 = process.env.GITHUB_WORKSPACE ?? process.cwd();
 async function main2(envelope, logger) {
   const { ticket_key: ticketKey, event_id: eventId } = envelope;
-  const dryRun = isDryRun();
+  let dryRun = isDryRun();
   if (dryRun) {
     logger.info("DRY_RUN mode \u2014 no branch push, no PR, no Jira writes");
   }
@@ -9084,6 +9105,10 @@ async function main2(envelope, logger) {
     typeOverride = overrides.typeOverride;
     forceLabel = overrides.forceLabel;
     noAutoTransition = overrides.noAutoTransition === true;
+    if (overrides.dryRun === true && !dryRun) {
+      dryRun = true;
+      logger.warn("DRY-RUN: LLM calls will still incur cost; no commits or PRs will be pushed.");
+    }
     effectiveCfg = applyTicketOverrides(ferryCfg, overrides);
     logTicketOverrides(logger, overrides);
     if (hasNonDefaultOverrides(overrides)) {
@@ -9092,11 +9117,25 @@ async function main2(envelope, logger) {
         buildOverridesAuditComment("developer", eventId, overrides)
       );
     }
+    if (overrides.readOnly === true) {
+      logger.info("read-only mode \u2014 developer agent skipped");
+      await tracker.postComment(
+        ticketKey,
+        applyDryRunMarker(
+          `[ferry:developer:${eventId}] read-only: agent skipped`,
+          overrides.dryRun
+        )
+      );
+      process.exit(0);
+    }
     if (overrides.skipPhases?.includes("dev")) {
       logger.info("dev phase skipped via ferry:skip/dev \u2014 exiting");
       await tracker.postComment(
         ticketKey,
-        `[ferry:developer:${eventId}] Developer skipped via ferry:skip/dev \u2014 no implementation performed.`
+        applyDryRunMarker(
+          `[ferry:developer:${eventId}] Developer skipped via ferry:skip/dev \u2014 no implementation performed.`,
+          overrides.dryRun
+        )
       );
       process.exit(0);
     }
@@ -9107,8 +9146,8 @@ async function main2(envelope, logger) {
     }
     throw err;
   }
-  const shouldAutoTransition = configAutoTransition && !noAutoTransition;
-  const reviewTransitionId = dryRun || !shouldAutoTransition ? "" : requireEnv("FERRY_REVIEW_TRANSITION_ID");
+  const shouldAutoTransition = configAutoTransition && !noAutoTransition && !dryRun;
+  const reviewTransitionId = !shouldAutoTransition ? "" : requireEnv("FERRY_REVIEW_TRANSITION_ID");
   const jiraBaseUrl = requireEnv("FERRY_JIRA_BASE_URL");
   const { provider: devProvider } = effectiveCfg.models.dev;
   const labels = issue.labels.join(", ");
