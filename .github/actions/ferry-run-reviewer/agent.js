@@ -5929,6 +5929,8 @@ function resolveTicketOverrides(labels, logger, options) {
   let noPr = false;
   let paused = false;
   let noAutoTransition = false;
+  let dryRun = false;
+  let readOnly = false;
   const skipPhases = [];
   for (const label of labels) {
     if (!label.startsWith("ferry:")) continue;
@@ -6124,6 +6126,14 @@ function resolveTicketOverrides(labels, logger, options) {
       paused = true;
       continue;
     }
+    if (label === "ferry:dry-run") {
+      dryRun = true;
+      continue;
+    }
+    if (label === "ferry:read-only") {
+      readOnly = true;
+      continue;
+    }
     logger?.warn("unknown ferry override label ignored", { label });
   }
   if (blanketModel !== void 0) {
@@ -6158,7 +6168,9 @@ function resolveTicketOverrides(labels, logger, options) {
     ...noAutoTransition ? { noAutoTransition: true } : {},
     ...thinking !== void 0 ? { thinking } : {},
     ...noPr ? { git: { noPr: true } } : {},
-    ...paused ? { paused: true } : {}
+    ...paused ? { paused: true } : {},
+    ...dryRun ? { dryRun: true } : {},
+    ...readOnly ? { readOnly: true } : {}
   };
 }
 function applyTicketOverrides(cfg, overrides) {
@@ -6213,7 +6225,7 @@ function applyTicketOverrides(cfg, overrides) {
   return { ...cfg, models, limits };
 }
 function hasNonDefaultOverrides(overrides) {
-  return overrides.bypassTaskSkip || overrides.typeOverride !== void 0 || overrides.modelOverrides !== void 0 || overrides.budget !== void 0 || overrides.budgetEur !== void 0 || overrides.maxIterations !== void 0 || overrides.maxTokens !== void 0 || (overrides.skipPhases?.length ?? 0) > 0 || overrides.noAutoTransition === true || overrides.thinking !== void 0 || overrides.git?.noPr === true || overrides.paused === true;
+  return overrides.bypassTaskSkip || overrides.typeOverride !== void 0 || overrides.modelOverrides !== void 0 || overrides.budget !== void 0 || overrides.budgetEur !== void 0 || overrides.maxIterations !== void 0 || overrides.maxTokens !== void 0 || (overrides.skipPhases?.length ?? 0) > 0 || overrides.noAutoTransition === true || overrides.thinking !== void 0 || overrides.git?.noPr === true || overrides.paused === true || overrides.dryRun === true || overrides.readOnly === true;
 }
 function buildOverridesAuditComment(role, runId, overrides) {
   const payload = {};
@@ -6229,7 +6241,16 @@ function buildOverridesAuditComment(role, runId, overrides) {
   if (overrides.thinking !== void 0) payload.thinking = overrides.thinking;
   if (overrides.git?.noPr) payload.git = overrides.git;
   if (overrides.paused) payload.paused = true;
-  return `[ferry:${role}:${runId}] overrides applied: ${JSON.stringify(payload)}`;
+  if (overrides.dryRun) payload.dryRun = true;
+  if (overrides.readOnly) payload.readOnly = true;
+  const body = `[ferry:${role}:${runId}] overrides applied: ${JSON.stringify(payload)}`;
+  return applyDryRunMarker(body, overrides.dryRun);
+}
+function applyDryRunMarker(body, dryRun) {
+  if (dryRun !== true) return body;
+  const match = body.match(/^(\[ferry:[^\]]+\])\s+(.*)$/s);
+  if (!match) return body;
+  return `${match[1]} [dry-run] ${match[2]}`;
 }
 function buildConflictComment(role, runId, err) {
   return [
@@ -6830,7 +6851,7 @@ var PRIOR_RUN_MARKER = /\[ferry:refiner:[^\]]+\]/;
 async function run(envelope, deps) {
   const { ticket_key: ticketKey, event_id: eventId } = envelope;
   const logger = deps.logger ?? createLogger(eventId, "ferry:refiner-action");
-  const dryRun = isDryRun();
+  const dryRun = isDryRun() || deps.dryRun === true;
   const issue = await deps.tracker.getIssue(ticketKey);
   const runLink = `https://github.com/${process.env.GITHUB_REPO ?? "unknown"}/actions/runs/${process.env.GITHUB_RUN_ID ?? "0"}`;
   const existingSubtasks = await deps.tracker.getSubtaskDetails(ticketKey);
@@ -6956,10 +6977,15 @@ async function main(envelope, logger) {
   const ferryCfg = loadFerryConfigFromBaseBranch(baseBranch, REPO_ROOT, initialCfg);
   const issueForLabels = await tracker.getIssue(ticketKey);
   let effectiveCfg;
+  let labelDryRun = false;
   try {
     const overrides = resolveTicketOverrides(issueForLabels.labels, logger, {
       allowSkipReview: ferryCfg.safety?.allow_skip_review === true
     });
+    labelDryRun = overrides.dryRun === true;
+    if (labelDryRun) {
+      logger.warn("DRY-RUN: LLM calls will still incur cost; no commits or PRs will be pushed.");
+    }
     logTicketOverrides(logger, overrides);
     effectiveCfg = applyTicketOverrides(ferryCfg, overrides);
     if (hasNonDefaultOverrides(overrides)) {
@@ -6972,7 +6998,10 @@ async function main(envelope, logger) {
       logger.info("refiner phase skipped via ferry:skip/refiner \u2014 exiting");
       await tracker.postComment(
         ticketKey,
-        `[ferry:refiner:${eventId}] Refiner skipped via ferry:skip/refiner \u2014 no refinement performed.`
+        applyDryRunMarker(
+          `[ferry:refiner:${eventId}] Refiner skipped via ferry:skip/refiner \u2014 no refinement performed.`,
+          labelDryRun
+        )
       );
       return;
     }
@@ -6985,7 +7014,7 @@ async function main(envelope, logger) {
   }
   const route = effectiveCfg.models.refiner;
   const callLlm = createLlmCall(route);
-  await run(envelope, { tracker, callLlm, logger });
+  await run(envelope, { tracker, callLlm, logger, dryRun: labelDryRun });
 }
 
 // src/agents/developer/dev-action.ts
@@ -9063,7 +9092,7 @@ async function runWipFinalizer(opts) {
 var REPO_ROOT2 = process.env.GITHUB_WORKSPACE ?? process.cwd();
 async function main2(envelope, logger) {
   const { ticket_key: ticketKey, event_id: eventId } = envelope;
-  const dryRun = isDryRun();
+  let dryRun = isDryRun();
   if (dryRun) {
     logger.info("DRY_RUN mode \u2014 no branch push, no PR, no Jira writes");
   }
@@ -9084,6 +9113,10 @@ async function main2(envelope, logger) {
     typeOverride = overrides.typeOverride;
     forceLabel = overrides.forceLabel;
     noAutoTransition = overrides.noAutoTransition === true;
+    if (overrides.dryRun === true && !dryRun) {
+      dryRun = true;
+      logger.warn("DRY-RUN: LLM calls will still incur cost; no commits or PRs will be pushed.");
+    }
     effectiveCfg = applyTicketOverrides(ferryCfg, overrides);
     logTicketOverrides(logger, overrides);
     if (hasNonDefaultOverrides(overrides)) {
@@ -9092,11 +9125,25 @@ async function main2(envelope, logger) {
         buildOverridesAuditComment("developer", eventId, overrides)
       );
     }
+    if (overrides.readOnly === true) {
+      logger.info("read-only mode \u2014 developer agent skipped");
+      await tracker.postComment(
+        ticketKey,
+        applyDryRunMarker(
+          `[ferry:developer:${eventId}] read-only: agent skipped`,
+          overrides.dryRun
+        )
+      );
+      process.exit(0);
+    }
     if (overrides.skipPhases?.includes("dev")) {
       logger.info("dev phase skipped via ferry:skip/dev \u2014 exiting");
       await tracker.postComment(
         ticketKey,
-        `[ferry:developer:${eventId}] Developer skipped via ferry:skip/dev \u2014 no implementation performed.`
+        applyDryRunMarker(
+          `[ferry:developer:${eventId}] Developer skipped via ferry:skip/dev \u2014 no implementation performed.`,
+          overrides.dryRun
+        )
       );
       process.exit(0);
     }
@@ -9107,8 +9154,8 @@ async function main2(envelope, logger) {
     }
     throw err;
   }
-  const shouldAutoTransition = configAutoTransition && !noAutoTransition;
-  const reviewTransitionId = dryRun || !shouldAutoTransition ? "" : requireEnv("FERRY_REVIEW_TRANSITION_ID");
+  const shouldAutoTransition = configAutoTransition && !noAutoTransition && !dryRun;
+  const reviewTransitionId = !shouldAutoTransition ? "" : requireEnv("FERRY_REVIEW_TRANSITION_ID");
   const jiraBaseUrl = requireEnv("FERRY_JIRA_BASE_URL");
   const { provider: devProvider } = effectiveCfg.models.dev;
   const labels = issue.labels.join(", ");
@@ -10065,6 +10112,7 @@ async function main3(envelope, logger) {
   let typeOverride;
   let autoApprove = false;
   let noAutoTransition = false;
+  let dryRun = false;
   try {
     const overrides = resolveTicketOverrides(issue.labels, logger, {
       allowSkipReview: ferryCfg.safety?.allow_skip_review === true
@@ -10072,6 +10120,10 @@ async function main3(envelope, logger) {
     typeOverride = overrides.typeOverride;
     autoApprove = overrides.skipPhases?.includes("review") === true;
     noAutoTransition = overrides.noAutoTransition === true;
+    dryRun = overrides.dryRun === true;
+    if (dryRun) {
+      logger.warn("DRY-RUN: LLM calls will still incur cost; no commits or PRs will be pushed.");
+    }
     effectiveCfg = applyTicketOverrides(ferryCfg, overrides);
     logTicketOverrides(logger, overrides);
     if (hasNonDefaultOverrides(overrides)) {
@@ -10080,6 +10132,14 @@ async function main3(envelope, logger) {
         buildOverridesAuditComment("reviewer", eventId, overrides)
       );
     }
+    if (overrides.readOnly === true) {
+      logger.info("read-only mode \u2014 reviewer agent skipped");
+      await tracker.postComment(
+        ticketKey,
+        applyDryRunMarker(`[ferry:reviewer:${eventId}] read-only: agent skipped`, overrides.dryRun)
+      );
+      return;
+    }
   } catch (err) {
     if (err instanceof LabelConflictError) {
       await tracker.postComment(ticketKey, buildConflictComment("reviewer", eventId, err));
@@ -10087,8 +10147,8 @@ async function main3(envelope, logger) {
     }
     throw err;
   }
-  const shouldTransitionChanges = configTransitionChanges && !noAutoTransition;
-  const shouldTransitionApprove = configTransitionApprove && !noAutoTransition;
+  const shouldTransitionChanges = configTransitionChanges && !noAutoTransition && !dryRun;
+  const shouldTransitionApprove = configTransitionApprove && !noAutoTransition && !dryRun;
   const iterTransitionId = shouldTransitionChanges ? requireEnv("FERRY_ITER_TRANSITION_ID") : "";
   const approveTransitionId = shouldTransitionApprove ? requireEnv("FERRY_APPROVE_TRANSITION_ID") : "";
   const { provider, model } = effectiveCfg.models.review;
@@ -10127,18 +10187,23 @@ async function main3(envelope, logger) {
     const approveTransitionNote = shouldTransitionApprove ? " Moved to next column." : noAutoTransition ? " FR24 auto-transition skipped (ferry:no-auto-transition)." : "";
     await tracker.postComment(
       ticketKey,
-      `${idempotencyMarker} Auto-approved via ferry:skip/review \u2014 review loop bypassed. PR#${prNumber}.${approveTransitionNote}`
+      applyDryRunMarker(
+        `${idempotencyMarker} Auto-approved via ferry:skip/review \u2014 review loop bypassed. PR#${prNumber}.${approveTransitionNote}`,
+        dryRun
+      )
     );
-    await runner.addLabelsToPR({ owner, repo, prNumber }, ["ferry:approved"]);
-    await runner.removeLabelFromPR({ owner, repo, prNumber }, "ferry:reviewing").catch(() => {
-    });
-    await runner.markPRReadyForReview(owner, repo, prNumber);
-    await runner.commentOnPR(
-      { owner, repo, prNumber },
-      `${idempotencyMarker} Auto-approved via ferry:skip/review label \u2014 review skipped per ticket opt-in.`
-    );
-    if (shouldTransitionApprove) {
-      await tracker.postTransition(ticketKey, approveTransitionId);
+    if (!dryRun) {
+      await runner.addLabelsToPR({ owner, repo, prNumber }, ["ferry:approved"]);
+      await runner.removeLabelFromPR({ owner, repo, prNumber }, "ferry:reviewing").catch(() => {
+      });
+      await runner.markPRReadyForReview(owner, repo, prNumber);
+      await runner.commentOnPR(
+        { owner, repo, prNumber },
+        `${idempotencyMarker} Auto-approved via ferry:skip/review label \u2014 review skipped per ticket opt-in.`
+      );
+      if (shouldTransitionApprove) {
+        await tracker.postTransition(ticketKey, approveTransitionId);
+      }
     }
     appendOutput({ input_tokens: 0, output_tokens: 0, model, provider });
     return;
@@ -10252,26 +10317,33 @@ async function main3(envelope, logger) {
   if (review.approved) {
     await tracker.postComment(
       ticketKey,
-      `${idempotencyMarker} Approved. PR#${prNumber} is ready to merge.`
+      applyDryRunMarker(`${idempotencyMarker} Approved. PR#${prNumber} is ready to merge.`, dryRun)
     );
-    await runner.addLabelsToPR({ owner, repo, prNumber }, ["ferry:approved"]);
-    await runner.removeLabelFromPR({ owner, repo, prNumber }, "ferry:reviewing").catch(() => {
-    });
-    await runner.markPRReadyForReview(owner, repo, prNumber);
-    await runner.commentOnPR({ owner, repo, prNumber }, review.comment);
-    if (shouldTransitionApprove) {
-      await tracker.postTransition(ticketKey, approveTransitionId);
+    if (!dryRun) {
+      await runner.addLabelsToPR({ owner, repo, prNumber }, ["ferry:approved"]);
+      await runner.removeLabelFromPR({ owner, repo, prNumber }, "ferry:reviewing").catch(() => {
+      });
+      await runner.markPRReadyForReview(owner, repo, prNumber);
+      await runner.commentOnPR({ owner, repo, prNumber }, review.comment);
+      if (shouldTransitionApprove) {
+        await tracker.postTransition(ticketKey, approveTransitionId);
+      }
     }
   } else {
     const priorIterations = countPriorIterations(existingComments);
     const cap = effectiveCfg.limits.max_iterations;
     const capReached = priorIterations >= cap;
-    await runner.commentOnPR({ owner, repo, prNumber }, review.comment);
+    if (!dryRun) {
+      await runner.commentOnPR({ owner, repo, prNumber }, review.comment);
+    }
     if (!capReached) {
       const changesNote = shouldTransitionChanges ? " Moved to Dev Iteration." : "";
       await tracker.postComment(
         ticketKey,
-        `${idempotencyMarker} Changes requested (iteration ${priorIterations + 1}/${cap}).${changesNote} See PR#${prNumber} for details.`
+        applyDryRunMarker(
+          `${idempotencyMarker} Changes requested (iteration ${priorIterations + 1}/${cap}).${changesNote} See PR#${prNumber} for details.`,
+          dryRun
+        )
       );
       if (shouldTransitionChanges) {
         await tracker.postTransition(ticketKey, iterTransitionId);
@@ -10279,7 +10351,10 @@ async function main3(envelope, logger) {
     } else {
       await tracker.postComment(
         ticketKey,
-        `${idempotencyMarker} Changes requested (re-review). Iteration cap (${cap}) reached; see PR#${prNumber} and move ticket manually.`
+        applyDryRunMarker(
+          `${idempotencyMarker} Changes requested (re-review). Iteration cap (${cap}) reached; see PR#${prNumber} and move ticket manually.`,
+          dryRun
+        )
       );
     }
   }
@@ -10355,6 +10430,7 @@ async function main4(envelope, logger) {
   let typeOverride;
   let labelMaxIterations;
   let noAutoTransition = false;
+  let dryRun = false;
   try {
     const overrides = resolveTicketOverrides(issue.labels, logger, {
       allowSkipReview: ferryCfg.safety?.allow_skip_review === true
@@ -10362,6 +10438,10 @@ async function main4(envelope, logger) {
     typeOverride = overrides.typeOverride;
     labelMaxIterations = overrides.maxIterations;
     noAutoTransition = overrides.noAutoTransition === true;
+    dryRun = overrides.dryRun === true;
+    if (dryRun) {
+      logger.warn("DRY-RUN: LLM calls will still incur cost; no commits or PRs will be pushed.");
+    }
     effectiveCfg = applyTicketOverrides(ferryCfg, overrides);
     logTicketOverrides(logger, overrides);
     if (hasNonDefaultOverrides(overrides)) {
@@ -10370,11 +10450,22 @@ async function main4(envelope, logger) {
         buildOverridesAuditComment("iterator", eventId, overrides)
       );
     }
+    if (overrides.readOnly === true) {
+      logger.info("read-only mode \u2014 iterator agent skipped");
+      await tracker.postComment(
+        ticketKey,
+        applyDryRunMarker(`[ferry:iterator:${eventId}] read-only: agent skipped`, overrides.dryRun)
+      );
+      return;
+    }
     if (overrides.skipPhases?.includes("iterate")) {
       logger.info("iterate phase skipped via ferry:skip/iter \u2014 exiting (no-op)");
       await tracker.postComment(
         ticketKey,
-        `[ferry:iterator:${eventId}] Iterator skipped via ferry:skip/iter \u2014 no iteration performed.`
+        applyDryRunMarker(
+          `[ferry:iterator:${eventId}] Iterator skipped via ferry:skip/iter \u2014 no iteration performed.`,
+          overrides.dryRun
+        )
       );
       return;
     }
@@ -10385,7 +10476,7 @@ async function main4(envelope, logger) {
     }
     throw err;
   }
-  const shouldAutoTransition = configAutoTransition && !noAutoTransition;
+  const shouldAutoTransition = configAutoTransition && !noAutoTransition && !dryRun;
   const reviewTransitionId = shouldAutoTransition ? requireEnv("FERRY_REVIEW_TRANSITION_ID") : "";
   const { provider: iterProvider, model } = effectiveCfg.models.iterate;
   const mcpPool = loadMcpServers();
@@ -10587,8 +10678,12 @@ ${existingLog}` : "",
     await secretScan();
     execFileSync6("git", ["commit", "-m", commitMessage], { cwd: REPO_ROOT4 });
   }
-  execFileSync6("git", ["push", "origin", branchName, "--force-with-lease"], { cwd: REPO_ROOT4 });
-  const branchPushed = true;
+  if (!dryRun) {
+    execFileSync6("git", ["push", "origin", branchName, "--force-with-lease"], { cwd: REPO_ROOT4 });
+  } else {
+    logger.info("DRY_RUN \u2014 skipped: git push origin branch");
+  }
+  const branchPushed = !dryRun;
   let iterFilesTouched = [];
   try {
     const diff = execFileSync6("git", ["diff", "--name-only", `origin/${baseBranch}...HEAD`], {
@@ -10598,14 +10693,17 @@ ${existingLog}` : "",
     iterFilesTouched = diff.trim().split("\n").filter(Boolean);
   } catch {
   }
-  assertIterOutputContract(resolvedOutcome, { branchPushed, prNumber });
+  if (!dryRun) {
+    assertIterOutputContract(resolvedOutcome, { branchPushed, prNumber });
+  }
   if (shouldAutoTransition) {
     await tracker.postTransition(ticketKey, reviewTransitionId);
   }
   const { next_iteration } = decideIteratorTransition({ current_iteration: priorIterations });
-  const transitionNote = shouldAutoTransition ? " Moved back to Review." : noAutoTransition ? " FR28 auto-transition skipped (ferry:no-auto-transition)." : "";
-  const terminalComment = resolvedOutcome === "already_satisfied" ? `${idempotencyMarker} Findings already addressed \u2014 no changes needed. Pushed to PR#${prNumber}.${transitionNote}` : `${idempotencyMarker} Iteration ${next_iteration} complete. Pushed fixes to PR#${prNumber}.${transitionNote}`;
-  await tracker.postComment(ticketKey, terminalComment);
+  const transitionNote = shouldAutoTransition ? " Moved back to Review." : noAutoTransition ? " FR28 auto-transition skipped (ferry:no-auto-transition)." : dryRun ? " FR28 auto-transition skipped (ferry:dry-run)." : "";
+  const pushNote = dryRun ? " (dry-run: branch push suppressed)" : "";
+  const terminalComment = resolvedOutcome === "already_satisfied" ? `${idempotencyMarker} Findings already addressed \u2014 no changes needed. Pushed to PR#${prNumber}.${transitionNote}` : `${idempotencyMarker} Iteration ${next_iteration} complete. Pushed fixes to PR#${prNumber}${pushNote}.${transitionNote}`;
+  await tracker.postComment(ticketKey, applyDryRunMarker(terminalComment, dryRun));
   writeStepSummary({
     role: "iterator",
     iterations,
