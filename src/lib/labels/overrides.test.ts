@@ -632,6 +632,159 @@ describe('buildOverridesAuditComment', () => {
 });
 
 // ------------------------------------------------------------------
+// ferry:budget/<eur> (short-form EUR hard cap)
+// ------------------------------------------------------------------
+
+describe('resolveTicketOverrides — ferry:budget/<eur>', () => {
+  it('parses ferry:budget/3 → budgetEur = 3', () => {
+    const r = resolveTicketOverrides(['ferry:budget/3']);
+    expect(r.budgetEur).toBe(3);
+  });
+
+  it('parses ferry:budget/10 → budgetEur = 10', () => {
+    const r = resolveTicketOverrides(['ferry:budget/10']);
+    expect(r.budgetEur).toBe(10);
+  });
+
+  it('ignores and warns on malformed value ferry:budget/abc', () => {
+    const { logger, records } = createTestLogger('t', 'test');
+    const r = resolveTicketOverrides(['ferry:budget/abc'], logger);
+    expect(r.budgetEur).toBeUndefined();
+    expect(records.some((rec) => rec.level === 'warn')).toBe(true);
+  });
+
+  it('ignores and warns on ferry:budget/0 (not a positive integer)', () => {
+    const { logger, records } = createTestLogger('t', 'test');
+    const r = resolveTicketOverrides(['ferry:budget/0'], logger);
+    expect(r.budgetEur).toBeUndefined();
+    expect(records.some((rec) => rec.level === 'warn')).toBe(true);
+  });
+
+  it('throws LabelConflictError on duplicate ferry:budget/<eur> labels', () => {
+    expect(() => resolveTicketOverrides(['ferry:budget/3', 'ferry:budget/5'])).toThrow(
+      LabelConflictError,
+    );
+  });
+
+  it('does not conflict with ferry:budget/max-cost/<eur> (different fields)', () => {
+    const r = resolveTicketOverrides(['ferry:budget/3', 'ferry:budget/max-cost/5']);
+    expect(r.budgetEur).toBe(3);
+    expect(r.budget?.maxCostEurPerRun).toBe(5);
+  });
+});
+
+// ------------------------------------------------------------------
+// ferry:max-iterations/<n>
+// ------------------------------------------------------------------
+
+describe('resolveTicketOverrides — ferry:max-iterations/<n>', () => {
+  it('parses ferry:max-iterations/50 → maxIterations = 50', () => {
+    const r = resolveTicketOverrides(['ferry:max-iterations/50']);
+    expect(r.maxIterations).toBe(50);
+  });
+
+  it('ignores and warns on malformed value ferry:max-iterations/abc', () => {
+    const { logger, records } = createTestLogger('t', 'test');
+    const r = resolveTicketOverrides(['ferry:max-iterations/abc'], logger);
+    expect(r.maxIterations).toBeUndefined();
+    expect(records.some((rec) => rec.level === 'warn')).toBe(true);
+  });
+
+  it('ignores and warns on ferry:max-iterations/0 (not positive)', () => {
+    const { logger, records } = createTestLogger('t', 'test');
+    const r = resolveTicketOverrides(['ferry:max-iterations/0'], logger);
+    expect(r.maxIterations).toBeUndefined();
+    expect(records.some((rec) => rec.level === 'warn')).toBe(true);
+  });
+
+  it('throws LabelConflictError on duplicate ferry:max-iterations labels', () => {
+    expect(() =>
+      resolveTicketOverrides(['ferry:max-iterations/10', 'ferry:max-iterations/20']),
+    ).toThrow(LabelConflictError);
+  });
+
+  it('applies maxIterations to limits.max_agent_iterations via applyTicketOverrides', () => {
+    const overrides = resolveTicketOverrides(['ferry:max-iterations/75']);
+    const cfg = applyTicketOverrides(BASE_CFG, overrides);
+    expect(cfg.limits.max_agent_iterations).toBe(75);
+  });
+
+  it('hasNonDefaultOverrides returns true when maxIterations is set', () => {
+    expect(hasNonDefaultOverrides(resolveTicketOverrides(['ferry:max-iterations/5']))).toBe(true);
+  });
+});
+
+// ------------------------------------------------------------------
+// ferry:max-tokens/<n>
+// ------------------------------------------------------------------
+
+describe('resolveTicketOverrides — ferry:max-tokens/<n>', () => {
+  it('parses ferry:max-tokens/8192 → maxTokens = 8192', () => {
+    const r = resolveTicketOverrides(['ferry:max-tokens/8192']);
+    expect(r.maxTokens).toBe(8192);
+  });
+
+  it('ignores and warns on malformed value ferry:max-tokens/abc', () => {
+    const { logger, records } = createTestLogger('t', 'test');
+    const r = resolveTicketOverrides(['ferry:max-tokens/abc'], logger);
+    expect(r.maxTokens).toBeUndefined();
+    expect(records.some((rec) => rec.level === 'warn')).toBe(true);
+  });
+
+  it('throws LabelConflictError on duplicate ferry:max-tokens labels', () => {
+    expect(() =>
+      resolveTicketOverrides(['ferry:max-tokens/8192', 'ferry:max-tokens/4096']),
+    ).toThrow(LabelConflictError);
+  });
+
+  it('applies maxTokens to limits.max_tokens_per_message via applyTicketOverrides', () => {
+    const overrides = resolveTicketOverrides(['ferry:max-tokens/4096']);
+    const cfg = applyTicketOverrides(BASE_CFG, overrides);
+    expect(cfg.limits.max_tokens_per_message).toBe(4096);
+  });
+
+  it('hasNonDefaultOverrides returns true when maxTokens is set', () => {
+    expect(hasNonDefaultOverrides(resolveTicketOverrides(['ferry:max-tokens/4096']))).toBe(true);
+  });
+});
+
+// ------------------------------------------------------------------
+// applyTicketOverrides — new fields
+// ------------------------------------------------------------------
+
+describe('applyTicketOverrides — budgetEur / maxIterations / maxTokens', () => {
+  it('applies budgetEur to limits.max_cost_eur_per_run', () => {
+    const overrides = resolveTicketOverrides(['ferry:budget/3']);
+    const cfg = applyTicketOverrides(BASE_CFG, overrides);
+    expect(cfg.limits.max_cost_eur_per_run).toBe(3);
+  });
+
+  it('returns same config reference when only skipPhases is set (no new fields)', () => {
+    const overrides = resolveTicketOverrides(['ferry:skip/review']);
+    expect(applyTicketOverrides(BASE_CFG, overrides)).toBe(BASE_CFG);
+  });
+
+  it('does not mutate original config when new fields are applied', () => {
+    const original = BASE_CFG.limits.max_cost_eur_per_run;
+    const overrides = resolveTicketOverrides(['ferry:budget/1']);
+    applyTicketOverrides(BASE_CFG, overrides);
+    expect(BASE_CFG.limits.max_cost_eur_per_run).toBe(original);
+  });
+
+  it('buildOverridesAuditComment includes budgetEur, maxIterations, maxTokens', () => {
+    const overrides = resolveTicketOverrides([
+      'ferry:budget/3',
+      'ferry:max-iterations/50',
+      'ferry:max-tokens/4096',
+    ]);
+    const comment = buildOverridesAuditComment('iterator', 'run1', overrides);
+    expect(comment).toContain('"budgetEur":3');
+    expect(comment).toContain('"maxIterations":50');
+    expect(comment).toContain('"maxTokens":4096');
+  });
+});
+
+// ------------------------------------------------------------------
 // buildConflictComment
 // ------------------------------------------------------------------
 
