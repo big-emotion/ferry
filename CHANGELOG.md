@@ -9,6 +9,10 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Runner factory + unified `ferry-agent` CLI** (#211, prerequisite for #210) — the runner layer is now resolved through `createRunnerFromEnv()` (`src/lib/dispatch/runner/factory.ts`), switching on a new `FERRY_FORGE` env var (default `github`; `gitlab` throws a clear "not yet implemented" error pointing at #210). The four agent composite actions (`ferry-run-{refiner,developer,reviewer,iterator}`) now invoke a single `ferry-agent run --role <role>` CLI; the per-role `.ferry/{refiner,dev,review,iterate}-action.js` bundles are replaced by a unified `.ferry/agent.js`. **No behaviour change for consumers** — the composite action interface is unchanged.
+
 ### Added
 
 - **Configurable working branch prefix per issue type** (`git.working_branch_prefix` mapping) — `working_branch_prefix` now accepts either a plain string (existing behaviour, default `"ferry/"`) or a mapping object whose keys are Jira issue type names and whose `default` key covers unmatched types. At runtime the prefix is resolved by checking for a `ferry:type:<name>` label on the ticket first, then the ticket's Jira issue type, then `mapping.default`. This enables [Conventional Branch](https://conventional-branch.github.io/) naming out of the box — see `docs/CONFIGURATION.md` for a copy-pasteable recipe. Existing consumers are unaffected; the default remains `"ferry/"`.

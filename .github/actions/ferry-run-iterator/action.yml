@@ -133,7 +133,7 @@ runs:
     - name: Run Iterator agent
       id: run-iterator
       shell: bash
-      run: node ${{ github.action_path }}/iterate-action.js
+      run: node ${{ github.action_path }}/agent.js run --role iterator
       env:
         FERRY_ENVELOPE_PAYLOAD: ${{ inputs.payload }}
         FERRY_JIRA_BASE_URL: ${{ inputs.jira_base_url }}

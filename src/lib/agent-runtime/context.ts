@@ -1,4 +1,5 @@
-import { GitHubActionsRunner } from '../dispatch/runner/github-actions/index.js';
+import { createRunnerFromEnv } from '../dispatch/runner/factory.js';
+import type { CIRunner } from '../dispatch/runner/types.js';
 import { createTrackerFromEnv } from '../io/tracker/factory.js';
 import { loadFerryConfig } from '../config.js';
 import type { FerryConfig } from '../config.js';
@@ -9,7 +10,7 @@ import { requireEnv } from './env.js';
 export interface GitHubContext {
   owner: string;
   repo: string;
-  runner: GitHubActionsRunner;
+  runner: CIRunner;
   tracker: IssueTracker;
   ferryCfg: FerryConfig;
 }
@@ -22,7 +23,7 @@ export function createGitHubContext(repoRoot: string): GitHubContext {
     throw new FerryError('state-invariant', { reason: 'invalid-github-repo', githubRepo });
   }
   const ferryCfg = loadFerryConfig(repoRoot);
-  const runner = new GitHubActionsRunner(githubToken, owner, repo);
+  const runner = createRunnerFromEnv(githubToken, owner, repo);
   const tracker = createTrackerFromEnv();
   return { owner, repo, runner, tracker, ferryCfg };
 }

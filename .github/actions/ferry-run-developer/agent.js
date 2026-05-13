@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -120,17 +121,6 @@ var require_fast_content_type_parse = __commonJS({
   }
 });
 
-// src/agents/refiner/refiner-action.ts
-import { pathToFileURL } from "node:url";
-
-// src/lib/dry-run.ts
-function isDryRun() {
-  return process.env.FERRY_DRY_RUN === "1" || process.env.FERRY_DRY_RUN === "true";
-}
-
-// src/lib/llm/call.ts
-import Anthropic2 from "@anthropic-ai/sdk";
-
 // src/lib/errors/index.ts
 var FerryError = class extends Error {
   constructor(code, context) {
@@ -143,235 +133,39 @@ var FerryError = class extends Error {
   context;
 };
 
-// src/lib/io/retry.ts
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-function computeDelayMs(attemptIndex, opts) {
-  const base = opts.baseDelayMs * Math.pow(opts.backoffFactor, attemptIndex);
-  const jitter = (Math.random() * 2 - 1) * opts.jitterRatio;
-  return Math.max(0, Math.round(base * (1 + jitter)));
-}
-function retry(fn, options) {
-  const opts = {
-    jitterRatio: 0.5,
-    backoffFactor: 2,
-    ...options
-  };
-  return async (...args) => {
-    let lastErr;
-    for (let attempt = 0; attempt < opts.maxAttempts; attempt++) {
-      try {
-        return await fn(...args);
-      } catch (e) {
-        lastErr = e;
-        const isTransient = e instanceof FerryError && e.code === "transient";
-        const shouldRetry = isTransient && attempt < opts.maxAttempts - 1;
-        if (!shouldRetry) break;
-        const delayMs = computeDelayMs(attempt, opts);
-        await sleep(delayMs);
-      }
-    }
-    if (lastErr instanceof FerryError && lastErr.code === "transient") {
-      throw new FerryError("unknown");
-    }
-    throw lastErr;
-  };
-}
-
-// src/lib/llm/anthropic.ts
-import Anthropic from "@anthropic-ai/sdk";
-
-// src/lib/llm/pricing.ts
-var EUR_TO_USD = 1 / 0.93;
-var RATES = {
-  "anthropic/claude-sonnet-4-6": { inputPer1M: 2.79, outputPer1M: 13.95 },
-  "anthropic/claude-opus": { inputPer1M: 13.95, outputPer1M: 69.75 },
-  "anthropic/claude-haiku": { inputPer1M: 0.23, outputPer1M: 1.16 },
-  "openai/gpt-4.1-nano": { inputPer1M: 0.09, outputPer1M: 0.37 },
-  "openai/gpt-4.1-mini": { inputPer1M: 0.14, outputPer1M: 0.56 },
-  "openai/gpt-4.": { inputPer1M: 2.79, outputPer1M: 8.37 },
-  "openai/gpt-5.": { inputPer1M: 2.79, outputPer1M: 8.37 },
-  "google/gemini-2.5-flash": { inputPer1M: 0.07, outputPer1M: 0.28 },
-  "google/gemini-2.5-pro": { inputPer1M: 1.05, outputPer1M: 4.2 }
-};
-var PROVIDER_FALLBACK = {
-  anthropic: RATES["anthropic/claude-opus"],
-  openai: RATES["openai/gpt-4."],
-  google: RATES["google/gemini-2.5-pro"]
-};
-function lookupRates(provider, model) {
-  const exactKey = `${provider}/${model}`;
-  if (RATES[exactKey]) return RATES[exactKey];
-  for (const key of Object.keys(RATES)) {
-    if (key !== exactKey && key.startsWith(`${provider}/`) && model.startsWith(key.slice(provider.length + 1))) {
-      return RATES[key];
-    }
-  }
-  return PROVIDER_FALLBACK[provider];
-}
-function computeCostEur(provider, model, inputTokens, outputTokens) {
-  const rates = lookupRates(provider, model);
-  const cost = inputTokens / 1e6 * rates.inputPer1M + outputTokens / 1e6 * rates.outputPer1M;
-  return Math.round(cost * 1e4) / 1e4;
-}
-
-// src/lib/llm/anthropic.ts
-async function invokeAnthropic(opts) {
-  try {
-    const msg = await opts.client.messages.create({
-      model: opts.model,
-      max_tokens: opts.maxTokens,
-      messages: [{ role: "user", content: opts.prompt }]
-    });
-    const textBlock = msg.content.find((b) => b.type === "text");
-    const text = textBlock && textBlock.type === "text" ? textBlock.text : "";
-    const inputTokens = msg.usage.input_tokens;
-    const outputTokens = msg.usage.output_tokens;
-    return {
-      text,
-      usage: {
-        inputTokens,
-        outputTokens,
-        costEur: computeCostEur("anthropic", opts.model, inputTokens, outputTokens)
-      }
-    };
-  } catch (e) {
-    if (e instanceof Anthropic.RateLimitError) {
-      throw new FerryError("spend-cap", { reason: "rate-limit" });
-    }
-    if (e instanceof Anthropic.APIError && e.status >= 500) {
-      throw new FerryError("transient", { reason: "server-error", status: e.status });
-    }
-    if (e instanceof Error && isNetworkError(e.message)) {
-      throw new FerryError("transient", { reason: "network-error" });
-    }
-    throw e;
-  }
-}
-function isNetworkError(msg) {
-  return msg.includes("fetch failed") || msg.includes("ECONNREFUSED") || msg.includes("ETIMEDOUT");
-}
-
-// src/lib/llm/openai.ts
-import OpenAI from "openai";
-async function invokeOpenAI(opts) {
-  const client = new OpenAI({ apiKey: opts.apiKey });
-  try {
-    const completion = await client.chat.completions.create({
-      model: opts.model,
-      messages: [{ role: "user", content: opts.prompt }],
-      max_tokens: opts.maxTokens
-    });
-    const text = completion.choices[0]?.message.content ?? "";
-    const inputTokens = completion.usage?.prompt_tokens ?? 0;
-    const outputTokens = completion.usage?.completion_tokens ?? 0;
-    return {
-      text,
-      usage: {
-        inputTokens,
-        outputTokens,
-        costEur: computeCostEur("openai", opts.model, inputTokens, outputTokens)
-      }
-    };
-  } catch (e) {
-    if (e instanceof OpenAI.RateLimitError) {
-      throw new FerryError("spend-cap", { reason: "rate-limit" });
-    }
-    if (e instanceof OpenAI.APIConnectionError) {
-      throw new FerryError("transient", { reason: "network-error" });
-    }
-    if (e instanceof OpenAI.APIError && e.status >= 500) {
-      throw new FerryError("transient", { reason: "server-error", status: e.status });
-    }
-    throw e;
-  }
-}
-
-// src/lib/llm/google.ts
-import { GoogleGenAI } from "@google/genai";
-async function invokeGoogle(opts) {
-  const ai = new GoogleGenAI({ apiKey: opts.apiKey });
-  try {
-    const response = await ai.models.generateContent({
-      model: opts.model,
-      contents: opts.prompt
-    });
-    const text = response.text ?? "";
-    const inputTokens = response.usageMetadata?.promptTokenCount ?? 0;
-    const outputTokens = response.usageMetadata?.candidatesTokenCount ?? 0;
-    return {
-      text,
-      usage: {
-        inputTokens,
-        outputTokens,
-        costEur: computeCostEur("google", opts.model, inputTokens, outputTokens)
-      }
-    };
-  } catch (e) {
-    if (e instanceof Error) {
-      throw new FerryError("transient", { reason: "network-error", message: e.message });
-    }
-    throw e;
-  }
-}
-
-// src/lib/llm/anthropic-auth.ts
-function resolveAnthropicAuth(input) {
-  const env = input.env ?? process.env;
-  const oauthToken = env["CLAUDE_CODE_OAUTH_TOKEN"];
-  if (oauthToken) {
-    return { authToken: oauthToken };
-  }
-  const apiKey = env[input.apiKeyEnv];
-  if (apiKey) {
-    return { apiKey };
-  }
-  throw new FerryError("state-invariant", { reason: "missing-env", key: input.apiKeyEnv });
-}
-
-// src/lib/llm/call.ts
-var MAX_TOKENS = parseInt(process.env.FERRY_LLM_UTILITY_MAX_TOKENS ?? "", 10) || 4096;
-var LLM_RETRY_BASE_DELAY_MS = parseInt(process.env.FERRY_LLM_RETRY_BASE_DELAY_MS ?? "", 10) || 2e3;
-var LLM_RETRY_MAX_ATTEMPTS = parseInt(process.env.FERRY_LLM_RETRY_MAX_ATTEMPTS ?? "", 10) || 3;
-function requireEnv(key) {
-  const val = process.env[key];
-  if (!val) {
-    throw new FerryError("state-invariant", { reason: "missing-env", key });
-  }
-  return val;
-}
-function createLlmCall(route) {
-  if (route.provider === "anthropic") {
-    const auth2 = resolveAnthropicAuth({ apiKeyEnv: "ANTHROPIC_API_KEY" });
-    const client = new Anthropic2(auth2);
-    return retry(
-      (prompt) => invokeAnthropic({ client, model: route.model, prompt, maxTokens: MAX_TOKENS }),
-      { baseDelayMs: LLM_RETRY_BASE_DELAY_MS, maxAttempts: LLM_RETRY_MAX_ATTEMPTS }
-    );
-  }
-  if (route.provider === "openai") {
-    const apiKey = requireEnv("FERRY_OPENAI_KEY");
-    return retry(
-      (prompt) => invokeOpenAI({ apiKey, model: route.model, prompt, maxTokens: MAX_TOKENS }),
-      { baseDelayMs: LLM_RETRY_BASE_DELAY_MS, maxAttempts: LLM_RETRY_MAX_ATTEMPTS }
-    );
-  }
-  if (route.provider === "google") {
-    const apiKey = requireEnv("FERRY_GOOGLE_AI_KEY");
-    return retry((prompt) => invokeGoogle({ apiKey, model: route.model, prompt }), {
-      baseDelayMs: LLM_RETRY_BASE_DELAY_MS,
-      maxAttempts: LLM_RETRY_MAX_ATTEMPTS
-    });
-  }
-  throw new FerryError("state-invariant", { reason: "unknown-provider", provider: route.provider });
-}
-
 // src/lib/agent-runtime/env.ts
-function requireEnv2(key) {
+function requireEnv(key) {
   const val = process.env[key];
   if (!val) throw new FerryError("state-invariant", { reason: "missing-env", key });
   return val;
+}
+function isValidMcpServer(s) {
+  if (s === null || typeof s !== "object") return false;
+  const obj = s;
+  if (typeof obj.name !== "string" || obj.name.length === 0) return false;
+  if (obj.type === "stdio") {
+    return typeof obj.command === "string" && obj.command.length > 0;
+  }
+  return typeof obj.url === "string" && obj.url.length > 0;
+}
+var DEFAULT_MCP_SERVERS = [
+  { name: "context7", url: "https://mcp.context7.com/mcp" }
+];
+function loadMcpServers() {
+  const defaults = process.env.FERRY_MCP_DEFAULTS_DISABLED === "true" ? [] : [...DEFAULT_MCP_SERVERS];
+  const raw = process.env.AGENT_MCP_SERVERS;
+  if (!raw) return defaults;
+  let consumer;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return defaults;
+    consumer = parsed.filter(isValidMcpServer);
+  } catch {
+    return defaults;
+  }
+  const consumerNames = new Set(consumer.map((s) => s.name));
+  const filteredDefaults = defaults.filter((d) => !consumerNames.has(d.name));
+  return [...filteredDefaults, ...consumer];
 }
 
 // src/lib/envelope/validate.ts
@@ -453,7 +247,7 @@ async function runAgent(role, handler2) {
   const component = COMPONENT[role];
   const bootstrapLogger = createLogger("", component);
   try {
-    const rawPayload = requireEnv2("FERRY_ENVELOPE_PAYLOAD");
+    const rawPayload = requireEnv("FERRY_ENVELOPE_PAYLOAD");
     const envelope = validateEnvelope(JSON.parse(rawPayload));
     const logger = createLogger(envelope.event_id, component);
     await handler2(envelope, logger);
@@ -463,8 +257,181 @@ async function runAgent(role, handler2) {
   }
 }
 
-// src/lib/agent-runtime/step-summary.ts
+// src/lib/agent-runtime/idempotency.ts
+function byEventId(role, eventId) {
+  return `[ferry:${role}:${eventId}]`;
+}
+function byPrHeadSha(role, headSha) {
+  return `[ferry:${role}:${headSha.slice(0, 7)}]`;
+}
+
+// src/lib/agent-runtime/prompt.ts
+import { existsSync as existsSync2, readFileSync as readFileSync2 } from "node:fs";
+
+// src/lib/prompts/resolve.ts
+import { existsSync, readFileSync } from "node:fs";
+import * as path from "node:path";
+function resolvePromptPath(name, repoRoot, _checkExists = existsSync, _logger) {
+  const overridesDir = process.env.FERRY_PROMPTS_DIR || path.join(repoRoot, "prompts");
+  const overridePath = path.join(overridesDir, `${name}.md`);
+  if (_checkExists(overridePath)) {
+    return overridePath;
+  }
+  const bundledDir = process.env.FERRY_BUNDLED_PROMPTS_DIR ?? path.join(repoRoot, ".ferry", "prompts");
+  _logger?.info(`${name}: consumer override not found, using shipped default`);
+  return path.join(bundledDir, `${name}.md`);
+}
+var PROJECT_SNIPPET_MAX_BYTES = 2048;
+function loadProjectSnippet(repoRoot, _checkExists = existsSync, _readFile = (p, enc) => readFileSync(p, enc), _logger) {
+  const overridesDir = process.env.FERRY_PROMPTS_DIR || path.join(repoRoot, "prompts");
+  const candidates = [
+    path.join(overridesDir, "_project.md"),
+    path.join(repoRoot, ".ferry", "prompts", "_project.md")
+  ];
+  for (const candidate of candidates) {
+    if (_checkExists(candidate)) {
+      const raw = _readFile(candidate, "utf8");
+      const limit = parseInt(process.env.FERRY_PROJECT_SNIPPET_BYTES ?? "", 10) || PROJECT_SNIPPET_MAX_BYTES;
+      if (raw.length > limit) {
+        _logger?.warn("_project.md exceeds limit \u2014 truncating", { limit });
+        return raw.slice(0, limit);
+      }
+      _logger?.info("loaded _project.md", { path: candidate });
+      return raw;
+    }
+  }
+  return null;
+}
+var AGENT_EXTENSION_MAX_BYTES = 4096;
+function loadAgentExtension(name, repoRoot, _checkExists = existsSync, _readFile = (p, enc) => readFileSync(p, enc), _logger) {
+  const overridesDir = process.env.FERRY_PROMPTS_DIR || path.join(repoRoot, "prompts");
+  const candidate = path.join(overridesDir, `${name}.extra.md`);
+  if (!_checkExists(candidate)) {
+    return null;
+  }
+  const raw = _readFile(candidate, "utf8");
+  const limit = parseInt(process.env.FERRY_AGENT_EXTENSION_BYTES ?? "", 10) || AGENT_EXTENSION_MAX_BYTES;
+  if (raw.length > limit) {
+    _logger?.warn(`${name}.extra.md exceeds limit \u2014 truncating`, { limit });
+    return raw.slice(0, limit);
+  }
+  _logger?.info(`loaded ${name}.extra.md`, { path: candidate });
+  return raw;
+}
+
+// src/lib/agent-runtime/prompt.ts
+function buildSystem(promptName, repoRoot, opts) {
+  const _checkExists = opts?._checkExists ?? existsSync2;
+  const _readFile = opts?._readFile ?? ((p, enc) => readFileSync2(p, enc));
+  const resolvedPath = resolvePromptPath(promptName, repoRoot, _checkExists);
+  const systemBase = _readFile(resolvedPath, "utf8");
+  const agentExtension = loadAgentExtension(promptName, repoRoot, _checkExists, _readFile);
+  const projectSnippet = loadProjectSnippet(repoRoot, _checkExists, _readFile);
+  const separator = opts?.separator ?? "\n\n";
+  const parts = [
+    systemBase,
+    agentExtension ? `## Project-specific guidance for ${promptName}
+
+${agentExtension}` : null,
+    ...opts?.extraParts ?? [],
+    projectSnippet ? `## Project conventions
+
+${projectSnippet}` : null
+  ].filter((p) => Boolean(p));
+  return parts.join(separator);
+}
+function loadOptionalPrompt(name, repoRoot, _readFile = (p, enc) => readFileSync2(p, enc), _checkExists = existsSync2) {
+  const resolved = resolvePromptPath(name, repoRoot, _checkExists);
+  try {
+    return _readFile(resolved, "utf8");
+  } catch {
+    return null;
+  }
+}
+function buildTicketBlock(ticketKey, issue, opts) {
+  const effectiveType = opts?.typeOverride ?? issue.issueType;
+  return [
+    `TICKET: ${ticketKey}`,
+    `TITLE: ${issue.summary}`,
+    `TYPE: ${effectiveType}`,
+    opts?.labels !== void 0 ? `LABELS: ${opts.labels || "none"}` : null,
+    `DESCRIPTION:
+${issue.description}`,
+    opts?.comments ? `COMMENTS:
+${opts.comments}` : ""
+  ].filter(Boolean).join("\n");
+}
+
+// src/lib/agent-runtime/output.ts
 import { appendFileSync } from "node:fs";
+
+// src/lib/llm/pricing.ts
+var EUR_TO_USD = 1 / 0.93;
+var RATES = {
+  "anthropic/claude-sonnet-4-6": { inputPer1M: 2.79, outputPer1M: 13.95 },
+  "anthropic/claude-opus": { inputPer1M: 13.95, outputPer1M: 69.75 },
+  "anthropic/claude-haiku": { inputPer1M: 0.23, outputPer1M: 1.16 },
+  "openai/gpt-4.1-nano": { inputPer1M: 0.09, outputPer1M: 0.37 },
+  "openai/gpt-4.1-mini": { inputPer1M: 0.14, outputPer1M: 0.56 },
+  "openai/gpt-4.": { inputPer1M: 2.79, outputPer1M: 8.37 },
+  "openai/gpt-5.": { inputPer1M: 2.79, outputPer1M: 8.37 },
+  "google/gemini-2.5-flash": { inputPer1M: 0.07, outputPer1M: 0.28 },
+  "google/gemini-2.5-pro": { inputPer1M: 1.05, outputPer1M: 4.2 }
+};
+var PROVIDER_FALLBACK = {
+  anthropic: RATES["anthropic/claude-opus"],
+  openai: RATES["openai/gpt-4."],
+  google: RATES["google/gemini-2.5-pro"]
+};
+function lookupRates(provider, model) {
+  const exactKey = `${provider}/${model}`;
+  if (RATES[exactKey]) return RATES[exactKey];
+  for (const key of Object.keys(RATES)) {
+    if (key !== exactKey && key.startsWith(`${provider}/`) && model.startsWith(key.slice(provider.length + 1))) {
+      return RATES[key];
+    }
+  }
+  return PROVIDER_FALLBACK[provider];
+}
+function computeCostEur(provider, model, inputTokens, outputTokens) {
+  const rates = lookupRates(provider, model);
+  const cost = inputTokens / 1e6 * rates.inputPer1M + outputTokens / 1e6 * rates.outputPer1M;
+  return Math.round(cost * 1e4) / 1e4;
+}
+
+// src/lib/agent-runtime/output.ts
+function appendOutput(usage) {
+  const githubOutput = process.env.GITHUB_OUTPUT;
+  if (githubOutput) {
+    const cacheRead = usage.cache_read_input_tokens ?? 0;
+    const cacheWrite = usage.cache_creation_input_tokens ?? 0;
+    let costEur = 0;
+    if (usage.provider && usage.model && usage.model !== "placeholder") {
+      costEur = computeCostEur(
+        usage.provider,
+        usage.model,
+        usage.input_tokens,
+        usage.output_tokens
+      );
+    }
+    let out = `input_tokens=${usage.input_tokens}
+output_tokens=${usage.output_tokens}
+`;
+    out += `cache_read_tokens=${cacheRead}
+cache_write_tokens=${cacheWrite}
+`;
+    out += `cost_eur=${costEur}
+`;
+    if (usage.model) out += `model=${usage.model}
+`;
+    if (usage.provider) out += `provider=${usage.provider}
+`;
+    appendFileSync(githubOutput, out);
+  }
+}
+
+// src/lib/agent-runtime/step-summary.ts
+import { appendFileSync as appendFileSync2 } from "node:fs";
 var TOP_N = 5;
 function stopRecommendation(outcome, stopReason) {
   if (stopReason === "input-token-budget-exceeded") {
@@ -559,15 +526,62 @@ function formatStepSummary(stats) {
 function writeStepSummary(stats) {
   const summaryPath = process.env.GITHUB_STEP_SUMMARY;
   if (!summaryPath) return;
-  appendFileSync(summaryPath, formatStepSummary(stats));
+  appendFileSync2(summaryPath, formatStepSummary(stats));
+}
+
+// src/lib/agent-runtime/git.ts
+import { execSync, execFileSync } from "node:child_process";
+function configureFerryGitUser(repoRoot) {
+  execSync('git config user.name "ferry-bot"', { cwd: repoRoot });
+  execSync('git config user.email "ferry-bot@users.noreply.github.com"', { cwd: repoRoot });
+}
+function makeCommitProgress(logger, options = {}) {
+  return async (repoRoot, branchName, message, scan) => {
+    execSync("git add -A", { cwd: repoRoot });
+    const status = execSync("git status --porcelain", { cwd: repoRoot, encoding: "utf8" });
+    if (!status.trim()) return "nothing to commit";
+    await scan();
+    execSync(`git commit -m ${JSON.stringify(message)}`, { cwd: repoRoot });
+    if (options.dryRun) {
+      logger.info("DRY_RUN \u2014 checkpoint committed locally (push skipped)", {
+        message: message.slice(0, 80)
+      });
+      return "committed (dry-run: push skipped)";
+    }
+    execSync(`git push origin ${branchName} --force-with-lease`, { cwd: repoRoot });
+    logger.info("checkpoint", { message: message.slice(0, 80) });
+    return "committed and pushed";
+  };
+}
+function checkoutExistingBranch(branchName, repoRoot) {
+  try {
+    execFileSync("git", ["ls-remote", "--exit-code", "--heads", "origin", branchName], {
+      cwd: repoRoot,
+      stdio: "pipe"
+    });
+    execFileSync("git", ["fetch", "origin", branchName], { cwd: repoRoot });
+    execFileSync("git", ["checkout", branchName], { cwd: repoRoot });
+    return "ok";
+  } catch {
+    return "not-found";
+  }
+}
+function fetchAndMergeBase(baseBranch, repoRoot) {
+  execFileSync("git", ["fetch", "origin", baseBranch], { cwd: repoRoot });
+  try {
+    execFileSync("git", ["merge", `origin/${baseBranch}`, "--no-edit"], { cwd: repoRoot });
+    return [];
+  } catch {
+    return execSync("git diff --name-only --diff-filter=U", { cwd: repoRoot, encoding: "utf8" }).trim().split("\n").filter(Boolean);
+  }
 }
 
 // src/lib/agent-runtime/config-reload.ts
-import { execFileSync } from "node:child_process";
+import { execFileSync as execFileSync2 } from "node:child_process";
 
 // src/lib/config.ts
-import { existsSync, readFileSync } from "node:fs";
-import * as path from "node:path";
+import { existsSync as existsSync3, readFileSync as readFileSync3 } from "node:fs";
+import * as path2 from "node:path";
 import { createRequire as createRequire2 } from "node:module";
 var _require2 = createRequire2(import.meta.url);
 var DEFAULT_FERRY_CONFIG = {
@@ -872,13 +886,13 @@ function validateConfigShape(raw) {
   return errs;
 }
 function readJsonConfig(filePath) {
-  const raw = readFileSync(filePath, "utf8");
+  const raw = readFileSync3(filePath, "utf8");
   try {
     return JSON.parse(raw);
   } catch (e) {
     throw new FerryError("state-invariant", {
       reason: "invalid-ferry-config",
-      file: path.basename(filePath),
+      file: path2.basename(filePath),
       error: e.message
     });
   }
@@ -891,17 +905,17 @@ function readYamlConfig(filePath) {
   } catch {
     throw new FerryError("state-invariant", {
       reason: "invalid-ferry-config",
-      file: path.basename(filePath),
+      file: path2.basename(filePath),
       error: 'YAML config requires the "yaml" package: npm install yaml'
     });
   }
-  const raw = readFileSync(filePath, "utf8");
+  const raw = readFileSync3(filePath, "utf8");
   try {
     return parseYaml(raw);
   } catch (e) {
     throw new FerryError("state-invariant", {
       reason: "invalid-ferry-config",
-      file: path.basename(filePath),
+      file: path2.basename(filePath),
       error: e.message
     });
   }
@@ -913,8 +927,8 @@ function findAndReadConfigFile(repoRoot) {
     { file: "ferry.config.yml", reader: readYamlConfig }
   ];
   for (const { file, reader } of candidates) {
-    const filePath = path.join(repoRoot, file);
-    if (!existsSync(filePath)) continue;
+    const filePath = path2.join(repoRoot, file);
+    if (!existsSync3(filePath)) continue;
     return reader(filePath);
   }
   return null;
@@ -1219,13 +1233,13 @@ function loadFerryConfig(repoRoot) {
 // src/lib/agent-runtime/config-reload.ts
 function loadFerryConfigFromBaseBranch(baseBranch, repoRoot, fallback) {
   try {
-    execFileSync("git", ["fetch", "origin", baseBranch], { cwd: repoRoot, stdio: "pipe" });
+    execFileSync2("git", ["fetch", "origin", baseBranch], { cwd: repoRoot, stdio: "pipe" });
   } catch {
     return fallback;
   }
   let jsonContent;
   try {
-    jsonContent = execFileSync("git", ["show", `origin/${baseBranch}:ferry.config.json`], {
+    jsonContent = execFileSync2("git", ["show", `origin/${baseBranch}:ferry.config.json`], {
       cwd: repoRoot,
       encoding: "utf8",
       stdio: "pipe"
@@ -1236,7 +1250,102 @@ function loadFerryConfigFromBaseBranch(baseBranch, repoRoot, fallback) {
   return parseFerryConfigJson(jsonContent);
 }
 
+// src/lib/safety/scan.ts
+import { spawn } from "node:child_process";
+function normalizeFinding(raw) {
+  return {
+    ruleId: raw.RuleID ?? "",
+    description: raw.Description ?? "",
+    file: raw.File ?? "",
+    startLine: raw.StartLine ?? 0,
+    endLine: raw.EndLine ?? 0
+  };
+}
+async function scanWithGitleaks(opts) {
+  const spawnFn = opts.spawnFn ?? spawn;
+  const args = [
+    "detect",
+    `--source=${opts.path}`,
+    "--report-format=json",
+    "--report-path=/dev/stdout",
+    "--no-banner"
+  ];
+  if (opts.configPath) {
+    args.push(`--config=${opts.configPath}`);
+  }
+  const child = spawnFn(opts.binaryPath, args);
+  let stdout = "";
+  let stderr = "";
+  child.stdout?.on("data", (chunk) => {
+    stdout += chunk.toString();
+  });
+  child.stderr?.on("data", (chunk) => {
+    stderr += chunk.toString();
+  });
+  const exitCode = await new Promise((resolve2, reject) => {
+    child.once("error", reject);
+    child.once("close", (code) => resolve2(code ?? -1));
+  });
+  if (exitCode !== 0 && exitCode !== 1) {
+    throw new FerryError("unknown", {
+      stage: "scan",
+      reason: "unexpected-exit-code",
+      exitCode,
+      // stderr length only — never the content (could contain leaked text).
+      stderrLength: stderr.length
+    });
+  }
+  let findings = [];
+  const trimmed = stdout.trim();
+  if (trimmed.length > 0) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        findings = parsed.map(normalizeFinding);
+      }
+    } catch {
+      throw new FerryError("unknown", {
+        stage: "parse",
+        reason: "invalid-json",
+        // Length only — never the body (could contain leaked content).
+        stdoutLength: stdout.length
+      });
+    }
+  }
+  return {
+    leaksFound: findings.length > 0,
+    findings
+  };
+}
+
+// src/lib/agent-runtime/secret-scan.ts
+function makeSecretScan(repoRoot) {
+  return async () => {
+    const scanResult = await scanWithGitleaks({
+      path: repoRoot,
+      binaryPath: process.env.GITLEAKS_PATH ?? "gitleaks"
+    });
+    if (scanResult.leaksFound) {
+      throw new FerryError("state-invariant", {
+        reason: "secret-scan-hit",
+        findings: scanResult.findings.length
+      });
+    }
+  };
+}
+
 // src/lib/agent-runtime/labels.ts
+function logCapabilities(logger, capabilities) {
+  if (capabilities.triggeredLabels.length > 0) {
+    logger.info("label capabilities", {
+      labels: capabilities.triggeredLabels,
+      mcp: capabilities.mcpServerNames
+    });
+  }
+  if (capabilities.unknownFerryLabels.length > 0) {
+    logger.warn("unknown ferry labels (ignored)", { labels: capabilities.unknownFerryLabels });
+  }
+}
 function logTypeOverrides(logger, overrides) {
   if (overrides.typeOverride) {
     logger.info("type override active", {
@@ -2333,17 +2442,17 @@ function requestLog(octokit) {
     octokit.log.debug("request", options);
     const start = Date.now();
     const requestOptions = octokit.request.endpoint.parse(options);
-    const path2 = requestOptions.url.replace(options.baseUrl, "");
+    const path7 = requestOptions.url.replace(options.baseUrl, "");
     return request2(options).then((response) => {
       const requestId = response.headers["x-github-request-id"];
       octokit.log.info(
-        `${requestOptions.method} ${path2} - ${response.status} with id ${requestId} in ${Date.now() - start}ms`
+        `${requestOptions.method} ${path7} - ${response.status} with id ${requestId} in ${Date.now() - start}ms`
       );
       return response;
     }).catch((error) => {
       const requestId = error.response?.headers["x-github-request-id"] || "UNKNOWN";
       octokit.log.error(
-        `${requestOptions.method} ${path2} - ${error.status} with id ${requestId} in ${Date.now() - start}ms`
+        `${requestOptions.method} ${path7} - ${error.status} with id ${requestId} in ${Date.now() - start}ms`
       );
       throw error;
     });
@@ -5008,9 +5117,9 @@ var GitHubActionsRunner = class {
     if (runs.some((r) => r.conclusion === "failure" || r.conclusion === "timed_out")) return "red";
     return "green";
   }
-  async getFileContent(owner, repo, path2, ref) {
+  async getFileContent(owner, repo, path7, ref) {
     try {
-      const { data } = await this.octokit.repos.getContent({ owner, repo, path: path2, ref });
+      const { data } = await this.octokit.repos.getContent({ owner, repo, path: path7, ref });
       if ("content" in data && typeof data.content === "string") {
         const decoded = Buffer.from(data.content, "base64").toString("utf8");
         const maxChars = parseInt(process.env.FERRY_FILE_DISPLAY_CHARS ?? "", 10) || MAX_CONTENT_CHARS_DEFAULT;
@@ -5092,6 +5201,31 @@ var GitHubActionsRunner = class {
     return data.map((c) => ({ id: c.id, body: c.body ?? "" }));
   }
 };
+
+// src/lib/dispatch/runner/factory.ts
+var GITLAB_TRACKING_ISSUE = "https://github.com/big-emotion/ferry/issues/210";
+function resolveForgeFromEnv() {
+  const raw = (process.env.FERRY_FORGE ?? "").trim().toLowerCase();
+  if (raw === "" || raw === "github") return "github";
+  if (raw === "gitlab") return "gitlab";
+  throw new FerryError("state-invariant", {
+    reason: "unknown-forge",
+    value: raw,
+    supported: ["github", "gitlab"]
+  });
+}
+function createRunnerFromEnv(token, owner, repo) {
+  const forge = resolveForgeFromEnv();
+  switch (forge) {
+    case "github":
+      return new GitHubActionsRunner(token, owner, repo);
+    case "gitlab":
+      throw new FerryError("state-invariant", {
+        reason: "gitlab-runner-not-implemented",
+        tracking: GITLAB_TRACKING_ISSUE
+      });
+  }
+}
 
 // src/lib/io/spend-cap.ts
 function classifyHttpStatus(status) {
@@ -5338,19 +5472,32 @@ function createTrackerFromEnv() {
 
 // src/lib/agent-runtime/context.ts
 function createGitHubContext(repoRoot) {
-  const githubToken = requireEnv2("GITHUB_TOKEN");
-  const githubRepo = requireEnv2("GITHUB_REPO");
+  const githubToken = requireEnv("GITHUB_TOKEN");
+  const githubRepo = requireEnv("GITHUB_REPO");
   const [owner, repo] = githubRepo.split("/");
   if (!owner || !repo) {
     throw new FerryError("state-invariant", { reason: "invalid-github-repo", githubRepo });
   }
   const ferryCfg = loadFerryConfig(repoRoot);
-  const runner = new GitHubActionsRunner(githubToken, owner, repo);
+  const runner = createRunnerFromEnv(githubToken, owner, repo);
   const tracker = createTrackerFromEnv();
   return { owner, repo, runner, tracker, ferryCfg };
 }
 
 // src/lib/agent-runtime/resolve-git-config.ts
+function resolveBranchPrefix(prefix, issue) {
+  if (typeof prefix === "string") return prefix;
+  for (const label of issue.labels) {
+    const match = /^ferry:type:(.+)$/.exec(label);
+    if (match) {
+      const labelType = match[1];
+      if (labelType in prefix) return prefix[labelType];
+      break;
+    }
+  }
+  if (issue.issueType in prefix) return prefix[issue.issueType];
+  return prefix["default"];
+}
 async function resolveGitConfig(ferryCfg, runner, owner, repo) {
   const { base_branch, target_branch, working_branch_prefix } = ferryCfg.git;
   const baseBranch = base_branch ?? await runner.getRepoDefaultBranch(owner, repo);
@@ -5385,6 +5532,61 @@ function resolveTypeOverrides(labels) {
 }
 function isBuiltinTypeLabel(label) {
   return BUILTIN_TYPE_LABELS.has(label);
+}
+function resolveCapabilities(ticketLabels, configLabels, logger) {
+  if (!configLabels) {
+    return {
+      mcpServerNames: [],
+      serverAllowedTools: {},
+      triggeredLabels: [],
+      unknownFerryLabels: []
+    };
+  }
+  const triggeredLabels = [];
+  const unknownFerryLabels = [];
+  const serverToolSets = {};
+  for (const label of ticketLabels) {
+    if (Object.prototype.hasOwnProperty.call(configLabels, label)) {
+      triggeredLabels.push(label);
+      const cap = configLabels[label];
+      for (const server of cap.mcp_servers ?? []) {
+        if (cap.tools && cap.tools.length > 0) {
+          if (serverToolSets[server] === void 0) {
+            serverToolSets[server] = new Set(cap.tools);
+          } else if (serverToolSets[server] !== null) {
+            for (const t of cap.tools) serverToolSets[server].add(t);
+          }
+        } else {
+          serverToolSets[server] = null;
+        }
+      }
+    } else if (label.startsWith("ferry:")) {
+      if (!isBuiltinTypeLabel(label)) {
+        unknownFerryLabels.push(label);
+        logger?.warn("unknown ferry label ignored", { label });
+      }
+    }
+  }
+  const serverAllowedTools = {};
+  for (const [server, tools] of Object.entries(serverToolSets)) {
+    serverAllowedTools[server] = tools ? [...tools] : [];
+  }
+  return {
+    mcpServerNames: Object.keys(serverToolSets),
+    serverAllowedTools,
+    triggeredLabels,
+    unknownFerryLabels
+  };
+}
+function filterMcpServers(pool, capabilities, hasLabelsConfig) {
+  if (!hasLabelsConfig) return pool;
+  return pool.filter((s) => capabilities.mcpServerNames.includes(s.name)).map((s) => {
+    const allowedTools = capabilities.serverAllowedTools[s.name];
+    if (allowedTools && allowedTools.length > 0) {
+      return { ...s, allowed_tools: allowedTools };
+    }
+    return s;
+  });
 }
 
 // src/lib/labels/overrides.ts
@@ -5754,6 +5956,202 @@ function buildConflictComment(role, runId, err) {
   ].join("\n");
 }
 
+// src/lib/dry-run.ts
+function isDryRun() {
+  return process.env.FERRY_DRY_RUN === "1" || process.env.FERRY_DRY_RUN === "true";
+}
+
+// src/lib/llm/call.ts
+import Anthropic2 from "@anthropic-ai/sdk";
+
+// src/lib/io/retry.ts
+function sleep(ms) {
+  return new Promise((resolve2) => setTimeout(resolve2, ms));
+}
+function computeDelayMs(attemptIndex, opts) {
+  const base = opts.baseDelayMs * Math.pow(opts.backoffFactor, attemptIndex);
+  const jitter = (Math.random() * 2 - 1) * opts.jitterRatio;
+  return Math.max(0, Math.round(base * (1 + jitter)));
+}
+function retry(fn, options) {
+  const opts = {
+    jitterRatio: 0.5,
+    backoffFactor: 2,
+    ...options
+  };
+  return async (...args) => {
+    let lastErr;
+    for (let attempt = 0; attempt < opts.maxAttempts; attempt++) {
+      try {
+        return await fn(...args);
+      } catch (e) {
+        lastErr = e;
+        const isTransient = e instanceof FerryError && e.code === "transient";
+        const shouldRetry = isTransient && attempt < opts.maxAttempts - 1;
+        if (!shouldRetry) break;
+        const delayMs = computeDelayMs(attempt, opts);
+        await sleep(delayMs);
+      }
+    }
+    if (lastErr instanceof FerryError && lastErr.code === "transient") {
+      throw new FerryError("unknown");
+    }
+    throw lastErr;
+  };
+}
+
+// src/lib/llm/anthropic.ts
+import Anthropic from "@anthropic-ai/sdk";
+async function invokeAnthropic(opts) {
+  try {
+    const msg = await opts.client.messages.create({
+      model: opts.model,
+      max_tokens: opts.maxTokens,
+      messages: [{ role: "user", content: opts.prompt }]
+    });
+    const textBlock = msg.content.find((b) => b.type === "text");
+    const text = textBlock && textBlock.type === "text" ? textBlock.text : "";
+    const inputTokens = msg.usage.input_tokens;
+    const outputTokens = msg.usage.output_tokens;
+    return {
+      text,
+      usage: {
+        inputTokens,
+        outputTokens,
+        costEur: computeCostEur("anthropic", opts.model, inputTokens, outputTokens)
+      }
+    };
+  } catch (e) {
+    if (e instanceof Anthropic.RateLimitError) {
+      throw new FerryError("spend-cap", { reason: "rate-limit" });
+    }
+    if (e instanceof Anthropic.APIError && e.status >= 500) {
+      throw new FerryError("transient", { reason: "server-error", status: e.status });
+    }
+    if (e instanceof Error && isNetworkError(e.message)) {
+      throw new FerryError("transient", { reason: "network-error" });
+    }
+    throw e;
+  }
+}
+function isNetworkError(msg) {
+  return msg.includes("fetch failed") || msg.includes("ECONNREFUSED") || msg.includes("ETIMEDOUT");
+}
+
+// src/lib/llm/openai.ts
+import OpenAI from "openai";
+async function invokeOpenAI(opts) {
+  const client = new OpenAI({ apiKey: opts.apiKey });
+  try {
+    const completion = await client.chat.completions.create({
+      model: opts.model,
+      messages: [{ role: "user", content: opts.prompt }],
+      max_tokens: opts.maxTokens
+    });
+    const text = completion.choices[0]?.message.content ?? "";
+    const inputTokens = completion.usage?.prompt_tokens ?? 0;
+    const outputTokens = completion.usage?.completion_tokens ?? 0;
+    return {
+      text,
+      usage: {
+        inputTokens,
+        outputTokens,
+        costEur: computeCostEur("openai", opts.model, inputTokens, outputTokens)
+      }
+    };
+  } catch (e) {
+    if (e instanceof OpenAI.RateLimitError) {
+      throw new FerryError("spend-cap", { reason: "rate-limit" });
+    }
+    if (e instanceof OpenAI.APIConnectionError) {
+      throw new FerryError("transient", { reason: "network-error" });
+    }
+    if (e instanceof OpenAI.APIError && e.status >= 500) {
+      throw new FerryError("transient", { reason: "server-error", status: e.status });
+    }
+    throw e;
+  }
+}
+
+// src/lib/llm/google.ts
+import { GoogleGenAI } from "@google/genai";
+async function invokeGoogle(opts) {
+  const ai = new GoogleGenAI({ apiKey: opts.apiKey });
+  try {
+    const response = await ai.models.generateContent({
+      model: opts.model,
+      contents: opts.prompt
+    });
+    const text = response.text ?? "";
+    const inputTokens = response.usageMetadata?.promptTokenCount ?? 0;
+    const outputTokens = response.usageMetadata?.candidatesTokenCount ?? 0;
+    return {
+      text,
+      usage: {
+        inputTokens,
+        outputTokens,
+        costEur: computeCostEur("google", opts.model, inputTokens, outputTokens)
+      }
+    };
+  } catch (e) {
+    if (e instanceof Error) {
+      throw new FerryError("transient", { reason: "network-error", message: e.message });
+    }
+    throw e;
+  }
+}
+
+// src/lib/llm/anthropic-auth.ts
+function resolveAnthropicAuth(input) {
+  const env = input.env ?? process.env;
+  const oauthToken = env["CLAUDE_CODE_OAUTH_TOKEN"];
+  if (oauthToken) {
+    return { authToken: oauthToken };
+  }
+  const apiKey = env[input.apiKeyEnv];
+  if (apiKey) {
+    return { apiKey };
+  }
+  throw new FerryError("state-invariant", { reason: "missing-env", key: input.apiKeyEnv });
+}
+
+// src/lib/llm/call.ts
+var MAX_TOKENS = parseInt(process.env.FERRY_LLM_UTILITY_MAX_TOKENS ?? "", 10) || 4096;
+var LLM_RETRY_BASE_DELAY_MS = parseInt(process.env.FERRY_LLM_RETRY_BASE_DELAY_MS ?? "", 10) || 2e3;
+var LLM_RETRY_MAX_ATTEMPTS = parseInt(process.env.FERRY_LLM_RETRY_MAX_ATTEMPTS ?? "", 10) || 3;
+function requireEnv2(key) {
+  const val = process.env[key];
+  if (!val) {
+    throw new FerryError("state-invariant", { reason: "missing-env", key });
+  }
+  return val;
+}
+function createLlmCall(route) {
+  if (route.provider === "anthropic") {
+    const auth2 = resolveAnthropicAuth({ apiKeyEnv: "ANTHROPIC_API_KEY" });
+    const client = new Anthropic2(auth2);
+    return retry(
+      (prompt) => invokeAnthropic({ client, model: route.model, prompt, maxTokens: MAX_TOKENS }),
+      { baseDelayMs: LLM_RETRY_BASE_DELAY_MS, maxAttempts: LLM_RETRY_MAX_ATTEMPTS }
+    );
+  }
+  if (route.provider === "openai") {
+    const apiKey = requireEnv2("FERRY_OPENAI_KEY");
+    return retry(
+      (prompt) => invokeOpenAI({ apiKey, model: route.model, prompt, maxTokens: MAX_TOKENS }),
+      { baseDelayMs: LLM_RETRY_BASE_DELAY_MS, maxAttempts: LLM_RETRY_MAX_ATTEMPTS }
+    );
+  }
+  if (route.provider === "google") {
+    const apiKey = requireEnv2("FERRY_GOOGLE_AI_KEY");
+    return retry((prompt) => invokeGoogle({ apiKey, model: route.model, prompt }), {
+      baseDelayMs: LLM_RETRY_BASE_DELAY_MS,
+      maxAttempts: LLM_RETRY_MAX_ATTEMPTS
+    });
+  }
+  throw new FerryError("state-invariant", { reason: "unknown-provider", provider: route.provider });
+}
+
 // src/agents/refiner/refine.ts
 import { createRequire as createRequire3 } from "module";
 
@@ -6107,15 +6505,15 @@ async function applyActions(actions, ctx) {
 }
 
 // src/agents/refiner/cost-estimate.ts
-import { readFileSync as readFileSync2 } from "node:fs";
-import { join as join2 } from "node:path";
+import { readFileSync as readFileSync4 } from "node:fs";
+import { join as join3 } from "node:path";
 var ITERATION_FACTOR = 1.4;
 var ITERATED_PHASES = /* @__PURE__ */ new Set(["developer", "dev", "iterator", "iterate"]);
 function loadCostBaseline(repoRoot) {
-  const filePath = join2(repoRoot, "cost-baseline.json");
+  const filePath = join3(repoRoot, "cost-baseline.json");
   let raw;
   try {
-    raw = readFileSync2(filePath, "utf8");
+    raw = readFileSync4(filePath, "utf8");
   } catch (err) {
     if (err.code === "ENOENT") return null;
     throw err;
@@ -6295,11 +6693,3658 @@ async function main(envelope, logger) {
   const callLlm = createLlmCall(route);
   await run(envelope, { tracker, callLlm, logger });
 }
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  void runAgent("refiner", main);
+
+// src/agents/developer/dev-action.ts
+import { execFileSync as execFileSync5 } from "node:child_process";
+import * as fsp2 from "node:fs/promises";
+import * as path6 from "node:path";
+
+// src/agents/developer/commit.ts
+var ALLOWED_TYPES = /* @__PURE__ */ new Set(["feat", "fix", "chore", "docs", "refactor", "test", "perf"]);
+function formatDeveloperCommit(input) {
+  const type = input.type && ALLOWED_TYPES.has(input.type) ? input.type : "feat";
+  const summary = input.summary.length > 0 ? input.summary[0].toLowerCase() + input.summary.slice(1) : input.summary;
+  return `[${input.ticketKey}] ${type}: ${summary}
+
+[ferry:developer:${input.runId}]`;
+}
+
+// src/agents/developer/pr.ts
+function formatPullRequestTitle(input) {
+  return `${input.ticketKey} ${input.summary}`;
+}
+function formatPullRequestBody(input) {
+  const ticketUrl = `${input.jiraBaseUrl.replace(/\/+$/, "")}/browse/${input.ticketKey}`;
+  const subtaskLines = input.subtasks.length > 0 ? input.subtasks.join("\n") : "_None_";
+  const validationLines = input.validation.length > 0 ? input.validation.map((v) => `- \`${v.command}\` \u2014 ${v.outcome}`).join("\n") : "_None_";
+  const notesLines = input.notes.length > 0 ? input.notes.map((n) => `- ${n}`).join("\n") : "_None_";
+  return [
+    `## Summary`,
+    input.summary,
+    ``,
+    `## Included subtasks`,
+    subtaskLines,
+    ``,
+    `## Validation`,
+    validationLines,
+    ``,
+    `## Notes`,
+    notesLines,
+    ``,
+    `---`,
+    `[${input.ticketKey}](${ticketUrl}) \xB7 \`[ferry:dev:${input.runId}]\``,
+    ``
+  ].join("\n");
+}
+
+// src/agents/developer/tools.ts
+import * as fs from "node:fs";
+import * as fsp from "node:fs/promises";
+import * as path4 from "node:path";
+import { spawn as spawn2 } from "node:child_process";
+
+// src/agents/developer/sandbox.ts
+import * as path3 from "node:path";
+var DENIED_WRITE_PREFIXES = [".github/", ".ferry/", "node_modules/", ".git/"];
+var DENIED_WRITE_FILES = ["package-lock.json", "yarn.lock", "pnpm-lock.yaml"];
+var DENIED_BASH_PATTERNS = [
+  /\bgit\s+push\b/,
+  /\bgit\s+reset\s+--hard\b/,
+  /\bgit\s+branch\s+-D\b/,
+  /\bgit\s+checkout\s+[^\s]/,
+  /\bgit\s+rebase\b/,
+  /\bgh\s+pr\s+merge\b/,
+  /\bgh\s+pr\s+close\b/,
+  /\brm\s+-rf\b/,
+  /\bsudo\b/,
+  /\bchmod\s+777\b/,
+  /\bcurl\b/,
+  /\bwget\b/,
+  /\.github\//,
+  /\.ferry\//,
+  /node_modules\//
+];
+function assertPathUnderRoot(repoRoot, input) {
+  const resolved = path3.resolve(repoRoot, input);
+  if (!resolved.startsWith(repoRoot + path3.sep) && resolved !== repoRoot) {
+    throw new Error(`Path traversal denied: ${input}`);
+  }
+  return resolved;
+}
+function assertWriteAllowed(repoRoot, resolved) {
+  const rel = path3.relative(repoRoot, resolved);
+  for (const prefix of DENIED_WRITE_PREFIXES) {
+    if (rel === prefix.replace(/\/$/, "") || rel.startsWith(prefix)) {
+      throw new Error(`Write denied: ${rel} is a protected path`);
+    }
+  }
+  for (const file of DENIED_WRITE_FILES) {
+    if (rel === file) {
+      throw new Error(`Write denied: ${rel} is a protected file`);
+    }
+  }
+}
+function assertBashAllowed(command) {
+  for (const pattern of DENIED_BASH_PATTERNS) {
+    if (pattern.test(command)) {
+      throw new Error(`Bash command denied: matches deny-list pattern ${pattern}`);
+    }
+  }
+}
+
+// src/agents/developer/tools.ts
+var MAX_BASH_OUTPUT_DEFAULT = 64 * 1024;
+var MAX_READ_FILE_BYTES_DEFAULT = 64 * 1024;
+var DEFAULT_BASH_TIMEOUT_MS_DEFAULT = 6e4;
+var MAX_BASH_TIMEOUT_MS_DEFAULT = 3e5;
+var MAX_SEARCH_MATCHES = 200;
+var TOOL_SCHEMAS = [
+  {
+    name: "read_file",
+    description: "Read the contents of a file under the repository root. Files larger than ~64 KB are truncated head+tail; use bash sed/grep to read specific ranges.",
+    input_schema: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "Path relative to repo root." }
+      },
+      required: ["path"]
+    }
+  },
+  {
+    name: "write_file",
+    description: "Create or overwrite a file. mkdir -p is applied automatically.",
+    input_schema: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "Path relative to repo root." },
+        content: { type: "string", description: "Full file content to write." }
+      },
+      required: ["path", "content"]
+    }
+  },
+  {
+    name: "str_replace",
+    description: "Surgical edit: replace a unique string in a file with new_str.",
+    input_schema: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "Path relative to repo root." },
+        old_str: { type: "string", description: "String to replace (must be unique in the file)." },
+        new_str: { type: "string", description: "Replacement string." }
+      },
+      required: ["path", "old_str", "new_str"]
+    }
+  },
+  {
+    name: "delete_file",
+    description: "Delete a file.",
+    input_schema: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "Path relative to repo root." }
+      },
+      required: ["path"]
+    }
+  },
+  {
+    name: "move_file",
+    description: "Move or rename a file.",
+    input_schema: {
+      type: "object",
+      properties: {
+        source: { type: "string", description: "Source path relative to repo root." },
+        destination: { type: "string", description: "Destination path relative to repo root." }
+      },
+      required: ["source", "destination"]
+    }
+  },
+  {
+    name: "list_dir",
+    description: "List directory contents as a tree (default depth 1, max 3).",
+    input_schema: {
+      type: "object",
+      properties: {
+        path: {
+          type: "string",
+          description: "Directory path relative to repo root. Defaults to root."
+        },
+        max_depth: { type: "number", description: "Max depth (1\u20133). Default 1." }
+      },
+      required: []
+    }
+  },
+  {
+    name: "search_files",
+    description: "Grep for a pattern across files. Capped at 200 matches.",
+    input_schema: {
+      type: "object",
+      properties: {
+        pattern: { type: "string", description: "Grep regex pattern." },
+        path: {
+          type: "string",
+          description: "Directory to search (relative to repo root). Defaults to root."
+        },
+        glob: { type: "string", description: 'File glob filter, e.g. "*.ts".' }
+      },
+      required: ["pattern"]
+    }
+  },
+  {
+    name: "bash",
+    description: "Run a shell command (bash -c). Returns exit_code, stdout, stderr. Output capped at 64KB.",
+    input_schema: {
+      type: "object",
+      properties: {
+        command: { type: "string", description: "Shell command to run." },
+        timeout_ms: {
+          type: "number",
+          description: `Timeout in ms (default ${DEFAULT_BASH_TIMEOUT_MS_DEFAULT}, max ${MAX_BASH_TIMEOUT_MS_DEFAULT}).`
+        }
+      },
+      required: ["command"]
+    }
+  },
+  {
+    name: "done",
+    description: "Terminate the loop. Call with the appropriate outcome when finished.",
+    input_schema: {
+      type: "object",
+      properties: {
+        outcome: {
+          type: "string",
+          enum: ["implemented", "already_satisfied", "blocked"],
+          description: "implemented \u2014 code was changed; triggers commit, push, PR, and transition. already_satisfied \u2014 spec is verifiably met by existing code with no changes needed; triggers a verification PR and transition. blocked \u2014 true blocker (contradictory spec, missing access, requires human decision); applies ferry:blocked label and exits non-zero. Never use blocked when the spec is already satisfied \u2014 use already_satisfied instead."
+        },
+        summary: {
+          type: "string",
+          description: "One sentence describing what was implemented, what satisfies the spec, or why blocked."
+        },
+        commit_message: {
+          type: "string",
+          description: "Conventional commit message for any remaining uncommitted changes (required when outcome=implemented)."
+        },
+        reason: {
+          type: "string",
+          description: "Clear explanation for the Jira escalation comment (required when outcome=blocked)."
+        },
+        validation: {
+          type: "array",
+          description: "Validation commands run during this session and their outcomes (used in the PR body and verification note).",
+          items: {
+            type: "object",
+            properties: {
+              command: { type: "string", description: 'Command run, e.g. "npm test".' },
+              outcome: {
+                type: "string",
+                description: 'Result, e.g. "74 files / 371 tests passed".'
+              }
+            },
+            required: ["command", "outcome"]
+          }
+        },
+        notes: {
+          type: "array",
+          description: "Noteworthy side-effects, follow-ups, deprecated paths, or config changes (used in the PR body).",
+          items: { type: "string" }
+        }
+      },
+      required: ["outcome", "summary"]
+    }
+  }
+];
+var COMMIT_PROGRESS_SCHEMA = {
+  name: "commit_progress",
+  description: "Stage all changes, run a secret scan, commit, and push to the working branch as a checkpoint. Call after completing each logical subtask \u2014 if the job fails later, the next run resumes from this commit.",
+  input_schema: {
+    type: "object",
+    properties: {
+      message: { type: "string", description: "Commit message in conventional commits format." }
+    },
+    required: ["message"]
+  }
+};
+var SPAWN_SUBAGENT_SCHEMA = {
+  name: "spawn_subagent",
+  description: "Delegate a self-contained subtask to a sub-agent with a fresh context window. The sub-agent has the same tools (except spawn_subagent) and works on the same branch. Use to keep each chunk of work focused and within token limits.",
+  input_schema: {
+    type: "object",
+    properties: {
+      task: {
+        type: "string",
+        description: "Full, self-contained description of the subtask. Include all context the sub-agent needs to complete it independently."
+      }
+    },
+    required: ["task"]
+  }
+};
+function buildTree(dirPath, maxDepth, currentDepth, prefix) {
+  if (currentDepth > maxDepth) return "";
+  let result = "";
+  let entries;
+  try {
+    entries = fs.readdirSync(dirPath, { withFileTypes: true });
+  } catch {
+    return "";
+  }
+  entries = entries.filter((e) => !e.name.startsWith(".") || e.name === ".ferry");
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    const isLast = i === entries.length - 1;
+    const connector = isLast ? "\u2514\u2500\u2500 " : "\u251C\u2500\u2500 ";
+    result += `${prefix}${connector}${entry.name}
+`;
+    if (entry.isDirectory() && currentDepth < maxDepth) {
+      const childPrefix = prefix + (isLast ? "    " : "\u2502   ");
+      result += buildTree(path4.join(dirPath, entry.name), maxDepth, currentDepth + 1, childPrefix);
+    }
+  }
+  return result;
+}
+async function executeTool(repoRoot, name, input) {
+  switch (name) {
+    case "read_file": {
+      const resolved = assertPathUnderRoot(repoRoot, input.path);
+      const maxBytes = parseInt(process.env.FERRY_READ_FILE_MAX_BYTES ?? "", 10) || MAX_READ_FILE_BYTES_DEFAULT;
+      let fh;
+      try {
+        fh = await fsp.open(resolved, "r");
+      } catch (e) {
+        throw new Error(`read_file failed: ${e.message}`);
+      }
+      try {
+        const stat = await fh.stat();
+        if (stat.size <= maxBytes) {
+          return await fh.readFile("utf8");
+        }
+        const headSize = Math.floor(maxBytes / 2);
+        const tailSize = maxBytes - headSize;
+        const headBuf = Buffer.alloc(headSize);
+        const tailBuf = Buffer.alloc(tailSize);
+        await fh.read(headBuf, 0, headSize, 0);
+        await fh.read(tailBuf, 0, tailSize, stat.size - tailSize);
+        const elided = stat.size - maxBytes;
+        return `${headBuf.toString("utf8")}
+[truncated: ${elided} bytes elided]
+${tailBuf.toString("utf8")}`;
+      } finally {
+        await fh.close();
+      }
+    }
+    case "write_file": {
+      const resolved = assertPathUnderRoot(repoRoot, input.path);
+      assertWriteAllowed(repoRoot, resolved);
+      await fsp.mkdir(path4.dirname(resolved), { recursive: true });
+      await fsp.writeFile(resolved, input.content, "utf8");
+      return `Written: ${path4.relative(repoRoot, resolved)}`;
+    }
+    case "str_replace": {
+      const resolved = assertPathUnderRoot(repoRoot, input.path);
+      assertWriteAllowed(repoRoot, resolved);
+      let content;
+      try {
+        content = await fsp.readFile(resolved, "utf8");
+      } catch (e) {
+        throw new Error(`str_replace: cannot read file: ${e.message}`);
+      }
+      const oldStr = input.old_str;
+      const idx = content.indexOf(oldStr);
+      if (idx === -1) throw new Error("str_replace: old_str not found in file");
+      const secondIdx = content.indexOf(oldStr, idx + 1);
+      if (secondIdx !== -1) throw new Error("str_replace: old_str is not unique in file");
+      const newContent = content.slice(0, idx) + input.new_str + content.slice(idx + oldStr.length);
+      await fsp.writeFile(resolved, newContent, "utf8");
+      return `Replaced in: ${path4.relative(repoRoot, resolved)}`;
+    }
+    case "delete_file": {
+      const resolved = assertPathUnderRoot(repoRoot, input.path);
+      assertWriteAllowed(repoRoot, resolved);
+      try {
+        await fsp.unlink(resolved);
+      } catch (e) {
+        throw new Error(`delete_file failed: ${e.message}`);
+      }
+      return `Deleted: ${path4.relative(repoRoot, resolved)}`;
+    }
+    case "move_file": {
+      const srcResolved = assertPathUnderRoot(repoRoot, input.source);
+      const dstResolved = assertPathUnderRoot(repoRoot, input.destination);
+      assertWriteAllowed(repoRoot, srcResolved);
+      assertWriteAllowed(repoRoot, dstResolved);
+      await fsp.mkdir(path4.dirname(dstResolved), { recursive: true });
+      await fsp.rename(srcResolved, dstResolved);
+      return `Moved: ${path4.relative(repoRoot, srcResolved)} \u2192 ${path4.relative(repoRoot, dstResolved)}`;
+    }
+    case "list_dir": {
+      const dirInput = input.path ?? ".";
+      const resolved = assertPathUnderRoot(repoRoot, dirInput);
+      const rawDepth = input.max_depth;
+      const maxDepth = rawDepth !== void 0 ? Math.min(Math.max(rawDepth, 1), 3) : 1;
+      const rel = path4.relative(repoRoot, resolved) || ".";
+      return `${rel}/
+` + buildTree(resolved, maxDepth, 1, "");
+    }
+    case "search_files": {
+      const pattern = input.pattern;
+      const searchPath = input.path ?? ".";
+      const glob = input.glob ?? "";
+      const resolved = assertPathUnderRoot(repoRoot, searchPath);
+      const args = ["-rn", "--include", glob || "*", pattern, resolved];
+      const grepTimeoutMs = parseInt(process.env.FERRY_GREP_TIMEOUT_MS ?? "", 10) || 3e4;
+      const result = await runProcess("grep", args, repoRoot, grepTimeoutMs);
+      const lines = result.stdout.split("\n").filter(Boolean);
+      const truncated = lines.slice(0, MAX_SEARCH_MATCHES);
+      const suffix = lines.length > MAX_SEARCH_MATCHES ? `
+[truncated: ${lines.length - MAX_SEARCH_MATCHES} more matches]` : "";
+      return truncated.join("\n") + suffix || "(no matches)";
+    }
+    case "bash": {
+      const command = input.command;
+      assertBashAllowed(command);
+      const defaultBashTimeoutMs = parseInt(process.env.FERRY_BASH_TIMEOUT_MS ?? "", 10) || DEFAULT_BASH_TIMEOUT_MS_DEFAULT;
+      const maxBashTimeoutMs = parseInt(process.env.FERRY_BASH_TIMEOUT_MAX_MS ?? "", 10) || MAX_BASH_TIMEOUT_MS_DEFAULT;
+      const timeoutMs = Math.min(
+        input.timeout_ms ?? defaultBashTimeoutMs,
+        maxBashTimeoutMs
+      );
+      const result = await runProcess("bash", ["-c", command], repoRoot, timeoutMs);
+      const maxBashOutput = parseInt(process.env.FERRY_BASH_OUTPUT_MAX_BYTES ?? "", 10) || MAX_BASH_OUTPUT_DEFAULT;
+      const combined = `exit_code: ${result.exitCode}
+stdout:
+${result.stdout}
+stderr:
+${result.stderr}`;
+      if (combined.length <= maxBashOutput) return combined;
+      return combined.slice(0, maxBashOutput) + `
+[truncated: ${combined.length - maxBashOutput} more bytes \u2014 pipe through head/grep/awk to narrow output.]`;
+    }
+    default:
+      throw new Error(`Unknown tool: ${name}`);
+  }
+}
+function runProcess(cmd, args, cwd, timeoutMs) {
+  return new Promise((resolve2, reject) => {
+    const child = spawn2(cmd, args, { cwd });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (d) => {
+      stdout += d.toString();
+    });
+    child.stderr.on("data", (d) => {
+      stderr += d.toString();
+    });
+    const timer = setTimeout(() => {
+      child.kill("SIGTERM");
+      reject(new Error(`Process timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+    child.once("error", (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+    child.once("close", (code) => {
+      clearTimeout(timer);
+      resolve2({ exitCode: code ?? -1, stdout, stderr });
+    });
+  });
+}
+
+// src/lib/llm/agent-loop/anthropic.ts
+import Anthropic3 from "@anthropic-ai/sdk";
+
+// src/lib/llm/debug-log.ts
+function isDebugEnabled2(env) {
+  return (env ?? process.env)["LOG_VERBOSITY"] === "debug";
+}
+function emitDebug(event, logger, env) {
+  if (!isDebugEnabled2(env)) return;
+  logger.debug(event.type, event);
+}
+
+// src/lib/mcp/client.ts
+import { spawn as spawn3 } from "node:child_process";
+import * as readline from "node:readline";
+var StdioMcpClient = class {
+  proc;
+  rl;
+  nextId = 1;
+  pending = /* @__PURE__ */ new Map();
+  closed = false;
+  initialized = false;
+  constructor(command, args, env) {
+    const mergedEnv = env ? { ...process.env, ...env } : process.env;
+    this.proc = spawn3(command, args, {
+      env: mergedEnv,
+      stdio: ["pipe", "pipe", "inherit"]
+    });
+    if (!this.proc.stdout || !this.proc.stdin) {
+      throw new Error(`Failed to spawn MCP server: ${command}`);
+    }
+    this.rl = readline.createInterface({ input: this.proc.stdout, crlfDelay: Infinity });
+    this.rl.on("line", (line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return;
+      let msg;
+      try {
+        msg = JSON.parse(trimmed);
+      } catch {
+        return;
+      }
+      if (msg.id === void 0) return;
+      const p = this.pending.get(msg.id);
+      if (!p) return;
+      this.pending.delete(msg.id);
+      if (msg.error) {
+        p.reject(new Error(`MCP error ${msg.error.code}: ${msg.error.message}`));
+      } else {
+        p.resolve(msg.result);
+      }
+    });
+    this.proc.once("exit", () => {
+      const err = new Error("MCP server process exited unexpectedly");
+      for (const p of this.pending.values()) p.reject(err);
+      this.pending.clear();
+      this.closed = true;
+    });
+    this.proc.once("error", (err) => {
+      for (const p of this.pending.values()) p.reject(err);
+      this.pending.clear();
+      this.closed = true;
+    });
+  }
+  request(method, params) {
+    if (this.closed) return Promise.reject(new Error("MCP client is closed"));
+    return new Promise((resolve2, reject) => {
+      const id = this.nextId++;
+      this.pending.set(id, { resolve: resolve2, reject });
+      const msg = { jsonrpc: "2.0", id, method, params };
+      this.proc.stdin.write(JSON.stringify(msg) + "\n");
+    });
+  }
+  notify(method, params) {
+    if (this.closed) return;
+    const msg = { jsonrpc: "2.0", method, params };
+    this.proc.stdin.write(JSON.stringify(msg) + "\n");
+  }
+  async initialize() {
+    if (this.initialized) return;
+    await this.request("initialize", {
+      protocolVersion: "2024-11-05",
+      capabilities: {},
+      clientInfo: { name: "ferry-mcp-client", version: "1.0.0" }
+    });
+    this.notify("notifications/initialized");
+    this.initialized = true;
+  }
+  async listTools() {
+    if (!this.initialized) await this.initialize();
+    const result = await this.request("tools/list", {});
+    return result.tools ?? [];
+  }
+  async callTool(name, args) {
+    if (!this.initialized) await this.initialize();
+    return await this.request("tools/call", {
+      name,
+      arguments: args
+    });
+  }
+  close() {
+    if (this.closed) return;
+    this.closed = true;
+    this.rl.close();
+    try {
+      this.proc.stdin?.end();
+    } catch {
+    }
+    this.proc.kill("SIGTERM");
+    const err = new Error("MCP client closed");
+    for (const p of this.pending.values()) p.reject(err);
+    this.pending.clear();
+  }
+};
+
+// src/lib/mcp/pool.ts
+function renderContent(content) {
+  return content.map((c) => {
+    if (c.type === "text") return c.text;
+    if (c.type === "image") return `[image/${c.mimeType}]`;
+    return "[resource]";
+  }).join("\n");
+}
+var McpClientPool = class {
+  clients = /* @__PURE__ */ new Map();
+  registry = /* @__PURE__ */ new Map();
+  toolList = [];
+  async connect(servers) {
+    for (const server of servers) {
+      const client = new StdioMcpClient(server.command, server.args ?? [], server.env);
+      try {
+        await client.initialize();
+      } catch (err) {
+        client.close();
+        throw new Error(
+          `Failed to initialize MCP server "${server.name}": ${err.message}`
+        );
+      }
+      this.clients.set(server.name, client);
+      let tools;
+      try {
+        tools = await client.listTools();
+      } catch (err) {
+        client.close();
+        this.clients.delete(server.name);
+        throw new Error(
+          `Failed to list tools from MCP server "${server.name}": ${err.message}`
+        );
+      }
+      for (const tool of tools) {
+        if (server.allowed_tools?.length && !server.allowed_tools.includes(tool.name)) continue;
+        if (server.denied_tools?.includes(tool.name)) continue;
+        this.toolList.push({
+          name: tool.name,
+          description: tool.description ?? tool.name,
+          input_schema: {
+            type: "object",
+            properties: tool.inputSchema.properties ?? {},
+            ...tool.inputSchema.required?.length ? { required: tool.inputSchema.required } : {}
+          }
+        });
+        this.registry.set(tool.name, { serverName: server.name, client });
+      }
+    }
+  }
+  /** Returns all tools exposed by connected MCP servers (after allowlist filtering). */
+  getTools() {
+    return this.toolList.slice();
+  }
+  /** Returns true if the named tool is provided by any connected MCP server. */
+  hasTool(name) {
+    return this.registry.has(name);
+  }
+  /** Returns the server name that provides the given tool, or undefined. */
+  getServerName(toolName) {
+    return this.registry.get(toolName)?.serverName;
+  }
+  /** Dispatch a tool call to the appropriate MCP server and return the text result. */
+  async callTool(name, input) {
+    const reg = this.registry.get(name);
+    if (!reg) throw new Error(`MCP tool not found in pool: ${name}`);
+    const result = await reg.client.callTool(name, input);
+    const text = renderContent(result.content ?? []);
+    if (result.isError) {
+      throw new Error(text || `MCP tool "${name}" returned an error`);
+    }
+    return text;
+  }
+  /** Terminate all spawned MCP server subprocesses. Safe to call multiple times. */
+  async close() {
+    for (const client of this.clients.values()) {
+      client.close();
+    }
+    this.clients.clear();
+    this.registry.clear();
+    this.toolList.length = 0;
+  }
+};
+
+// src/lib/llm/agent-loop/types.ts
+function isStdioMcpServer(s) {
+  return s.type === "stdio";
+}
+function isHttpMcpServer(s) {
+  return s.type !== "stdio";
+}
+
+// src/lib/llm/agent-loop/compact.ts
+function estimateTokens(text) {
+  return Math.ceil(text.length / 4);
+}
+function compactOldToolResults(messages, windowTurns) {
+  const toolResultIndices = [];
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+    if (msg.role === "user" && Array.isArray(msg.content)) {
+      const content = msg.content;
+      if (content.some((b) => b.type === "tool_result")) {
+        toolResultIndices.push(i);
+      }
+    }
+  }
+  if (toolResultIndices.length <= windowTurns) return;
+  const compactCount = toolResultIndices.length - windowTurns;
+  for (let k = 0; k < compactCount; k++) {
+    const idx = toolResultIndices[k];
+    const msg = messages[idx];
+    const content = msg.content;
+    for (let j = 0; j < content.length; j++) {
+      const block = content[j];
+      if (block.type !== "tool_result") continue;
+      if (typeof block.content !== "string") continue;
+      if (block.content.startsWith("[compacted")) continue;
+      const tokens = estimateTokens(block.content);
+      content[j] = { ...block, content: `[compacted \u2014 ~${tokens} tokens elided]` };
+    }
+  }
+}
+
+// src/lib/llm/agent-loop/anthropic.ts
+var COMMIT_AND_STOP_TOOL_NAMES = /* @__PURE__ */ new Set([
+  "bash",
+  "write_file",
+  "str_replace",
+  "commit_progress",
+  "done"
+]);
+var KEEP_LAST_TURNS = 6;
+var STUB = "[truncated: tool result elided to save context]";
+function pruneMessageHistory(messages) {
+  const cutoff = messages.length - KEEP_LAST_TURNS * 2;
+  if (cutoff <= 1) return;
+  for (let i = 1; i < cutoff; i++) {
+    const msg = messages[i];
+    if (msg.role !== "user" || !Array.isArray(msg.content)) continue;
+    const content = msg.content;
+    if (!content.some((b) => b.type === "tool_result" && b.content !== STUB)) continue;
+    msg.content = content.map(
+      (b) => b.type === "tool_result" && b.content !== STUB ? { ...b, content: STUB } : b
+    );
+  }
+}
+function injectBudgetWarning(messages, text) {
+  const last = messages[messages.length - 1];
+  if (!last || last.role !== "user") return;
+  if (typeof last.content === "string") {
+    last.content = [
+      { type: "text", text: last.content },
+      { type: "text", text }
+    ];
+  } else if (Array.isArray(last.content)) {
+    last.content = [...last.content, { type: "text", text }];
+  }
+}
+function buildMcpParams(mcpServers) {
+  const mcpServerParams = mcpServers.map((s) => ({
+    type: "url",
+    name: s.name,
+    url: s.url,
+    ...s.authorization_token ? { authorization_token: s.authorization_token } : {}
+  }));
+  const mcpToolsets = mcpServers.map((s) => ({
+    type: "mcp_toolset",
+    mcp_server_name: s.name,
+    ...s.allowed_tools?.length ? { allowed_tools: s.allowed_tools } : {},
+    ...s.denied_tools?.length ? { denied_tools: s.denied_tools } : {}
+  }));
+  return { mcpServerParams, mcpToolsets };
+}
+function createAnthropicAgentLoop(opts) {
+  const anthropic = opts.client ?? new Anthropic3({ apiKey: opts.apiKey, authToken: opts.authToken });
+  const logger = opts.logger ?? createLogger("", "ferry:dev-loop");
+  async function runLoop(input) {
+    const { system, initialPrompt, tools, repoRoot, branchName, secretScan, depth = 0 } = input;
+    const maxIterations = opts.maxIterations ?? parseInt(process.env.FERRY_DEV_MAX_ITERATIONS ?? "200", 10);
+    const maxInputTokens = opts.maxInputTokens ?? parseInt(process.env.FERRY_DEV_MAX_INPUT_TOKENS ?? "500000", 10);
+    const maxTokens = opts.maxTokens ?? parseInt(process.env.FERRY_DEV_MAX_TOKENS ?? "16384", 10);
+    const maxCostEur = opts.maxCostEur;
+    const compactWindow = opts.compactWindow ?? parseInt(process.env.FERRY_DEV_COMPACT_WINDOW ?? "8", 10);
+    const allServers = input.mcpServers ?? [];
+    const httpServers = allServers.filter(
+      (s) => isHttpMcpServer(s) && "url" in s
+    );
+    const stdioServers = allServers.filter((s) => isStdioMcpServer(s));
+    const hasHttp = httpServers.length > 0;
+    const { mcpServerParams, mcpToolsets } = hasHttp ? buildMcpParams(httpServers) : { mcpServerParams: [], mcpToolsets: [] };
+    const pool = new McpClientPool();
+    try {
+      if (stdioServers.length > 0) {
+        await pool.connect(stdioServers);
+        if (pool.getTools().length > 0) {
+          logger.info("stdio_mcp_tools", {
+            depth,
+            count: pool.getTools().length,
+            servers: stdioServers.map((s) => s.name).join(",")
+          });
+        }
+      }
+      return await runLoopCore({
+        system,
+        initialPrompt,
+        tools,
+        repoRoot,
+        branchName,
+        secretScan,
+        depth,
+        maxIterations,
+        maxInputTokens,
+        maxTokens,
+        maxCostEur,
+        compactWindow,
+        hasHttp,
+        mcpServerParams,
+        mcpToolsets,
+        pool
+      });
+    } finally {
+      await pool.close();
+    }
+  }
+  async function runLoopCore(params) {
+    const {
+      system,
+      initialPrompt,
+      tools,
+      repoRoot,
+      branchName,
+      secretScan,
+      depth,
+      maxIterations,
+      maxInputTokens,
+      maxTokens,
+      maxCostEur,
+      compactWindow,
+      hasHttp,
+      mcpServerParams,
+      mcpToolsets,
+      pool
+    } = params;
+    const nativeAndStdioTools = [...tools, ...pool.getTools()];
+    const anthropicTools = nativeAndStdioTools.map(
+      (t, i) => i === nativeAndStdioTools.length - 1 ? { ...t, cache_control: { type: "ephemeral" } } : t
+    );
+    const systemBlocks = [
+      { type: "text", text: system, cache_control: { type: "ephemeral" } }
+    ];
+    const allTools = [...anthropicTools, ...mcpToolsets];
+    const messages = [
+      {
+        role: "user",
+        content: [{ type: "text", text: initialPrompt, cache_control: { type: "ephemeral" } }]
+      }
+    ];
+    const usage = {
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 0
+    };
+    const toolCounts = {};
+    const toolCallRecords = [];
+    function trackTool(name, outputSize) {
+      toolCounts[name] = (toolCounts[name] ?? 0) + 1;
+      toolCallRecords.push({ name, outputSize });
+    }
+    let done = null;
+    let iter = 0;
+    const loopStart = Date.now();
+    let warned70 = false;
+    let warned85 = false;
+    while (iter < maxIterations) {
+      iter++;
+      const iterStart = Date.now();
+      const billableEquiv = usage.input_tokens + usage.cache_read_input_tokens * 0.1 + usage.cache_creation_input_tokens;
+      if (billableEquiv > maxInputTokens) {
+        throw new FerryError("spend-cap", {
+          reason: "input-token-budget-exceeded",
+          cap: maxInputTokens,
+          consumed: billableEquiv
+        });
+      }
+      if (maxCostEur !== void 0) {
+        const costEur = computeCostEur(
+          "anthropic",
+          opts.model,
+          usage.input_tokens + usage.cache_creation_input_tokens,
+          usage.output_tokens
+        );
+        if (costEur >= maxCostEur) {
+          throw new FerryError("spend-cap", {
+            reason: "eur-budget-exceeded",
+            cap: maxCostEur,
+            consumed: costEur
+          });
+        }
+      }
+      const budgetFraction = maxInputTokens > 0 ? billableEquiv / maxInputTokens : 0;
+      if (!warned70 && budgetFraction >= 0.7) {
+        warned70 = true;
+        const remaining = Math.round((1 - budgetFraction) * 100);
+        logger.info("budget_warning", { depth, iter, threshold: 70, remaining_pct: remaining });
+        injectBudgetWarning(
+          messages,
+          `[ferry] You have used ~${Math.round(budgetFraction * 100)}% of your input budget (${remaining}% remaining). Wrap up now: stop exploration, finish the current change, commit, and push.`
+        );
+      }
+      if (!warned85 && budgetFraction >= 0.85) {
+        warned85 = true;
+        logger.info("budget_warning", { depth, iter, threshold: 85, mode: "commit-and-stop" });
+        injectBudgetWarning(
+          messages,
+          `[ferry] BUDGET CRITICAL: ~${Math.round(budgetFraction * 100)}% of your input budget is consumed. You are now in commit-and-stop mode. Only use: bash (git operations), write_file, str_replace, commit_progress, or done. No exploration, no new reads \u2014 commit all work and call done immediately.`
+        );
+      }
+      const effectiveTools = warned85 ? allTools.filter(
+        (t) => COMMIT_AND_STOP_TOOL_NAMES.has(t.name ?? "")
+      ) : allTools;
+      pruneMessageHistory(messages);
+      const baseParams = {
+        model: opts.model,
+        max_tokens: maxTokens,
+        system: systemBlocks,
+        tools: effectiveTools,
+        messages
+      };
+      const response = hasHttp ? await anthropic.beta.messages.create({
+        ...baseParams,
+        mcp_servers: mcpServerParams,
+        betas: ["mcp-client-2025-11-20"]
+      }) : await anthropic.messages.create(baseParams);
+      usage.input_tokens += response.usage.input_tokens;
+      usage.output_tokens += response.usage.output_tokens;
+      usage.cache_creation_input_tokens += response.usage.cache_creation_input_tokens ?? 0;
+      usage.cache_read_input_tokens += response.usage.cache_read_input_tokens ?? 0;
+      const contentBlocks = response.content;
+      messages.push({ role: "assistant", content: contentBlocks });
+      const mcpToolUseCount = contentBlocks.filter((b) => b.type === "mcp_tool_use").length;
+      const toolUseCount = contentBlocks.filter((b) => b.type === "tool_use").length;
+      const cacheW = response.usage.cache_creation_input_tokens ?? 0;
+      const cacheR = response.usage.cache_read_input_tokens ?? 0;
+      logger.info("turn", {
+        depth,
+        iter,
+        stop_reason: response.stop_reason,
+        tools: toolUseCount,
+        mcp_tools: mcpToolUseCount,
+        in: response.usage.input_tokens,
+        cache_w: cacheW,
+        cache_r: cacheR,
+        out: response.usage.output_tokens
+      });
+      emitDebug(
+        {
+          type: "turn",
+          iter,
+          depth,
+          stop_reason: response.stop_reason,
+          tools: toolUseCount,
+          mcp_tools: mcpToolUseCount,
+          in: response.usage.input_tokens,
+          cache_w: cacheW,
+          cache_r: cacheR,
+          out: response.usage.output_tokens,
+          elapsed_ms: Date.now() - iterStart
+        },
+        logger
+      );
+      for (const block of contentBlocks) {
+        if (block.type === "text" && typeof block.text === "string" && block.text.trim()) {
+          logger.debug("think", { depth, iter, text: block.text.trim() });
+        }
+        if (block.type === "mcp_tool_use") {
+          const mcpName = String(block.name ?? "unknown");
+          logger.info("mcp_tool", {
+            depth,
+            iter,
+            tool: mcpName,
+            server: String(block.server_name ?? "unknown")
+          });
+          toolCounts[mcpName] = (toolCounts[mcpName] ?? 0) + 1;
+        }
+      }
+      if (response.stop_reason !== "tool_use") {
+        throw new FerryError("state-invariant", {
+          reason: "agent-stopped-without-done",
+          stop_reason: response.stop_reason
+        });
+      }
+      const toolResults = [];
+      for (const block of contentBlocks) {
+        if (block.type !== "tool_use") continue;
+        const id = block.id;
+        const name = block.name;
+        const blockInput = block.input;
+        if (name === "done") {
+          const outcome = blockInput.outcome;
+          const actionable = outcome !== void 0 ? outcome !== "blocked" : blockInput.actionable;
+          done = { ...blockInput, actionable, outcome };
+          toolResults.push({ type: "tool_result", tool_use_id: id, content: "ok" });
+          continue;
+        }
+        if (name === "commit_progress" && opts.commitProgress) {
+          const { message } = blockInput;
+          logger.info("tool", { depth, iter, tool: "commit_progress", arg: message.slice(0, 120) });
+          try {
+            const result = await opts.commitProgress(repoRoot, branchName, message, secretScan);
+            trackTool("commit_progress", result.length);
+            toolResults.push({ type: "tool_result", tool_use_id: id, content: result });
+          } catch (e) {
+            trackTool("commit_progress", 0);
+            toolResults.push({
+              type: "tool_result",
+              tool_use_id: id,
+              content: e.message,
+              is_error: true
+            });
+          }
+          continue;
+        }
+        if (name === "spawn_subagent" && opts.spawnSubagent) {
+          const { task } = blockInput;
+          logger.info("tool", { depth, iter, tool: "spawn_subagent", arg: task.slice(0, 120) });
+          try {
+            const subResult = await opts.spawnSubagent(task);
+            usage.input_tokens += subResult.usage.input_tokens;
+            usage.output_tokens += subResult.usage.output_tokens;
+            usage.cache_creation_input_tokens += subResult.usage.cache_creation_input_tokens;
+            usage.cache_read_input_tokens += subResult.usage.cache_read_input_tokens;
+            for (const [tName, tCount] of Object.entries(subResult.toolCounts)) {
+              toolCounts[tName] = (toolCounts[tName] ?? 0) + tCount;
+            }
+            toolCallRecords.push(...subResult.toolCallRecords);
+            if (!subResult.done.actionable) {
+              trackTool("spawn_subagent", 0);
+              toolResults.push({
+                type: "tool_result",
+                tool_use_id: id,
+                content: `Sub-agent could not complete task: ${subResult.done.reason ?? subResult.done.reason_if_not_actionable ?? "no reason given"}`,
+                is_error: true
+              });
+            } else {
+              trackTool("spawn_subagent", subResult.done.summary.length);
+              toolResults.push({
+                type: "tool_result",
+                tool_use_id: id,
+                content: subResult.done.summary
+              });
+            }
+          } catch (e) {
+            trackTool("spawn_subagent", 0);
+            toolResults.push({
+              type: "tool_result",
+              tool_use_id: id,
+              content: e.message,
+              is_error: true
+            });
+          }
+          continue;
+        }
+        if (pool.hasTool(name)) {
+          const serverName = pool.getServerName(name) ?? "unknown";
+          logger.info("mcp_stdio_tool", { depth, iter, tool: name, server: serverName });
+          try {
+            const result = await pool.callTool(name, blockInput);
+            trackTool(name, result.length);
+            toolResults.push({ type: "tool_result", tool_use_id: id, content: result });
+          } catch (e) {
+            trackTool(name, 0);
+            toolResults.push({
+              type: "tool_result",
+              tool_use_id: id,
+              content: e.message,
+              is_error: true
+            });
+          }
+          continue;
+        }
+        const argHint = blockInput.path ?? blockInput.source ?? blockInput.command ?? blockInput.pattern ?? "";
+        logger.info("tool", {
+          depth,
+          iter,
+          tool: name,
+          ...argHint ? { arg: String(argHint).slice(0, 120) } : {}
+        });
+        try {
+          const result = await opts.executeTool(repoRoot, name, blockInput);
+          trackTool(name, result.length);
+          toolResults.push({ type: "tool_result", tool_use_id: id, content: result });
+        } catch (e) {
+          trackTool(name, 0);
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: id,
+            content: e.message,
+            is_error: true
+          });
+        }
+      }
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const msg = messages[i];
+        if (msg.role === "user" && Array.isArray(msg.content)) {
+          const content = msg.content;
+          if (content.some((b) => b.type === "tool_result")) {
+            for (let j = 0; j < content.length; j++) {
+              if ("cache_control" in content[j]) {
+                const entry = { ...content[j] };
+                delete entry.cache_control;
+                content[j] = entry;
+              }
+            }
+            break;
+          }
+        }
+      }
+      if (toolResults.length > 0) {
+        const last = toolResults[toolResults.length - 1];
+        toolResults[toolResults.length - 1] = { ...last, cache_control: { type: "ephemeral" } };
+      }
+      messages.push({ role: "user", content: toolResults });
+      compactOldToolResults(messages, compactWindow);
+      if (done) {
+        emitDebug(
+          {
+            type: "result",
+            subtype: "success",
+            iterations: iter,
+            total_in: usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens,
+            total_out: usage.output_tokens,
+            elapsed_ms: Date.now() - loopStart
+          },
+          logger
+        );
+        return { done, usage, iterations: iter, toolCounts, toolCallRecords };
+      }
+    }
+    throw new FerryError("state-invariant", {
+      reason: "iteration-cap-exceeded",
+      cap: maxIterations
+    });
+  }
+  return {
+    run(input) {
+      return runLoop({ ...input, depth: 0 });
+    }
+  };
+}
+
+// src/lib/llm/agent-loop/openai.ts
+import OpenAI2 from "openai";
+var COMMIT_AND_STOP_TOOL_NAMES2 = /* @__PURE__ */ new Set([
+  "bash",
+  "write_file",
+  "str_replace",
+  "commit_progress",
+  "done"
+]);
+var KEEP_LAST_TURNS2 = 6;
+var STUB2 = "[truncated: tool result elided to save context]";
+function agentToolToOpenAI(t) {
+  return {
+    type: "function",
+    function: {
+      name: t.name,
+      description: t.description,
+      parameters: t.input_schema
+    }
+  };
+}
+function pruneMessageHistory2(messages) {
+  const toolResultIndices = [];
+  for (let i = 0; i < messages.length; i++) {
+    if (messages[i].role === "tool") {
+      toolResultIndices.push(i);
+    }
+  }
+  const cutoff = messages.length - KEEP_LAST_TURNS2 * 2;
+  if (cutoff <= 1) return;
+  for (let i = 0; i < toolResultIndices.length; i++) {
+    const idx = toolResultIndices[i];
+    if (idx >= cutoff) break;
+    const msg = messages[idx];
+    if (msg.role === "tool" && typeof msg.content === "string" && msg.content !== STUB2) {
+      messages[idx].content = STUB2;
+    }
+  }
+}
+function injectBudgetWarning2(messages, text) {
+  const last = messages[messages.length - 1];
+  if (!last) return;
+  if (last.role === "user") {
+    if (typeof last.content === "string") {
+      messages[messages.length - 1].content = last.content + "\n\n" + text;
+    } else if (Array.isArray(last.content)) {
+      last.content.push({ type: "text", text });
+    }
+  } else {
+    messages.push({ role: "user", content: text });
+  }
+}
+function compactOldToolResults2(messages, windowTurns) {
+  const toolResultIndices = [];
+  for (let i = 0; i < messages.length; i++) {
+    if (messages[i].role === "tool") {
+      toolResultIndices.push(i);
+    }
+  }
+  if (toolResultIndices.length <= windowTurns) return;
+  const compactCount = toolResultIndices.length - windowTurns;
+  for (let k = 0; k < compactCount; k++) {
+    const idx = toolResultIndices[k];
+    const msg = messages[idx];
+    if (msg.role !== "tool" || typeof msg.content !== "string") continue;
+    if (msg.content.startsWith("[compacted")) continue;
+    const tokens = Math.ceil(msg.content.length / 4);
+    messages[idx].content = `[compacted \u2014 ~${tokens} tokens elided]`;
+  }
+}
+function createOpenAIAgentLoop(opts) {
+  const openai = opts.client ?? new OpenAI2({ apiKey: opts.apiKey });
+  const logger = opts.logger ?? createLogger("", "ferry:dev-loop");
+  async function runLoop(input) {
+    const { system, initialPrompt, tools, repoRoot, branchName, secretScan } = input;
+    const maxIterations = opts.maxIterations ?? parseInt(process.env.FERRY_DEV_MAX_ITERATIONS ?? "200", 10);
+    const maxInputTokens = opts.maxInputTokens ?? parseInt(process.env.FERRY_DEV_MAX_INPUT_TOKENS ?? "500000", 10);
+    const maxTokens = opts.maxTokens ?? parseInt(process.env.FERRY_DEV_MAX_TOKENS ?? "16384", 10);
+    const maxCostEur = opts.maxCostEur;
+    const compactWindow = opts.compactWindow ?? parseInt(process.env.FERRY_DEV_COMPACT_WINDOW ?? "8", 10);
+    const allServers = input.mcpServers ?? [];
+    const httpServers = allServers.filter((s) => isHttpMcpServer(s) && "url" in s);
+    if (httpServers.length > 0) {
+      throw new FerryError("state-invariant", {
+        reason: "http-mcp-unsupported",
+        provider: "openai",
+        detail: "HTTP MCP servers are only supported with the Anthropic provider. Configure stdio MCP servers or switch to provider: anthropic."
+      });
+    }
+    const stdioServers = allServers.filter((s) => isStdioMcpServer(s));
+    const pool = new McpClientPool();
+    try {
+      let trackTool2 = function(name, outputSize) {
+        toolCounts[name] = (toolCounts[name] ?? 0) + 1;
+        toolCallRecords.push({ name, outputSize });
+      };
+      var trackTool = trackTool2;
+      if (stdioServers.length > 0) {
+        await pool.connect(stdioServers);
+        if (pool.getTools().length > 0) {
+          logger.info("stdio_mcp_tools", {
+            count: pool.getTools().length,
+            servers: stdioServers.map((s) => s.name).join(",")
+          });
+        }
+      }
+      const nativeAndStdioTools = [...tools, ...pool.getTools()];
+      const openaiTools = nativeAndStdioTools.map(agentToolToOpenAI);
+      const messages = [
+        { role: "system", content: system },
+        { role: "user", content: initialPrompt }
+      ];
+      const usage = {
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0
+      };
+      const toolCounts = {};
+      const toolCallRecords = [];
+      let done = null;
+      let iter = 0;
+      const loopStart = Date.now();
+      let warned70 = false;
+      let warned85 = false;
+      while (iter < maxIterations) {
+        iter++;
+        const iterStart = Date.now();
+        const billableEquiv = usage.input_tokens + usage.output_tokens;
+        if (billableEquiv > maxInputTokens) {
+          throw new FerryError("spend-cap", {
+            reason: "input-token-budget-exceeded",
+            cap: maxInputTokens,
+            consumed: billableEquiv
+          });
+        }
+        if (maxCostEur !== void 0) {
+          const costEur = computeCostEur(
+            "openai",
+            opts.model,
+            usage.input_tokens,
+            usage.output_tokens
+          );
+          if (costEur >= maxCostEur) {
+            throw new FerryError("spend-cap", {
+              reason: "eur-budget-exceeded",
+              cap: maxCostEur,
+              consumed: costEur
+            });
+          }
+        }
+        const budgetFraction = maxInputTokens > 0 ? billableEquiv / maxInputTokens : 0;
+        if (!warned70 && budgetFraction >= 0.7) {
+          warned70 = true;
+          const remaining = Math.round((1 - budgetFraction) * 100);
+          logger.info("budget_warning", { iter, threshold: 70, remaining_pct: remaining });
+          injectBudgetWarning2(
+            messages,
+            `[ferry] You have used ~${Math.round(budgetFraction * 100)}% of your input budget (${remaining}% remaining). Wrap up now: stop exploration, finish the current change, commit, and push.`
+          );
+        }
+        if (!warned85 && budgetFraction >= 0.85) {
+          warned85 = true;
+          logger.info("budget_warning", { iter, threshold: 85, mode: "commit-and-stop" });
+          injectBudgetWarning2(
+            messages,
+            `[ferry] BUDGET CRITICAL: ~${Math.round(budgetFraction * 100)}% of your input budget is consumed. You are now in commit-and-stop mode. Only use: bash (git operations), write_file, str_replace, commit_progress, or done. No exploration, no new reads \u2014 commit all work and call done immediately.`
+          );
+        }
+        const effectiveTools = warned85 ? openaiTools.filter((t) => COMMIT_AND_STOP_TOOL_NAMES2.has(t.function.name)) : openaiTools;
+        pruneMessageHistory2(messages);
+        const response = await openai.chat.completions.create({
+          model: opts.model,
+          max_tokens: maxTokens,
+          tools: effectiveTools,
+          tool_choice: effectiveTools.length > 0 ? "required" : "none",
+          messages
+        });
+        usage.input_tokens += response.usage?.prompt_tokens ?? 0;
+        usage.output_tokens += response.usage?.completion_tokens ?? 0;
+        const choice = response.choices[0];
+        if (!choice) {
+          throw new FerryError("state-invariant", {
+            reason: "agent-stopped-without-done",
+            stop_reason: "no-choices"
+          });
+        }
+        const assistantMsg = choice.message;
+        messages.push(assistantMsg);
+        const allToolCalls = assistantMsg.tool_calls ?? [];
+        const toolCalls = allToolCalls.filter(
+          (tc) => tc.type === "function"
+        );
+        logger.info("turn", {
+          iter,
+          stop_reason: choice.finish_reason,
+          tools: toolCalls.length,
+          in: response.usage?.prompt_tokens ?? 0,
+          out: response.usage?.completion_tokens ?? 0
+        });
+        emitDebug(
+          {
+            type: "turn",
+            iter,
+            depth: 0,
+            stop_reason: choice.finish_reason,
+            tools: toolCalls.length,
+            mcp_tools: 0,
+            in: response.usage?.prompt_tokens ?? 0,
+            cache_w: 0,
+            cache_r: 0,
+            out: response.usage?.completion_tokens ?? 0,
+            elapsed_ms: Date.now() - iterStart
+          },
+          logger
+        );
+        if (choice.finish_reason !== "tool_calls" && toolCalls.length === 0) {
+          throw new FerryError("state-invariant", {
+            reason: "agent-stopped-without-done",
+            stop_reason: choice.finish_reason
+          });
+        }
+        for (const toolCall of toolCalls) {
+          const name = toolCall.function.name;
+          let blockInput;
+          try {
+            blockInput = JSON.parse(toolCall.function.arguments);
+          } catch {
+            blockInput = {};
+          }
+          if (name === "done") {
+            const outcome = blockInput.outcome;
+            const actionable = outcome !== void 0 ? outcome !== "blocked" : blockInput.actionable;
+            done = { ...blockInput, actionable, outcome };
+            messages.push({ role: "tool", tool_call_id: toolCall.id, content: "ok" });
+            continue;
+          }
+          if (name === "commit_progress" && opts.commitProgress) {
+            const { message } = blockInput;
+            logger.info("tool", { iter, tool: "commit_progress", arg: message.slice(0, 120) });
+            try {
+              const result = await opts.commitProgress(repoRoot, branchName, message, secretScan);
+              trackTool2("commit_progress", result.length);
+              messages.push({ role: "tool", tool_call_id: toolCall.id, content: result });
+            } catch (e) {
+              trackTool2("commit_progress", 0);
+              messages.push({
+                role: "tool",
+                tool_call_id: toolCall.id,
+                content: e.message
+              });
+            }
+            continue;
+          }
+          if (pool.hasTool(name)) {
+            const serverName = pool.getServerName(name) ?? "unknown";
+            logger.info("mcp_stdio_tool", { iter, tool: name, server: serverName });
+            try {
+              const result = await pool.callTool(name, blockInput);
+              trackTool2(name, result.length);
+              messages.push({ role: "tool", tool_call_id: toolCall.id, content: result });
+            } catch (e) {
+              trackTool2(name, 0);
+              messages.push({
+                role: "tool",
+                tool_call_id: toolCall.id,
+                content: e.message
+              });
+            }
+            continue;
+          }
+          const argHint = blockInput.path ?? blockInput.source ?? blockInput.command ?? blockInput.pattern ?? "";
+          logger.info("tool", {
+            iter,
+            tool: name,
+            ...argHint ? { arg: String(argHint).slice(0, 120) } : {}
+          });
+          try {
+            const result = await opts.executeTool(repoRoot, name, blockInput);
+            trackTool2(name, result.length);
+            messages.push({ role: "tool", tool_call_id: toolCall.id, content: result });
+          } catch (e) {
+            trackTool2(name, 0);
+            messages.push({
+              role: "tool",
+              tool_call_id: toolCall.id,
+              content: e.message
+            });
+          }
+        }
+        compactOldToolResults2(messages, compactWindow);
+        if (done) {
+          emitDebug(
+            {
+              type: "result",
+              subtype: "success",
+              iterations: iter,
+              total_in: usage.input_tokens,
+              total_out: usage.output_tokens,
+              elapsed_ms: Date.now() - loopStart
+            },
+            logger
+          );
+          return { done, usage, iterations: iter, toolCounts, toolCallRecords };
+        }
+      }
+      throw new FerryError("state-invariant", {
+        reason: "iteration-cap-exceeded",
+        cap: maxIterations
+      });
+    } finally {
+      await pool.close();
+    }
+  }
+  return {
+    run(input) {
+      return runLoop(input);
+    }
+  };
+}
+
+// src/lib/llm/agent-loop/google.ts
+import { GoogleGenAI as GoogleGenAI2, FunctionCallingConfigMode } from "@google/genai";
+var COMMIT_AND_STOP_TOOL_NAMES3 = /* @__PURE__ */ new Set([
+  "bash",
+  "write_file",
+  "str_replace",
+  "commit_progress",
+  "done"
+]);
+var KEEP_LAST_TURNS3 = 6;
+var STUB3 = "[truncated: tool result elided to save context]";
+function pruneMessageHistory3(messages) {
+  const toolResultIndices = [];
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+    if (msg.role === "user" && msg.parts?.some((p) => p.functionResponse !== void 0)) {
+      toolResultIndices.push(i);
+    }
+  }
+  const cutoff = messages.length - KEEP_LAST_TURNS3 * 2;
+  if (cutoff <= 1) return;
+  for (const idx of toolResultIndices) {
+    if (idx >= cutoff) break;
+    const msg = messages[idx];
+    if (!msg.parts) continue;
+    for (let j = 0; j < msg.parts.length; j++) {
+      const part = msg.parts[j];
+      if (part.functionResponse === void 0) continue;
+      const output = part.functionResponse.response?.["output"];
+      if (typeof output === "string" && output !== STUB3) {
+        msg.parts[j] = {
+          functionResponse: {
+            name: part.functionResponse.name,
+            id: part.functionResponse.id,
+            response: { output: STUB3 }
+          }
+        };
+      }
+    }
+  }
+}
+function injectBudgetWarning3(messages, text) {
+  const last = messages[messages.length - 1];
+  if (last?.role === "user") {
+    last.parts = [...last.parts ?? [], { text }];
+  } else {
+    messages.push({ role: "user", parts: [{ text }] });
+  }
+}
+function compactOldToolResults3(messages, windowTurns) {
+  const toolResultIndices = [];
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+    if (msg.role === "user" && msg.parts?.some((p) => p.functionResponse !== void 0)) {
+      toolResultIndices.push(i);
+    }
+  }
+  if (toolResultIndices.length <= windowTurns) return;
+  const compactCount = toolResultIndices.length - windowTurns;
+  for (let k = 0; k < compactCount; k++) {
+    const idx = toolResultIndices[k];
+    const msg = messages[idx];
+    if (!msg.parts) continue;
+    for (let j = 0; j < msg.parts.length; j++) {
+      const part = msg.parts[j];
+      if (part.functionResponse === void 0) continue;
+      const output = part.functionResponse.response?.["output"];
+      if (typeof output !== "string" || output.startsWith("[compacted")) continue;
+      const tokens = Math.ceil(output.length / 4);
+      msg.parts[j] = {
+        functionResponse: {
+          name: part.functionResponse.name,
+          id: part.functionResponse.id,
+          response: { output: `[compacted \u2014 ~${tokens} tokens elided]` }
+        }
+      };
+    }
+  }
+}
+function createGoogleAgentLoop(opts) {
+  const ai = opts.ai ?? new GoogleGenAI2({ apiKey: opts.apiKey });
+  const logger = opts.logger ?? createLogger("", "ferry:dev-loop");
+  async function runLoop(input) {
+    const { system, initialPrompt, tools, repoRoot, branchName, secretScan } = input;
+    const maxIterations = opts.maxIterations ?? parseInt(process.env.FERRY_DEV_MAX_ITERATIONS ?? "200", 10);
+    const maxInputTokens = opts.maxInputTokens ?? parseInt(process.env.FERRY_DEV_MAX_INPUT_TOKENS ?? "500000", 10);
+    const maxTokens = opts.maxTokens ?? parseInt(process.env.FERRY_DEV_MAX_TOKENS ?? "16384", 10);
+    const maxCostEur = opts.maxCostEur;
+    const compactWindow = opts.compactWindow ?? parseInt(process.env.FERRY_DEV_COMPACT_WINDOW ?? "8", 10);
+    const allServers = input.mcpServers ?? [];
+    const httpServers = allServers.filter((s) => isHttpMcpServer(s) && "url" in s);
+    if (httpServers.length > 0) {
+      throw new FerryError("state-invariant", {
+        reason: "http-mcp-unsupported",
+        provider: "google",
+        detail: "HTTP MCP servers are only supported with the Anthropic provider. Configure stdio MCP servers or switch to provider: anthropic."
+      });
+    }
+    const stdioServers = allServers.filter((s) => isStdioMcpServer(s));
+    const pool = new McpClientPool();
+    try {
+      let trackTool2 = function(name, outputSize) {
+        toolCounts[name] = (toolCounts[name] ?? 0) + 1;
+        toolCallRecords.push({ name, outputSize });
+      };
+      var trackTool = trackTool2;
+      if (stdioServers.length > 0) {
+        await pool.connect(stdioServers);
+        if (pool.getTools().length > 0) {
+          logger.info("stdio_mcp_tools", {
+            count: pool.getTools().length,
+            servers: stdioServers.map((s) => s.name).join(",")
+          });
+        }
+      }
+      const nativeAndStdioTools = [...tools, ...pool.getTools()];
+      const allToolDeclarations = nativeAndStdioTools.map((t) => ({
+        name: t.name,
+        description: t.description,
+        parametersJsonSchema: t.input_schema
+      }));
+      const messages = [{ role: "user", parts: [{ text: initialPrompt }] }];
+      const usage = {
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0
+      };
+      const toolCounts = {};
+      const toolCallRecords = [];
+      let done = null;
+      let iter = 0;
+      const loopStart = Date.now();
+      let warned70 = false;
+      let warned85 = false;
+      while (iter < maxIterations) {
+        iter++;
+        const iterStart = Date.now();
+        const billableEquiv = usage.input_tokens + usage.output_tokens;
+        if (billableEquiv > maxInputTokens) {
+          throw new FerryError("spend-cap", {
+            reason: "input-token-budget-exceeded",
+            cap: maxInputTokens,
+            consumed: billableEquiv
+          });
+        }
+        if (maxCostEur !== void 0) {
+          const costEur = computeCostEur(
+            "google",
+            opts.model,
+            usage.input_tokens,
+            usage.output_tokens
+          );
+          if (costEur >= maxCostEur) {
+            throw new FerryError("spend-cap", {
+              reason: "eur-budget-exceeded",
+              cap: maxCostEur,
+              consumed: costEur
+            });
+          }
+        }
+        const budgetFraction = maxInputTokens > 0 ? billableEquiv / maxInputTokens : 0;
+        if (!warned70 && budgetFraction >= 0.7) {
+          warned70 = true;
+          const remaining = Math.round((1 - budgetFraction) * 100);
+          logger.info("budget_warning", { iter, threshold: 70, remaining_pct: remaining });
+          injectBudgetWarning3(
+            messages,
+            `[ferry] You have used ~${Math.round(budgetFraction * 100)}% of your input budget (${remaining}% remaining). Wrap up now: stop exploration, finish the current change, commit, and push.`
+          );
+        }
+        if (!warned85 && budgetFraction >= 0.85) {
+          warned85 = true;
+          logger.info("budget_warning", { iter, threshold: 85, mode: "commit-and-stop" });
+          injectBudgetWarning3(
+            messages,
+            `[ferry] BUDGET CRITICAL: ~${Math.round(budgetFraction * 100)}% of your input budget is consumed. You are now in commit-and-stop mode. Only use: bash (git operations), write_file, str_replace, commit_progress, or done. No exploration, no new reads \u2014 commit all work and call done immediately.`
+          );
+        }
+        const effectiveToolDeclarations = warned85 ? allToolDeclarations.filter((t) => COMMIT_AND_STOP_TOOL_NAMES3.has(t.name ?? "")) : allToolDeclarations;
+        pruneMessageHistory3(messages);
+        const response = await ai.models.generateContent({
+          model: opts.model,
+          contents: messages,
+          config: {
+            systemInstruction: system,
+            maxOutputTokens: maxTokens,
+            tools: effectiveToolDeclarations.length > 0 ? [{ functionDeclarations: effectiveToolDeclarations }] : void 0,
+            toolConfig: effectiveToolDeclarations.length > 0 ? {
+              functionCallingConfig: {
+                mode: FunctionCallingConfigMode.ANY
+              }
+            } : void 0,
+            automaticFunctionCalling: { disable: true }
+          }
+        });
+        usage.input_tokens += response.usageMetadata?.promptTokenCount ?? 0;
+        usage.output_tokens += response.usageMetadata?.candidatesTokenCount ?? 0;
+        const candidate = response.candidates?.[0];
+        const finishReason = candidate?.finishReason ?? "STOP";
+        const modelContent = candidate?.content;
+        const parts = modelContent?.parts ?? [];
+        const functionCallParts = parts.filter((p) => p.functionCall !== void 0);
+        logger.info("turn", {
+          iter,
+          stop_reason: finishReason,
+          tools: functionCallParts.length,
+          in: response.usageMetadata?.promptTokenCount ?? 0,
+          out: response.usageMetadata?.candidatesTokenCount ?? 0
+        });
+        emitDebug(
+          {
+            type: "turn",
+            iter,
+            depth: 0,
+            stop_reason: finishReason,
+            tools: functionCallParts.length,
+            mcp_tools: 0,
+            in: response.usageMetadata?.promptTokenCount ?? 0,
+            cache_w: 0,
+            cache_r: 0,
+            out: response.usageMetadata?.candidatesTokenCount ?? 0,
+            elapsed_ms: Date.now() - iterStart
+          },
+          logger
+        );
+        if (functionCallParts.length === 0) {
+          throw new FerryError("state-invariant", {
+            reason: "agent-stopped-without-done",
+            stop_reason: finishReason
+          });
+        }
+        messages.push({ role: "model", parts });
+        const toolResultParts = [];
+        for (const part of functionCallParts) {
+          const fc = part.functionCall;
+          const name = fc.name ?? "";
+          const blockInput = fc.args ?? {};
+          const callId = fc.id;
+          if (name === "done") {
+            const outcome = blockInput.outcome;
+            const actionable = outcome !== void 0 ? outcome !== "blocked" : blockInput.actionable;
+            done = { ...blockInput, actionable, outcome };
+            toolResultParts.push({
+              functionResponse: {
+                name,
+                ...callId !== void 0 ? { id: callId } : {},
+                response: { output: "ok" }
+              }
+            });
+            continue;
+          }
+          if (name === "commit_progress" && opts.commitProgress) {
+            const { message } = blockInput;
+            logger.info("tool", { iter, tool: "commit_progress", arg: message.slice(0, 120) });
+            try {
+              const result = await opts.commitProgress(repoRoot, branchName, message, secretScan);
+              trackTool2("commit_progress", result.length);
+              toolResultParts.push({
+                functionResponse: {
+                  name,
+                  ...callId !== void 0 ? { id: callId } : {},
+                  response: { output: result }
+                }
+              });
+            } catch (e) {
+              trackTool2("commit_progress", 0);
+              toolResultParts.push({
+                functionResponse: {
+                  name,
+                  ...callId !== void 0 ? { id: callId } : {},
+                  response: { output: e.message, error: true }
+                }
+              });
+            }
+            continue;
+          }
+          if (pool.hasTool(name)) {
+            const serverName = pool.getServerName(name) ?? "unknown";
+            logger.info("mcp_stdio_tool", { iter, tool: name, server: serverName });
+            try {
+              const result = await pool.callTool(name, blockInput);
+              trackTool2(name, result.length);
+              toolResultParts.push({
+                functionResponse: {
+                  name,
+                  ...callId !== void 0 ? { id: callId } : {},
+                  response: { output: result }
+                }
+              });
+            } catch (e) {
+              trackTool2(name, 0);
+              toolResultParts.push({
+                functionResponse: {
+                  name,
+                  ...callId !== void 0 ? { id: callId } : {},
+                  response: { output: e.message, error: true }
+                }
+              });
+            }
+            continue;
+          }
+          const argHint = blockInput.path ?? blockInput.source ?? blockInput.command ?? blockInput.pattern ?? "";
+          logger.info("tool", {
+            iter,
+            tool: name,
+            ...argHint ? { arg: String(argHint).slice(0, 120) } : {}
+          });
+          try {
+            const result = await opts.executeTool(repoRoot, name, blockInput);
+            trackTool2(name, result.length);
+            toolResultParts.push({
+              functionResponse: {
+                name,
+                ...callId !== void 0 ? { id: callId } : {},
+                response: { output: result }
+              }
+            });
+          } catch (e) {
+            trackTool2(name, 0);
+            toolResultParts.push({
+              functionResponse: {
+                name,
+                ...callId !== void 0 ? { id: callId } : {},
+                response: { output: e.message, error: true }
+              }
+            });
+          }
+        }
+        messages.push({ role: "user", parts: toolResultParts });
+        compactOldToolResults3(messages, compactWindow);
+        if (done) {
+          emitDebug(
+            {
+              type: "result",
+              subtype: "success",
+              iterations: iter,
+              total_in: usage.input_tokens,
+              total_out: usage.output_tokens,
+              elapsed_ms: Date.now() - loopStart
+            },
+            logger
+          );
+          return { done, usage, iterations: iter, toolCounts, toolCallRecords };
+        }
+      }
+      throw new FerryError("state-invariant", {
+        reason: "iteration-cap-exceeded",
+        cap: maxIterations
+      });
+    } finally {
+      await pool.close();
+    }
+  }
+  return {
+    run(input) {
+      return runLoop(input);
+    }
+  };
+}
+
+// src/lib/llm/agent-loop/index.ts
+function requireEnv3(key) {
+  const val = process.env[key];
+  if (!val) {
+    throw new FerryError("state-invariant", { reason: "missing-env", key });
+  }
+  return val;
+}
+function createAgentLoop(opts) {
+  if (opts.provider === "anthropic") {
+    const auth2 = resolveAnthropicAuth({ apiKeyEnv: "ANTHROPIC_API_KEY" });
+    return createAnthropicAgentLoop({
+      ...auth2,
+      model: opts.model,
+      executeTool: opts.executeTool,
+      commitProgress: opts.commitProgress,
+      spawnSubagent: opts.spawnSubagent,
+      maxIterations: opts.maxIterations,
+      maxInputTokens: opts.maxInputTokens,
+      maxTokens: opts.maxTokens,
+      maxCostEur: opts.maxCostEur,
+      compactWindow: opts.compactWindow,
+      logger: opts.logger
+    });
+  }
+  if (opts.provider === "openai") {
+    const apiKey = requireEnv3("FERRY_OPENAI_KEY");
+    return createOpenAIAgentLoop({
+      apiKey,
+      model: opts.model,
+      executeTool: opts.executeTool,
+      commitProgress: opts.commitProgress,
+      maxIterations: opts.maxIterations,
+      maxInputTokens: opts.maxInputTokens,
+      maxTokens: opts.maxTokens,
+      maxCostEur: opts.maxCostEur,
+      compactWindow: opts.compactWindow,
+      logger: opts.logger
+    });
+  }
+  if (opts.provider === "google") {
+    const apiKey = requireEnv3("FERRY_GOOGLE_AI_KEY");
+    return createGoogleAgentLoop({
+      apiKey,
+      model: opts.model,
+      executeTool: opts.executeTool,
+      commitProgress: opts.commitProgress,
+      maxIterations: opts.maxIterations,
+      maxInputTokens: opts.maxInputTokens,
+      maxTokens: opts.maxTokens,
+      maxCostEur: opts.maxCostEur,
+      compactWindow: opts.compactWindow,
+      logger: opts.logger
+    });
+  }
+  throw new FerryError("state-invariant", {
+    reason: "unknown-provider",
+    provider: opts.provider
+  });
+}
+
+// src/agents/developer/workspace.ts
+import { readFileSync as readFileSync5, existsSync as existsSync4 } from "node:fs";
+import { execFileSync as execFileSync3 } from "node:child_process";
+import * as path5 from "node:path";
+function detectTestRunner(packageJsonPath2) {
+  try {
+    const pkg = JSON.parse(readFileSync5(packageJsonPath2, "utf8"));
+    const deps = { ...pkg.dependencies ?? {}, ...pkg.devDependencies ?? {} };
+    if (deps.vitest) return "vitest";
+    if (deps.jest) return "jest";
+    if (deps.mocha) return "mocha";
+    if (deps.ava) return "ava";
+    const scripts = pkg.scripts ?? {};
+    if (Object.values(scripts).some((s) => s.includes("node:test"))) return "node:test";
+    return "none";
+  } catch {
+    return "none";
+  }
+}
+function repoTree(repoRoot) {
+  try {
+    return execFileSync3(
+      "find",
+      [
+        repoRoot,
+        "-maxdepth",
+        "2",
+        "-not",
+        "-path",
+        "*/node_modules/*",
+        "-not",
+        "-path",
+        "*/.git/*"
+      ],
+      { encoding: "utf8" }
+    ).split("\n").filter(Boolean).join("\n");
+  } catch {
+    return "(unavailable)";
+  }
+}
+function packageJsonPath(repoRoot) {
+  return path5.join(repoRoot, "package.json");
+}
+function detectPackageManager(repoRoot, _checkExists = existsSync4, _readFile = (p, enc) => readFileSync5(p, enc)) {
+  const join7 = (file) => path5.join(repoRoot, file);
+  if (_checkExists(join7("pnpm-lock.yaml"))) {
+    return "pnpm lockfile detected (`pnpm-lock.yaml`). Use pnpm for all install and script commands.";
+  }
+  if (_checkExists(join7("package.json"))) {
+    try {
+      const pkg = JSON.parse(_readFile(join7("package.json"), "utf8"));
+      const pm = typeof pkg.packageManager === "string" ? pkg.packageManager : "";
+      if (pm.startsWith("pnpm")) {
+        return "pnpm declared in `package.json` (`packageManager` field). Use pnpm for all install and script commands.";
+      }
+      if (pm.startsWith("yarn")) {
+        return "yarn declared in `package.json` (`packageManager` field). Use yarn for all install and script commands.";
+      }
+      if (pm.startsWith("bun")) {
+        return "bun declared in `package.json` (`packageManager` field). Use bun for all install and script commands.";
+      }
+      if (pm.startsWith("npm")) {
+        return "npm declared in `package.json` (`packageManager` field). Use npm for all install and script commands.";
+      }
+    } catch {
+    }
+  }
+  if (_checkExists(join7("yarn.lock"))) {
+    return "yarn lockfile detected (`yarn.lock`). Use yarn for all install and script commands.";
+  }
+  if (_checkExists(join7("bun.lockb"))) {
+    return "bun lockfile detected (`bun.lockb`). Use bun for all install and script commands.";
+  }
+  if (_checkExists(join7("package-lock.json"))) {
+    return "npm lockfile detected (`package-lock.json`). Use npm for all install and script commands.";
+  }
+  const hasPyproject = _checkExists(join7("pyproject.toml"));
+  const hasRequirements = _checkExists(join7("requirements.txt"));
+  if (hasPyproject || hasRequirements) {
+    const marker = hasPyproject ? "pyproject.toml" : "requirements.txt";
+    return `Python project detected (\`${marker}\`). Use pip or the project's configured tool for dependency management.`;
+  }
+  if (_checkExists(join7("Gemfile.lock"))) {
+    return "Ruby project detected (`Gemfile.lock`). Use bundler for dependency management.";
+  }
+  if (_checkExists(join7("Cargo.lock"))) {
+    return "Rust project detected (`Cargo.lock`). Use cargo for dependency management.";
+  }
+  return null;
+}
+
+// src/agents/developer/outcome-guard.ts
+function assertDevOutputContract(outcome, outputs) {
+  if (outcome === "implemented" || outcome === "already_satisfied") {
+    if (!outputs.branchPushed) {
+      throw new Error(
+        `Output contract violation: outcome="${outcome}" requires branch to be pushed before posting terminal comment`
+      );
+    }
+    if (!outputs.prUrl) {
+      throw new Error(
+        `Output contract violation: outcome="${outcome}" requires a PR URL before posting terminal comment`
+      );
+    }
+    if (outcome === "already_satisfied" && !outputs.verificationNoteWritten) {
+      throw new Error(
+        `Output contract violation: outcome="already_satisfied" requires a verification note to be committed before posting terminal comment`
+      );
+    }
+  }
+}
+
+// src/agents/developer/wip-finalizer.ts
+import { execFileSync as execFileSync4 } from "node:child_process";
+function classifyError(err) {
+  if (err instanceof FerryError) {
+    const reason = err.context?.reason ?? "unknown";
+    if (err.code === "spend-cap") {
+      const cap = err.context?.cap;
+      const consumed = err.context?.consumed;
+      const detail = cap != null && consumed != null ? `spend cap exceeded (used ${Math.round(Number(consumed)).toLocaleString("en-US")} / ${Math.round(Number(cap)).toLocaleString("en-US")} tokens)` : "spend cap exceeded";
+      return { code: err.code, detail };
+    }
+    if (err.code === "state-invariant" && reason === "iteration-cap-exceeded") {
+      return {
+        code: err.code,
+        detail: `max iterations reached (cap: ${err.context?.cap ?? "unknown"})`
+      };
+    }
+    return { code: err.code, detail: reason };
+  }
+  const msg = err?.message ?? String(err);
+  return { code: "unknown", detail: msg.slice(0, 200) };
+}
+async function runWipFinalizer(opts) {
+  const {
+    error,
+    ticketKey,
+    eventId,
+    branchName,
+    repoRoot,
+    secretScan,
+    tracker,
+    logger,
+    dryRun,
+    model,
+    provider
+  } = opts;
+  const { code, detail } = classifyError(error);
+  logger.info("wip_finalizer", { code, detail, branch: branchName });
+  let committed = false;
+  try {
+    execFileSync4("git", ["add", "-A"], { cwd: repoRoot });
+    const status = execFileSync4("git", ["status", "--porcelain"], {
+      cwd: repoRoot,
+      encoding: "utf8"
+    });
+    if (status.trim()) {
+      await secretScan();
+      const wipMsg = `wip(${ticketKey}): interrupted \u2014 ${code}
+
+[ferry:dev:${eventId}]`;
+      execFileSync4("git", ["commit", "-m", wipMsg], { cwd: repoRoot });
+      committed = true;
+      logger.info("wip_committed", { branch: branchName });
+    } else {
+      logger.info("wip_nothing_to_commit");
+    }
+  } catch (commitErr) {
+    logger.error("wip_commit_failed", { error: commitErr.message });
+  }
+  let pushed = false;
+  if (!dryRun) {
+    try {
+      execFileSync4("git", ["push", "origin", branchName, "--force-with-lease"], {
+        cwd: repoRoot,
+        stdio: "pipe"
+      });
+      pushed = true;
+    } catch {
+      try {
+        execFileSync4("git", ["push", "origin", branchName], { cwd: repoRoot, stdio: "pipe" });
+        pushed = true;
+      } catch (pushErr) {
+        logger.error("wip_push_failed", { error: pushErr.message });
+      }
+    }
+    if (pushed) {
+      logger.info("wip_pushed", { branch: branchName, committed });
+    }
+  } else {
+    logger.info("DRY_RUN \u2014 wip push skipped");
+  }
+  if (!dryRun) {
+    const wipMarker = `[ferry:dev:wip:${eventId}]`;
+    const branchRef = pushed ? ` WIP pushed to branch \`${branchName}\`.` : "";
+    const comment = `${wipMarker} \u26A0\uFE0F Dev run interrupted \u2014 ${detail}.${branchRef} The next run will resume from this state.`;
+    try {
+      await tracker.postComment(ticketKey, comment);
+      logger.info("wip_jira_comment_posted");
+    } catch (commentErr) {
+      logger.error("wip_jira_comment_failed", { error: commentErr.message });
+    }
+  } else {
+    logger.info("DRY_RUN \u2014 wip Jira comment skipped", { detail });
+  }
+  appendOutput({ input_tokens: 0, output_tokens: 0, model, provider });
+}
+
+// src/agents/developer/dev-action.ts
+var REPO_ROOT2 = process.env.GITHUB_WORKSPACE ?? process.cwd();
+async function main2(envelope, logger) {
+  const { ticket_key: ticketKey, event_id: eventId } = envelope;
+  const dryRun = isDryRun();
+  if (dryRun) {
+    logger.info("DRY_RUN mode \u2014 no branch push, no PR, no Jira writes");
+  }
+  const { owner, repo, runner, tracker, ferryCfg: initialCfg } = createGitHubContext(REPO_ROOT2);
+  const { baseBranch, targetBranch } = await resolveGitConfig(initialCfg, runner, owner, repo);
+  const ferryCfg = loadFerryConfigFromBaseBranch(baseBranch, REPO_ROOT2, initialCfg);
+  const devWorkflow = ferryCfg.workflow.agents.developer;
+  const shouldAutoTransition = devWorkflow.auto_transition !== null;
+  const reviewTransitionId = dryRun || !shouldAutoTransition ? "" : requireEnv("FERRY_REVIEW_TRANSITION_ID");
+  const jiraBaseUrl = requireEnv("FERRY_JIRA_BASE_URL");
+  const issue = await tracker.getIssue(ticketKey);
+  let effectiveCfg = ferryCfg;
+  let typeOverride;
+  let forceLabel;
+  try {
+    const overrides = resolveTicketOverrides(issue.labels, logger);
+    typeOverride = overrides.typeOverride;
+    forceLabel = overrides.forceLabel;
+    effectiveCfg = applyTicketOverrides(ferryCfg, overrides);
+    logTicketOverrides(logger, overrides);
+    if (hasNonDefaultOverrides(overrides)) {
+      await tracker.postComment(
+        ticketKey,
+        buildOverridesAuditComment("developer", eventId, overrides)
+      );
+    }
+  } catch (err) {
+    if (err instanceof LabelConflictError) {
+      await tracker.postComment(ticketKey, buildConflictComment("developer", eventId, err));
+      process.exit(1);
+    }
+    throw err;
+  }
+  const { provider: devProvider } = effectiveCfg.models.dev;
+  const labels = issue.labels.join(", ");
+  const comments = issue.comments.map((c) => `Comment: ${c}`).join("\n");
+  const ticketBlock = buildTicketBlock(ticketKey, issue, {
+    labels,
+    comments,
+    typeOverride
+  });
+  const subtasks = await tracker.getSubtasks(ticketKey);
+  const testRunner = detectTestRunner(packageJsonPath(REPO_ROOT2));
+  const pkgManagerHint = detectPackageManager(REPO_ROOT2);
+  const tree = repoTree(REPO_ROOT2);
+  const system = buildSystem("dev", REPO_ROOT2, {
+    extraParts: pkgManagerHint ? [`## Detected package manager
+
+${pkgManagerHint}`] : []
+  });
+  const model = effectiveCfg.models.dev.model;
+  const branchName = `${resolveBranchPrefix(effectiveCfg.git.working_branch_prefix, issue)}${ticketKey}`;
+  configureFerryGitUser(REPO_ROOT2);
+  let resumeContext = "";
+  let branchHeadSha = "";
+  try {
+    execFileSync5("git", ["ls-remote", "--exit-code", "--heads", "origin", branchName], {
+      cwd: REPO_ROOT2,
+      stdio: "pipe"
+    });
+    execFileSync5("git", ["fetch", "origin", branchName], { cwd: REPO_ROOT2 });
+    execFileSync5("git", ["checkout", branchName], { cwd: REPO_ROOT2 });
+    const existingLog = execFileSync5("git", ["log", `origin/${baseBranch}..HEAD`, "--oneline"], {
+      cwd: REPO_ROOT2,
+      encoding: "utf8"
+    }).trim();
+    if (existingLog) {
+      resumeContext = `
+EXISTING WORK ON BRANCH (already committed \u2014 skip these, only do what remains):
+${existingLog}`;
+      logger.info("resuming branch", {
+        branch: branchName,
+        prior_commits: existingLog.split("\n").length
+      });
+    }
+    branchHeadSha = execFileSync5("git", ["rev-parse", "HEAD"], {
+      cwd: REPO_ROOT2,
+      encoding: "utf8"
+    }).trim();
+  } catch {
+    execFileSync5("git", ["checkout", "-B", branchName], { cwd: REPO_ROOT2 });
+    logger.info("created branch", { branch: branchName });
+  }
+  let existingPrUrl = "";
+  let existingPrContext = "";
+  if (branchHeadSha && !dryRun) {
+    try {
+      const openPrs = await runner.listPRsForBranch(owner, repo, branchName);
+      if (openPrs.length > 0) {
+        const pr = openPrs[0];
+        existingPrUrl = `https://github.com/${owner}/${repo}/pull/${pr.number}`;
+        const prRef = { owner, repo, prNumber: pr.number };
+        const prFiles = await runner.listPRFiles(prRef);
+        const fileList = prFiles.map((f) => `${f.status}: ${f.filename}`).join("\n");
+        existingPrContext = [
+          `
+EXISTING_IMPLEMENTATION:`,
+          `Open PR: ${existingPrUrl} (head: ${branchHeadSha.slice(0, 7)})`,
+          `Changed files:
+${fileList}`,
+          `If the spec is already fully satisfied by the existing code, call \`done\` with outcome="already_satisfied".`
+        ].join("\n");
+        logger.info("existing PR found", { pr: existingPrUrl, files: prFiles.length });
+      }
+    } catch {
+    }
+  }
+  const idempotencyMarker = branchHeadSha ? `[ferry:dev:${branchHeadSha.slice(0, 7)}]` : `[ferry:dev:${eventId}]`;
+  const initialPrompt = [
+    delimitUntrusted(ticketBlock),
+    "",
+    subtasks.length > 0 ? `SUBTASKS:
+${subtasks.join("\n")}` : "SUBTASKS: (none)",
+    "",
+    `TEST_RUNNER: ${testRunner}`,
+    "",
+    `REPO TREE (depth 2):
+${tree}`,
+    "",
+    "When you have finished implementing, call the `done` tool."
+  ].join("\n");
+  const secretScan = makeSecretScan(REPO_ROOT2);
+  const mcpPool = loadMcpServers();
+  const capabilities = resolveCapabilities(issue.labels, effectiveCfg.labels);
+  const hasLabelsConfig = effectiveCfg.labels !== void 0;
+  const mcpServers = filterMcpServers(mcpPool, capabilities, hasLabelsConfig);
+  logCapabilities(logger, capabilities);
+  if (mcpServers.length > 0) {
+    logger.info("MCP servers", { servers: mcpServers.map((s) => s.name) });
+  }
+  const allToolSchemas = [...TOOL_SCHEMAS, COMMIT_PROGRESS_SCHEMA, SPAWN_SUBAGENT_SCHEMA];
+  let loop;
+  loop = createAgentLoop({
+    provider: devProvider,
+    model,
+    maxIterations: effectiveCfg.limits.max_agent_iterations,
+    maxInputTokens: effectiveCfg.limits.max_tokens_per_run,
+    maxTokens: effectiveCfg.limits.max_tokens_per_message,
+    maxCostEur: effectiveCfg.limits.max_cost_eur_per_run,
+    executeTool,
+    commitProgress: makeCommitProgress(logger, { dryRun }),
+    spawnSubagent: (task) => loop.run({
+      system,
+      initialPrompt: task,
+      tools: allToolSchemas.filter((t) => t.name !== "spawn_subagent"),
+      repoRoot: REPO_ROOT2,
+      branchName,
+      secretScan,
+      mcpServers
+    }),
+    logger
+  });
+  let loopResult;
+  try {
+    loopResult = await loop.run({
+      system,
+      initialPrompt: initialPrompt + resumeContext + existingPrContext,
+      tools: allToolSchemas,
+      repoRoot: REPO_ROOT2,
+      branchName,
+      secretScan,
+      mcpServers
+    });
+  } catch (loopErr) {
+    if (!dryRun && loopErr instanceof FerryError && loopErr.code === "spend-cap" && loopErr.context?.reason === "eur-budget-exceeded") {
+      const consumedEur = loopErr.context.consumed ?? 0;
+      const capEur = loopErr.context.cap ?? 0;
+      try {
+        await tracker.addLabel(ticketKey, "ferry:spend-cap");
+        await tracker.postComment(
+          ticketKey,
+          `[ferry:dev:${eventId}] Budget cap \u20AC${capEur} reached \u2014 \u20AC${consumedEur.toFixed(4)} spent. Labeled ferry:spend-cap.`
+        );
+      } catch {
+      }
+    }
+    await runWipFinalizer({
+      error: loopErr,
+      ticketKey,
+      eventId,
+      branchName,
+      repoRoot: REPO_ROOT2,
+      secretScan,
+      tracker,
+      logger,
+      dryRun,
+      model,
+      provider: devProvider
+    });
+    throw loopErr;
+  }
+  const { done, usage, iterations } = loopResult;
+  const resolvedOutcome = done.outcome ?? (done.actionable ? "implemented" : "blocked");
+  logger.info("done", {
+    iterations,
+    outcome: resolvedOutcome,
+    in: usage.input_tokens,
+    cache_w: usage.cache_creation_input_tokens,
+    cache_r: usage.cache_read_input_tokens,
+    out: usage.output_tokens
+  });
+  if (resolvedOutcome === "blocked") {
+    const reason = done.reason ?? done.reason_if_not_actionable ?? "no reason given";
+    if (!dryRun) {
+      await tracker.addLabel(ticketKey, "ferry:blocked");
+      await tracker.postComment(
+        ticketKey,
+        `${idempotencyMarker} \u{1F6A8} BLOCKED \u2014 ${reason}. Manual intervention required.`
+      );
+    } else {
+      logger.info("DRY_RUN \u2014 blocked", { reason });
+    }
+    writeStepSummary({
+      role: "developer",
+      iterations,
+      usage,
+      toolCounts: loopResult.toolCounts,
+      toolCallRecords: loopResult.toolCallRecords,
+      filesTouched: [],
+      branchPushed: "",
+      outcome: "blocked"
+    });
+    appendOutput({ ...usage, model, provider: devProvider });
+    process.exit(1);
+  }
+  const commitMessage = formatDeveloperCommit({
+    ticketKey,
+    runId: eventId,
+    summary: done.summary
+  });
+  let summaryFilesTouched = [];
+  let summaryBranchPushed = "";
+  try {
+    let verificationNoteWritten = false;
+    if (resolvedOutcome === "already_satisfied") {
+      const verificationDir = path6.join(REPO_ROOT2, ".ferry", "verifications");
+      const verificationPath = path6.join(verificationDir, `${ticketKey}.md`);
+      const validationLines = (done.validation ?? []).length > 0 ? (done.validation ?? []).map((v) => `- \`${v.command}\`: ${v.outcome}`).join("\n") : "_none recorded_";
+      const verificationContent = [
+        `# Verification: ${ticketKey}`,
+        ``,
+        `**Date:** ${(/* @__PURE__ */ new Date()).toISOString()}`,
+        ``,
+        `## Summary`,
+        done.summary,
+        ``,
+        `## Validation`,
+        validationLines
+      ].join("\n");
+      await fsp2.mkdir(verificationDir, { recursive: true });
+      await fsp2.writeFile(verificationPath, verificationContent, "utf8");
+      verificationNoteWritten = true;
+    }
+    execFileSync5("git", ["add", "-A"], { cwd: REPO_ROOT2 });
+    const finalStatus = execFileSync5("git", ["status", "--porcelain"], {
+      cwd: REPO_ROOT2,
+      encoding: "utf8"
+    });
+    if (finalStatus.trim()) {
+      await secretScan();
+      const msg = resolvedOutcome === "already_satisfied" ? `chore(${ticketKey}): add verification note \u2014 spec already satisfied` : done.commit_message ?? commitMessage;
+      execFileSync5("git", ["commit", "-m", msg], { cwd: REPO_ROOT2 });
+    }
+    if (dryRun) {
+      let diffOutput = "(no local changes)";
+      try {
+        diffOutput = execFileSync5(
+          "sh",
+          [
+            "-c",
+            'git diff HEAD~1..HEAD --stat 2>/dev/null || git show --stat HEAD 2>/dev/null || echo "(no commits yet)"'
+          ],
+          { cwd: REPO_ROOT2, encoding: "utf8" }
+        );
+      } catch {
+      }
+      logger.info("DRY_RUN \u2014 implementation summary", {
+        outcome: resolvedOutcome,
+        summary: done.summary,
+        diff: diffOutput
+      });
+      logger.info("DRY_RUN \u2014 skipped: git push, PR creation, Jira transition, Jira comment");
+      writeStepSummary({
+        role: "developer",
+        iterations,
+        usage,
+        toolCounts: loopResult.toolCounts,
+        toolCallRecords: loopResult.toolCallRecords,
+        filesTouched: [],
+        branchPushed: "",
+        outcome: resolvedOutcome
+      });
+      appendOutput({ ...usage, model, provider: devProvider });
+      process.exit(0);
+    }
+    execFileSync5("git", ["push", "origin", branchName, "--force-with-lease"], { cwd: REPO_ROOT2 });
+    const branchPushed = true;
+    summaryBranchPushed = branchName;
+    try {
+      const diff = execFileSync5("git", ["diff", "--name-only", `origin/${baseBranch}...HEAD`], {
+        cwd: REPO_ROOT2,
+        encoding: "utf8"
+      });
+      summaryFilesTouched = diff.trim().split("\n").filter(Boolean);
+    } catch {
+    }
+    const prTitle = resolvedOutcome === "already_satisfied" ? `verify(${ticketKey}): existing implementation satisfies spec` : formatPullRequestTitle({ ticketKey, summary: issue.summary });
+    const prBody = formatPullRequestBody({
+      ticketKey,
+      jiraBaseUrl,
+      runId: eventId,
+      summary: done.summary,
+      subtasks,
+      validation: done.validation ?? [],
+      notes: done.notes ?? []
+    });
+    const prUrl = await runner.createPR(owner, repo, branchName, targetBranch, prTitle, prBody);
+    assertDevOutputContract(resolvedOutcome, { branchPushed, prUrl, verificationNoteWritten });
+    if (shouldAutoTransition) {
+      await tracker.postTransition(ticketKey, reviewTransitionId);
+    }
+    const transitionNote = shouldAutoTransition ? " Moved to Review." : "";
+    const forceOverrideName = forceLabel?.split(":").at(-1);
+    const overrideNote = typeOverride ? ` [type override: ${JSON.stringify({ issuetype: typeOverride, issuetype_raw: issue.issueType, override: forceOverrideName })}]` : "";
+    const terminalComment = resolvedOutcome === "already_satisfied" ? `${idempotencyMarker} Spec already satisfied \u2014 verification PR: ${prUrl}.${transitionNote}${overrideNote}` : `${idempotencyMarker} Implementation complete \u2014 PR: ${prUrl}.${transitionNote}${overrideNote}`;
+    await tracker.postComment(ticketKey, terminalComment);
+  } catch (err) {
+    if (!dryRun) {
+      try {
+        await tracker.postComment(
+          ticketKey,
+          `${idempotencyMarker} Dev run failed in post-implementation step \u2014 manual intervention required.`
+        );
+      } catch {
+      }
+    }
+    throw err;
+  }
+  writeStepSummary({
+    role: "developer",
+    iterations,
+    usage,
+    toolCounts: loopResult.toolCounts,
+    toolCallRecords: loopResult.toolCallRecords,
+    filesTouched: summaryFilesTouched,
+    branchPushed: summaryBranchPushed,
+    outcome: resolvedOutcome
+  });
+  appendOutput({ ...usage, model, provider: devProvider });
+  process.exit(0);
+}
+
+// src/lib/llm/tool-loop/index.ts
+import Anthropic4 from "@anthropic-ai/sdk";
+
+// src/lib/llm/tool-loop/anthropic.ts
+function createAnthropicToolCallLoop(opts) {
+  return {
+    async run(runOpts) {
+      const {
+        system,
+        initialPrompt,
+        tools,
+        handlers,
+        finishTool,
+        extractDone,
+        maxIterations,
+        maxTokens
+      } = runOpts;
+      const logger = runOpts.logger ?? createLogger("", "ferry:tool-loop");
+      const anthropicTools = tools.map(
+        (t, i) => i === tools.length - 1 ? { ...t, cache_control: { type: "ephemeral" } } : t
+      );
+      const messages = [
+        {
+          role: "user",
+          content: [{ type: "text", text: initialPrompt, cache_control: { type: "ephemeral" } }]
+        }
+      ];
+      let inputTokens = 0;
+      let outputTokens = 0;
+      let done = null;
+      const toolCounts = {};
+      const toolCallRecords = [];
+      function trackTool(name, outputSize) {
+        toolCounts[name] = (toolCounts[name] ?? 0) + 1;
+        toolCallRecords.push({ name, outputSize });
+      }
+      const loopStart = Date.now();
+      for (let iter = 0; iter < maxIterations; iter++) {
+        const iterStart = Date.now();
+        const response = await opts.client.messages.create({
+          model: opts.model,
+          max_tokens: maxTokens,
+          system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
+          tools: anthropicTools,
+          messages
+        });
+        inputTokens += response.usage.input_tokens;
+        outputTokens += response.usage.output_tokens;
+        messages.push({ role: "assistant", content: response.content });
+        const toolCount = response.content.filter((b) => b.type === "tool_use").length;
+        logger.info("turn", {
+          iter: iter + 1,
+          stop: response.stop_reason,
+          tools: toolCount,
+          in: response.usage.input_tokens,
+          out: response.usage.output_tokens
+        });
+        emitDebug(
+          {
+            type: "turn",
+            iter: iter + 1,
+            depth: 0,
+            stop_reason: response.stop_reason ?? "unknown",
+            tools: toolCount,
+            mcp_tools: 0,
+            in: response.usage.input_tokens,
+            cache_w: 0,
+            cache_r: 0,
+            out: response.usage.output_tokens,
+            elapsed_ms: Date.now() - iterStart
+          },
+          logger
+        );
+        if (response.stop_reason !== "tool_use") {
+          throw new FerryError("state-invariant", {
+            reason: "tool-loop-stopped-without-finish",
+            stop_reason: response.stop_reason
+          });
+        }
+        const toolResults = [];
+        for (const block of response.content) {
+          if (block.type !== "tool_use") continue;
+          const input = block.input;
+          if (block.name === finishTool) {
+            done = extractDone(input);
+            toolResults.push({ type: "tool_result", tool_use_id: block.id, content: "ok" });
+            continue;
+          }
+          const handler2 = handlers[block.name];
+          if (handler2) {
+            const result = await handler2(input);
+            trackTool(block.name, result.length);
+            toolResults.push({ type: "tool_result", tool_use_id: block.id, content: result });
+          } else {
+            toolResults.push({
+              type: "tool_result",
+              tool_use_id: block.id,
+              content: `unknown tool: ${block.name}`,
+              is_error: true
+            });
+          }
+        }
+        for (let i = messages.length - 1; i >= 0; i--) {
+          const msg = messages[i];
+          if (msg.role === "user" && Array.isArray(msg.content)) {
+            const content = msg.content;
+            if (content.some((b) => b.type === "tool_result")) {
+              const entry = { ...content[content.length - 1] };
+              delete entry.cache_control;
+              content[content.length - 1] = entry;
+              break;
+            }
+          }
+        }
+        if (toolResults.length > 0) {
+          const last = toolResults[toolResults.length - 1];
+          toolResults[toolResults.length - 1] = { ...last, cache_control: { type: "ephemeral" } };
+        }
+        messages.push({ role: "user", content: toolResults });
+        if (done !== null) {
+          emitDebug(
+            {
+              type: "result",
+              subtype: "success",
+              iterations: iter + 1,
+              total_in: inputTokens,
+              total_out: outputTokens,
+              elapsed_ms: Date.now() - loopStart
+            },
+            logger
+          );
+          return {
+            done,
+            usage: { inputTokens, outputTokens },
+            iterations: iter + 1,
+            toolCounts,
+            toolCallRecords
+          };
+        }
+      }
+      throw new FerryError("state-invariant", {
+        reason: "tool-loop-iteration-cap-exceeded",
+        cap: maxIterations
+      });
+    }
+  };
+}
+
+// src/lib/llm/tool-loop/openai.ts
+import OpenAI3 from "openai";
+function createOpenAIToolCallLoop(opts) {
+  const client = new OpenAI3({ apiKey: opts.apiKey });
+  return {
+    async run(runOpts) {
+      const {
+        system,
+        initialPrompt,
+        tools,
+        handlers,
+        finishTool,
+        extractDone,
+        maxIterations,
+        maxTokens
+      } = runOpts;
+      const logger = runOpts.logger ?? createLogger("", "ferry:tool-loop");
+      const openaiTools = tools.map((t) => ({
+        type: "function",
+        function: {
+          name: t.name,
+          description: t.description,
+          parameters: t.input_schema
+        }
+      }));
+      const messages = [
+        { role: "system", content: system },
+        { role: "user", content: initialPrompt }
+      ];
+      let inputTokens = 0;
+      let outputTokens = 0;
+      let done = null;
+      const toolCounts = {};
+      const toolCallRecords = [];
+      function trackTool(name, outputSize) {
+        toolCounts[name] = (toolCounts[name] ?? 0) + 1;
+        toolCallRecords.push({ name, outputSize });
+      }
+      const loopStart = Date.now();
+      for (let iter = 0; iter < maxIterations; iter++) {
+        const iterStart = Date.now();
+        const response = await client.chat.completions.create({
+          model: opts.model,
+          max_tokens: maxTokens,
+          messages,
+          tools: openaiTools,
+          tool_choice: "required"
+        });
+        const choice = response.choices[0];
+        if (!choice) {
+          throw new FerryError("state-invariant", { reason: "tool-loop-no-response" });
+        }
+        inputTokens += response.usage?.prompt_tokens ?? 0;
+        outputTokens += response.usage?.completion_tokens ?? 0;
+        const assistantMsg = {
+          role: "assistant",
+          content: choice.message.content ?? null,
+          tool_calls: choice.message.tool_calls
+        };
+        messages.push(assistantMsg);
+        const toolCalls = choice.message.tool_calls ?? [];
+        logger.info("turn", {
+          iter: iter + 1,
+          stop: choice.finish_reason,
+          tools: toolCalls.length,
+          in: response.usage?.prompt_tokens ?? 0,
+          out: response.usage?.completion_tokens ?? 0
+        });
+        emitDebug(
+          {
+            type: "turn",
+            iter: iter + 1,
+            depth: 0,
+            stop_reason: choice.finish_reason ?? "unknown",
+            tools: toolCalls.length,
+            mcp_tools: 0,
+            in: response.usage?.prompt_tokens ?? 0,
+            cache_w: 0,
+            cache_r: 0,
+            out: response.usage?.completion_tokens ?? 0,
+            elapsed_ms: Date.now() - iterStart
+          },
+          logger
+        );
+        if (choice.finish_reason !== "tool_calls") {
+          throw new FerryError("state-invariant", {
+            reason: "tool-loop-stopped-without-finish",
+            stop_reason: choice.finish_reason
+          });
+        }
+        for (const toolCall of toolCalls) {
+          if (toolCall.type !== "function") continue;
+          let input;
+          try {
+            input = JSON.parse(toolCall.function.arguments);
+          } catch {
+            messages.push({
+              role: "tool",
+              tool_call_id: toolCall.id,
+              content: "invalid JSON arguments"
+            });
+            continue;
+          }
+          if (toolCall.function.name === finishTool) {
+            done = extractDone(input);
+            messages.push({ role: "tool", tool_call_id: toolCall.id, content: "ok" });
+            continue;
+          }
+          const handler2 = handlers[toolCall.function.name];
+          if (handler2) {
+            const result = await handler2(input);
+            trackTool(toolCall.function.name, result.length);
+            messages.push({ role: "tool", tool_call_id: toolCall.id, content: result });
+          } else {
+            messages.push({
+              role: "tool",
+              tool_call_id: toolCall.id,
+              content: `unknown tool: ${toolCall.function.name}`
+            });
+          }
+        }
+        if (done !== null) {
+          emitDebug(
+            {
+              type: "result",
+              subtype: "success",
+              iterations: iter + 1,
+              total_in: inputTokens,
+              total_out: outputTokens,
+              elapsed_ms: Date.now() - loopStart
+            },
+            logger
+          );
+          return {
+            done,
+            usage: { inputTokens, outputTokens },
+            iterations: iter + 1,
+            toolCounts,
+            toolCallRecords
+          };
+        }
+      }
+      throw new FerryError("state-invariant", {
+        reason: "tool-loop-iteration-cap-exceeded",
+        cap: maxIterations
+      });
+    }
+  };
+}
+
+// src/lib/llm/tool-loop/google.ts
+import { GoogleGenAI as GoogleGenAI3 } from "@google/genai";
+function toGoogleTools(tools) {
+  return [
+    {
+      functionDeclarations: tools.map((t) => ({
+        name: t.name,
+        description: t.description,
+        parametersJsonSchema: t.input_schema
+      }))
+    }
+  ];
+}
+function createGoogleToolCallLoop(opts) {
+  const ai = new GoogleGenAI3({ apiKey: opts.apiKey });
+  return {
+    async run(runOpts) {
+      const {
+        system,
+        initialPrompt,
+        tools,
+        handlers,
+        finishTool,
+        extractDone,
+        maxIterations,
+        maxTokens
+      } = runOpts;
+      const logger = runOpts.logger ?? createLogger("", "ferry:tool-loop");
+      const googleTools = toGoogleTools(tools);
+      const contents = [{ role: "user", parts: [{ text: initialPrompt }] }];
+      let inputTokens = 0;
+      let outputTokens = 0;
+      let done = null;
+      const toolCounts = {};
+      const toolCallRecords = [];
+      function trackTool(name, outputSize) {
+        toolCounts[name] = (toolCounts[name] ?? 0) + 1;
+        toolCallRecords.push({ name, outputSize });
+      }
+      const loopStart = Date.now();
+      for (let iter = 0; iter < maxIterations; iter++) {
+        const iterStart = Date.now();
+        const response = await ai.models.generateContent({
+          model: opts.model,
+          contents,
+          config: {
+            systemInstruction: system,
+            tools: googleTools,
+            maxOutputTokens: maxTokens
+          }
+        });
+        inputTokens += response.usageMetadata?.promptTokenCount ?? 0;
+        outputTokens += response.usageMetadata?.candidatesTokenCount ?? 0;
+        const fnCalls = response.functionCalls ?? [];
+        const modelParts = response.candidates?.[0]?.content?.parts ?? [];
+        if (modelParts.length > 0) {
+          contents.push({ role: "model", parts: modelParts });
+        }
+        logger.info("turn", {
+          iter: iter + 1,
+          tools: fnCalls.length,
+          in: response.usageMetadata?.promptTokenCount ?? 0,
+          out: response.usageMetadata?.candidatesTokenCount ?? 0
+        });
+        emitDebug(
+          {
+            type: "turn",
+            iter: iter + 1,
+            depth: 0,
+            stop_reason: fnCalls.length > 0 ? "tool_use" : "end_turn",
+            tools: fnCalls.length,
+            mcp_tools: 0,
+            in: response.usageMetadata?.promptTokenCount ?? 0,
+            cache_w: 0,
+            cache_r: 0,
+            out: response.usageMetadata?.candidatesTokenCount ?? 0,
+            elapsed_ms: Date.now() - iterStart
+          },
+          logger
+        );
+        if (fnCalls.length === 0) {
+          throw new FerryError("state-invariant", {
+            reason: "tool-loop-stopped-without-finish",
+            stop_reason: "end_turn"
+          });
+        }
+        const responseParts = [];
+        for (const fc of fnCalls) {
+          const name = fc.name ?? "";
+          const input = fc.args ?? {};
+          if (name === finishTool) {
+            done = extractDone(input);
+            responseParts.push({
+              functionResponse: { name, response: { result: "ok" } }
+            });
+            continue;
+          }
+          const handler2 = handlers[name];
+          if (handler2) {
+            const result = await handler2(input);
+            trackTool(name, result.length);
+            responseParts.push({
+              functionResponse: { name, response: { result } }
+            });
+          } else {
+            responseParts.push({
+              functionResponse: { name, response: { error: `unknown tool: ${name}` } }
+            });
+          }
+        }
+        contents.push({ role: "user", parts: responseParts });
+        if (done !== null) {
+          emitDebug(
+            {
+              type: "result",
+              subtype: "success",
+              iterations: iter + 1,
+              total_in: inputTokens,
+              total_out: outputTokens,
+              elapsed_ms: Date.now() - loopStart
+            },
+            logger
+          );
+          return {
+            done,
+            usage: { inputTokens, outputTokens },
+            iterations: iter + 1,
+            toolCounts,
+            toolCallRecords
+          };
+        }
+      }
+      throw new FerryError("state-invariant", {
+        reason: "tool-loop-iteration-cap-exceeded",
+        cap: maxIterations
+      });
+    }
+  };
+}
+
+// src/lib/llm/tool-loop/index.ts
+function requireEnv4(key) {
+  const val = process.env[key];
+  if (!val) {
+    throw new FerryError("state-invariant", { reason: "missing-env", key });
+  }
+  return val;
+}
+function createToolCallLoop(opts) {
+  if (opts.provider === "anthropic") {
+    const auth2 = resolveAnthropicAuth({ apiKeyEnv: "ANTHROPIC_API_KEY" });
+    const client = new Anthropic4(auth2);
+    return createAnthropicToolCallLoop({ client, model: opts.model });
+  }
+  if (opts.provider === "openai") {
+    const apiKey = requireEnv4("FERRY_OPENAI_KEY");
+    return createOpenAIToolCallLoop({ apiKey, model: opts.model });
+  }
+  if (opts.provider === "google") {
+    const apiKey = requireEnv4("FERRY_GOOGLE_AI_KEY");
+    return createGoogleToolCallLoop({ apiKey, model: opts.model });
+  }
+  throw new FerryError("state-invariant", { reason: "unknown-provider", provider: opts.provider });
+}
+
+// src/lib/io/idempotency.ts
+function checkIdempotencyMarker(marker, items) {
+  for (const item of items) {
+    if (item.includes(marker)) return { skipped: true };
+  }
+  return { skipped: false };
+}
+
+// src/agents/reviewer/ci-gate.ts
+var DEFAULT_RED_MESSAGE = "CI checks failed for this PR. See the failed Actions run for details.";
+function gateCi(input) {
+  if (input.status === "pending") {
+    return {
+      outcome: "pending-ci",
+      proceed: false,
+      findings: [],
+      tokens: { input: 0, output: 0 },
+      cost_eur: 0
+    };
+  }
+  if (input.status === "red") {
+    const message = (input.failure_summary ?? "").trim() || DEFAULT_RED_MESSAGE;
+    return {
+      outcome: "ci-red",
+      proceed: false,
+      findings: [{ rule_id: "ci-failure", message }],
+      next_state: "changes-requested",
+      tokens: { input: 0, output: 0 },
+      cost_eur: 0
+    };
+  }
+  return {
+    outcome: "ci-green",
+    proceed: true,
+    findings: [],
+    tokens: { input: 0, output: 0 },
+    cost_eur: 0
+  };
+}
+
+// src/agents/reviewer/review-loop.ts
+var MAX_PATCH_CHARS = 2e4;
+var MAX_CONTENT_CHARS = 4e4;
+var MAX_ITERATIONS = 40;
+var REVIEW_TOOL_DEFS = [
+  {
+    name: "get_file_patch",
+    description: "Get the unified diff patch for a specific file in this PR. Use this to inspect what changed in a file before making a finding.",
+    input_schema: {
+      type: "object",
+      properties: {
+        filename: { type: "string", description: "Exact file path as listed in the PR file list." }
+      },
+      required: ["filename"]
+    }
+  },
+  {
+    name: "get_file_content",
+    description: "Get the full content of a file from the PR head branch. Use when the patch is truncated or you need context outside the changed lines.",
+    input_schema: {
+      type: "object",
+      properties: {
+        filename: { type: "string", description: "Exact file path." }
+      },
+      required: ["filename"]
+    }
+  },
+  {
+    name: "finish_review",
+    description: "Post the review verdict and end the review loop. Call once you have inspected all relevant files.",
+    input_schema: {
+      type: "object",
+      properties: {
+        approved: {
+          type: "boolean",
+          description: "true = ready to merge, false = changes required."
+        },
+        comment: {
+          type: "string",
+          description: "Full review comment in Markdown. Follow the required format from the system prompt."
+        }
+      },
+      required: ["approved", "comment"]
+    }
+  }
+];
+function detectMergeConflicts(files) {
+  const conflicted = [];
+  for (const f of files) {
+    if (f.patch && /^[+].*<{7}|^[+].*={7}|^[+].*>{7}/m.test(f.patch)) {
+      conflicted.push(f.filename);
+    }
+  }
+  return conflicted;
+}
+function buildFileList(files) {
+  return files.map((f) => `${f.status.padEnd(8)} +${f.additions} -${f.deletions}  ${f.filename}`).join("\n");
+}
+async function runReviewLoop(opts) {
+  const { loop, system, initialPrompt, fileMap, runner, owner, repo, headSha } = opts;
+  const logger = opts.logger ?? createLogger("", "ferry:review-loop");
+  const maxIterations = opts.maxIterations ?? (parseInt(process.env.FERRY_REVIEWER_MAX_ITERATIONS ?? "", 10) || MAX_ITERATIONS);
+  const maxTokens = opts.maxTokens ?? (parseInt(process.env.FERRY_REVIEWER_MAX_TOKENS ?? "", 10) || 16384);
+  const {
+    done: result,
+    usage,
+    iterations,
+    toolCounts,
+    toolCallRecords
+  } = await loop.run({
+    system,
+    initialPrompt,
+    tools: REVIEW_TOOL_DEFS,
+    finishTool: "finish_review",
+    extractDone: (input) => ({
+      approved: input.approved,
+      comment: input.comment
+    }),
+    handlers: {
+      get_file_patch: (input) => {
+        const filename = input.filename;
+        logger.info("tool", { tool: "get_file_patch", file: filename });
+        const patch = fileMap.get(filename);
+        if (patch === void 0) return `(file not found in PR: ${filename})`;
+        if (!patch) return "(no patch \u2014 binary, empty, or content unchanged)";
+        const patchLimit = parseInt(process.env.FERRY_REVIEW_PATCH_TRUNCATE_CHARS ?? "", 10) || MAX_PATCH_CHARS;
+        return patch.length > patchLimit ? patch.slice(0, patchLimit) + "\n... (truncated)" : patch;
+      },
+      get_file_content: async (input) => {
+        const filename = input.filename;
+        logger.info("tool", { tool: "get_file_content", file: filename });
+        const fileLimit = parseInt(process.env.FERRY_REVIEW_FILE_TRUNCATE_CHARS ?? "", 10) || MAX_CONTENT_CHARS;
+        const rawContent = await runner.getFileContent(owner, repo, filename, headSha);
+        return rawContent.length > fileLimit ? rawContent.slice(0, fileLimit) + "\n... (truncated)" : rawContent;
+      }
+    },
+    maxIterations,
+    maxTokens,
+    logger
+  });
+  return {
+    result,
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
+    iterations,
+    toolCounts,
+    toolCallRecords
+  };
+}
+
+// src/agents/reviewer/changes-guard.ts
+function countPriorIterations(existingComments) {
+  return existingComments.filter(
+    (c) => c.includes("[ferry:iterator:") && c.includes("complete. Pushed fixes to PR#")
+  ).length;
+}
+
+// src/agents/reviewer/review-action.ts
+var REPO_ROOT3 = process.env.GITHUB_WORKSPACE ?? process.cwd();
+async function main3(envelope, logger) {
+  const { ticket_key: ticketKey, event_id: eventId } = envelope;
+  const { owner, repo, runner, tracker, ferryCfg: initialCfg } = createGitHubContext(REPO_ROOT3);
+  const { baseBranch } = await resolveGitConfig(initialCfg, runner, owner, repo);
+  const ferryCfg = loadFerryConfigFromBaseBranch(baseBranch, REPO_ROOT3, initialCfg);
+  const reviewerWorkflow = ferryCfg.workflow.agents.reviewer;
+  const shouldTransitionChanges = reviewerWorkflow.auto_transition_changes !== null;
+  const shouldTransitionApprove = reviewerWorkflow.auto_transition_approve !== null;
+  const iterTransitionId = shouldTransitionChanges ? requireEnv("FERRY_ITER_TRANSITION_ID") : "";
+  const approveTransitionId = shouldTransitionApprove ? requireEnv("FERRY_APPROVE_TRANSITION_ID") : "";
+  const issue = await tracker.getIssue(ticketKey);
+  const existingComments = issue.comments;
+  let effectiveCfg;
+  let typeOverride;
+  try {
+    const overrides = resolveTicketOverrides(issue.labels, logger);
+    typeOverride = overrides.typeOverride;
+    effectiveCfg = applyTicketOverrides(ferryCfg, overrides);
+    logTicketOverrides(logger, overrides);
+    if (hasNonDefaultOverrides(overrides)) {
+      await tracker.postComment(
+        ticketKey,
+        buildOverridesAuditComment("reviewer", eventId, overrides)
+      );
+    }
+  } catch (err) {
+    if (err instanceof LabelConflictError) {
+      await tracker.postComment(ticketKey, buildConflictComment("reviewer", eventId, err));
+      process.exit(1);
+    }
+    throw err;
+  }
+  const { provider, model } = effectiveCfg.models.review;
+  const capabilities = resolveCapabilities(issue.labels, effectiveCfg.labels, logger);
+  logCapabilities(logger, capabilities);
+  const branchName = `${resolveBranchPrefix(effectiveCfg.git.working_branch_prefix, issue)}${ticketKey}`;
+  const prs = await runner.listPRsForBranch(owner, repo, branchName);
+  if (prs.length === 0) {
+    const errorMarker = byEventId("reviewer", eventId);
+    const { skipped: skipped2 } = checkIdempotencyMarker(errorMarker, existingComments);
+    if (!skipped2) {
+      await tracker.postComment(
+        ticketKey,
+        `${errorMarker} No open PR found for branch ${branchName}. Cannot review.`
+      );
+    }
+    appendOutput({ input_tokens: 0, output_tokens: 0, model, provider });
+    return;
+  }
+  const prNumber = prs[0].number;
+  const pr = await runner.getPR({ owner, repo, prNumber });
+  const headSha = pr.headSha;
+  const mergeable = pr.mergeable;
+  const idempotencyMarker = byPrHeadSha("reviewer", headSha);
+  const { skipped } = checkIdempotencyMarker(idempotencyMarker, existingComments);
+  if (skipped) {
+    logger.info("already processed, skipping", { sha: headSha.slice(0, 7) });
+    appendOutput({ input_tokens: 0, output_tokens: 0, model, provider });
+    return;
+  }
+  const ciStatus = await runner.getCommitStatus(owner, repo, headSha);
+  const ciOutcome = gateCi({ status: ciStatus });
+  if (!ciOutcome.proceed) {
+    if (ciOutcome.outcome === "pending-ci") {
+      await tracker.postComment(
+        ticketKey,
+        `${idempotencyMarker} CI checks are still pending on ${headSha.slice(0, 7)}. Will retry when CI completes.`
+      );
+      appendOutput({ input_tokens: 0, output_tokens: 0, model, provider });
+      return;
+    }
+    const ciMessage = ciOutcome.findings[0]?.message ?? "CI checks failed. See the Actions run for details.";
+    const ciTransitionNote = shouldTransitionChanges ? " Moved to Dev Iteration." : "";
+    await tracker.postComment(
+      ticketKey,
+      `${idempotencyMarker} CI checks failed.${ciTransitionNote}`
+    );
+    await runner.commentOnPR(
+      { owner, repo, prNumber },
+      `${idempotencyMarker}
+
+**CI failed:** ${ciMessage}`
+    );
+    if (shouldTransitionChanges) {
+      await tracker.postTransition(ticketKey, iterTransitionId);
+    }
+    appendOutput({ input_tokens: 0, output_tokens: 0, model, provider });
+    return;
+  }
+  const files = await runner.listPRFiles({ owner, repo, prNumber });
+  const fileMap = new Map(files.map((f) => [f.filename, f.patch]));
+  const conflictedFiles = detectMergeConflicts(files);
+  const hasMergeConflicts = mergeable === false || conflictedFiles.length > 0;
+  const commits = await runner.listPRCommits({ owner, repo, prNumber });
+  const commitLog = commits.map((c) => `${c.sha.slice(0, 7)} ${c.message.split("\n")[0]}`).join("\n");
+  const ticketBlock = buildTicketBlock(ticketKey, issue, {
+    typeOverride
+  });
+  const mergeConflictWarning = hasMergeConflicts ? `
+\u26A0\uFE0F  MERGE CONFLICTS DETECTED \u2014 mergeable=${String(mergeable)}${conflictedFiles.length > 0 ? `, conflicted files: ${conflictedFiles.join(", ")}` : ""}` : "";
+  const initialPrompt = [
+    "## Jira Ticket",
+    delimitUntrusted(ticketBlock),
+    "",
+    "## PR Metadata",
+    `PR #${prNumber}: ${pr.title}`,
+    `Base: ${pr.baseRef} \u2190 Head: ${branchName} (${headSha.slice(0, 7)})`,
+    `Files changed: ${files.length}  Commits: ${commits.length}`,
+    mergeConflictWarning,
+    "",
+    "## Commits",
+    commitLog,
+    "",
+    "## Changed files (status  +additions  -deletions  path)",
+    buildFileList(files),
+    "",
+    "Use get_file_patch to inspect individual file diffs, get_file_content for full file contents.",
+    "When you have enough information, call finish_review."
+  ].filter((l) => l !== null).join("\n");
+  const system = buildSystem("review", REPO_ROOT3, {
+    extraParts: [loadOptionalPrompt("review-comment", REPO_ROOT3)],
+    separator: "\n\n---\n\n"
+  });
+  const loop = createToolCallLoop({ provider, model });
+  const {
+    result: review,
+    inputTokens,
+    outputTokens,
+    iterations: reviewIterations,
+    toolCounts: reviewToolCounts,
+    toolCallRecords: reviewToolCallRecords
+  } = await runReviewLoop({
+    loop,
+    system,
+    initialPrompt,
+    fileMap,
+    runner,
+    owner,
+    repo,
+    headSha,
+    maxIterations: effectiveCfg.limits.reviewer_max_iterations,
+    maxTokens: effectiveCfg.limits.reviewer_max_tokens,
+    logger
+  });
+  logger.info("reviewed", {
+    ticket: ticketKey,
+    pr: prNumber,
+    approved: review.approved,
+    in: inputTokens,
+    out: outputTokens
+  });
+  writeStepSummary({
+    role: "reviewer",
+    iterations: reviewIterations,
+    usage: {
+      input_tokens: inputTokens,
+      output_tokens: outputTokens,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 0
+    },
+    toolCounts: reviewToolCounts,
+    toolCallRecords: reviewToolCallRecords,
+    filesTouched: [],
+    branchPushed: "",
+    outcome: review.approved ? "approved" : "changes_requested"
+  });
+  if (review.approved) {
+    await tracker.postComment(
+      ticketKey,
+      `${idempotencyMarker} Approved. PR#${prNumber} is ready to merge.`
+    );
+    await runner.addLabelsToPR({ owner, repo, prNumber }, ["ferry:approved"]);
+    await runner.removeLabelFromPR({ owner, repo, prNumber }, "ferry:reviewing").catch(() => {
+    });
+    await runner.markPRReadyForReview(owner, repo, prNumber);
+    await runner.commentOnPR({ owner, repo, prNumber }, review.comment);
+    if (shouldTransitionApprove) {
+      await tracker.postTransition(ticketKey, approveTransitionId);
+    }
+  } else {
+    const priorIterations = countPriorIterations(existingComments);
+    const cap = effectiveCfg.limits.max_iterations;
+    const capReached = priorIterations >= cap;
+    await runner.commentOnPR({ owner, repo, prNumber }, review.comment);
+    if (!capReached) {
+      const changesNote = shouldTransitionChanges ? " Moved to Dev Iteration." : "";
+      await tracker.postComment(
+        ticketKey,
+        `${idempotencyMarker} Changes requested (iteration ${priorIterations + 1}/${cap}).${changesNote} See PR#${prNumber} for details.`
+      );
+      if (shouldTransitionChanges) {
+        await tracker.postTransition(ticketKey, iterTransitionId);
+      }
+    } else {
+      await tracker.postComment(
+        ticketKey,
+        `${idempotencyMarker} Changes requested (re-review). Iteration cap (${cap}) reached; see PR#${prNumber} and move ticket manually.`
+      );
+    }
+  }
+  appendOutput({ input_tokens: inputTokens, output_tokens: outputTokens, model, provider });
+}
+
+// src/agents/iterator/iterate-action.ts
+import { execFileSync as execFileSync6 } from "node:child_process";
+
+// src/agents/iterator/outcome-guard.ts
+function assertIterOutputContract(outcome, outputs) {
+  if (outcome === "implemented" || outcome === "already_satisfied") {
+    if (!outputs.branchPushed) {
+      throw new Error(
+        `Output contract violation: outcome="${outcome}" requires branch to be pushed before posting terminal comment`
+      );
+    }
+    if (!outputs.prNumber) {
+      throw new Error(
+        `Output contract violation: outcome="${outcome}" requires an open PR before posting terminal comment`
+      );
+    }
+  }
+}
+
+// src/agents/iterator/cap.ts
+function checkIterationCap(input, cap = 3) {
+  if (input.iteration >= cap && input.hasFindings) {
+    throw new FerryError("oscillation", {
+      reason: "iteration-cap-exceeded",
+      cap,
+      iteration: input.iteration
+    });
+  }
+  return { proceed: true };
+}
+
+// src/agents/iterator/transition.ts
+function decideIteratorTransition(input) {
+  const next = Math.max(0, input.current_iteration) + 1;
+  return {
+    jira_status: "In Review",
+    add_labels: ["ferry:reviewing"],
+    remove_labels: ["ferry:iterating"],
+    next_phase: "reviewing",
+    next_iteration: next,
+    self_dispatch: false
+  };
+}
+
+// src/agents/iterator/prompt.ts
+function formatCommitMessage(input) {
+  const lines = [`[${input.ticket_key}] fix: ${input.summary}`, ""];
+  if (input.rule_ids.length > 0) {
+    lines.push(`Fixes findings: ${input.rule_ids.join(", ")}`, "");
+  }
+  lines.push(`[ferry:iterator:${input.run_id}]`);
+  return lines.join("\n");
+}
+
+// src/agents/iterator/iterate-action.ts
+var REPO_ROOT4 = process.env.GITHUB_WORKSPACE ?? process.cwd();
+async function main4(envelope, logger) {
+  const { ticket_key: ticketKey, event_id: eventId } = envelope;
+  const { owner, repo, runner, tracker, ferryCfg: initialCfg } = createGitHubContext(REPO_ROOT4);
+  const { baseBranch } = await resolveGitConfig(initialCfg, runner, owner, repo);
+  const ferryCfg = loadFerryConfigFromBaseBranch(baseBranch, REPO_ROOT4, initialCfg);
+  const iteratorWorkflow = ferryCfg.workflow.agents.iterator;
+  const shouldAutoTransition = iteratorWorkflow.auto_transition !== null;
+  const reviewTransitionId = shouldAutoTransition ? requireEnv("FERRY_REVIEW_TRANSITION_ID") : "";
+  const issue = await tracker.getIssue(ticketKey);
+  const existingComments = issue.comments;
+  let effectiveCfg;
+  let typeOverride;
+  let labelMaxIterations;
+  try {
+    const overrides = resolveTicketOverrides(issue.labels, logger);
+    typeOverride = overrides.typeOverride;
+    labelMaxIterations = overrides.maxIterations;
+    effectiveCfg = applyTicketOverrides(ferryCfg, overrides);
+    logTicketOverrides(logger, overrides);
+    if (hasNonDefaultOverrides(overrides)) {
+      await tracker.postComment(
+        ticketKey,
+        buildOverridesAuditComment("iterator", eventId, overrides)
+      );
+    }
+  } catch (err) {
+    if (err instanceof LabelConflictError) {
+      await tracker.postComment(ticketKey, buildConflictComment("iterator", eventId, err));
+      process.exit(1);
+    }
+    throw err;
+  }
+  const { provider: iterProvider, model } = effectiveCfg.models.iterate;
+  const mcpPool = loadMcpServers();
+  const capabilities = resolveCapabilities(issue.labels, effectiveCfg.labels);
+  const hasLabelsConfig = effectiveCfg.labels !== void 0;
+  const mcpServers = filterMcpServers(mcpPool, capabilities, hasLabelsConfig);
+  logCapabilities(logger, capabilities);
+  const priorIterations = existingComments.filter(
+    (c) => c.includes("[ferry:iterator:") && c.includes("complete. Pushed fixes to PR#")
+  ).length;
+  checkIterationCap(
+    { iteration: priorIterations, hasFindings: true },
+    effectiveCfg.limits.max_iterations
+  );
+  const branchName = `${resolveBranchPrefix(effectiveCfg.git.working_branch_prefix, issue)}${ticketKey}`;
+  const prs = await runner.listPRsForBranch(owner, repo, branchName);
+  if (prs.length === 0) {
+    const eventMarker = byEventId("iterator", eventId);
+    const { skipped: skipped2 } = checkIdempotencyMarker(eventMarker, existingComments);
+    if (!skipped2) {
+      await tracker.postComment(
+        ticketKey,
+        `${eventMarker} No open PR found for branch ${branchName}. Cannot iterate.`
+      );
+    }
+    appendOutput({ input_tokens: 0, output_tokens: 0, model, provider: iterProvider });
+    return;
+  }
+  const prNumber = prs[0].number;
+  const pr = await runner.getPR({ owner, repo, prNumber });
+  const headSha = pr.headSha;
+  const idempotencyMarker = byPrHeadSha("iterator", headSha);
+  const { skipped } = checkIdempotencyMarker(idempotencyMarker, existingComments);
+  if (skipped) {
+    logger.info("already iterated for this head SHA, recovering transition", {
+      sha: headSha.slice(0, 7)
+    });
+    if (shouldAutoTransition) {
+      await tracker.postTransition(ticketKey, reviewTransitionId);
+    }
+    appendOutput({ input_tokens: 0, output_tokens: 0, model, provider: iterProvider });
+    return;
+  }
+  const expectedReviewerMarker = byPrHeadSha("reviewer", headSha);
+  const reviewerSeenInJira = existingComments.some((c) => c.includes(expectedReviewerMarker));
+  if (!reviewerSeenInJira) {
+    logger.info("reviewer for current head SHA not visible in Jira yet, deferring", {
+      sha: headSha.slice(0, 7)
+    });
+    appendOutput({ input_tokens: 0, output_tokens: 0, model, provider: iterProvider });
+    return;
+  }
+  const recentComments = await runner.listPRComments({ owner, repo, prNumber }, 30);
+  const reviewComments = recentComments.filter((c) => c.body.includes("[ferry:reviewer:"));
+  if (reviewComments.length === 0) {
+    const eventMarker = byEventId("iterator", eventId);
+    const { skipped: errSkipped } = checkIdempotencyMarker(eventMarker, existingComments);
+    if (!errSkipped) {
+      await tracker.postComment(
+        ticketKey,
+        `${eventMarker} No review comment found on PR#${prNumber}. Cannot iterate.`
+      );
+    }
+    appendOutput({ input_tokens: 0, output_tokens: 0, model, provider: iterProvider });
+    return;
+  }
+  const latestReview = reviewComments[0];
+  const reviewComment = latestReview.body;
+  if (/\*\*Verdict\*\*:\s*Approved\b/.test(reviewComment)) {
+    await tracker.postComment(
+      ticketKey,
+      `${idempotencyMarker} PR#${prNumber} review shows Approved \u2014 no iteration needed.`
+    );
+    appendOutput({ input_tokens: 0, output_tokens: 0, model, provider: iterProvider });
+    return;
+  }
+  const system = buildSystem("iterate", REPO_ROOT4);
+  configureFerryGitUser(REPO_ROOT4);
+  if (checkoutExistingBranch(branchName, REPO_ROOT4) === "not-found") {
+    await tracker.postComment(
+      ticketKey,
+      `${idempotencyMarker} Branch ${branchName} not found on origin. Cannot iterate.`
+    );
+    appendOutput({ input_tokens: 0, output_tokens: 0, model, provider: iterProvider });
+    return;
+  }
+  const mergeConflicts = fetchAndMergeBase(baseBranch, REPO_ROOT4);
+  const existingLog = execFileSync6("git", ["log", `origin/${baseBranch}..HEAD`, "--oneline"], {
+    cwd: REPO_ROOT4,
+    encoding: "utf8"
+  }).trim();
+  const ticketBlock = buildTicketBlock(ticketKey, issue, {
+    typeOverride
+  });
+  const initialPrompt = [
+    "## Jira Ticket",
+    delimitUntrusted(ticketBlock),
+    "",
+    "## Review Findings (fix only what is listed here)",
+    delimitUntrusted(reviewComment),
+    "",
+    mergeConflicts.length > 0 ? `## Merge Conflicts (resolve these first, before fixing review findings)
+${mergeConflicts.map((f) => `- ${f}`).join("\n")}` : "",
+    existingLog ? `## Existing commits on branch
+${existingLog}` : "",
+    "",
+    "When you have fixed all findings, call the `done` tool."
+  ].filter(Boolean).join("\n");
+  const secretScan = makeSecretScan(REPO_ROOT4);
+  const loop = createAgentLoop({
+    provider: iterProvider,
+    model,
+    maxIterations: effectiveCfg.limits.max_agent_iterations,
+    maxInputTokens: effectiveCfg.limits.max_tokens_per_run,
+    maxTokens: effectiveCfg.limits.max_tokens_per_message,
+    maxCostEur: effectiveCfg.limits.max_cost_eur_per_run,
+    executeTool,
+    commitProgress: makeCommitProgress(logger),
+    logger
+  });
+  let loopResult;
+  try {
+    loopResult = await loop.run({
+      system,
+      initialPrompt,
+      tools: [...TOOL_SCHEMAS, COMMIT_PROGRESS_SCHEMA],
+      repoRoot: REPO_ROOT4,
+      branchName,
+      secretScan,
+      mcpServers
+    });
+  } catch (loopErr) {
+    if (loopErr instanceof FerryError && loopErr.code === "spend-cap" && loopErr.context?.reason === "eur-budget-exceeded") {
+      const consumedEur = loopErr.context.consumed ?? 0;
+      const capEur = loopErr.context.cap ?? 0;
+      try {
+        await tracker.addLabel(ticketKey, "ferry:spend-cap");
+        await tracker.postComment(
+          ticketKey,
+          `${idempotencyMarker} Budget cap \u20AC${capEur} reached \u2014 \u20AC${consumedEur.toFixed(4)} spent. Labeled ferry:spend-cap.`
+        );
+      } catch {
+      }
+      appendOutput({ input_tokens: 0, output_tokens: 0, model, provider: iterProvider });
+      process.exit(1);
+    }
+    if (labelMaxIterations !== void 0 && loopErr instanceof FerryError && loopErr.code === "state-invariant" && loopErr.context?.reason === "iteration-cap-exceeded") {
+      await tracker.postComment(
+        ticketKey,
+        `${idempotencyMarker} Agent iteration cap (${labelMaxIterations}) reached per ferry:max-iterations/${labelMaxIterations} label \u2014 exiting cleanly.`
+      );
+      appendOutput({ input_tokens: 0, output_tokens: 0, model, provider: iterProvider });
+      process.exit(0);
+    }
+    throw loopErr;
+  }
+  const { done, usage, iterations } = loopResult;
+  const resolvedOutcome = done.outcome ?? (done.actionable ? "implemented" : "blocked");
+  logger.info("done", {
+    iterations,
+    outcome: resolvedOutcome,
+    in: usage.input_tokens,
+    cache_w: usage.cache_creation_input_tokens,
+    cache_r: usage.cache_read_input_tokens,
+    out: usage.output_tokens
+  });
+  if (resolvedOutcome === "blocked") {
+    const reason = done.reason ?? done.reason_if_not_actionable ?? "no reason given";
+    await tracker.addLabel(ticketKey, "ferry:blocked");
+    await tracker.postComment(
+      ticketKey,
+      `${idempotencyMarker} \u{1F6A8} BLOCKED \u2014 ${reason}. Manual intervention required.`
+    );
+    writeStepSummary({
+      role: "iterator",
+      iterations,
+      usage,
+      toolCounts: loopResult.toolCounts,
+      toolCallRecords: loopResult.toolCallRecords,
+      filesTouched: [],
+      branchPushed: "",
+      outcome: "blocked"
+    });
+    appendOutput({ ...usage, model, provider: iterProvider });
+    process.exit(1);
+  }
+  const commitMessage = formatCommitMessage({
+    ticket_key: ticketKey,
+    summary: done.summary,
+    rule_ids: [],
+    run_id: eventId
+  });
+  execFileSync6("git", ["add", "-A"], { cwd: REPO_ROOT4 });
+  const finalStatus = execFileSync6("git", ["status", "--porcelain"], {
+    cwd: REPO_ROOT4,
+    encoding: "utf8"
+  }).trim();
+  if (finalStatus) {
+    await secretScan();
+    execFileSync6("git", ["commit", "-m", commitMessage], { cwd: REPO_ROOT4 });
+  }
+  execFileSync6("git", ["push", "origin", branchName, "--force-with-lease"], { cwd: REPO_ROOT4 });
+  const branchPushed = true;
+  let iterFilesTouched = [];
+  try {
+    const diff = execFileSync6("git", ["diff", "--name-only", `origin/${baseBranch}...HEAD`], {
+      cwd: REPO_ROOT4,
+      encoding: "utf8"
+    });
+    iterFilesTouched = diff.trim().split("\n").filter(Boolean);
+  } catch {
+  }
+  assertIterOutputContract(resolvedOutcome, { branchPushed, prNumber });
+  if (shouldAutoTransition) {
+    await tracker.postTransition(ticketKey, reviewTransitionId);
+  }
+  const { next_iteration } = decideIteratorTransition({ current_iteration: priorIterations });
+  const transitionNote = shouldAutoTransition ? " Moved back to Review." : "";
+  const terminalComment = resolvedOutcome === "already_satisfied" ? `${idempotencyMarker} Findings already addressed \u2014 no changes needed. Pushed to PR#${prNumber}.${transitionNote}` : `${idempotencyMarker} Iteration ${next_iteration} complete. Pushed fixes to PR#${prNumber}.${transitionNote}`;
+  await tracker.postComment(ticketKey, terminalComment);
+  writeStepSummary({
+    role: "iterator",
+    iterations,
+    usage,
+    toolCounts: loopResult.toolCounts,
+    toolCallRecords: loopResult.toolCallRecords,
+    filesTouched: iterFilesTouched,
+    branchPushed: branchName,
+    outcome: resolvedOutcome
+  });
+  appendOutput({ ...usage, model, provider: iterProvider });
+  process.exit(0);
+}
+
+// src/cli/agent/run.ts
+var ROLES = /* @__PURE__ */ new Set([
+  "refiner",
+  "developer",
+  "reviewer",
+  "iterator"
+]);
+var HANDLERS = {
+  refiner: main,
+  developer: main2,
+  reviewer: main3,
+  iterator: main4
+};
+var CliUsageError = class extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "CliUsageError";
+  }
+};
+function isAgentRole(value) {
+  return ROLES.has(value);
+}
+function parseArgs(argv) {
+  const command = argv[2];
+  if (command !== "run") {
+    throw new CliUsageError(
+      `Unknown command: ${command ?? "(none)"}. Usage: ferry-agent run --role <role>`
+    );
+  }
+  const rest = argv.slice(3);
+  let role;
+  for (let i = 0; i < rest.length; i += 1) {
+    const flag = rest[i];
+    if (flag === "--role") {
+      role = rest[i + 1];
+      i += 1;
+      continue;
+    }
+    if (flag.startsWith("--role=")) {
+      role = flag.slice("--role=".length);
+      continue;
+    }
+    throw new CliUsageError(`Unknown argument: ${flag}`);
+  }
+  if (!role) {
+    throw new CliUsageError(
+      "Missing --role flag. Usage: ferry-agent run --role <refiner|developer|reviewer|iterator>"
+    );
+  }
+  if (!isAgentRole(role)) {
+    throw new CliUsageError(
+      `Invalid role: ${role}. Expected one of: refiner, developer, reviewer, iterator.`
+    );
+  }
+  return { command: "run", role };
+}
+async function runCli(argv) {
+  const { role } = parseArgs(argv);
+  await runAgent(role, HANDLERS[role]);
+}
+var invokedDirectly = typeof process !== "undefined" && process.argv[1]?.endsWith("agent.js");
+if (invokedDirectly) {
+  void runCli(process.argv).catch((err) => {
+    if (err instanceof CliUsageError) {
+      process.stderr.write(`${err.message}
+`);
+      process.exit(2);
+    }
+    process.stderr.write(`${err.message}
+`);
+    process.exit(1);
+  });
 }
 export {
-  run
+  CliUsageError,
+  parseArgs,
+  runCli
 };
 /*! Bundled license information:
 

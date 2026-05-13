@@ -1,8 +1,6 @@
-import { pathToFileURL } from 'node:url';
 import { isDryRun } from '../../lib/dry-run.js';
 import { createLlmCall } from '../../lib/llm/call.js';
 import {
-  runAgent,
   createLogger,
   createGitHubContext,
   resolveGitConfig,
@@ -175,7 +173,7 @@ export async function run(envelope: EventEnvelopeV1, deps: RefinerActionDeps): P
   });
 }
 
-async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
+export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
   const { ticket_key: ticketKey, event_id: eventId } = envelope;
   const { owner, repo, runner, tracker, ferryCfg: initialCfg } = createGitHubContext(REPO_ROOT);
   // Reload config from base_branch — the workspace may contain the default branch's config.
@@ -206,9 +204,4 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
   const route = effectiveCfg.models.refiner;
   const callLlm: LlmCall = createLlmCall(route);
   await run(envelope, { tracker, callLlm, logger });
-}
-
-// Only invoke main() when executed directly (not when imported by tests).
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  void runAgent('refiner', main);
 }

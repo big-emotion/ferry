@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -119,23 +120,6 @@ var require_fast_content_type_parse = __commonJS({
     module.exports.defaultContentType = defaultContentType;
   }
 });
-
-// src/agents/developer/dev-action.ts
-import { execFileSync as execFileSync5 } from "node:child_process";
-import * as fsp2 from "node:fs/promises";
-import * as path6 from "node:path";
-
-// src/lib/llm/delimit-untrusted.ts
-var OPEN = "<<<UNTRUSTED>>>";
-var CLOSE = "<<<END UNTRUSTED>>>";
-var OPEN_ESCAPE = "<<<UNTRUSTED-LITERAL>>>";
-var CLOSE_ESCAPE = "<<<END UNTRUSTED-LITERAL>>>";
-function delimitUntrusted(value) {
-  const escaped = value.split(OPEN).join(OPEN_ESCAPE).split(CLOSE).join(CLOSE_ESCAPE);
-  return `${OPEN}
-${escaped}
-${CLOSE}`;
-}
 
 // src/lib/errors/index.ts
 var FerryError = class extends Error {
@@ -273,6 +257,14 @@ async function runAgent(role, handler2) {
   }
 }
 
+// src/lib/agent-runtime/idempotency.ts
+function byEventId(role, eventId) {
+  return `[ferry:${role}:${eventId}]`;
+}
+function byPrHeadSha(role, headSha) {
+  return `[ferry:${role}:${headSha.slice(0, 7)}]`;
+}
+
 // src/lib/agent-runtime/prompt.ts
 import { existsSync as existsSync2, readFileSync as readFileSync2 } from "node:fs";
 
@@ -347,6 +339,14 @@ ${agentExtension}` : null,
 ${projectSnippet}` : null
   ].filter((p) => Boolean(p));
   return parts.join(separator);
+}
+function loadOptionalPrompt(name, repoRoot, _readFile = (p, enc) => readFileSync2(p, enc), _checkExists = existsSync2) {
+  const resolved = resolvePromptPath(name, repoRoot, _checkExists);
+  try {
+    return _readFile(resolved, "utf8");
+  } catch {
+    return null;
+  }
 }
 function buildTicketBlock(ticketKey, issue, opts) {
   const effectiveType = opts?.typeOverride ?? issue.issueType;
@@ -552,6 +552,28 @@ function makeCommitProgress(logger, options = {}) {
     logger.info("checkpoint", { message: message.slice(0, 80) });
     return "committed and pushed";
   };
+}
+function checkoutExistingBranch(branchName, repoRoot) {
+  try {
+    execFileSync("git", ["ls-remote", "--exit-code", "--heads", "origin", branchName], {
+      cwd: repoRoot,
+      stdio: "pipe"
+    });
+    execFileSync("git", ["fetch", "origin", branchName], { cwd: repoRoot });
+    execFileSync("git", ["checkout", branchName], { cwd: repoRoot });
+    return "ok";
+  } catch {
+    return "not-found";
+  }
+}
+function fetchAndMergeBase(baseBranch, repoRoot) {
+  execFileSync("git", ["fetch", "origin", baseBranch], { cwd: repoRoot });
+  try {
+    execFileSync("git", ["merge", `origin/${baseBranch}`, "--no-edit"], { cwd: repoRoot });
+    return [];
+  } catch {
+    return execSync("git diff --name-only --diff-filter=U", { cwd: repoRoot, encoding: "utf8" }).trim().split("\n").filter(Boolean);
+  }
 }
 
 // src/lib/agent-runtime/config-reload.ts
@@ -5180,6 +5202,31 @@ var GitHubActionsRunner = class {
   }
 };
 
+// src/lib/dispatch/runner/factory.ts
+var GITLAB_TRACKING_ISSUE = "https://github.com/big-emotion/ferry/issues/210";
+function resolveForgeFromEnv() {
+  const raw = (process.env.FERRY_FORGE ?? "").trim().toLowerCase();
+  if (raw === "" || raw === "github") return "github";
+  if (raw === "gitlab") return "gitlab";
+  throw new FerryError("state-invariant", {
+    reason: "unknown-forge",
+    value: raw,
+    supported: ["github", "gitlab"]
+  });
+}
+function createRunnerFromEnv(token, owner, repo) {
+  const forge = resolveForgeFromEnv();
+  switch (forge) {
+    case "github":
+      return new GitHubActionsRunner(token, owner, repo);
+    case "gitlab":
+      throw new FerryError("state-invariant", {
+        reason: "gitlab-runner-not-implemented",
+        tracking: GITLAB_TRACKING_ISSUE
+      });
+  }
+}
+
 // src/lib/io/spend-cap.ts
 function classifyHttpStatus(status) {
   if (status === 429 || status === 402) return "spend-cap";
@@ -5432,7 +5479,7 @@ function createGitHubContext(repoRoot) {
     throw new FerryError("state-invariant", { reason: "invalid-github-repo", githubRepo });
   }
   const ferryCfg = loadFerryConfig(repoRoot);
-  const runner = new GitHubActionsRunner(githubToken, owner, repo);
+  const runner = createRunnerFromEnv(githubToken, owner, repo);
   const tracker = createTrackerFromEnv();
   return { owner, repo, runner, tracker, ferryCfg };
 }
@@ -5914,6 +5961,744 @@ function isDryRun() {
   return process.env.FERRY_DRY_RUN === "1" || process.env.FERRY_DRY_RUN === "true";
 }
 
+// src/lib/llm/call.ts
+import Anthropic2 from "@anthropic-ai/sdk";
+
+// src/lib/io/retry.ts
+function sleep(ms) {
+  return new Promise((resolve2) => setTimeout(resolve2, ms));
+}
+function computeDelayMs(attemptIndex, opts) {
+  const base = opts.baseDelayMs * Math.pow(opts.backoffFactor, attemptIndex);
+  const jitter = (Math.random() * 2 - 1) * opts.jitterRatio;
+  return Math.max(0, Math.round(base * (1 + jitter)));
+}
+function retry(fn, options) {
+  const opts = {
+    jitterRatio: 0.5,
+    backoffFactor: 2,
+    ...options
+  };
+  return async (...args) => {
+    let lastErr;
+    for (let attempt = 0; attempt < opts.maxAttempts; attempt++) {
+      try {
+        return await fn(...args);
+      } catch (e) {
+        lastErr = e;
+        const isTransient = e instanceof FerryError && e.code === "transient";
+        const shouldRetry = isTransient && attempt < opts.maxAttempts - 1;
+        if (!shouldRetry) break;
+        const delayMs = computeDelayMs(attempt, opts);
+        await sleep(delayMs);
+      }
+    }
+    if (lastErr instanceof FerryError && lastErr.code === "transient") {
+      throw new FerryError("unknown");
+    }
+    throw lastErr;
+  };
+}
+
+// src/lib/llm/anthropic.ts
+import Anthropic from "@anthropic-ai/sdk";
+async function invokeAnthropic(opts) {
+  try {
+    const msg = await opts.client.messages.create({
+      model: opts.model,
+      max_tokens: opts.maxTokens,
+      messages: [{ role: "user", content: opts.prompt }]
+    });
+    const textBlock = msg.content.find((b) => b.type === "text");
+    const text = textBlock && textBlock.type === "text" ? textBlock.text : "";
+    const inputTokens = msg.usage.input_tokens;
+    const outputTokens = msg.usage.output_tokens;
+    return {
+      text,
+      usage: {
+        inputTokens,
+        outputTokens,
+        costEur: computeCostEur("anthropic", opts.model, inputTokens, outputTokens)
+      }
+    };
+  } catch (e) {
+    if (e instanceof Anthropic.RateLimitError) {
+      throw new FerryError("spend-cap", { reason: "rate-limit" });
+    }
+    if (e instanceof Anthropic.APIError && e.status >= 500) {
+      throw new FerryError("transient", { reason: "server-error", status: e.status });
+    }
+    if (e instanceof Error && isNetworkError(e.message)) {
+      throw new FerryError("transient", { reason: "network-error" });
+    }
+    throw e;
+  }
+}
+function isNetworkError(msg) {
+  return msg.includes("fetch failed") || msg.includes("ECONNREFUSED") || msg.includes("ETIMEDOUT");
+}
+
+// src/lib/llm/openai.ts
+import OpenAI from "openai";
+async function invokeOpenAI(opts) {
+  const client = new OpenAI({ apiKey: opts.apiKey });
+  try {
+    const completion = await client.chat.completions.create({
+      model: opts.model,
+      messages: [{ role: "user", content: opts.prompt }],
+      max_tokens: opts.maxTokens
+    });
+    const text = completion.choices[0]?.message.content ?? "";
+    const inputTokens = completion.usage?.prompt_tokens ?? 0;
+    const outputTokens = completion.usage?.completion_tokens ?? 0;
+    return {
+      text,
+      usage: {
+        inputTokens,
+        outputTokens,
+        costEur: computeCostEur("openai", opts.model, inputTokens, outputTokens)
+      }
+    };
+  } catch (e) {
+    if (e instanceof OpenAI.RateLimitError) {
+      throw new FerryError("spend-cap", { reason: "rate-limit" });
+    }
+    if (e instanceof OpenAI.APIConnectionError) {
+      throw new FerryError("transient", { reason: "network-error" });
+    }
+    if (e instanceof OpenAI.APIError && e.status >= 500) {
+      throw new FerryError("transient", { reason: "server-error", status: e.status });
+    }
+    throw e;
+  }
+}
+
+// src/lib/llm/google.ts
+import { GoogleGenAI } from "@google/genai";
+async function invokeGoogle(opts) {
+  const ai = new GoogleGenAI({ apiKey: opts.apiKey });
+  try {
+    const response = await ai.models.generateContent({
+      model: opts.model,
+      contents: opts.prompt
+    });
+    const text = response.text ?? "";
+    const inputTokens = response.usageMetadata?.promptTokenCount ?? 0;
+    const outputTokens = response.usageMetadata?.candidatesTokenCount ?? 0;
+    return {
+      text,
+      usage: {
+        inputTokens,
+        outputTokens,
+        costEur: computeCostEur("google", opts.model, inputTokens, outputTokens)
+      }
+    };
+  } catch (e) {
+    if (e instanceof Error) {
+      throw new FerryError("transient", { reason: "network-error", message: e.message });
+    }
+    throw e;
+  }
+}
+
+// src/lib/llm/anthropic-auth.ts
+function resolveAnthropicAuth(input) {
+  const env = input.env ?? process.env;
+  const oauthToken = env["CLAUDE_CODE_OAUTH_TOKEN"];
+  if (oauthToken) {
+    return { authToken: oauthToken };
+  }
+  const apiKey = env[input.apiKeyEnv];
+  if (apiKey) {
+    return { apiKey };
+  }
+  throw new FerryError("state-invariant", { reason: "missing-env", key: input.apiKeyEnv });
+}
+
+// src/lib/llm/call.ts
+var MAX_TOKENS = parseInt(process.env.FERRY_LLM_UTILITY_MAX_TOKENS ?? "", 10) || 4096;
+var LLM_RETRY_BASE_DELAY_MS = parseInt(process.env.FERRY_LLM_RETRY_BASE_DELAY_MS ?? "", 10) || 2e3;
+var LLM_RETRY_MAX_ATTEMPTS = parseInt(process.env.FERRY_LLM_RETRY_MAX_ATTEMPTS ?? "", 10) || 3;
+function requireEnv2(key) {
+  const val = process.env[key];
+  if (!val) {
+    throw new FerryError("state-invariant", { reason: "missing-env", key });
+  }
+  return val;
+}
+function createLlmCall(route) {
+  if (route.provider === "anthropic") {
+    const auth2 = resolveAnthropicAuth({ apiKeyEnv: "ANTHROPIC_API_KEY" });
+    const client = new Anthropic2(auth2);
+    return retry(
+      (prompt) => invokeAnthropic({ client, model: route.model, prompt, maxTokens: MAX_TOKENS }),
+      { baseDelayMs: LLM_RETRY_BASE_DELAY_MS, maxAttempts: LLM_RETRY_MAX_ATTEMPTS }
+    );
+  }
+  if (route.provider === "openai") {
+    const apiKey = requireEnv2("FERRY_OPENAI_KEY");
+    return retry(
+      (prompt) => invokeOpenAI({ apiKey, model: route.model, prompt, maxTokens: MAX_TOKENS }),
+      { baseDelayMs: LLM_RETRY_BASE_DELAY_MS, maxAttempts: LLM_RETRY_MAX_ATTEMPTS }
+    );
+  }
+  if (route.provider === "google") {
+    const apiKey = requireEnv2("FERRY_GOOGLE_AI_KEY");
+    return retry((prompt) => invokeGoogle({ apiKey, model: route.model, prompt }), {
+      baseDelayMs: LLM_RETRY_BASE_DELAY_MS,
+      maxAttempts: LLM_RETRY_MAX_ATTEMPTS
+    });
+  }
+  throw new FerryError("state-invariant", { reason: "unknown-provider", provider: route.provider });
+}
+
+// src/agents/refiner/refine.ts
+import { createRequire as createRequire3 } from "module";
+
+// src/lib/llm/delimit-untrusted.ts
+var OPEN = "<<<UNTRUSTED>>>";
+var CLOSE = "<<<END UNTRUSTED>>>";
+var OPEN_ESCAPE = "<<<UNTRUSTED-LITERAL>>>";
+var CLOSE_ESCAPE = "<<<END UNTRUSTED-LITERAL>>>";
+function delimitUntrusted(value) {
+  const escaped = value.split(OPEN).join(OPEN_ESCAPE).split(CLOSE).join(CLOSE_ESCAPE);
+  return `${OPEN}
+${escaped}
+${CLOSE}`;
+}
+
+// src/agents/refiner/parse.ts
+function extractFirstJsonObject(text) {
+  let start = -1;
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (inString) {
+      if (ch === "\\") {
+        escape = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === "{") {
+      if (depth === 0) {
+        start = i;
+      }
+      depth++;
+    } else if (ch === "}") {
+      if (depth > 0) {
+        depth--;
+        if (depth === 0) {
+          return text.slice(start, i + 1);
+        }
+      }
+    }
+  }
+  return null;
+}
+
+// src/agents/refiner/schema.ts
+var REFINER_OUTPUT_SCHEMA = {
+  $schema: "https://json-schema.org/draft/2020-12/schema",
+  $id: "https://ferry.dev/schemas/refiner-output.v2.json",
+  type: "object",
+  required: ["actions", "touch_paths", "output_locale", "audit_summary"],
+  additionalProperties: false,
+  properties: {
+    actions: {
+      type: "array",
+      minItems: 1,
+      items: {
+        anyOf: [
+          {
+            type: "object",
+            required: ["type", "title", "description"],
+            additionalProperties: false,
+            properties: {
+              type: { const: "create" },
+              title: { type: "string", minLength: 1, maxLength: 200 },
+              description: { type: "string", minLength: 1, maxLength: 4e3 }
+            }
+          },
+          {
+            type: "object",
+            required: ["type", "existing_key", "reason"],
+            additionalProperties: false,
+            properties: {
+              type: { const: "keep" },
+              existing_key: { type: "string", minLength: 1 },
+              reason: { type: "string", minLength: 1 }
+            }
+          },
+          {
+            type: "object",
+            required: ["type", "existing_key", "reason"],
+            additionalProperties: false,
+            properties: {
+              type: { const: "mark_stale" },
+              existing_key: { type: "string", minLength: 1 },
+              reason: { type: "string", minLength: 1 }
+            }
+          },
+          {
+            type: "object",
+            required: ["type", "reason"],
+            additionalProperties: false,
+            properties: {
+              type: { const: "noop" },
+              reason: { type: "string", minLength: 1 }
+            }
+          }
+        ]
+      }
+    },
+    touch_paths: {
+      type: "array",
+      items: { type: "string", minLength: 1, maxLength: 400 }
+    },
+    output_locale: { enum: ["en", "fr"] },
+    audit_summary: { type: "string", minLength: 1, maxLength: 2e3 },
+    attachments: {
+      type: "array",
+      items: { type: "string", minLength: 1, maxLength: 400 }
+    },
+    cost_estimate: {
+      type: "object",
+      required: ["loUsd", "hiUsd", "confidence", "baselineRuns"],
+      additionalProperties: false,
+      properties: {
+        loUsd: { type: "number", minimum: 0 },
+        hiUsd: { type: "number", minimum: 0 },
+        confidence: { enum: ["low", "medium", "high"] },
+        baselineRuns: { type: "integer", minimum: 0 }
+      }
+    }
+  }
+};
+var REFINER_TOUCH_PATHS_CAP = 20;
+function getRefinerTouchPathsCap() {
+  return parseInt(process.env.FERRY_REFINER_TOUCH_PATHS_CAP ?? "", 10) || REFINER_TOUCH_PATHS_CAP;
+}
+
+// src/agents/refiner/refine.ts
+var _require3 = createRequire3(import.meta.url);
+var ajvModule2 = _require3("ajv/dist/2020");
+var ajvInstance2 = new ajvModule2.Ajv2020({ strict: true });
+var validatePlan = ajvInstance2.compile(REFINER_OUTPUT_SCHEMA);
+var SCHEMA_EXAMPLE = `{
+  "actions": [
+    { "type": "create", "title": "imperative verb, specific, max 200 chars", "description": "concrete acceptance criteria; max 4000 chars" },
+    { "type": "keep", "existing_key": "PROJ-91", "reason": "still valid" },
+    { "type": "mark_stale", "existing_key": "PROJ-92", "reason": "superseded by ticket edit" },
+    { "type": "noop", "reason": "ticket and existing sub-tasks unchanged" }
+  ],
+  "touch_paths": ["src/path/to/file.ts"],
+  "output_locale": "en",
+  "audit_summary": "one sentence summarising the plan"
+}`;
+function formatExistingSubtasks(subtasks) {
+  if (subtasks.length === 0) return "(none)";
+  return subtasks.map((s) => `- [${s.key}] ${s.title} (status: ${s.status})`).join("\n");
+}
+function buildPrompt(input) {
+  const ticketBlock = [
+    `TICKET ${input.ticket.key}`,
+    `TITLE: ${input.ticket.title}`,
+    `LABELS: ${input.ticket.labels.join(", ")}`,
+    `DESCRIPTION:
+${input.ticket.description}`,
+    `COMMENTS:
+${input.ticket.comments.join("\n---\n")}`
+  ].join("\n\n");
+  const existingBlock = [
+    `EXISTING_SUBTASKS (do NOT re-create these unless the ticket has materially changed):`,
+    formatExistingSubtasks(input.existingSubtasks ?? [])
+  ].join("\n");
+  const priorRunsBlock = (input.priorRefinerRuns ?? []).length > 0 ? `PRIOR_REFINER_RUNS:
+${input.priorRefinerRuns.join("\n---\n")}` : "PRIOR_REFINER_RUNS: (none)";
+  return [
+    "You are the Ferry Refiner. Analyse the ticket and its existing sub-tasks, then return a reconciliation plan.",
+    "Reply with JSON only \u2014 no prose, no code fences \u2014 matching this exact schema:",
+    SCHEMA_EXAMPLE,
+    [
+      "Rules:",
+      '- Use "noop" when the ticket and existing sub-tasks are already aligned.',
+      '- Use "keep" for existing sub-tasks that are still valid.',
+      '- Use "mark_stale" for existing sub-tasks superseded by a ticket edit.',
+      '- Use "create" only for genuinely missing sub-tasks (max 12 total; prefer 3\u20137).',
+      '- Sub-tasks with status "In Progress" or "Done" must always be "keep".',
+      '- output_locale must be "en" or "fr" matching the ticket language.',
+      "- touch_paths lists every file the new sub-tasks will touch (max 20)."
+    ].join("\n"),
+    delimitUntrusted([ticketBlock, existingBlock, priorRunsBlock].join("\n\n"))
+  ].join("\n\n");
+}
+var SAMPLE_MAX = 512;
+function sampleOf(text) {
+  return text.length <= SAMPLE_MAX ? text : text.slice(0, SAMPLE_MAX);
+}
+function parseJsonOrThrow(text) {
+  const candidate = extractFirstJsonObject(text);
+  if (candidate !== null) {
+    try {
+      return JSON.parse(candidate);
+    } catch {
+    }
+  }
+  throw new FerryError("state-invariant", {
+    reason: "refiner-output-invalid",
+    stage: "parse",
+    sample: sampleOf(text),
+    text_length: text.length
+  });
+}
+function ensureSchemaValid(plan, rawText) {
+  if (!validatePlan(plan)) {
+    throw new FerryError("state-invariant", {
+      reason: "refiner-output-invalid",
+      stage: "schema",
+      paths: (validatePlan.errors ?? []).map((e) => `${e.instancePath} ${e.keyword}`),
+      sample: sampleOf(rawText),
+      text_length: rawText.length
+    });
+  }
+}
+async function runRefiner(input) {
+  const prompt = buildPrompt(input);
+  const llm = await input.callLlm(prompt);
+  const parsed = parseJsonOrThrow(llm.text);
+  ensureSchemaValid(parsed, llm.text);
+  const touchPathsCap = getRefinerTouchPathsCap();
+  if (parsed.touch_paths.length > touchPathsCap) {
+    throw new FerryError("oscillation", {
+      reason: "spec-too-broad",
+      touchPaths: parsed.touch_paths.length,
+      cap: touchPathsCap
+    });
+  }
+  const createCount = parsed.actions.filter((a) => a.type === "create").length;
+  return {
+    plan: parsed,
+    auditSummary: {
+      subtaskCount: createCount,
+      costEur: llm.usage?.costEur ?? 0,
+      runLink: input.runLink,
+      attachmentNames: input.ticket.attachments ?? []
+    }
+  };
+}
+
+// src/agents/refiner/batch.ts
+import { createHash } from "node:crypto";
+var SUBTASK_CAP = 12;
+function subtaskContentHash(title, description) {
+  return createHash("sha256").update(`${title}
+${description}`).digest("hex").slice(0, 12);
+}
+function prepareBatch(createActions, cap) {
+  const subtaskCap = cap ?? (parseInt(process.env.FERRY_REFINER_SUBTASK_CAP ?? "", 10) || SUBTASK_CAP);
+  const truncated = createActions.length > subtaskCap;
+  const slice = truncated ? createActions.slice(0, subtaskCap) : createActions;
+  const subtasks = slice.map((s) => ({
+    title: s.title,
+    description: `${s.description}
+
+[ferry:refiner-subtask:${subtaskContentHash(s.title, s.description)}]`
+  }));
+  return {
+    subtasks,
+    truncated,
+    originalCount: createActions.length
+  };
+}
+async function applyBatch(prepared, create) {
+  try {
+    const refs = await create(prepared.subtasks);
+    return { createdCount: refs.length, ids: refs.map((r) => r.id) };
+  } catch (e) {
+    throw new FerryError("transient", {
+      reason: "batch-create-failed",
+      cause: e instanceof Error ? e.message : String(e)
+    });
+  }
+}
+
+// src/agents/refiner/idempotency.ts
+var MARKER_REGEX = /\[ferry:refiner-subtask:[^\]]+\]/;
+function extractSubtaskMarker(description) {
+  const match = description.match(MARKER_REGEX);
+  return match ? match[0] : null;
+}
+function filterExistingSubtasks(prepared, existingDescriptions) {
+  const existingMarkers = new Set(
+    existingDescriptions.map(extractSubtaskMarker).filter((m) => m !== null)
+  );
+  const subtasks = prepared.subtasks.filter((s) => {
+    const m = extractSubtaskMarker(s.description);
+    return m === null || !existingMarkers.has(m);
+  });
+  return { ...prepared, subtasks };
+}
+
+// src/agents/refiner/reconcile.ts
+var LOCKED_STATUSES = /* @__PURE__ */ new Set(["In Progress", "Done"]);
+async function applyActions(actions, ctx) {
+  const noopAction = actions.find((a) => a.type === "noop");
+  if (noopAction) {
+    return {
+      createdCount: 0,
+      keptCount: 0,
+      staledCount: 0,
+      noop: true,
+      noopReason: noopAction.reason
+    };
+  }
+  const existingByKey = new Map(ctx.existingSubtasks.map((s) => [s.key, s]));
+  const existingDescriptions = ctx.existingSubtasks.map((s) => s.description);
+  const staleMarkerPrefix = `[ferry:refiner-stale:${ctx.eventId}]`;
+  let keptCount = 0;
+  let staledCount = 0;
+  for (const action of actions) {
+    if (action.type === "keep") {
+      keptCount++;
+      continue;
+    }
+    if (action.type === "mark_stale") {
+      const existing = existingByKey.get(action.existing_key);
+      if (existing && LOCKED_STATUSES.has(existing.status)) {
+        await ctx.tracker.postComment(
+          ctx.ticketKey,
+          `${staleMarkerPrefix} Would mark ${action.existing_key} stale but it is ${existing.status} \u2014 ${action.reason}`
+        );
+      } else {
+        await ctx.tracker.postComment(action.existing_key, `${staleMarkerPrefix} ${action.reason}`);
+      }
+      staledCount++;
+    }
+  }
+  const createActions = actions.filter(
+    (a) => a.type === "create"
+  );
+  let createdCount = 0;
+  if (createActions.length > 0) {
+    const batch = filterExistingSubtasks(prepareBatch(createActions), existingDescriptions);
+    const applied = await applyBatch(
+      batch,
+      (items) => Promise.all(
+        items.map((item) => ctx.tracker.createSubtask(ctx.ticketKey, item.title, item.description))
+      )
+    );
+    createdCount = applied.createdCount;
+  }
+  return { createdCount, keptCount, staledCount, noop: false };
+}
+
+// src/agents/refiner/cost-estimate.ts
+import { readFileSync as readFileSync4 } from "node:fs";
+import { join as join3 } from "node:path";
+var ITERATION_FACTOR = 1.4;
+var ITERATED_PHASES = /* @__PURE__ */ new Set(["developer", "dev", "iterator", "iterate"]);
+function loadCostBaseline(repoRoot) {
+  const filePath = join3(repoRoot, "cost-baseline.json");
+  let raw;
+  try {
+    raw = readFileSync4(filePath, "utf8");
+  } catch (err) {
+    if (err.code === "ENOENT") return null;
+    throw err;
+  }
+  return JSON.parse(raw);
+}
+function estimateTicketCost(_plan, baseline) {
+  let loUsd = 0;
+  let hiUsd = 0;
+  for (const phaseBaseline of baseline.byPhase) {
+    const factor = ITERATED_PHASES.has(phaseBaseline.phase) ? ITERATION_FACTOR : 1;
+    loUsd += phaseBaseline.medianUsd;
+    hiUsd += phaseBaseline.p90Usd * factor;
+  }
+  const baselineRuns = baseline.windowRuns;
+  let confidence;
+  if (baselineRuns < 10) {
+    confidence = "low";
+  } else if (baselineRuns < 50) {
+    confidence = "medium";
+  } else {
+    confidence = "high";
+  }
+  return { loUsd, hiUsd, confidence, baselineRuns };
+}
+
+// src/agents/refiner/refiner-action.ts
+var REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
+var PRIOR_RUN_MARKER = /\[ferry:refiner:[^\]]+\]/;
+async function run(envelope, deps) {
+  const { ticket_key: ticketKey, event_id: eventId } = envelope;
+  const logger = deps.logger ?? createLogger(eventId, "ferry:refiner-action");
+  const dryRun = isDryRun();
+  const issue = await deps.tracker.getIssue(ticketKey);
+  const runLink = `https://github.com/${process.env.GITHUB_REPO ?? "unknown"}/actions/runs/${process.env.GITHUB_RUN_ID ?? "0"}`;
+  const existingSubtasks = await deps.tracker.getSubtaskDetails(ticketKey);
+  const priorRefinerRuns = issue.comments.filter((c) => PRIOR_RUN_MARKER.test(c));
+  const { plan, auditSummary } = await runRefiner({
+    ticket: {
+      key: issue.key,
+      title: issue.summary,
+      description: issue.description,
+      comments: issue.comments,
+      labels: issue.labels
+    },
+    existingSubtasks,
+    priorRefinerRuns,
+    callLlm: deps.callLlm,
+    runLink
+  });
+  const zeroUsage = {
+    input_tokens: 0,
+    output_tokens: 0,
+    cache_creation_input_tokens: 0,
+    cache_read_input_tokens: 0
+  };
+  if (dryRun) {
+    logger.info("DRY_RUN \u2014 plan (no Jira writes)", {
+      ticket: ticketKey,
+      subtaskCount: auditSummary.subtaskCount,
+      actions: plan.actions.map((a) => a.type)
+    });
+    writeStepSummary({
+      role: "refiner",
+      iterations: 1,
+      usage: zeroUsage,
+      toolCounts: {},
+      toolCallRecords: [],
+      filesTouched: [],
+      branchPushed: "",
+      outcome: "dry_run"
+    });
+    return;
+  }
+  const baseline = loadCostBaseline(REPO_ROOT);
+  if (baseline) {
+    const estimate = estimateTicketCost(plan, baseline);
+    const capRaw = parseFloat(process.env.COST_TICKET_MAX_USD ?? "");
+    const cap = isNaN(capRaw) ? null : capRaw;
+    if (cap !== null && estimate.hiUsd > cap) {
+      await deps.tracker.postComment(
+        ticketKey,
+        `[ferry:refiner-cap:${eventId}] Estimated cost $${estimate.loUsd.toFixed(2)}\u2013$${estimate.hiUsd.toFixed(2)} exceeds cap $${cap.toFixed(2)}. Consider splitting this ticket into smaller pieces.`
+      );
+      writeStepSummary({
+        role: "refiner",
+        iterations: 1,
+        usage: zeroUsage,
+        toolCounts: {},
+        toolCallRecords: [],
+        filesTouched: [],
+        branchPushed: "",
+        outcome: "cap_refused"
+      });
+      return;
+    }
+    const loStr = estimate.loUsd.toFixed(2);
+    const hiStr = estimate.hiUsd.toFixed(2);
+    await deps.tracker.postComment(
+      ticketKey,
+      `[ferry:refiner-estimate:${eventId}] Estimated cost: $${loStr}\u2013$${hiStr} (confidence: ${estimate.confidence}, based on ${estimate.baselineRuns} runs)`
+    );
+    const costEstimateLabel = "ferry:cost-estimate:" + loStr + "-" + hiStr;
+    await deps.tracker.addLabel(ticketKey, costEstimateLabel);
+  }
+  const result = await applyActions(plan.actions, {
+    ticketKey,
+    eventId,
+    existingSubtasks,
+    tracker: deps.tracker
+  });
+  const idempotencyMarker = `[ferry:refiner:${eventId}]`;
+  if (result.noop) {
+    logger.info("noop \u2014 existing sub-tasks still valid", { ticket: ticketKey });
+    await deps.tracker.postComment(
+      ticketKey,
+      `${idempotencyMarker} No changes needed \u2014 existing ${existingSubtasks.length} sub-task(s) still valid. ${result.noopReason ?? ""}`.trimEnd()
+    );
+    writeStepSummary({
+      role: "refiner",
+      iterations: 1,
+      usage: zeroUsage,
+      toolCounts: {},
+      toolCallRecords: [],
+      filesTouched: [],
+      branchPushed: "",
+      outcome: "noop"
+    });
+    return;
+  }
+  logger.info("reconcile complete", {
+    ticket: ticketKey,
+    created: result.createdCount,
+    kept: result.keptCount,
+    staled: result.staledCount
+  });
+  await deps.tracker.postComment(
+    ticketKey,
+    `${idempotencyMarker} Refined. Created ${result.createdCount}, kept ${result.keptCount}, staled ${result.staledCount} sub-task(s). See run: ${runLink}`
+  );
+  writeStepSummary({
+    role: "refiner",
+    iterations: 1,
+    usage: zeroUsage,
+    toolCounts: {},
+    toolCallRecords: [],
+    filesTouched: [],
+    branchPushed: "",
+    outcome: "refined"
+  });
+}
+async function main(envelope, logger) {
+  const { ticket_key: ticketKey, event_id: eventId } = envelope;
+  const { owner, repo, runner, tracker, ferryCfg: initialCfg } = createGitHubContext(REPO_ROOT);
+  const { baseBranch } = await resolveGitConfig(initialCfg, runner, owner, repo);
+  const ferryCfg = loadFerryConfigFromBaseBranch(baseBranch, REPO_ROOT, initialCfg);
+  const issueForLabels = await tracker.getIssue(ticketKey);
+  let effectiveCfg;
+  try {
+    const overrides = resolveTicketOverrides(issueForLabels.labels, logger);
+    logTicketOverrides(logger, overrides);
+    effectiveCfg = applyTicketOverrides(ferryCfg, overrides);
+    if (hasNonDefaultOverrides(overrides)) {
+      await tracker.postComment(
+        ticketKey,
+        buildOverridesAuditComment("refiner", eventId, overrides)
+      );
+    }
+  } catch (err) {
+    if (err instanceof LabelConflictError) {
+      await tracker.postComment(ticketKey, buildConflictComment("refiner", eventId, err));
+      process.exit(1);
+    }
+    throw err;
+  }
+  const route = effectiveCfg.models.refiner;
+  const callLlm = createLlmCall(route);
+  await run(envelope, { tracker, callLlm, logger });
+}
+
+// src/agents/developer/dev-action.ts
+import { execFileSync as execFileSync5 } from "node:child_process";
+import * as fsp2 from "node:fs/promises";
+import * as path6 from "node:path";
+
 // src/agents/developer/commit.ts
 var ALLOWED_TYPES = /* @__PURE__ */ new Set(["feat", "fix", "chore", "docs", "refactor", "test", "perf"]);
 function formatDeveloperCommit(input) {
@@ -6362,22 +7147,8 @@ function runProcess(cmd, args, cwd, timeoutMs) {
   });
 }
 
-// src/lib/llm/anthropic-auth.ts
-function resolveAnthropicAuth(input) {
-  const env = input.env ?? process.env;
-  const oauthToken = env["CLAUDE_CODE_OAUTH_TOKEN"];
-  if (oauthToken) {
-    return { authToken: oauthToken };
-  }
-  const apiKey = env[input.apiKeyEnv];
-  if (apiKey) {
-    return { apiKey };
-  }
-  throw new FerryError("state-invariant", { reason: "missing-env", key: input.apiKeyEnv });
-}
-
 // src/lib/llm/agent-loop/anthropic.ts
-import Anthropic from "@anthropic-ai/sdk";
+import Anthropic3 from "@anthropic-ai/sdk";
 
 // src/lib/llm/debug-log.ts
 function isDebugEnabled2(env) {
@@ -6665,7 +7436,7 @@ function buildMcpParams(mcpServers) {
   return { mcpServerParams, mcpToolsets };
 }
 function createAnthropicAgentLoop(opts) {
-  const anthropic = opts.client ?? new Anthropic({ apiKey: opts.apiKey, authToken: opts.authToken });
+  const anthropic = opts.client ?? new Anthropic3({ apiKey: opts.apiKey, authToken: opts.authToken });
   const logger = opts.logger ?? createLogger("", "ferry:dev-loop");
   async function runLoop(input) {
     const { system, initialPrompt, tools, repoRoot, branchName, secretScan, depth = 0 } = input;
@@ -7043,7 +7814,7 @@ function createAnthropicAgentLoop(opts) {
 }
 
 // src/lib/llm/agent-loop/openai.ts
-import OpenAI from "openai";
+import OpenAI2 from "openai";
 var COMMIT_AND_STOP_TOOL_NAMES2 = /* @__PURE__ */ new Set([
   "bash",
   "write_file",
@@ -7113,7 +7884,7 @@ function compactOldToolResults2(messages, windowTurns) {
   }
 }
 function createOpenAIAgentLoop(opts) {
-  const openai = opts.client ?? new OpenAI({ apiKey: opts.apiKey });
+  const openai = opts.client ?? new OpenAI2({ apiKey: opts.apiKey });
   const logger = opts.logger ?? createLogger("", "ferry:dev-loop");
   async function runLoop(input) {
     const { system, initialPrompt, tools, repoRoot, branchName, secretScan } = input;
@@ -7364,7 +8135,7 @@ function createOpenAIAgentLoop(opts) {
 }
 
 // src/lib/llm/agent-loop/google.ts
-import { GoogleGenAI, FunctionCallingConfigMode } from "@google/genai";
+import { GoogleGenAI as GoogleGenAI2, FunctionCallingConfigMode } from "@google/genai";
 var COMMIT_AND_STOP_TOOL_NAMES3 = /* @__PURE__ */ new Set([
   "bash",
   "write_file",
@@ -7443,7 +8214,7 @@ function compactOldToolResults3(messages, windowTurns) {
   }
 }
 function createGoogleAgentLoop(opts) {
-  const ai = opts.ai ?? new GoogleGenAI({ apiKey: opts.apiKey });
+  const ai = opts.ai ?? new GoogleGenAI2({ apiKey: opts.apiKey });
   const logger = opts.logger ?? createLogger("", "ferry:dev-loop");
   async function runLoop(input) {
     const { system, initialPrompt, tools, repoRoot, branchName, secretScan } = input;
@@ -7725,7 +8496,7 @@ function createGoogleAgentLoop(opts) {
 }
 
 // src/lib/llm/agent-loop/index.ts
-function requireEnv2(key) {
+function requireEnv3(key) {
   const val = process.env[key];
   if (!val) {
     throw new FerryError("state-invariant", { reason: "missing-env", key });
@@ -7750,7 +8521,7 @@ function createAgentLoop(opts) {
     });
   }
   if (opts.provider === "openai") {
-    const apiKey = requireEnv2("FERRY_OPENAI_KEY");
+    const apiKey = requireEnv3("FERRY_OPENAI_KEY");
     return createOpenAIAgentLoop({
       apiKey,
       model: opts.model,
@@ -7765,7 +8536,7 @@ function createAgentLoop(opts) {
     });
   }
   if (opts.provider === "google") {
-    const apiKey = requireEnv2("FERRY_GOOGLE_AI_KEY");
+    const apiKey = requireEnv3("FERRY_GOOGLE_AI_KEY");
     return createGoogleAgentLoop({
       apiKey,
       model: opts.model,
@@ -7786,12 +8557,12 @@ function createAgentLoop(opts) {
 }
 
 // src/agents/developer/workspace.ts
-import { readFileSync as readFileSync4, existsSync as existsSync4 } from "node:fs";
+import { readFileSync as readFileSync5, existsSync as existsSync4 } from "node:fs";
 import { execFileSync as execFileSync3 } from "node:child_process";
 import * as path5 from "node:path";
 function detectTestRunner(packageJsonPath2) {
   try {
-    const pkg = JSON.parse(readFileSync4(packageJsonPath2, "utf8"));
+    const pkg = JSON.parse(readFileSync5(packageJsonPath2, "utf8"));
     const deps = { ...pkg.dependencies ?? {}, ...pkg.devDependencies ?? {} };
     if (deps.vitest) return "vitest";
     if (deps.jest) return "jest";
@@ -7828,14 +8599,14 @@ function repoTree(repoRoot) {
 function packageJsonPath(repoRoot) {
   return path5.join(repoRoot, "package.json");
 }
-function detectPackageManager(repoRoot, _checkExists = existsSync4, _readFile = (p, enc) => readFileSync4(p, enc)) {
-  const join6 = (file) => path5.join(repoRoot, file);
-  if (_checkExists(join6("pnpm-lock.yaml"))) {
+function detectPackageManager(repoRoot, _checkExists = existsSync4, _readFile = (p, enc) => readFileSync5(p, enc)) {
+  const join7 = (file) => path5.join(repoRoot, file);
+  if (_checkExists(join7("pnpm-lock.yaml"))) {
     return "pnpm lockfile detected (`pnpm-lock.yaml`). Use pnpm for all install and script commands.";
   }
-  if (_checkExists(join6("package.json"))) {
+  if (_checkExists(join7("package.json"))) {
     try {
-      const pkg = JSON.parse(_readFile(join6("package.json"), "utf8"));
+      const pkg = JSON.parse(_readFile(join7("package.json"), "utf8"));
       const pm = typeof pkg.packageManager === "string" ? pkg.packageManager : "";
       if (pm.startsWith("pnpm")) {
         return "pnpm declared in `package.json` (`packageManager` field). Use pnpm for all install and script commands.";
@@ -7852,25 +8623,25 @@ function detectPackageManager(repoRoot, _checkExists = existsSync4, _readFile = 
     } catch {
     }
   }
-  if (_checkExists(join6("yarn.lock"))) {
+  if (_checkExists(join7("yarn.lock"))) {
     return "yarn lockfile detected (`yarn.lock`). Use yarn for all install and script commands.";
   }
-  if (_checkExists(join6("bun.lockb"))) {
+  if (_checkExists(join7("bun.lockb"))) {
     return "bun lockfile detected (`bun.lockb`). Use bun for all install and script commands.";
   }
-  if (_checkExists(join6("package-lock.json"))) {
+  if (_checkExists(join7("package-lock.json"))) {
     return "npm lockfile detected (`package-lock.json`). Use npm for all install and script commands.";
   }
-  const hasPyproject = _checkExists(join6("pyproject.toml"));
-  const hasRequirements = _checkExists(join6("requirements.txt"));
+  const hasPyproject = _checkExists(join7("pyproject.toml"));
+  const hasRequirements = _checkExists(join7("requirements.txt"));
   if (hasPyproject || hasRequirements) {
     const marker = hasPyproject ? "pyproject.toml" : "requirements.txt";
     return `Python project detected (\`${marker}\`). Use pip or the project's configured tool for dependency management.`;
   }
-  if (_checkExists(join6("Gemfile.lock"))) {
+  if (_checkExists(join7("Gemfile.lock"))) {
     return "Ruby project detected (`Gemfile.lock`). Use bundler for dependency management.";
   }
-  if (_checkExists(join6("Cargo.lock"))) {
+  if (_checkExists(join7("Cargo.lock"))) {
     return "Rust project detected (`Cargo.lock`). Use cargo for dependency management.";
   }
   return null;
@@ -7995,16 +8766,16 @@ async function runWipFinalizer(opts) {
 }
 
 // src/agents/developer/dev-action.ts
-var REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
-async function main(envelope, logger) {
+var REPO_ROOT2 = process.env.GITHUB_WORKSPACE ?? process.cwd();
+async function main2(envelope, logger) {
   const { ticket_key: ticketKey, event_id: eventId } = envelope;
   const dryRun = isDryRun();
   if (dryRun) {
     logger.info("DRY_RUN mode \u2014 no branch push, no PR, no Jira writes");
   }
-  const { owner, repo, runner, tracker, ferryCfg: initialCfg } = createGitHubContext(REPO_ROOT);
+  const { owner, repo, runner, tracker, ferryCfg: initialCfg } = createGitHubContext(REPO_ROOT2);
   const { baseBranch, targetBranch } = await resolveGitConfig(initialCfg, runner, owner, repo);
-  const ferryCfg = loadFerryConfigFromBaseBranch(baseBranch, REPO_ROOT, initialCfg);
+  const ferryCfg = loadFerryConfigFromBaseBranch(baseBranch, REPO_ROOT2, initialCfg);
   const devWorkflow = ferryCfg.workflow.agents.developer;
   const shouldAutoTransition = devWorkflow.auto_transition !== null;
   const reviewTransitionId = dryRun || !shouldAutoTransition ? "" : requireEnv("FERRY_REVIEW_TRANSITION_ID");
@@ -8041,28 +8812,28 @@ async function main(envelope, logger) {
     typeOverride
   });
   const subtasks = await tracker.getSubtasks(ticketKey);
-  const testRunner = detectTestRunner(packageJsonPath(REPO_ROOT));
-  const pkgManagerHint = detectPackageManager(REPO_ROOT);
-  const tree = repoTree(REPO_ROOT);
-  const system = buildSystem("dev", REPO_ROOT, {
+  const testRunner = detectTestRunner(packageJsonPath(REPO_ROOT2));
+  const pkgManagerHint = detectPackageManager(REPO_ROOT2);
+  const tree = repoTree(REPO_ROOT2);
+  const system = buildSystem("dev", REPO_ROOT2, {
     extraParts: pkgManagerHint ? [`## Detected package manager
 
 ${pkgManagerHint}`] : []
   });
   const model = effectiveCfg.models.dev.model;
   const branchName = `${resolveBranchPrefix(effectiveCfg.git.working_branch_prefix, issue)}${ticketKey}`;
-  configureFerryGitUser(REPO_ROOT);
+  configureFerryGitUser(REPO_ROOT2);
   let resumeContext = "";
   let branchHeadSha = "";
   try {
     execFileSync5("git", ["ls-remote", "--exit-code", "--heads", "origin", branchName], {
-      cwd: REPO_ROOT,
+      cwd: REPO_ROOT2,
       stdio: "pipe"
     });
-    execFileSync5("git", ["fetch", "origin", branchName], { cwd: REPO_ROOT });
-    execFileSync5("git", ["checkout", branchName], { cwd: REPO_ROOT });
+    execFileSync5("git", ["fetch", "origin", branchName], { cwd: REPO_ROOT2 });
+    execFileSync5("git", ["checkout", branchName], { cwd: REPO_ROOT2 });
     const existingLog = execFileSync5("git", ["log", `origin/${baseBranch}..HEAD`, "--oneline"], {
-      cwd: REPO_ROOT,
+      cwd: REPO_ROOT2,
       encoding: "utf8"
     }).trim();
     if (existingLog) {
@@ -8075,11 +8846,11 @@ ${existingLog}`;
       });
     }
     branchHeadSha = execFileSync5("git", ["rev-parse", "HEAD"], {
-      cwd: REPO_ROOT,
+      cwd: REPO_ROOT2,
       encoding: "utf8"
     }).trim();
   } catch {
-    execFileSync5("git", ["checkout", "-B", branchName], { cwd: REPO_ROOT });
+    execFileSync5("git", ["checkout", "-B", branchName], { cwd: REPO_ROOT2 });
     logger.info("created branch", { branch: branchName });
   }
   let existingPrUrl = "";
@@ -8120,7 +8891,7 @@ ${tree}`,
     "",
     "When you have finished implementing, call the `done` tool."
   ].join("\n");
-  const secretScan = makeSecretScan(REPO_ROOT);
+  const secretScan = makeSecretScan(REPO_ROOT2);
   const mcpPool = loadMcpServers();
   const capabilities = resolveCapabilities(issue.labels, effectiveCfg.labels);
   const hasLabelsConfig = effectiveCfg.labels !== void 0;
@@ -8144,7 +8915,7 @@ ${tree}`,
       system,
       initialPrompt: task,
       tools: allToolSchemas.filter((t) => t.name !== "spawn_subagent"),
-      repoRoot: REPO_ROOT,
+      repoRoot: REPO_ROOT2,
       branchName,
       secretScan,
       mcpServers
@@ -8157,7 +8928,7 @@ ${tree}`,
       system,
       initialPrompt: initialPrompt + resumeContext + existingPrContext,
       tools: allToolSchemas,
-      repoRoot: REPO_ROOT,
+      repoRoot: REPO_ROOT2,
       branchName,
       secretScan,
       mcpServers
@@ -8180,7 +8951,7 @@ ${tree}`,
       ticketKey,
       eventId,
       branchName,
-      repoRoot: REPO_ROOT,
+      repoRoot: REPO_ROOT2,
       secretScan,
       tracker,
       logger,
@@ -8234,7 +9005,7 @@ ${tree}`,
   try {
     let verificationNoteWritten = false;
     if (resolvedOutcome === "already_satisfied") {
-      const verificationDir = path6.join(REPO_ROOT, ".ferry", "verifications");
+      const verificationDir = path6.join(REPO_ROOT2, ".ferry", "verifications");
       const verificationPath = path6.join(verificationDir, `${ticketKey}.md`);
       const validationLines = (done.validation ?? []).length > 0 ? (done.validation ?? []).map((v) => `- \`${v.command}\`: ${v.outcome}`).join("\n") : "_none recorded_";
       const verificationContent = [
@@ -8252,15 +9023,15 @@ ${tree}`,
       await fsp2.writeFile(verificationPath, verificationContent, "utf8");
       verificationNoteWritten = true;
     }
-    execFileSync5("git", ["add", "-A"], { cwd: REPO_ROOT });
+    execFileSync5("git", ["add", "-A"], { cwd: REPO_ROOT2 });
     const finalStatus = execFileSync5("git", ["status", "--porcelain"], {
-      cwd: REPO_ROOT,
+      cwd: REPO_ROOT2,
       encoding: "utf8"
     });
     if (finalStatus.trim()) {
       await secretScan();
       const msg = resolvedOutcome === "already_satisfied" ? `chore(${ticketKey}): add verification note \u2014 spec already satisfied` : done.commit_message ?? commitMessage;
-      execFileSync5("git", ["commit", "-m", msg], { cwd: REPO_ROOT });
+      execFileSync5("git", ["commit", "-m", msg], { cwd: REPO_ROOT2 });
     }
     if (dryRun) {
       let diffOutput = "(no local changes)";
@@ -8271,7 +9042,7 @@ ${tree}`,
             "-c",
             'git diff HEAD~1..HEAD --stat 2>/dev/null || git show --stat HEAD 2>/dev/null || echo "(no commits yet)"'
           ],
-          { cwd: REPO_ROOT, encoding: "utf8" }
+          { cwd: REPO_ROOT2, encoding: "utf8" }
         );
       } catch {
       }
@@ -8294,12 +9065,12 @@ ${tree}`,
       appendOutput({ ...usage, model, provider: devProvider });
       process.exit(0);
     }
-    execFileSync5("git", ["push", "origin", branchName, "--force-with-lease"], { cwd: REPO_ROOT });
+    execFileSync5("git", ["push", "origin", branchName, "--force-with-lease"], { cwd: REPO_ROOT2 });
     const branchPushed = true;
     summaryBranchPushed = branchName;
     try {
       const diff = execFileSync5("git", ["diff", "--name-only", `origin/${baseBranch}...HEAD`], {
-        cwd: REPO_ROOT,
+        cwd: REPO_ROOT2,
         encoding: "utf8"
       });
       summaryFilesTouched = diff.trim().split("\n").filter(Boolean);
@@ -8350,7 +9121,1231 @@ ${tree}`,
   appendOutput({ ...usage, model, provider: devProvider });
   process.exit(0);
 }
-void runAgent("developer", main);
+
+// src/lib/llm/tool-loop/index.ts
+import Anthropic4 from "@anthropic-ai/sdk";
+
+// src/lib/llm/tool-loop/anthropic.ts
+function createAnthropicToolCallLoop(opts) {
+  return {
+    async run(runOpts) {
+      const {
+        system,
+        initialPrompt,
+        tools,
+        handlers,
+        finishTool,
+        extractDone,
+        maxIterations,
+        maxTokens
+      } = runOpts;
+      const logger = runOpts.logger ?? createLogger("", "ferry:tool-loop");
+      const anthropicTools = tools.map(
+        (t, i) => i === tools.length - 1 ? { ...t, cache_control: { type: "ephemeral" } } : t
+      );
+      const messages = [
+        {
+          role: "user",
+          content: [{ type: "text", text: initialPrompt, cache_control: { type: "ephemeral" } }]
+        }
+      ];
+      let inputTokens = 0;
+      let outputTokens = 0;
+      let done = null;
+      const toolCounts = {};
+      const toolCallRecords = [];
+      function trackTool(name, outputSize) {
+        toolCounts[name] = (toolCounts[name] ?? 0) + 1;
+        toolCallRecords.push({ name, outputSize });
+      }
+      const loopStart = Date.now();
+      for (let iter = 0; iter < maxIterations; iter++) {
+        const iterStart = Date.now();
+        const response = await opts.client.messages.create({
+          model: opts.model,
+          max_tokens: maxTokens,
+          system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
+          tools: anthropicTools,
+          messages
+        });
+        inputTokens += response.usage.input_tokens;
+        outputTokens += response.usage.output_tokens;
+        messages.push({ role: "assistant", content: response.content });
+        const toolCount = response.content.filter((b) => b.type === "tool_use").length;
+        logger.info("turn", {
+          iter: iter + 1,
+          stop: response.stop_reason,
+          tools: toolCount,
+          in: response.usage.input_tokens,
+          out: response.usage.output_tokens
+        });
+        emitDebug(
+          {
+            type: "turn",
+            iter: iter + 1,
+            depth: 0,
+            stop_reason: response.stop_reason ?? "unknown",
+            tools: toolCount,
+            mcp_tools: 0,
+            in: response.usage.input_tokens,
+            cache_w: 0,
+            cache_r: 0,
+            out: response.usage.output_tokens,
+            elapsed_ms: Date.now() - iterStart
+          },
+          logger
+        );
+        if (response.stop_reason !== "tool_use") {
+          throw new FerryError("state-invariant", {
+            reason: "tool-loop-stopped-without-finish",
+            stop_reason: response.stop_reason
+          });
+        }
+        const toolResults = [];
+        for (const block of response.content) {
+          if (block.type !== "tool_use") continue;
+          const input = block.input;
+          if (block.name === finishTool) {
+            done = extractDone(input);
+            toolResults.push({ type: "tool_result", tool_use_id: block.id, content: "ok" });
+            continue;
+          }
+          const handler2 = handlers[block.name];
+          if (handler2) {
+            const result = await handler2(input);
+            trackTool(block.name, result.length);
+            toolResults.push({ type: "tool_result", tool_use_id: block.id, content: result });
+          } else {
+            toolResults.push({
+              type: "tool_result",
+              tool_use_id: block.id,
+              content: `unknown tool: ${block.name}`,
+              is_error: true
+            });
+          }
+        }
+        for (let i = messages.length - 1; i >= 0; i--) {
+          const msg = messages[i];
+          if (msg.role === "user" && Array.isArray(msg.content)) {
+            const content = msg.content;
+            if (content.some((b) => b.type === "tool_result")) {
+              const entry = { ...content[content.length - 1] };
+              delete entry.cache_control;
+              content[content.length - 1] = entry;
+              break;
+            }
+          }
+        }
+        if (toolResults.length > 0) {
+          const last = toolResults[toolResults.length - 1];
+          toolResults[toolResults.length - 1] = { ...last, cache_control: { type: "ephemeral" } };
+        }
+        messages.push({ role: "user", content: toolResults });
+        if (done !== null) {
+          emitDebug(
+            {
+              type: "result",
+              subtype: "success",
+              iterations: iter + 1,
+              total_in: inputTokens,
+              total_out: outputTokens,
+              elapsed_ms: Date.now() - loopStart
+            },
+            logger
+          );
+          return {
+            done,
+            usage: { inputTokens, outputTokens },
+            iterations: iter + 1,
+            toolCounts,
+            toolCallRecords
+          };
+        }
+      }
+      throw new FerryError("state-invariant", {
+        reason: "tool-loop-iteration-cap-exceeded",
+        cap: maxIterations
+      });
+    }
+  };
+}
+
+// src/lib/llm/tool-loop/openai.ts
+import OpenAI3 from "openai";
+function createOpenAIToolCallLoop(opts) {
+  const client = new OpenAI3({ apiKey: opts.apiKey });
+  return {
+    async run(runOpts) {
+      const {
+        system,
+        initialPrompt,
+        tools,
+        handlers,
+        finishTool,
+        extractDone,
+        maxIterations,
+        maxTokens
+      } = runOpts;
+      const logger = runOpts.logger ?? createLogger("", "ferry:tool-loop");
+      const openaiTools = tools.map((t) => ({
+        type: "function",
+        function: {
+          name: t.name,
+          description: t.description,
+          parameters: t.input_schema
+        }
+      }));
+      const messages = [
+        { role: "system", content: system },
+        { role: "user", content: initialPrompt }
+      ];
+      let inputTokens = 0;
+      let outputTokens = 0;
+      let done = null;
+      const toolCounts = {};
+      const toolCallRecords = [];
+      function trackTool(name, outputSize) {
+        toolCounts[name] = (toolCounts[name] ?? 0) + 1;
+        toolCallRecords.push({ name, outputSize });
+      }
+      const loopStart = Date.now();
+      for (let iter = 0; iter < maxIterations; iter++) {
+        const iterStart = Date.now();
+        const response = await client.chat.completions.create({
+          model: opts.model,
+          max_tokens: maxTokens,
+          messages,
+          tools: openaiTools,
+          tool_choice: "required"
+        });
+        const choice = response.choices[0];
+        if (!choice) {
+          throw new FerryError("state-invariant", { reason: "tool-loop-no-response" });
+        }
+        inputTokens += response.usage?.prompt_tokens ?? 0;
+        outputTokens += response.usage?.completion_tokens ?? 0;
+        const assistantMsg = {
+          role: "assistant",
+          content: choice.message.content ?? null,
+          tool_calls: choice.message.tool_calls
+        };
+        messages.push(assistantMsg);
+        const toolCalls = choice.message.tool_calls ?? [];
+        logger.info("turn", {
+          iter: iter + 1,
+          stop: choice.finish_reason,
+          tools: toolCalls.length,
+          in: response.usage?.prompt_tokens ?? 0,
+          out: response.usage?.completion_tokens ?? 0
+        });
+        emitDebug(
+          {
+            type: "turn",
+            iter: iter + 1,
+            depth: 0,
+            stop_reason: choice.finish_reason ?? "unknown",
+            tools: toolCalls.length,
+            mcp_tools: 0,
+            in: response.usage?.prompt_tokens ?? 0,
+            cache_w: 0,
+            cache_r: 0,
+            out: response.usage?.completion_tokens ?? 0,
+            elapsed_ms: Date.now() - iterStart
+          },
+          logger
+        );
+        if (choice.finish_reason !== "tool_calls") {
+          throw new FerryError("state-invariant", {
+            reason: "tool-loop-stopped-without-finish",
+            stop_reason: choice.finish_reason
+          });
+        }
+        for (const toolCall of toolCalls) {
+          if (toolCall.type !== "function") continue;
+          let input;
+          try {
+            input = JSON.parse(toolCall.function.arguments);
+          } catch {
+            messages.push({
+              role: "tool",
+              tool_call_id: toolCall.id,
+              content: "invalid JSON arguments"
+            });
+            continue;
+          }
+          if (toolCall.function.name === finishTool) {
+            done = extractDone(input);
+            messages.push({ role: "tool", tool_call_id: toolCall.id, content: "ok" });
+            continue;
+          }
+          const handler2 = handlers[toolCall.function.name];
+          if (handler2) {
+            const result = await handler2(input);
+            trackTool(toolCall.function.name, result.length);
+            messages.push({ role: "tool", tool_call_id: toolCall.id, content: result });
+          } else {
+            messages.push({
+              role: "tool",
+              tool_call_id: toolCall.id,
+              content: `unknown tool: ${toolCall.function.name}`
+            });
+          }
+        }
+        if (done !== null) {
+          emitDebug(
+            {
+              type: "result",
+              subtype: "success",
+              iterations: iter + 1,
+              total_in: inputTokens,
+              total_out: outputTokens,
+              elapsed_ms: Date.now() - loopStart
+            },
+            logger
+          );
+          return {
+            done,
+            usage: { inputTokens, outputTokens },
+            iterations: iter + 1,
+            toolCounts,
+            toolCallRecords
+          };
+        }
+      }
+      throw new FerryError("state-invariant", {
+        reason: "tool-loop-iteration-cap-exceeded",
+        cap: maxIterations
+      });
+    }
+  };
+}
+
+// src/lib/llm/tool-loop/google.ts
+import { GoogleGenAI as GoogleGenAI3 } from "@google/genai";
+function toGoogleTools(tools) {
+  return [
+    {
+      functionDeclarations: tools.map((t) => ({
+        name: t.name,
+        description: t.description,
+        parametersJsonSchema: t.input_schema
+      }))
+    }
+  ];
+}
+function createGoogleToolCallLoop(opts) {
+  const ai = new GoogleGenAI3({ apiKey: opts.apiKey });
+  return {
+    async run(runOpts) {
+      const {
+        system,
+        initialPrompt,
+        tools,
+        handlers,
+        finishTool,
+        extractDone,
+        maxIterations,
+        maxTokens
+      } = runOpts;
+      const logger = runOpts.logger ?? createLogger("", "ferry:tool-loop");
+      const googleTools = toGoogleTools(tools);
+      const contents = [{ role: "user", parts: [{ text: initialPrompt }] }];
+      let inputTokens = 0;
+      let outputTokens = 0;
+      let done = null;
+      const toolCounts = {};
+      const toolCallRecords = [];
+      function trackTool(name, outputSize) {
+        toolCounts[name] = (toolCounts[name] ?? 0) + 1;
+        toolCallRecords.push({ name, outputSize });
+      }
+      const loopStart = Date.now();
+      for (let iter = 0; iter < maxIterations; iter++) {
+        const iterStart = Date.now();
+        const response = await ai.models.generateContent({
+          model: opts.model,
+          contents,
+          config: {
+            systemInstruction: system,
+            tools: googleTools,
+            maxOutputTokens: maxTokens
+          }
+        });
+        inputTokens += response.usageMetadata?.promptTokenCount ?? 0;
+        outputTokens += response.usageMetadata?.candidatesTokenCount ?? 0;
+        const fnCalls = response.functionCalls ?? [];
+        const modelParts = response.candidates?.[0]?.content?.parts ?? [];
+        if (modelParts.length > 0) {
+          contents.push({ role: "model", parts: modelParts });
+        }
+        logger.info("turn", {
+          iter: iter + 1,
+          tools: fnCalls.length,
+          in: response.usageMetadata?.promptTokenCount ?? 0,
+          out: response.usageMetadata?.candidatesTokenCount ?? 0
+        });
+        emitDebug(
+          {
+            type: "turn",
+            iter: iter + 1,
+            depth: 0,
+            stop_reason: fnCalls.length > 0 ? "tool_use" : "end_turn",
+            tools: fnCalls.length,
+            mcp_tools: 0,
+            in: response.usageMetadata?.promptTokenCount ?? 0,
+            cache_w: 0,
+            cache_r: 0,
+            out: response.usageMetadata?.candidatesTokenCount ?? 0,
+            elapsed_ms: Date.now() - iterStart
+          },
+          logger
+        );
+        if (fnCalls.length === 0) {
+          throw new FerryError("state-invariant", {
+            reason: "tool-loop-stopped-without-finish",
+            stop_reason: "end_turn"
+          });
+        }
+        const responseParts = [];
+        for (const fc of fnCalls) {
+          const name = fc.name ?? "";
+          const input = fc.args ?? {};
+          if (name === finishTool) {
+            done = extractDone(input);
+            responseParts.push({
+              functionResponse: { name, response: { result: "ok" } }
+            });
+            continue;
+          }
+          const handler2 = handlers[name];
+          if (handler2) {
+            const result = await handler2(input);
+            trackTool(name, result.length);
+            responseParts.push({
+              functionResponse: { name, response: { result } }
+            });
+          } else {
+            responseParts.push({
+              functionResponse: { name, response: { error: `unknown tool: ${name}` } }
+            });
+          }
+        }
+        contents.push({ role: "user", parts: responseParts });
+        if (done !== null) {
+          emitDebug(
+            {
+              type: "result",
+              subtype: "success",
+              iterations: iter + 1,
+              total_in: inputTokens,
+              total_out: outputTokens,
+              elapsed_ms: Date.now() - loopStart
+            },
+            logger
+          );
+          return {
+            done,
+            usage: { inputTokens, outputTokens },
+            iterations: iter + 1,
+            toolCounts,
+            toolCallRecords
+          };
+        }
+      }
+      throw new FerryError("state-invariant", {
+        reason: "tool-loop-iteration-cap-exceeded",
+        cap: maxIterations
+      });
+    }
+  };
+}
+
+// src/lib/llm/tool-loop/index.ts
+function requireEnv4(key) {
+  const val = process.env[key];
+  if (!val) {
+    throw new FerryError("state-invariant", { reason: "missing-env", key });
+  }
+  return val;
+}
+function createToolCallLoop(opts) {
+  if (opts.provider === "anthropic") {
+    const auth2 = resolveAnthropicAuth({ apiKeyEnv: "ANTHROPIC_API_KEY" });
+    const client = new Anthropic4(auth2);
+    return createAnthropicToolCallLoop({ client, model: opts.model });
+  }
+  if (opts.provider === "openai") {
+    const apiKey = requireEnv4("FERRY_OPENAI_KEY");
+    return createOpenAIToolCallLoop({ apiKey, model: opts.model });
+  }
+  if (opts.provider === "google") {
+    const apiKey = requireEnv4("FERRY_GOOGLE_AI_KEY");
+    return createGoogleToolCallLoop({ apiKey, model: opts.model });
+  }
+  throw new FerryError("state-invariant", { reason: "unknown-provider", provider: opts.provider });
+}
+
+// src/lib/io/idempotency.ts
+function checkIdempotencyMarker(marker, items) {
+  for (const item of items) {
+    if (item.includes(marker)) return { skipped: true };
+  }
+  return { skipped: false };
+}
+
+// src/agents/reviewer/ci-gate.ts
+var DEFAULT_RED_MESSAGE = "CI checks failed for this PR. See the failed Actions run for details.";
+function gateCi(input) {
+  if (input.status === "pending") {
+    return {
+      outcome: "pending-ci",
+      proceed: false,
+      findings: [],
+      tokens: { input: 0, output: 0 },
+      cost_eur: 0
+    };
+  }
+  if (input.status === "red") {
+    const message = (input.failure_summary ?? "").trim() || DEFAULT_RED_MESSAGE;
+    return {
+      outcome: "ci-red",
+      proceed: false,
+      findings: [{ rule_id: "ci-failure", message }],
+      next_state: "changes-requested",
+      tokens: { input: 0, output: 0 },
+      cost_eur: 0
+    };
+  }
+  return {
+    outcome: "ci-green",
+    proceed: true,
+    findings: [],
+    tokens: { input: 0, output: 0 },
+    cost_eur: 0
+  };
+}
+
+// src/agents/reviewer/review-loop.ts
+var MAX_PATCH_CHARS = 2e4;
+var MAX_CONTENT_CHARS = 4e4;
+var MAX_ITERATIONS = 40;
+var REVIEW_TOOL_DEFS = [
+  {
+    name: "get_file_patch",
+    description: "Get the unified diff patch for a specific file in this PR. Use this to inspect what changed in a file before making a finding.",
+    input_schema: {
+      type: "object",
+      properties: {
+        filename: { type: "string", description: "Exact file path as listed in the PR file list." }
+      },
+      required: ["filename"]
+    }
+  },
+  {
+    name: "get_file_content",
+    description: "Get the full content of a file from the PR head branch. Use when the patch is truncated or you need context outside the changed lines.",
+    input_schema: {
+      type: "object",
+      properties: {
+        filename: { type: "string", description: "Exact file path." }
+      },
+      required: ["filename"]
+    }
+  },
+  {
+    name: "finish_review",
+    description: "Post the review verdict and end the review loop. Call once you have inspected all relevant files.",
+    input_schema: {
+      type: "object",
+      properties: {
+        approved: {
+          type: "boolean",
+          description: "true = ready to merge, false = changes required."
+        },
+        comment: {
+          type: "string",
+          description: "Full review comment in Markdown. Follow the required format from the system prompt."
+        }
+      },
+      required: ["approved", "comment"]
+    }
+  }
+];
+function detectMergeConflicts(files) {
+  const conflicted = [];
+  for (const f of files) {
+    if (f.patch && /^[+].*<{7}|^[+].*={7}|^[+].*>{7}/m.test(f.patch)) {
+      conflicted.push(f.filename);
+    }
+  }
+  return conflicted;
+}
+function buildFileList(files) {
+  return files.map((f) => `${f.status.padEnd(8)} +${f.additions} -${f.deletions}  ${f.filename}`).join("\n");
+}
+async function runReviewLoop(opts) {
+  const { loop, system, initialPrompt, fileMap, runner, owner, repo, headSha } = opts;
+  const logger = opts.logger ?? createLogger("", "ferry:review-loop");
+  const maxIterations = opts.maxIterations ?? (parseInt(process.env.FERRY_REVIEWER_MAX_ITERATIONS ?? "", 10) || MAX_ITERATIONS);
+  const maxTokens = opts.maxTokens ?? (parseInt(process.env.FERRY_REVIEWER_MAX_TOKENS ?? "", 10) || 16384);
+  const {
+    done: result,
+    usage,
+    iterations,
+    toolCounts,
+    toolCallRecords
+  } = await loop.run({
+    system,
+    initialPrompt,
+    tools: REVIEW_TOOL_DEFS,
+    finishTool: "finish_review",
+    extractDone: (input) => ({
+      approved: input.approved,
+      comment: input.comment
+    }),
+    handlers: {
+      get_file_patch: (input) => {
+        const filename = input.filename;
+        logger.info("tool", { tool: "get_file_patch", file: filename });
+        const patch = fileMap.get(filename);
+        if (patch === void 0) return `(file not found in PR: ${filename})`;
+        if (!patch) return "(no patch \u2014 binary, empty, or content unchanged)";
+        const patchLimit = parseInt(process.env.FERRY_REVIEW_PATCH_TRUNCATE_CHARS ?? "", 10) || MAX_PATCH_CHARS;
+        return patch.length > patchLimit ? patch.slice(0, patchLimit) + "\n... (truncated)" : patch;
+      },
+      get_file_content: async (input) => {
+        const filename = input.filename;
+        logger.info("tool", { tool: "get_file_content", file: filename });
+        const fileLimit = parseInt(process.env.FERRY_REVIEW_FILE_TRUNCATE_CHARS ?? "", 10) || MAX_CONTENT_CHARS;
+        const rawContent = await runner.getFileContent(owner, repo, filename, headSha);
+        return rawContent.length > fileLimit ? rawContent.slice(0, fileLimit) + "\n... (truncated)" : rawContent;
+      }
+    },
+    maxIterations,
+    maxTokens,
+    logger
+  });
+  return {
+    result,
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
+    iterations,
+    toolCounts,
+    toolCallRecords
+  };
+}
+
+// src/agents/reviewer/changes-guard.ts
+function countPriorIterations(existingComments) {
+  return existingComments.filter(
+    (c) => c.includes("[ferry:iterator:") && c.includes("complete. Pushed fixes to PR#")
+  ).length;
+}
+
+// src/agents/reviewer/review-action.ts
+var REPO_ROOT3 = process.env.GITHUB_WORKSPACE ?? process.cwd();
+async function main3(envelope, logger) {
+  const { ticket_key: ticketKey, event_id: eventId } = envelope;
+  const { owner, repo, runner, tracker, ferryCfg: initialCfg } = createGitHubContext(REPO_ROOT3);
+  const { baseBranch } = await resolveGitConfig(initialCfg, runner, owner, repo);
+  const ferryCfg = loadFerryConfigFromBaseBranch(baseBranch, REPO_ROOT3, initialCfg);
+  const reviewerWorkflow = ferryCfg.workflow.agents.reviewer;
+  const shouldTransitionChanges = reviewerWorkflow.auto_transition_changes !== null;
+  const shouldTransitionApprove = reviewerWorkflow.auto_transition_approve !== null;
+  const iterTransitionId = shouldTransitionChanges ? requireEnv("FERRY_ITER_TRANSITION_ID") : "";
+  const approveTransitionId = shouldTransitionApprove ? requireEnv("FERRY_APPROVE_TRANSITION_ID") : "";
+  const issue = await tracker.getIssue(ticketKey);
+  const existingComments = issue.comments;
+  let effectiveCfg;
+  let typeOverride;
+  try {
+    const overrides = resolveTicketOverrides(issue.labels, logger);
+    typeOverride = overrides.typeOverride;
+    effectiveCfg = applyTicketOverrides(ferryCfg, overrides);
+    logTicketOverrides(logger, overrides);
+    if (hasNonDefaultOverrides(overrides)) {
+      await tracker.postComment(
+        ticketKey,
+        buildOverridesAuditComment("reviewer", eventId, overrides)
+      );
+    }
+  } catch (err) {
+    if (err instanceof LabelConflictError) {
+      await tracker.postComment(ticketKey, buildConflictComment("reviewer", eventId, err));
+      process.exit(1);
+    }
+    throw err;
+  }
+  const { provider, model } = effectiveCfg.models.review;
+  const capabilities = resolveCapabilities(issue.labels, effectiveCfg.labels, logger);
+  logCapabilities(logger, capabilities);
+  const branchName = `${resolveBranchPrefix(effectiveCfg.git.working_branch_prefix, issue)}${ticketKey}`;
+  const prs = await runner.listPRsForBranch(owner, repo, branchName);
+  if (prs.length === 0) {
+    const errorMarker = byEventId("reviewer", eventId);
+    const { skipped: skipped2 } = checkIdempotencyMarker(errorMarker, existingComments);
+    if (!skipped2) {
+      await tracker.postComment(
+        ticketKey,
+        `${errorMarker} No open PR found for branch ${branchName}. Cannot review.`
+      );
+    }
+    appendOutput({ input_tokens: 0, output_tokens: 0, model, provider });
+    return;
+  }
+  const prNumber = prs[0].number;
+  const pr = await runner.getPR({ owner, repo, prNumber });
+  const headSha = pr.headSha;
+  const mergeable = pr.mergeable;
+  const idempotencyMarker = byPrHeadSha("reviewer", headSha);
+  const { skipped } = checkIdempotencyMarker(idempotencyMarker, existingComments);
+  if (skipped) {
+    logger.info("already processed, skipping", { sha: headSha.slice(0, 7) });
+    appendOutput({ input_tokens: 0, output_tokens: 0, model, provider });
+    return;
+  }
+  const ciStatus = await runner.getCommitStatus(owner, repo, headSha);
+  const ciOutcome = gateCi({ status: ciStatus });
+  if (!ciOutcome.proceed) {
+    if (ciOutcome.outcome === "pending-ci") {
+      await tracker.postComment(
+        ticketKey,
+        `${idempotencyMarker} CI checks are still pending on ${headSha.slice(0, 7)}. Will retry when CI completes.`
+      );
+      appendOutput({ input_tokens: 0, output_tokens: 0, model, provider });
+      return;
+    }
+    const ciMessage = ciOutcome.findings[0]?.message ?? "CI checks failed. See the Actions run for details.";
+    const ciTransitionNote = shouldTransitionChanges ? " Moved to Dev Iteration." : "";
+    await tracker.postComment(
+      ticketKey,
+      `${idempotencyMarker} CI checks failed.${ciTransitionNote}`
+    );
+    await runner.commentOnPR(
+      { owner, repo, prNumber },
+      `${idempotencyMarker}
+
+**CI failed:** ${ciMessage}`
+    );
+    if (shouldTransitionChanges) {
+      await tracker.postTransition(ticketKey, iterTransitionId);
+    }
+    appendOutput({ input_tokens: 0, output_tokens: 0, model, provider });
+    return;
+  }
+  const files = await runner.listPRFiles({ owner, repo, prNumber });
+  const fileMap = new Map(files.map((f) => [f.filename, f.patch]));
+  const conflictedFiles = detectMergeConflicts(files);
+  const hasMergeConflicts = mergeable === false || conflictedFiles.length > 0;
+  const commits = await runner.listPRCommits({ owner, repo, prNumber });
+  const commitLog = commits.map((c) => `${c.sha.slice(0, 7)} ${c.message.split("\n")[0]}`).join("\n");
+  const ticketBlock = buildTicketBlock(ticketKey, issue, {
+    typeOverride
+  });
+  const mergeConflictWarning = hasMergeConflicts ? `
+\u26A0\uFE0F  MERGE CONFLICTS DETECTED \u2014 mergeable=${String(mergeable)}${conflictedFiles.length > 0 ? `, conflicted files: ${conflictedFiles.join(", ")}` : ""}` : "";
+  const initialPrompt = [
+    "## Jira Ticket",
+    delimitUntrusted(ticketBlock),
+    "",
+    "## PR Metadata",
+    `PR #${prNumber}: ${pr.title}`,
+    `Base: ${pr.baseRef} \u2190 Head: ${branchName} (${headSha.slice(0, 7)})`,
+    `Files changed: ${files.length}  Commits: ${commits.length}`,
+    mergeConflictWarning,
+    "",
+    "## Commits",
+    commitLog,
+    "",
+    "## Changed files (status  +additions  -deletions  path)",
+    buildFileList(files),
+    "",
+    "Use get_file_patch to inspect individual file diffs, get_file_content for full file contents.",
+    "When you have enough information, call finish_review."
+  ].filter((l) => l !== null).join("\n");
+  const system = buildSystem("review", REPO_ROOT3, {
+    extraParts: [loadOptionalPrompt("review-comment", REPO_ROOT3)],
+    separator: "\n\n---\n\n"
+  });
+  const loop = createToolCallLoop({ provider, model });
+  const {
+    result: review,
+    inputTokens,
+    outputTokens,
+    iterations: reviewIterations,
+    toolCounts: reviewToolCounts,
+    toolCallRecords: reviewToolCallRecords
+  } = await runReviewLoop({
+    loop,
+    system,
+    initialPrompt,
+    fileMap,
+    runner,
+    owner,
+    repo,
+    headSha,
+    maxIterations: effectiveCfg.limits.reviewer_max_iterations,
+    maxTokens: effectiveCfg.limits.reviewer_max_tokens,
+    logger
+  });
+  logger.info("reviewed", {
+    ticket: ticketKey,
+    pr: prNumber,
+    approved: review.approved,
+    in: inputTokens,
+    out: outputTokens
+  });
+  writeStepSummary({
+    role: "reviewer",
+    iterations: reviewIterations,
+    usage: {
+      input_tokens: inputTokens,
+      output_tokens: outputTokens,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 0
+    },
+    toolCounts: reviewToolCounts,
+    toolCallRecords: reviewToolCallRecords,
+    filesTouched: [],
+    branchPushed: "",
+    outcome: review.approved ? "approved" : "changes_requested"
+  });
+  if (review.approved) {
+    await tracker.postComment(
+      ticketKey,
+      `${idempotencyMarker} Approved. PR#${prNumber} is ready to merge.`
+    );
+    await runner.addLabelsToPR({ owner, repo, prNumber }, ["ferry:approved"]);
+    await runner.removeLabelFromPR({ owner, repo, prNumber }, "ferry:reviewing").catch(() => {
+    });
+    await runner.markPRReadyForReview(owner, repo, prNumber);
+    await runner.commentOnPR({ owner, repo, prNumber }, review.comment);
+    if (shouldTransitionApprove) {
+      await tracker.postTransition(ticketKey, approveTransitionId);
+    }
+  } else {
+    const priorIterations = countPriorIterations(existingComments);
+    const cap = effectiveCfg.limits.max_iterations;
+    const capReached = priorIterations >= cap;
+    await runner.commentOnPR({ owner, repo, prNumber }, review.comment);
+    if (!capReached) {
+      const changesNote = shouldTransitionChanges ? " Moved to Dev Iteration." : "";
+      await tracker.postComment(
+        ticketKey,
+        `${idempotencyMarker} Changes requested (iteration ${priorIterations + 1}/${cap}).${changesNote} See PR#${prNumber} for details.`
+      );
+      if (shouldTransitionChanges) {
+        await tracker.postTransition(ticketKey, iterTransitionId);
+      }
+    } else {
+      await tracker.postComment(
+        ticketKey,
+        `${idempotencyMarker} Changes requested (re-review). Iteration cap (${cap}) reached; see PR#${prNumber} and move ticket manually.`
+      );
+    }
+  }
+  appendOutput({ input_tokens: inputTokens, output_tokens: outputTokens, model, provider });
+}
+
+// src/agents/iterator/iterate-action.ts
+import { execFileSync as execFileSync6 } from "node:child_process";
+
+// src/agents/iterator/outcome-guard.ts
+function assertIterOutputContract(outcome, outputs) {
+  if (outcome === "implemented" || outcome === "already_satisfied") {
+    if (!outputs.branchPushed) {
+      throw new Error(
+        `Output contract violation: outcome="${outcome}" requires branch to be pushed before posting terminal comment`
+      );
+    }
+    if (!outputs.prNumber) {
+      throw new Error(
+        `Output contract violation: outcome="${outcome}" requires an open PR before posting terminal comment`
+      );
+    }
+  }
+}
+
+// src/agents/iterator/cap.ts
+function checkIterationCap(input, cap = 3) {
+  if (input.iteration >= cap && input.hasFindings) {
+    throw new FerryError("oscillation", {
+      reason: "iteration-cap-exceeded",
+      cap,
+      iteration: input.iteration
+    });
+  }
+  return { proceed: true };
+}
+
+// src/agents/iterator/transition.ts
+function decideIteratorTransition(input) {
+  const next = Math.max(0, input.current_iteration) + 1;
+  return {
+    jira_status: "In Review",
+    add_labels: ["ferry:reviewing"],
+    remove_labels: ["ferry:iterating"],
+    next_phase: "reviewing",
+    next_iteration: next,
+    self_dispatch: false
+  };
+}
+
+// src/agents/iterator/prompt.ts
+function formatCommitMessage(input) {
+  const lines = [`[${input.ticket_key}] fix: ${input.summary}`, ""];
+  if (input.rule_ids.length > 0) {
+    lines.push(`Fixes findings: ${input.rule_ids.join(", ")}`, "");
+  }
+  lines.push(`[ferry:iterator:${input.run_id}]`);
+  return lines.join("\n");
+}
+
+// src/agents/iterator/iterate-action.ts
+var REPO_ROOT4 = process.env.GITHUB_WORKSPACE ?? process.cwd();
+async function main4(envelope, logger) {
+  const { ticket_key: ticketKey, event_id: eventId } = envelope;
+  const { owner, repo, runner, tracker, ferryCfg: initialCfg } = createGitHubContext(REPO_ROOT4);
+  const { baseBranch } = await resolveGitConfig(initialCfg, runner, owner, repo);
+  const ferryCfg = loadFerryConfigFromBaseBranch(baseBranch, REPO_ROOT4, initialCfg);
+  const iteratorWorkflow = ferryCfg.workflow.agents.iterator;
+  const shouldAutoTransition = iteratorWorkflow.auto_transition !== null;
+  const reviewTransitionId = shouldAutoTransition ? requireEnv("FERRY_REVIEW_TRANSITION_ID") : "";
+  const issue = await tracker.getIssue(ticketKey);
+  const existingComments = issue.comments;
+  let effectiveCfg;
+  let typeOverride;
+  let labelMaxIterations;
+  try {
+    const overrides = resolveTicketOverrides(issue.labels, logger);
+    typeOverride = overrides.typeOverride;
+    labelMaxIterations = overrides.maxIterations;
+    effectiveCfg = applyTicketOverrides(ferryCfg, overrides);
+    logTicketOverrides(logger, overrides);
+    if (hasNonDefaultOverrides(overrides)) {
+      await tracker.postComment(
+        ticketKey,
+        buildOverridesAuditComment("iterator", eventId, overrides)
+      );
+    }
+  } catch (err) {
+    if (err instanceof LabelConflictError) {
+      await tracker.postComment(ticketKey, buildConflictComment("iterator", eventId, err));
+      process.exit(1);
+    }
+    throw err;
+  }
+  const { provider: iterProvider, model } = effectiveCfg.models.iterate;
+  const mcpPool = loadMcpServers();
+  const capabilities = resolveCapabilities(issue.labels, effectiveCfg.labels);
+  const hasLabelsConfig = effectiveCfg.labels !== void 0;
+  const mcpServers = filterMcpServers(mcpPool, capabilities, hasLabelsConfig);
+  logCapabilities(logger, capabilities);
+  const priorIterations = existingComments.filter(
+    (c) => c.includes("[ferry:iterator:") && c.includes("complete. Pushed fixes to PR#")
+  ).length;
+  checkIterationCap(
+    { iteration: priorIterations, hasFindings: true },
+    effectiveCfg.limits.max_iterations
+  );
+  const branchName = `${resolveBranchPrefix(effectiveCfg.git.working_branch_prefix, issue)}${ticketKey}`;
+  const prs = await runner.listPRsForBranch(owner, repo, branchName);
+  if (prs.length === 0) {
+    const eventMarker = byEventId("iterator", eventId);
+    const { skipped: skipped2 } = checkIdempotencyMarker(eventMarker, existingComments);
+    if (!skipped2) {
+      await tracker.postComment(
+        ticketKey,
+        `${eventMarker} No open PR found for branch ${branchName}. Cannot iterate.`
+      );
+    }
+    appendOutput({ input_tokens: 0, output_tokens: 0, model, provider: iterProvider });
+    return;
+  }
+  const prNumber = prs[0].number;
+  const pr = await runner.getPR({ owner, repo, prNumber });
+  const headSha = pr.headSha;
+  const idempotencyMarker = byPrHeadSha("iterator", headSha);
+  const { skipped } = checkIdempotencyMarker(idempotencyMarker, existingComments);
+  if (skipped) {
+    logger.info("already iterated for this head SHA, recovering transition", {
+      sha: headSha.slice(0, 7)
+    });
+    if (shouldAutoTransition) {
+      await tracker.postTransition(ticketKey, reviewTransitionId);
+    }
+    appendOutput({ input_tokens: 0, output_tokens: 0, model, provider: iterProvider });
+    return;
+  }
+  const expectedReviewerMarker = byPrHeadSha("reviewer", headSha);
+  const reviewerSeenInJira = existingComments.some((c) => c.includes(expectedReviewerMarker));
+  if (!reviewerSeenInJira) {
+    logger.info("reviewer for current head SHA not visible in Jira yet, deferring", {
+      sha: headSha.slice(0, 7)
+    });
+    appendOutput({ input_tokens: 0, output_tokens: 0, model, provider: iterProvider });
+    return;
+  }
+  const recentComments = await runner.listPRComments({ owner, repo, prNumber }, 30);
+  const reviewComments = recentComments.filter((c) => c.body.includes("[ferry:reviewer:"));
+  if (reviewComments.length === 0) {
+    const eventMarker = byEventId("iterator", eventId);
+    const { skipped: errSkipped } = checkIdempotencyMarker(eventMarker, existingComments);
+    if (!errSkipped) {
+      await tracker.postComment(
+        ticketKey,
+        `${eventMarker} No review comment found on PR#${prNumber}. Cannot iterate.`
+      );
+    }
+    appendOutput({ input_tokens: 0, output_tokens: 0, model, provider: iterProvider });
+    return;
+  }
+  const latestReview = reviewComments[0];
+  const reviewComment = latestReview.body;
+  if (/\*\*Verdict\*\*:\s*Approved\b/.test(reviewComment)) {
+    await tracker.postComment(
+      ticketKey,
+      `${idempotencyMarker} PR#${prNumber} review shows Approved \u2014 no iteration needed.`
+    );
+    appendOutput({ input_tokens: 0, output_tokens: 0, model, provider: iterProvider });
+    return;
+  }
+  const system = buildSystem("iterate", REPO_ROOT4);
+  configureFerryGitUser(REPO_ROOT4);
+  if (checkoutExistingBranch(branchName, REPO_ROOT4) === "not-found") {
+    await tracker.postComment(
+      ticketKey,
+      `${idempotencyMarker} Branch ${branchName} not found on origin. Cannot iterate.`
+    );
+    appendOutput({ input_tokens: 0, output_tokens: 0, model, provider: iterProvider });
+    return;
+  }
+  const mergeConflicts = fetchAndMergeBase(baseBranch, REPO_ROOT4);
+  const existingLog = execFileSync6("git", ["log", `origin/${baseBranch}..HEAD`, "--oneline"], {
+    cwd: REPO_ROOT4,
+    encoding: "utf8"
+  }).trim();
+  const ticketBlock = buildTicketBlock(ticketKey, issue, {
+    typeOverride
+  });
+  const initialPrompt = [
+    "## Jira Ticket",
+    delimitUntrusted(ticketBlock),
+    "",
+    "## Review Findings (fix only what is listed here)",
+    delimitUntrusted(reviewComment),
+    "",
+    mergeConflicts.length > 0 ? `## Merge Conflicts (resolve these first, before fixing review findings)
+${mergeConflicts.map((f) => `- ${f}`).join("\n")}` : "",
+    existingLog ? `## Existing commits on branch
+${existingLog}` : "",
+    "",
+    "When you have fixed all findings, call the `done` tool."
+  ].filter(Boolean).join("\n");
+  const secretScan = makeSecretScan(REPO_ROOT4);
+  const loop = createAgentLoop({
+    provider: iterProvider,
+    model,
+    maxIterations: effectiveCfg.limits.max_agent_iterations,
+    maxInputTokens: effectiveCfg.limits.max_tokens_per_run,
+    maxTokens: effectiveCfg.limits.max_tokens_per_message,
+    maxCostEur: effectiveCfg.limits.max_cost_eur_per_run,
+    executeTool,
+    commitProgress: makeCommitProgress(logger),
+    logger
+  });
+  let loopResult;
+  try {
+    loopResult = await loop.run({
+      system,
+      initialPrompt,
+      tools: [...TOOL_SCHEMAS, COMMIT_PROGRESS_SCHEMA],
+      repoRoot: REPO_ROOT4,
+      branchName,
+      secretScan,
+      mcpServers
+    });
+  } catch (loopErr) {
+    if (loopErr instanceof FerryError && loopErr.code === "spend-cap" && loopErr.context?.reason === "eur-budget-exceeded") {
+      const consumedEur = loopErr.context.consumed ?? 0;
+      const capEur = loopErr.context.cap ?? 0;
+      try {
+        await tracker.addLabel(ticketKey, "ferry:spend-cap");
+        await tracker.postComment(
+          ticketKey,
+          `${idempotencyMarker} Budget cap \u20AC${capEur} reached \u2014 \u20AC${consumedEur.toFixed(4)} spent. Labeled ferry:spend-cap.`
+        );
+      } catch {
+      }
+      appendOutput({ input_tokens: 0, output_tokens: 0, model, provider: iterProvider });
+      process.exit(1);
+    }
+    if (labelMaxIterations !== void 0 && loopErr instanceof FerryError && loopErr.code === "state-invariant" && loopErr.context?.reason === "iteration-cap-exceeded") {
+      await tracker.postComment(
+        ticketKey,
+        `${idempotencyMarker} Agent iteration cap (${labelMaxIterations}) reached per ferry:max-iterations/${labelMaxIterations} label \u2014 exiting cleanly.`
+      );
+      appendOutput({ input_tokens: 0, output_tokens: 0, model, provider: iterProvider });
+      process.exit(0);
+    }
+    throw loopErr;
+  }
+  const { done, usage, iterations } = loopResult;
+  const resolvedOutcome = done.outcome ?? (done.actionable ? "implemented" : "blocked");
+  logger.info("done", {
+    iterations,
+    outcome: resolvedOutcome,
+    in: usage.input_tokens,
+    cache_w: usage.cache_creation_input_tokens,
+    cache_r: usage.cache_read_input_tokens,
+    out: usage.output_tokens
+  });
+  if (resolvedOutcome === "blocked") {
+    const reason = done.reason ?? done.reason_if_not_actionable ?? "no reason given";
+    await tracker.addLabel(ticketKey, "ferry:blocked");
+    await tracker.postComment(
+      ticketKey,
+      `${idempotencyMarker} \u{1F6A8} BLOCKED \u2014 ${reason}. Manual intervention required.`
+    );
+    writeStepSummary({
+      role: "iterator",
+      iterations,
+      usage,
+      toolCounts: loopResult.toolCounts,
+      toolCallRecords: loopResult.toolCallRecords,
+      filesTouched: [],
+      branchPushed: "",
+      outcome: "blocked"
+    });
+    appendOutput({ ...usage, model, provider: iterProvider });
+    process.exit(1);
+  }
+  const commitMessage = formatCommitMessage({
+    ticket_key: ticketKey,
+    summary: done.summary,
+    rule_ids: [],
+    run_id: eventId
+  });
+  execFileSync6("git", ["add", "-A"], { cwd: REPO_ROOT4 });
+  const finalStatus = execFileSync6("git", ["status", "--porcelain"], {
+    cwd: REPO_ROOT4,
+    encoding: "utf8"
+  }).trim();
+  if (finalStatus) {
+    await secretScan();
+    execFileSync6("git", ["commit", "-m", commitMessage], { cwd: REPO_ROOT4 });
+  }
+  execFileSync6("git", ["push", "origin", branchName, "--force-with-lease"], { cwd: REPO_ROOT4 });
+  const branchPushed = true;
+  let iterFilesTouched = [];
+  try {
+    const diff = execFileSync6("git", ["diff", "--name-only", `origin/${baseBranch}...HEAD`], {
+      cwd: REPO_ROOT4,
+      encoding: "utf8"
+    });
+    iterFilesTouched = diff.trim().split("\n").filter(Boolean);
+  } catch {
+  }
+  assertIterOutputContract(resolvedOutcome, { branchPushed, prNumber });
+  if (shouldAutoTransition) {
+    await tracker.postTransition(ticketKey, reviewTransitionId);
+  }
+  const { next_iteration } = decideIteratorTransition({ current_iteration: priorIterations });
+  const transitionNote = shouldAutoTransition ? " Moved back to Review." : "";
+  const terminalComment = resolvedOutcome === "already_satisfied" ? `${idempotencyMarker} Findings already addressed \u2014 no changes needed. Pushed to PR#${prNumber}.${transitionNote}` : `${idempotencyMarker} Iteration ${next_iteration} complete. Pushed fixes to PR#${prNumber}.${transitionNote}`;
+  await tracker.postComment(ticketKey, terminalComment);
+  writeStepSummary({
+    role: "iterator",
+    iterations,
+    usage,
+    toolCounts: loopResult.toolCounts,
+    toolCallRecords: loopResult.toolCallRecords,
+    filesTouched: iterFilesTouched,
+    branchPushed: branchName,
+    outcome: resolvedOutcome
+  });
+  appendOutput({ ...usage, model, provider: iterProvider });
+  process.exit(0);
+}
+
+// src/cli/agent/run.ts
+var ROLES = /* @__PURE__ */ new Set([
+  "refiner",
+  "developer",
+  "reviewer",
+  "iterator"
+]);
+var HANDLERS = {
+  refiner: main,
+  developer: main2,
+  reviewer: main3,
+  iterator: main4
+};
+var CliUsageError = class extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "CliUsageError";
+  }
+};
+function isAgentRole(value) {
+  return ROLES.has(value);
+}
+function parseArgs(argv) {
+  const command = argv[2];
+  if (command !== "run") {
+    throw new CliUsageError(
+      `Unknown command: ${command ?? "(none)"}. Usage: ferry-agent run --role <role>`
+    );
+  }
+  const rest = argv.slice(3);
+  let role;
+  for (let i = 0; i < rest.length; i += 1) {
+    const flag = rest[i];
+    if (flag === "--role") {
+      role = rest[i + 1];
+      i += 1;
+      continue;
+    }
+    if (flag.startsWith("--role=")) {
+      role = flag.slice("--role=".length);
+      continue;
+    }
+    throw new CliUsageError(`Unknown argument: ${flag}`);
+  }
+  if (!role) {
+    throw new CliUsageError(
+      "Missing --role flag. Usage: ferry-agent run --role <refiner|developer|reviewer|iterator>"
+    );
+  }
+  if (!isAgentRole(role)) {
+    throw new CliUsageError(
+      `Invalid role: ${role}. Expected one of: refiner, developer, reviewer, iterator.`
+    );
+  }
+  return { command: "run", role };
+}
+async function runCli(argv) {
+  const { role } = parseArgs(argv);
+  await runAgent(role, HANDLERS[role]);
+}
+var invokedDirectly = typeof process !== "undefined" && process.argv[1]?.endsWith("agent.js");
+if (invokedDirectly) {
+  void runCli(process.argv).catch((err) => {
+    if (err instanceof CliUsageError) {
+      process.stderr.write(`${err.message}
+`);
+      process.exit(2);
+    }
+    process.stderr.write(`${err.message}
+`);
+    process.exit(1);
+  });
+}
+export {
+  CliUsageError,
+  parseArgs,
+  runCli
+};
 /*! Bundled license information:
 
 @octokit/request-error/dist-src/index.js:

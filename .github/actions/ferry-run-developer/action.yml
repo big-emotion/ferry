@@ -130,7 +130,7 @@ runs:
     - name: Run Developer agent
       id: run-developer
       shell: bash
-      run: node ${{ github.action_path }}/dev-action.js
+      run: node ${{ github.action_path }}/agent.js run --role developer
       env:
         FERRY_ENVELOPE_PAYLOAD: ${{ inputs.payload }}
         FERRY_JIRA_BASE_URL: ${{ inputs.jira_base_url }}

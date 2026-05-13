@@ -18,7 +18,6 @@ import {
   resolveGitConfig,
   resolveBranchPrefix,
   loadFerryConfigFromBaseBranch,
-  runAgent,
 } from '../../lib/agent-runtime/index.js';
 import type { EventEnvelopeV1 } from '../../lib/envelope/types.js';
 import type { Logger } from '../../lib/agent-runtime/index.js';
@@ -50,7 +49,7 @@ import { runWipFinalizer } from './wip-finalizer.js';
 
 const REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
 
-async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
+export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
   const { ticket_key: ticketKey, event_id: eventId } = envelope;
 
   const dryRun = isDryRun();
@@ -476,5 +475,3 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
   appendOutput({ ...usage, model, provider: devProvider });
   process.exit(0);
 }
-
-void runAgent('developer', main);
