@@ -17,7 +17,8 @@ import { buildManualSetupDoc } from '../init/steps/jira-bundle.js';
 import { detectInstalledVersion, computeWorkflowChanges } from './detect.js';
 import { getRelevantMigrations } from './migrations.js';
 import { extractJiraConfigFromSetupFile } from './extract-jira-config.js';
-import { resolveForgeFromArgv } from '../lib/forge.js';
+import { resolveForgeFromArgv, type ForgeKind } from '../lib/forge.js';
+import { rewriteGitLabVersion } from './gitlab/rewriter.js';
 import type { UpdateConfig } from './types.js';
 
 const _require = createRequire(import.meta.url);
@@ -50,27 +51,177 @@ function parseArgs(argv: string[]): UpdateConfig {
   };
 }
 
+async function runGitLabUpdate(argv: string[]): Promise<void> {
+  const config = parseArgs(argv);
+  const repoRoot = config.repoRoot;
+  const target = config.toVersion; // already v-prefixed via packageVersion() default
+
+  print('');
+  print('╔════════════════════════════════════════╗');
+  print('║         ferry-update (gitlab)          ║');
+  print('║  Rewrite pinned Ferry version in       ║');
+  print('║  .gitlab-ci.yml + per-role includes    ║');
+  print('╚════════════════════════════════════════╝');
+  print('');
+  print(`  Target version: ${target}`);
+  print(`  Repo root:      ${repoRoot}`);
+  print('');
+
+  let result;
+  try {
+    result = rewriteGitLabVersion({
+      repoRoot,
+      toVersion: target,
+      dryRun: true, // first pass: dry-run to print the diff
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    printError(`Rewriter failed: ${msg}`);
+    closePrompt();
+    process.exit(1);
+  }
+
+  if (result.errors.length > 0) {
+    for (const e of result.errors) printError(`${e.relPath}: ${e.message}`);
+    closePrompt();
+    process.exit(1);
+  }
+
+  const changed = result.files.filter((f) => f.changed);
+
+  if (result.files.length === 0) {
+    printSkip(
+      'No .gitlab-ci.yml files found under the repo root. ' +
+        'Copy the templates from examples/consumer-setup-gitlab/ first.',
+    );
+    closePrompt();
+    process.exit(0);
+  }
+
+  if (changed.length === 0) {
+    printSkip(`All GitLab CI files already pin ${target} — nothing to do.`);
+    // Still surface migration notes (idempotent informational pass).
+    printGitLabMigrations('v0.0.0', target);
+    closePrompt();
+    process.exit(0);
+  }
+
+  print(`  Files to rewrite (${changed.length}):`);
+  for (const f of changed) {
+    print(`    • ${f.relPath} — ${f.replacements} replacement(s)`);
+  }
+  print('');
+  print('─── Unified diff ───────────────────────────────────────────────────');
+  for (const f of changed) {
+    if (f.diff) print(f.diff);
+  }
+  print('────────────────────────────────────────────────────────────────────');
+
+  if (config.dryRun) {
+    print('');
+    print('Dry-run mode — no changes written.');
+    printGitLabMigrations('v0.0.0', target);
+    closePrompt();
+    process.exit(0);
+  }
+
+  if (!config.yes) {
+    print('');
+    const ok = await confirm(`Apply version rewrite to ${changed.length} file(s)?`, true);
+    if (!ok) {
+      print('Aborted.');
+      closePrompt();
+      process.exit(0);
+    }
+  }
+
+  closePrompt();
+
+  // Second pass: actually write files.
+  const apply = rewriteGitLabVersion({ repoRoot, toVersion: target, dryRun: false });
+  let errors = 0;
+  for (const e of apply.errors) {
+    printError(`${e.relPath}: ${e.message}`);
+    errors += 1;
+  }
+  for (const f of apply.files) {
+    if (f.changed) printSuccess(`Rewrote ${f.relPath} (${f.replacements} pin(s))`);
+  }
+
+  printGitLabMigrations('v0.0.0', target);
+
+  if (errors > 0) {
+    printWarn(`${errors} error(s) — review output above.`);
+    process.exit(1);
+  }
+
+  print('');
+  print(`Pinned Ferry version → ${target}.`);
+  print('');
+  print('Next steps:');
+  print('  1. Review git diff in your .gitlab-ci.yml file(s).');
+  print('  2. Commit and push — the new pinned version takes effect on the next pipeline run.');
+  print(
+    '  3. If consumers rely on the FERRY_VERSION CI/CD UI variable, update it in Settings → CI/CD → Variables.',
+  );
+  print('');
+}
+
+function printGitLabMigrations(fromVersion: string, toVersion: string): void {
+  const migrations = getRelevantMigrations(fromVersion, toVersion, {
+    forge: 'gitlab' as ForgeKind,
+  });
+  if (migrations.length === 0) return;
+  print('');
+  print('════════════════════════════════════════');
+  print('  Manual follow-ups required (gitlab)');
+  print('════════════════════════════════════════');
+  for (const note of migrations) {
+    const prefix = note.kind === 'action' ? '  [action] ' : '  [info]   ';
+    print(`${prefix}${note.message}`);
+  }
+  print('');
+}
+
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
 
   const forge = resolveForgeFromArgv(argv);
   if (forge === 'gitlab') {
-    process.stdout.write(
-      [
-        '',
-        'ferry-update --forge gitlab is not yet implemented (tracked: #214).',
-        '',
-        'Until then, bump GitLab includes manually:',
-        '  1. Edit your top-level .gitlab-ci.yml and the per-role includes.',
-        '  2. Bump the pinned npm version (FERRY_VERSION CI variable, or the',
-        '     `@big-emotion/ferry@<version>` reference in each role file).',
-        '  3. Re-read MIGRATIONS.md for any manual follow-ups between versions.',
-        '',
-        'See examples/consumer-setup-gitlab/ for the latest reference files.',
-        '',
-      ].join('\n'),
-    );
-    process.exit(0);
+    if (hasFlag(argv, '--help') || hasFlag(argv, '-h')) {
+      process.stdout
+        .write(`ferry-update --forge gitlab — rewrite pinned Ferry version in GitLab CI files
+
+Usage:
+  npx -p @big-emotion/ferry@<new-version> ferry-update --forge gitlab [options]
+
+Options:
+  --to <version>       Target version (default: running package version)
+  --dry-run            Print diff, write nothing
+  --yes                Skip confirmation prompt
+  --repo-root <path>   Path to the consumer repo root (default: cwd)
+  -h, --help           Show this help
+
+What is updated:
+  • .gitlab-ci.yml at the repo root
+  • Per-role *.gitlab-ci.yml files (refine, dev, review, iterate,
+    reconcile, cost-daily) and any included files in subdirectories.
+
+Rewrite rules:
+  • A YAML 'FERRY_VERSION: <ver>' assignment under 'variables:' is rewritten
+    to the target version.
+  • A literal '@big-emotion/ferry@<ver>' pin in a 'script:' line is rewritten.
+  • The '\${FERRY_VERSION}' interpolation form is left untouched — that value
+    lives in CI/CD UI variables, not in YAML.
+
+The rewriter is idempotent. Rerunning after convergence produces no diff.
+
+Exit code: 0 on success, 1 on parse or write failure.
+`);
+      process.exit(0);
+    }
+    await runGitLabUpdate(argv);
+    return;
   }
 
   if (hasFlag(argv, '--help') || hasFlag(argv, '-h')) {
@@ -236,7 +387,9 @@ Exit code: 0 on success, 1 on error.
   }
 
   // ── Migration notes ───────────────────────────────────────────────────────
-  const migrations = getRelevantMigrations(fromVersion, toVersion);
+  const migrations = getRelevantMigrations(fromVersion, toVersion, {
+    forge: 'github' as ForgeKind,
+  });
   if (migrations.length > 0) {
     print('');
     print('════════════════════════════════════════');
