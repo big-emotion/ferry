@@ -821,6 +821,25 @@ The reviewer's CI gate is forge-neutral, so collapsing GitLab pipeline statuses 
 
 The token must be able to: read MRs, create MR notes, set/unset MR labels, update MR titles (for the `Draft:` → ready transition), and trigger pipelines.
 
+### Validating a GitLab install with `ferry-doctor`
+
+```sh
+npx -p @big-emotion/ferry ferry-doctor --forge gitlab \
+  --project owner/repo \
+  --token "$FERRY_GITLAB_TOKEN" \
+  --trigger-token "$FERRY_GITLAB_PIPELINE_TRIGGER_TOKEN"
+```
+
+The five probes are:
+
+1. **GitLab project access** — `GET /projects/:id` with `Authorization: Bearer <token>`. Requires token scopes `api` and `read_repository`.
+2. **GitLab token scopes** — `GET /personal_access_tokens/self` to verify the `api` scope is present. Project access tokens (which cannot self-introspect) get a `[WARN]` rather than a `[FAIL]` and must be checked manually under Settings → Access tokens.
+3. **GitLab pipeline trigger** — `GET /projects/:id/triggers` to verify the configured `FERRY_GITLAB_PIPELINE_TRIGGER_TOKEN` is registered on the project (requires `api` scope + Maintainer role).
+4. **GitLab CI/CD variables** — `GET /projects/:id/variables` to check every required key (`FERRY_VERSION`, `FERRY_JIRA_*`, `FERRY_GITLAB_*`, `FERRY_*_TRANSITION_ID`, `FERRY_AUDIT_ISSUE`) plus at least one of `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GOOGLE_API_KEY`. Missing keys are surfaced individually with `[FAIL] <KEY>`. Unmasked token-bearing variables emit a `[WARN]`.
+5. **Jira → GitLab webhook** — marked `[MANUAL]`: cannot be probed from `ferry-doctor`. Confirm by firing a test execution of each Jira Automation rule that targets `{API_BASE}/projects/:id/trigger/pipeline` and verifying a pipeline starts in GitLab.
+
+Exit code is `0` if no `[FAIL]`, `1` otherwise. All flags fall back to environment variables (`FERRY_GITLAB_API_BASE`, `FERRY_GITLAB_TOKEN`, `FERRY_GITLAB_PROJECT_PATH`, `FERRY_GITLAB_PIPELINE_TRIGGER_TOKEN`).
+
 ### Promotion checklist
 
 GitLab support remains marked experimental until every box on [#210](https://github.com/big-emotion/ferry/issues/210) is ticked: at least one consumer has run a full Refiner→Developer→Reviewer→Iterator cycle in prod, `ferry-doctor --forge gitlab` ([#214](https://github.com/big-emotion/ferry/issues/214)) has caught a real misconfiguration, and no open P0/P1 issues against the adapter.

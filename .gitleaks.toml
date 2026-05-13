@@ -8,3 +8,7 @@ paths = ['''docs/.*\.md''']
 [[allowlists]]
 description = "Test fixture RSA private key used for GitHub App unit tests — not a real secret"
 paths = ['''src/cli/init/steps/github-app\.test\.ts''']
+
+[[allowlists]]
+description = "Test fixture GitLab pipeline trigger token used for doctor probe unit tests — not a real secret"
+paths = ['''src/cli/doctor/gitlab/probes\.test\.ts''']
