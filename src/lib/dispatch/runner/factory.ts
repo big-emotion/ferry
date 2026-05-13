@@ -1,10 +1,9 @@
 import { FerryError } from '../../errors/index.js';
 import { GitHubActionsRunner } from './github-actions/index.js';
+import { GitLabRunner } from './gitlab/index.js';
 import type { CIRunner } from './types.js';
 
 export type ForgeKind = 'github' | 'gitlab';
-
-const GITLAB_TRACKING_ISSUE = 'https://github.com/big-emotion/ferry/issues/210';
 
 export function resolveForgeFromEnv(): ForgeKind {
   const raw = (process.env.FERRY_FORGE ?? '').trim().toLowerCase();
@@ -23,9 +22,10 @@ export function createRunnerFromEnv(token: string, owner: string, repo: string):
     case 'github':
       return new GitHubActionsRunner(token, owner, repo);
     case 'gitlab':
-      throw new FerryError('state-invariant', {
-        reason: 'gitlab-runner-not-implemented',
-        tracking: GITLAB_TRACKING_ISSUE,
+      return new GitLabRunner(token, owner, repo, {
+        apiBase: process.env.FERRY_GITLAB_API_BASE,
+        pipelineTriggerToken: process.env.FERRY_GITLAB_PIPELINE_TRIGGER_TOKEN,
+        triggerRef: process.env.FERRY_GITLAB_TRIGGER_REF,
       });
   }
 }
