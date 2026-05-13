@@ -133,6 +133,27 @@ export interface TicketOverrides {
    * Agents should exit immediately without processing when this is true.
    */
   paused?: boolean;
+
+  // --- ferry:dry-run (validation / no side effects) ---
+
+  /**
+   * True when the ticket carries the ferry:dry-run label.
+   * Suppresses all external write side effects (branch push, PR creation, Jira
+   * label / transition / sub-task writes) so prompts and MCP wiring can be
+   * validated without committing real work. LLM calls still happen and incur
+   * token cost. Audit comments still post, prefixed with `[dry-run]`.
+   */
+  dryRun?: boolean;
+
+  // --- ferry:read-only (Refiner-only run) ---
+
+  /**
+   * True when the ticket carries the ferry:read-only label.
+   * Only the Refiner runs; Developer / Reviewer / Iterator short-circuit at
+   * action entry with a single audit comment. When combined with ferry:dry-run,
+   * even the Refiner's Jira sub-task writes are suppressed (per dryRun gating).
+   */
+  readOnly?: boolean;
 }
 
 /** Built-in label → normalised issue type mapping. Order matters: last match wins. */

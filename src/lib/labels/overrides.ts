@@ -138,6 +138,8 @@ export function resolveTicketOverrides(
   let noPr = false;
   let paused = false;
   let noAutoTransition = false;
+  let dryRun = false;
+  let readOnly = false;
   const skipPhases: AgentPhase[] = [];
 
   for (const label of labels) {
@@ -367,6 +369,18 @@ export function resolveTicketOverrides(
       continue;
     }
 
+    // ferry:dry-run — suppress external writes (commits, PRs, Jira mutations).
+    if (label === 'ferry:dry-run') {
+      dryRun = true;
+      continue;
+    }
+
+    // ferry:read-only — Refiner runs only; Developer/Reviewer/Iterator short-circuit.
+    if (label === 'ferry:read-only') {
+      readOnly = true;
+      continue;
+    }
+
     // Unrecognised ferry:* label in override namespace — log and ignore
     logger?.warn('unknown ferry override label ignored', { label });
   }
@@ -410,6 +424,8 @@ export function resolveTicketOverrides(
     ...(thinking !== undefined ? { thinking } : {}),
     ...(noPr ? { git: { noPr: true } } : {}),
     ...(paused ? { paused: true } : {}),
+    ...(dryRun ? { dryRun: true } : {}),
+    ...(readOnly ? { readOnly: true } : {}),
   };
 }
 
@@ -501,7 +517,9 @@ export function hasNonDefaultOverrides(overrides: TicketOverrides): boolean {
     overrides.noAutoTransition === true ||
     overrides.thinking !== undefined ||
     overrides.git?.noPr === true ||
-    overrides.paused === true
+    overrides.paused === true ||
+    overrides.dryRun === true ||
+    overrides.readOnly === true
   );
 }
 
@@ -510,6 +528,9 @@ export function hasNonDefaultOverrides(overrides: TicketOverrides): boolean {
  *
  * The comment format follows the standard fingerprint convention:
  * `[ferry:<role>:<run-id>] overrides applied: <json>`
+ *
+ * When `overrides.dryRun` is true, the comment is prefixed with `[dry-run]`
+ * immediately after the fingerprint (see `applyDryRunMarker`).
  */
 export function buildOverridesAuditComment(
   role: string,
@@ -530,8 +551,29 @@ export function buildOverridesAuditComment(
   if (overrides.thinking !== undefined) payload.thinking = overrides.thinking;
   if (overrides.git?.noPr) payload.git = overrides.git;
   if (overrides.paused) payload.paused = true;
+  if (overrides.dryRun) payload.dryRun = true;
+  if (overrides.readOnly) payload.readOnly = true;
 
-  return `[ferry:${role}:${runId}] overrides applied: ${JSON.stringify(payload)}`;
+  const body = `[ferry:${role}:${runId}] overrides applied: ${JSON.stringify(payload)}`;
+  return applyDryRunMarker(body, overrides.dryRun);
+}
+
+/**
+ * Prepends a `[dry-run]` marker to a comment body so consumers can visually
+ * distinguish audit comments emitted under a `ferry:dry-run` execution.
+ *
+ * The marker is inserted immediately after the `[ferry:<role>:<run-id>]`
+ * fingerprint prefix. If the body has no such prefix (or `dryRun` is falsy),
+ * the body is returned unchanged.
+ *
+ * Multiline bodies receive the marker on the first line only — subsequent
+ * lines are preserved verbatim.
+ */
+export function applyDryRunMarker(body: string, dryRun: boolean | undefined): string {
+  if (dryRun !== true) return body;
+  const match = body.match(/^(\[ferry:[^\]]+\])\s+(.*)$/s);
+  if (!match) return body;
+  return `${match[1]} [dry-run] ${match[2]}`;
 }
 
 /**

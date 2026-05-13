@@ -43,4 +43,5 @@ export {
   hasNonDefaultOverrides,
   buildOverridesAuditComment,
   buildConflictComment,
+  applyDryRunMarker,
 } from '../labels/overrides.js';

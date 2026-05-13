@@ -41,6 +41,8 @@ export const LABELS_ALLOWLIST = [
   'ferry:skip/iter',
   'ferry:skip/iterate',
   'ferry:no-auto-transition',
+  'ferry:dry-run',
+  'ferry:read-only',
   'ferry:thinking/',
   'ferry:thinking/on',
   'ferry:thinking/off',

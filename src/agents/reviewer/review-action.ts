@@ -10,6 +10,7 @@ import {
   hasNonDefaultOverrides,
   buildOverridesAuditComment,
   buildConflictComment,
+  applyDryRunMarker,
   LabelConflictError,
 } from '../../lib/agent-runtime/index.js';
 import {
@@ -53,6 +54,7 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
   let typeOverride: string | undefined;
   let autoApprove = false;
   let noAutoTransition = false;
+  let dryRun = false;
   try {
     const overrides = resolveTicketOverrides(issue.labels, logger, {
       allowSkipReview: ferryCfg.safety?.allow_skip_review === true,
@@ -60,6 +62,10 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
     typeOverride = overrides.typeOverride;
     autoApprove = overrides.skipPhases?.includes('review') === true;
     noAutoTransition = overrides.noAutoTransition === true;
+    dryRun = overrides.dryRun === true;
+    if (dryRun) {
+      logger.warn('DRY-RUN: LLM calls will still incur cost; no commits or PRs will be pushed.');
+    }
     effectiveCfg = applyTicketOverrides(ferryCfg, overrides);
     logTicketOverrides(logger, overrides);
     if (hasNonDefaultOverrides(overrides)) {
@@ -67,6 +73,15 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
         ticketKey,
         buildOverridesAuditComment('reviewer', eventId, overrides),
       );
+    }
+    // ferry:read-only — Reviewer short-circuits at entry; Refiner runs normally.
+    if (overrides.readOnly === true) {
+      logger.info('read-only mode — reviewer agent skipped');
+      await tracker.postComment(
+        ticketKey,
+        applyDryRunMarker(`[ferry:reviewer:${eventId}] read-only: agent skipped`, overrides.dryRun),
+      );
+      return;
     }
   } catch (err) {
     if (err instanceof LabelConflictError) {
@@ -76,9 +91,10 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
     throw err;
   }
 
-  // FR24 auto-transitions are gated by both config and the ferry:no-auto-transition label.
-  const shouldTransitionChanges = configTransitionChanges && !noAutoTransition;
-  const shouldTransitionApprove = configTransitionApprove && !noAutoTransition;
+  // FR24 auto-transitions are gated by config, the ferry:no-auto-transition label,
+  // and the ferry:dry-run label (dry-run suppresses all external writes).
+  const shouldTransitionChanges = configTransitionChanges && !noAutoTransition && !dryRun;
+  const shouldTransitionApprove = configTransitionApprove && !noAutoTransition && !dryRun;
   const iterTransitionId = shouldTransitionChanges ? requireEnv('FERRY_ITER_TRANSITION_ID') : '';
   const approveTransitionId = shouldTransitionApprove
     ? requireEnv('FERRY_APPROVE_TRANSITION_ID')
@@ -136,17 +152,22 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
         : '';
     await tracker.postComment(
       ticketKey,
-      `${idempotencyMarker} Auto-approved via ferry:skip/review — review loop bypassed. PR#${prNumber}.${approveTransitionNote}`,
+      applyDryRunMarker(
+        `${idempotencyMarker} Auto-approved via ferry:skip/review — review loop bypassed. PR#${prNumber}.${approveTransitionNote}`,
+        dryRun,
+      ),
     );
-    await runner.addLabelsToPR({ owner, repo, prNumber }, ['ferry:approved']);
-    await runner.removeLabelFromPR({ owner, repo, prNumber }, 'ferry:reviewing').catch(() => {});
-    await runner.markPRReadyForReview(owner, repo, prNumber);
-    await runner.commentOnPR(
-      { owner, repo, prNumber },
-      `${idempotencyMarker} Auto-approved via ferry:skip/review label — review skipped per ticket opt-in.`,
-    );
-    if (shouldTransitionApprove) {
-      await tracker.postTransition(ticketKey, approveTransitionId);
+    if (!dryRun) {
+      await runner.addLabelsToPR({ owner, repo, prNumber }, ['ferry:approved']);
+      await runner.removeLabelFromPR({ owner, repo, prNumber }, 'ferry:reviewing').catch(() => {});
+      await runner.markPRReadyForReview(owner, repo, prNumber);
+      await runner.commentOnPR(
+        { owner, repo, prNumber },
+        `${idempotencyMarker} Auto-approved via ferry:skip/review label — review skipped per ticket opt-in.`,
+      );
+      if (shouldTransitionApprove) {
+        await tracker.postTransition(ticketKey, approveTransitionId);
+      }
     }
     appendOutput({ input_tokens: 0, output_tokens: 0, model, provider });
     return;
@@ -282,27 +303,34 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
   if (review.approved) {
     await tracker.postComment(
       ticketKey,
-      `${idempotencyMarker} Approved. PR#${prNumber} is ready to merge.`,
+      applyDryRunMarker(`${idempotencyMarker} Approved. PR#${prNumber} is ready to merge.`, dryRun),
     );
-    await runner.addLabelsToPR({ owner, repo, prNumber }, ['ferry:approved']);
-    await runner.removeLabelFromPR({ owner, repo, prNumber }, 'ferry:reviewing').catch(() => {});
-    await runner.markPRReadyForReview(owner, repo, prNumber);
-    await runner.commentOnPR({ owner, repo, prNumber }, review.comment);
-    if (shouldTransitionApprove) {
-      await tracker.postTransition(ticketKey, approveTransitionId);
+    if (!dryRun) {
+      await runner.addLabelsToPR({ owner, repo, prNumber }, ['ferry:approved']);
+      await runner.removeLabelFromPR({ owner, repo, prNumber }, 'ferry:reviewing').catch(() => {});
+      await runner.markPRReadyForReview(owner, repo, prNumber);
+      await runner.commentOnPR({ owner, repo, prNumber }, review.comment);
+      if (shouldTransitionApprove) {
+        await tracker.postTransition(ticketKey, approveTransitionId);
+      }
     }
   } else {
     const priorIterations = countPriorIterations(existingComments);
     const cap = effectiveCfg.limits.max_iterations;
     const capReached = priorIterations >= cap;
 
-    await runner.commentOnPR({ owner, repo, prNumber }, review.comment);
+    if (!dryRun) {
+      await runner.commentOnPR({ owner, repo, prNumber }, review.comment);
+    }
 
     if (!capReached) {
       const changesNote = shouldTransitionChanges ? ' Moved to Dev Iteration.' : '';
       await tracker.postComment(
         ticketKey,
-        `${idempotencyMarker} Changes requested (iteration ${priorIterations + 1}/${cap}).${changesNote} See PR#${prNumber} for details.`,
+        applyDryRunMarker(
+          `${idempotencyMarker} Changes requested (iteration ${priorIterations + 1}/${cap}).${changesNote} See PR#${prNumber} for details.`,
+          dryRun,
+        ),
       );
       if (shouldTransitionChanges) {
         await tracker.postTransition(ticketKey, iterTransitionId);
@@ -310,7 +338,10 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
     } else {
       await tracker.postComment(
         ticketKey,
-        `${idempotencyMarker} Changes requested (re-review). Iteration cap (${cap}) reached; see PR#${prNumber} and move ticket manually.`,
+        applyDryRunMarker(
+          `${idempotencyMarker} Changes requested (re-review). Iteration cap (${cap}) reached; see PR#${prNumber} and move ticket manually.`,
+          dryRun,
+        ),
       );
     }
   }
