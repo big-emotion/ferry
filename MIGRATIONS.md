@@ -10,6 +10,20 @@ Add a `## <from> → <to>` section before each release. Use either:
 - An exact version pair: `## v0.3.0 → v0.3.1`
 - A wildcard range: `## v0.3.x → v0.4.0` (matches any 0.3.\* source)
 
+Optionally scope the section to a single forge by adding a `forge:` line directly
+under the heading. Allowed values are `github`, `gitlab`, or `both` (default).
+Entries without an explicit `forge:` line apply to both forges (backwards
+compatible). `ferry-update` filters the notes it prints based on the active
+`--forge` flag, so consumers only see notes that apply to them.
+
+```markdown
+## v0.10.x → v0.11.0
+
+forge: gitlab
+
+- **(action)** GitLab-only follow-up …
+```
+
 Each bullet should be one of:
 
 - `(action)` — something the consumer must do manually (new secret, Jira rule change, etc.)

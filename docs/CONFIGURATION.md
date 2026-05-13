@@ -823,6 +823,26 @@ Re-running the wizard is **idempotent** — files whose content already matches 
 
 Tokens are **never** read or stored by the CLI: the wizard tells you which variables to create in GitLab, you set them there.
 
+### Updating the pinned version (`ferry-update --forge gitlab`)
+
+Bump the pinned Ferry version across every `.gitlab-ci.yml` (and per-role include) in one command:
+
+```bash
+npx -p @big-emotion/ferry@<new-version> ferry-update --forge gitlab
+```
+
+What it does:
+
+- Discovers `.gitlab-ci.yml` and any `*.gitlab-ci.yml` includes under the repo root (caps recursion at depth 3; skips `node_modules`, `.git`, `dist`, etc.).
+- Rewrites a `FERRY_VERSION: <ver>` assignment under `variables:` to the target version (quoted or unquoted; preserves the surrounding indentation and any trailing comment).
+- Rewrites a literal `@big-emotion/ferry@<ver>` pin in a `script:` line.
+- Leaves the `${FERRY_VERSION}` / `$FERRY_VERSION` interpolation form untouched — that value lives in CI/CD UI variables (Settings → CI/CD → Variables), not in YAML.
+- Prints a unified diff before writing. Pass `--dry-run` to preview without modifying files, or `--yes` to skip the confirmation prompt.
+- Idempotent: rerunning after convergence produces no diff.
+- After the rewrite, `MIGRATIONS.md` entries scoped to `forge: gitlab` (or with no `forge:` field, i.e. `both`) are printed as **Manual follow-ups required (gitlab)**.
+
+Exit code: `0` on success, `1` on parse or write failure.
+
 ### Pipeline status mapping
 
 The reviewer's CI gate is forge-neutral, so collapsing GitLab pipeline statuses into Ferry's `green | red | pending` enum happens inside the GitLab adapter:
