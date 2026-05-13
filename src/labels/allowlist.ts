@@ -25,6 +25,11 @@ export const LABELS_ALLOWLIST = [
   'ferry:type:force-bug',
   'ferry:type:force-spike',
   'ferry:type:force-story',
+  // Alias namespace for ticket-type override (#242) — strict conflict semantics
+  'ferry:as/',
+  'ferry:as/bug',
+  'ferry:as/spike',
+  'ferry:as/story',
   // Configuration override labels (user-applied; parsed by resolveTicketOverrides)
   // Prefix-only entries: the actual label appends additional segments
   'ferry:model/',

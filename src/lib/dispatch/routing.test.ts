@@ -84,6 +84,28 @@ describe('shouldSkipForTaskType (FR6 task-type filter)', () => {
     });
     expect(shouldSkipForTaskType('Story')).toEqual({ skip: false });
   });
+
+  // --- issue #242 invariants: typeOverride MUST NOT bypass Task-skip ---
+
+  it('still skips a Task ticket when typeOverride is set but bypassTaskSkip is false (ferry:as/* path)', () => {
+    expect(shouldSkipForTaskType('Task', { bypassTaskSkip: false, typeOverride: 'Story' })).toEqual(
+      {
+        skip: true,
+        reason: 'ticket type Task is not processed by Ferry',
+      },
+    );
+  });
+
+  it('still skips a Task ticket when typeOverride is set without bypassTaskSkip (defaulted)', () => {
+    expect(shouldSkipForTaskType('Task', { typeOverride: 'Bug' } as never)).toEqual({
+      skip: true,
+      reason: 'ticket type Task is not processed by Ferry',
+    });
+  });
+
+  it('does not skip a Task ticket when bypassTaskSkip is true, even without typeOverride', () => {
+    expect(shouldSkipForTaskType('Task', { bypassTaskSkip: true })).toEqual({ skip: false });
+  });
 });
 
 describe('buildTaskSkipComment', () => {

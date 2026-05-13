@@ -5788,9 +5788,16 @@ var FORCE_TYPE_LABELS = Object.freeze({
   "ferry:type:force-story": "Story"
 });
 var ENABLE_TASK_LABEL = "ferry:type:enable-task";
+var AS_LABEL_PREFIX = "ferry:as/";
+var AS_TYPE_LABELS = Object.freeze({
+  bug: "Bug",
+  spike: "Spike",
+  story: "Story"
+});
 var BUILTIN_TYPE_LABELS = /* @__PURE__ */ new Set([
   ENABLE_TASK_LABEL,
-  ...Object.keys(FORCE_TYPE_LABELS)
+  ...Object.keys(FORCE_TYPE_LABELS),
+  ...Object.keys(AS_TYPE_LABELS).map((s) => `${AS_LABEL_PREFIX}${s}`)
 ]);
 function resolveTypeOverrides(labels) {
   let bypassTaskSkip = false;
@@ -5922,6 +5929,31 @@ function isKnownNonOverrideLabel(label) {
 }
 function resolveTicketOverrides(labels, logger, options) {
   const typeOverrides = resolveTypeOverrides(labels);
+  let asLabel;
+  let asTypeValue;
+  for (const label of labels) {
+    if (!label.startsWith(AS_LABEL_PREFIX)) continue;
+    const suffix = label.slice(AS_LABEL_PREFIX.length);
+    const mapped = AS_TYPE_LABELS[suffix];
+    if (mapped === void 0) {
+      logger?.warn("unknown suffix in ferry:as label", { label, suffix });
+      continue;
+    }
+    if (asTypeValue !== void 0 && asTypeValue !== mapped) {
+      throw new LabelConflictError(asLabel, label, "typeOverride");
+    }
+    if (asTypeValue === void 0) {
+      asTypeValue = mapped;
+      asLabel = label;
+    }
+  }
+  if (asTypeValue !== void 0) {
+    if (typeOverrides.typeOverride !== void 0 && typeOverrides.typeOverride !== asTypeValue) {
+      throw new LabelConflictError(typeOverrides.forceLabel, asLabel, "typeOverride");
+    }
+    typeOverrides.typeOverride = asTypeValue;
+    typeOverrides.forceLabel = asLabel;
+  }
   const modelOverrides = {};
   const modelSources = {};
   const providerSources = {};

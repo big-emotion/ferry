@@ -402,9 +402,9 @@ Maps Jira ticket labels to MCP server capabilities. If this section is omitted, 
 
 ---
 
-#### Built-in ticket-type label overrides (`ferry:type:*`)
+#### Built-in ticket-type label overrides (`ferry:type:*` and `ferry:as/<type>`)
 
-These four labels are **hardcoded built-ins** — they require no `ferry.config.json` entry and are always recognised by the Developer, Reviewer, and Iterator agents. Apply them directly to your Jira ticket.
+These labels are **hardcoded built-ins** — they require no `ferry.config.json` entry and are always recognised by the Developer, Reviewer, and Iterator agents. Apply them directly to your Jira ticket.
 
 | Label                    | Effect                                                                                                                                                                                |
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -412,12 +412,23 @@ These four labels are **hardcoded built-ins** — they require no `ferry.config.
 | `ferry:type:force-bug`   | Treat the ticket as a **Bug** regardless of its Jira issue type. The agent sees `TYPE: Bug` in the prompt.                                                                            |
 | `ferry:type:force-spike` | Treat the ticket as a **Spike** regardless of its Jira issue type.                                                                                                                    |
 | `ferry:type:force-story` | Treat the ticket as a **Story** regardless of its Jira issue type.                                                                                                                    |
+| `ferry:as/bug`           | Alias of `ferry:type:force-bug` (issue #242) with strict conflict semantics — see below.                                                                                              |
+| `ferry:as/spike`         | Alias of `ferry:type:force-spike` (issue #242) with strict conflict semantics.                                                                                                        |
+| `ferry:as/story`         | Alias of `ferry:type:force-story` (issue #242) with strict conflict semantics.                                                                                                        |
 
 **How it works:**
 
 - `ferry:type:enable-task` bypasses the FR6 Task filter inside agent actions (Developer, Reviewer, Iterator). The pre-flight `skip-task-type-action` step runs before the Jira issue is fetched and therefore cannot honour this label — if the envelope issue type is `Task`, the pre-flight step still skips and posts a comment. Add the label to a ticket that starts in a non-Task Jira column to avoid the pre-flight trigger entirely, or trigger the agent directly via `repository_dispatch` with a non-Task `issue_type`.
 - `ferry:type:force-*` labels replace `issue.issueType` in the prompt without mutating the original Jira record. When active, the terminal Jira comment includes an audit note in the format: `[type override: {"issuetype":"Bug","issuetype_raw":"Story","override":"force-bug"}]`.
 - If multiple `force-*` labels are present, the last one in the label list wins.
+
+**`ferry:as/<type>` — alias with strict conflict semantics (issue #242):**
+
+- Maps to the same `typeOverride` field as `ferry:type:force-<type>`. Both namespaces are honoured everywhere `typeOverride` is consumed (prompt block, allowlist evaluation, audit comment payload).
+- **Two different `ferry:as/<x>` labels** on the same ticket throw `LabelConflictError` (rather than the legacy last-wins behaviour of `ferry:type:force-*`).
+- **Mixing `ferry:as/<a>` with `ferry:type:force-<b>`** that resolve to different values also throws `LabelConflictError`. Same values are vacuous.
+- Unknown suffix (e.g. `ferry:as/improvement`) is logged to stderr and ignored.
+- **Security invariant — Task-skip is preserved.** `ferry:as/*` does NOT set `bypassTaskSkip`. A Task ticket with `ferry:as/story` is still skipped by FR6, because the Task-skip is a structural defense against Refiner-created sub-task loops, not a type filter. Use `ferry:type:enable-task` if you need to bypass the Task-skip; combine it with `ferry:as/story` to also set the effective type.
 
 ---
 
