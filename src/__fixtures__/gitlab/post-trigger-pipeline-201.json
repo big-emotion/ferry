@@ -1,0 +1,10 @@
+{
+  "id": 5550003,
+  "iid": 44,
+  "project_id": 12345,
+  "sha": "0000000000000000000000000000000000000000",
+  "ref": "main",
+  "status": "created",
+  "source": "trigger",
+  "web_url": "https://gitlab.example/acme/widgets/-/pipelines/5550003"
+}

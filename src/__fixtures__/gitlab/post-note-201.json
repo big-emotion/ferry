@@ -1,0 +1,14 @@
+{
+  "id": 880001,
+  "type": null,
+  "body": "[ferry:reviewer:abc1234]\n\n**Verdict**: Approved\n\nLGTM — ship it.",
+  "author": {
+    "id": 1,
+    "username": "ferry-bot",
+    "name": "Ferry"
+  },
+  "system": false,
+  "noteable_id": 999001,
+  "noteable_type": "MergeRequest",
+  "noteable_iid": 7
+}
