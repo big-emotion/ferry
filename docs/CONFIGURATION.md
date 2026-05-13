@@ -805,6 +805,24 @@ Copy-pasteable GitLab CI templates live in [`examples/consumer-setup-gitlab/`](.
 2. `npm install -g @big-emotion/ferry@${FERRY_VERSION}`.
 3. Runs `ferry-agent run --role <role>`.
 
+### Scaffolding with `ferry-init --forge gitlab`
+
+Instead of copying the templates by hand, run the wizard from your consumer repo:
+
+```bash
+npx -p @big-emotion/ferry ferry-init --forge gitlab
+```
+
+The wizard:
+
+1. Detects the GitLab project from `git remote get-url origin` (gitlab.com and self-managed instances). Pass `--project namespace/project` to override (subgroups are supported, e.g. `acme/team/widgets`).
+2. Writes the six GitLab CI files (`refine`, `dev`, `review`, `iterate`, `reconcile`, `cost-daily`) under `ci/ferry/` in your repo. Include them from your top-level `.gitlab-ci.yml` via `include:`.
+3. Prints the project-access-token scopes (`api`) and the CI/CD variables you must set in **Settings → CI/CD → Variables**: `FERRY_VERSION`, `FERRY_JIRA_BASE_URL`, `FERRY_JIRA_EMAIL`, `FERRY_JIRA_API_TOKEN`, `FERRY_GITLAB_TOKEN`, `FERRY_GITLAB_PIPELINE_TRIGGER_TOKEN`, `FERRY_REVIEW_TRANSITION_ID`, `FERRY_ITER_TRANSITION_ID`, `FERRY_APPROVE_TRANSITION_ID`, `FERRY_AUDIT_ISSUE`, plus at least one of `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GOOGLE_API_KEY`. Mark every token-bearing variable **Masked + Protected**.
+
+Re-running the wizard is **idempotent** — files whose content already matches the template are reported as up-to-date; files you have edited locally are left intact and listed as "would overwrite". Pass `--force` to replace them. Pass `--dry-run` to preview without touching the working tree.
+
+Tokens are **never** read or stored by the CLI: the wizard tells you which variables to create in GitLab, you set them there.
+
 ### Pipeline status mapping
 
 The reviewer's CI gate is forge-neutral, so collapsing GitLab pipeline statuses into Ferry's `green | red | pending` enum happens inside the GitLab adapter:
