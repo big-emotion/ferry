@@ -553,6 +553,17 @@ function makeCommitProgress(logger, options = {}) {
     return "committed and pushed";
   };
 }
+function remoteBranchExists(branchName, repoRoot) {
+  try {
+    execFileSync("git", ["ls-remote", "--exit-code", "--heads", "origin", branchName], {
+      cwd: repoRoot,
+      stdio: "pipe"
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
 function checkoutExistingBranch(branchName, repoRoot) {
   try {
     execFileSync("git", ["ls-remote", "--exit-code", "--heads", "origin", branchName], {
@@ -5153,7 +5164,7 @@ var GitHubActionsRunner = class {
       return `(error fetching content: ${e.message})`;
     }
   }
-  async createPR(owner, repo, head, base, title, body) {
+  async createPR(owner, repo, head, base, title, body, options) {
     try {
       const { data } = await this.octokit.pulls.create({
         owner,
@@ -5162,7 +5173,7 @@ var GitHubActionsRunner = class {
         base,
         title,
         body,
-        draft: true
+        draft: options?.draft ?? true
       });
       return data.html_url;
     } catch {
@@ -5858,6 +5869,7 @@ function filterMcpServers(pool, capabilities, hasLabelsConfig) {
 var AGENT_PHASES = /* @__PURE__ */ new Set(["refiner", "dev", "review", "iterate"]);
 var PHASES_ORDERED = ["refiner", "dev", "review", "iterate"];
 var LLM_PROVIDERS = /* @__PURE__ */ new Set(["anthropic", "openai", "google"]);
+var BRANCH_NAME_REGEX = /^[a-zA-Z0-9._/-]+$/;
 var LabelConflictError = class extends Error {
   label1;
   label2;
@@ -5937,6 +5949,12 @@ function resolveTicketOverrides(labels, logger, options) {
   let dryRun = false;
   let readOnly = false;
   const skipPhases = [];
+  let baseBranchLabel;
+  let baseBranch;
+  let targetBranchLabel;
+  let targetBranch;
+  let prDraftLabel;
+  let prDraft;
   for (const label of labels) {
     if (!label.startsWith("ferry:")) continue;
     if (isKnownNonOverrideLabel(label)) continue;
@@ -6146,6 +6164,61 @@ function resolveTicketOverrides(labels, logger, options) {
       noPr = true;
       continue;
     }
+    if (label.startsWith("ferry:base/")) {
+      const branch = label.slice("ferry:base/".length);
+      if (!BRANCH_NAME_REGEX.test(branch)) {
+        logger?.warn("invalid branch name in ferry:base label (expected ^[a-zA-Z0-9._/-]+$)", {
+          label
+        });
+        continue;
+      }
+      if (baseBranch !== void 0 && baseBranch !== branch) {
+        throw new LabelConflictError(baseBranchLabel, label, "git.baseBranch");
+      }
+      if (baseBranch === void 0) {
+        baseBranch = branch;
+        baseBranchLabel = label;
+      }
+      continue;
+    }
+    if (label.startsWith("ferry:target/")) {
+      const branch = label.slice("ferry:target/".length);
+      if (!BRANCH_NAME_REGEX.test(branch)) {
+        logger?.warn("invalid branch name in ferry:target label (expected ^[a-zA-Z0-9._/-]+$)", {
+          label
+        });
+        continue;
+      }
+      if (targetBranch !== void 0 && targetBranch !== branch) {
+        throw new LabelConflictError(targetBranchLabel, label, "git.targetBranch");
+      }
+      if (targetBranch === void 0) {
+        targetBranch = branch;
+        targetBranchLabel = label;
+      }
+      continue;
+    }
+    if (label.startsWith("ferry:pr/")) {
+      const suffix = label.slice("ferry:pr/".length);
+      let val;
+      if (suffix === "draft") val = true;
+      else if (suffix === "ready") val = false;
+      if (val === void 0) {
+        logger?.warn("unknown suffix in ferry:pr label (expected draft or ready)", {
+          label,
+          suffix
+        });
+        continue;
+      }
+      if (prDraft !== void 0 && prDraft !== val) {
+        throw new LabelConflictError(prDraftLabel, label, "git.prDraft");
+      }
+      if (prDraft === void 0) {
+        prDraft = val;
+        prDraftLabel = label;
+      }
+      continue;
+    }
     if (label === "ferry:paused") {
       paused = true;
       continue;
@@ -6176,6 +6249,13 @@ function resolveTicketOverrides(labels, logger, options) {
   }
   const hasModelOverrides = Object.keys(modelOverrides).length > 0;
   const hasBudget = budgetMaxCostEur !== void 0 || budgetMaxTokens !== void 0;
+  const hasGit = noPr || baseBranch !== void 0 || targetBranch !== void 0 || prDraft !== void 0;
+  const gitOverride = hasGit ? {
+    ...noPr ? { noPr: true } : {},
+    ...baseBranch !== void 0 ? { baseBranch } : {},
+    ...targetBranch !== void 0 ? { targetBranch } : {},
+    ...prDraft !== void 0 ? { prDraft } : {}
+  } : void 0;
   return {
     ...typeOverrides,
     ...hasModelOverrides ? { modelOverrides } : {},
@@ -6192,7 +6272,7 @@ function resolveTicketOverrides(labels, logger, options) {
     ...noAutoTransition ? { noAutoTransition: true } : {},
     ...thinking !== void 0 ? { thinking } : {},
     ...reviewRubric !== void 0 ? { reviewRubric } : {},
-    ...noPr ? { git: { noPr: true } } : {},
+    ...gitOverride ? { git: gitOverride } : {},
     ...paused ? { paused: true } : {},
     ...dryRun ? { dryRun: true } : {},
     ...readOnly ? { readOnly: true } : {}
@@ -6250,7 +6330,7 @@ function applyTicketOverrides(cfg, overrides) {
   return { ...cfg, models, limits };
 }
 function hasNonDefaultOverrides(overrides) {
-  return overrides.bypassTaskSkip || overrides.typeOverride !== void 0 || overrides.modelOverrides !== void 0 || overrides.budget !== void 0 || overrides.budgetEur !== void 0 || overrides.maxIterations !== void 0 || overrides.maxTokens !== void 0 || (overrides.skipPhases?.length ?? 0) > 0 || overrides.noAutoTransition === true || overrides.thinking !== void 0 || overrides.reviewRubric !== void 0 || overrides.git?.noPr === true || overrides.paused === true || overrides.dryRun === true || overrides.readOnly === true;
+  return overrides.bypassTaskSkip || overrides.typeOverride !== void 0 || overrides.modelOverrides !== void 0 || overrides.budget !== void 0 || overrides.budgetEur !== void 0 || overrides.maxIterations !== void 0 || overrides.maxTokens !== void 0 || (overrides.skipPhases?.length ?? 0) > 0 || overrides.noAutoTransition === true || overrides.thinking !== void 0 || overrides.reviewRubric !== void 0 || overrides.git?.noPr === true || overrides.git?.baseBranch !== void 0 || overrides.git?.targetBranch !== void 0 || overrides.git?.prDraft !== void 0 || overrides.paused === true || overrides.dryRun === true || overrides.readOnly === true;
 }
 function buildOverridesAuditComment(role, runId, overrides) {
   const payload = {};
@@ -6265,7 +6345,9 @@ function buildOverridesAuditComment(role, runId, overrides) {
   if (overrides.noAutoTransition) payload.noAutoTransition = true;
   if (overrides.thinking !== void 0) payload.thinking = overrides.thinking;
   if (overrides.reviewRubric !== void 0) payload.reviewRubric = overrides.reviewRubric;
-  if (overrides.git?.noPr) payload.git = overrides.git;
+  if (overrides.git !== void 0 && (overrides.git.noPr === true || overrides.git.baseBranch !== void 0 || overrides.git.targetBranch !== void 0 || overrides.git.prDraft !== void 0)) {
+    payload.git = overrides.git;
+  }
   if (overrides.paused) payload.paused = true;
   if (overrides.dryRun) payload.dryRun = true;
   if (overrides.readOnly) payload.readOnly = true;
@@ -9154,8 +9236,10 @@ async function main2(envelope, logger) {
     logger.info("DRY_RUN mode \u2014 no branch push, no PR, no Jira writes");
   }
   const { owner, repo, runner, tracker, ferryCfg: initialCfg } = createGitHubContext(REPO_ROOT2);
-  const { baseBranch, targetBranch } = await resolveGitConfig(initialCfg, runner, owner, repo);
-  const ferryCfg = loadFerryConfigFromBaseBranch(baseBranch, REPO_ROOT2, initialCfg);
+  const resolvedGit = await resolveGitConfig(initialCfg, runner, owner, repo);
+  const ferryCfg = loadFerryConfigFromBaseBranch(resolvedGit.baseBranch, REPO_ROOT2, initialCfg);
+  let baseBranch = resolvedGit.baseBranch;
+  let targetBranch = resolvedGit.targetBranch;
   const devWorkflow = ferryCfg.workflow.agents.developer;
   const configAutoTransition = devWorkflow.auto_transition !== null;
   const issue = await tracker.getIssue(ticketKey);
@@ -9164,6 +9248,7 @@ async function main2(envelope, logger) {
   let forceLabel;
   let noAutoTransition = false;
   let thinkingOverride;
+  let prDraftOverride;
   try {
     const overrides = resolveTicketOverrides(issue.labels, logger, {
       allowSkipReview: ferryCfg.safety?.allow_skip_review === true
@@ -9172,6 +9257,13 @@ async function main2(envelope, logger) {
     forceLabel = overrides.forceLabel;
     noAutoTransition = overrides.noAutoTransition === true;
     thinkingOverride = overrides.thinking;
+    prDraftOverride = overrides.git?.prDraft;
+    if (overrides.git?.baseBranch !== void 0) {
+      baseBranch = overrides.git.baseBranch;
+    }
+    if (overrides.git?.targetBranch !== void 0) {
+      targetBranch = overrides.git.targetBranch;
+    }
     if (overrides.dryRun === true && !dryRun) {
       dryRun = true;
       logger.warn("DRY-RUN: LLM calls will still incur cost; no commits or PRs will be pushed.");
@@ -9183,6 +9275,22 @@ async function main2(envelope, logger) {
         ticketKey,
         buildOverridesAuditComment("developer", eventId, overrides)
       );
+    }
+    if (!dryRun) {
+      if (overrides.git?.baseBranch !== void 0 && !remoteBranchExists(baseBranch, REPO_ROOT2)) {
+        await tracker.postComment(
+          ticketKey,
+          `[ferry:dev:${eventId}] base branch '${baseBranch}' not found on origin \u2014 remove or fix the ferry:base/* label.`
+        );
+        process.exit(1);
+      }
+      if (overrides.git?.targetBranch !== void 0 && !remoteBranchExists(targetBranch, REPO_ROOT2)) {
+        await tracker.postComment(
+          ticketKey,
+          `[ferry:dev:${eventId}] target branch '${targetBranch}' not found on origin \u2014 remove or fix the ferry:target/* label.`
+        );
+        process.exit(1);
+      }
     }
     if (overrides.readOnly === true) {
       logger.info("read-only mode \u2014 developer agent skipped");
@@ -9500,7 +9608,15 @@ ${tree}`,
       validation: done.validation ?? [],
       notes: done.notes ?? []
     });
-    const prUrl = await runner.createPR(owner, repo, branchName, targetBranch, prTitle, prBody);
+    const prUrl = await runner.createPR(
+      owner,
+      repo,
+      branchName,
+      targetBranch,
+      prTitle,
+      prBody,
+      prDraftOverride !== void 0 ? { draft: prDraftOverride } : void 0
+    );
     assertDevOutputContract(resolvedOutcome, { branchPushed, prUrl, verificationNoteWritten });
     if (shouldAutoTransition) {
       await tracker.postTransition(ticketKey, reviewTransitionId);
@@ -10520,8 +10636,9 @@ var REPO_ROOT4 = process.env.GITHUB_WORKSPACE ?? process.cwd();
 async function main4(envelope, logger) {
   const { ticket_key: ticketKey, event_id: eventId } = envelope;
   const { owner, repo, runner, tracker, ferryCfg: initialCfg } = createGitHubContext(REPO_ROOT4);
-  const { baseBranch } = await resolveGitConfig(initialCfg, runner, owner, repo);
-  const ferryCfg = loadFerryConfigFromBaseBranch(baseBranch, REPO_ROOT4, initialCfg);
+  const resolvedGit = await resolveGitConfig(initialCfg, runner, owner, repo);
+  const ferryCfg = loadFerryConfigFromBaseBranch(resolvedGit.baseBranch, REPO_ROOT4, initialCfg);
+  let baseBranch = resolvedGit.baseBranch;
   const iteratorWorkflow = ferryCfg.workflow.agents.iterator;
   const configAutoTransition = iteratorWorkflow.auto_transition !== null;
   const issue = await tracker.getIssue(ticketKey);
@@ -10541,6 +10658,9 @@ async function main4(envelope, logger) {
     noAutoTransition = overrides.noAutoTransition === true;
     dryRun = overrides.dryRun === true;
     thinkingOverride = overrides.thinking;
+    if (overrides.git?.baseBranch !== void 0) {
+      baseBranch = overrides.git.baseBranch;
+    }
     if (dryRun) {
       logger.warn("DRY-RUN: LLM calls will still incur cost; no commits or PRs will be pushed.");
     }
@@ -10551,6 +10671,13 @@ async function main4(envelope, logger) {
         ticketKey,
         buildOverridesAuditComment("iterator", eventId, overrides)
       );
+    }
+    if (!dryRun && overrides.git?.baseBranch !== void 0 && !remoteBranchExists(baseBranch, REPO_ROOT4)) {
+      await tracker.postComment(
+        ticketKey,
+        `[ferry:iter:${eventId}] base branch '${baseBranch}' not found on origin \u2014 remove or fix the ferry:base/* label.`
+      );
+      process.exit(1);
     }
     if (overrides.readOnly === true) {
       logger.info("read-only mode \u2014 iterator agent skipped");

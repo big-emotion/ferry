@@ -132,14 +132,20 @@ export interface TicketOverrides {
    */
   reviewRubric?: 'strict' | 'lenient';
 
-  // --- ferry:git/* ---
+  // --- ferry:git/* + ferry:base/* + ferry:target/* + ferry:pr/* ---
 
   /**
-   * Git behaviour overrides derived from ferry:git/* labels.
-   * ferry:git/no-pr skips PR creation at the end of a Developer run.
+   * Git behaviour overrides derived from ferry:git/*, ferry:base/*, ferry:target/* and ferry:pr/* labels.
+   * - noPr (ferry:git/no-pr)             — skips PR creation at the end of a Developer run.
+   * - baseBranch (ferry:base/<branch>)   — overrides git.base_branch (the branch Ferry creates ferry/... from).
+   * - targetBranch (ferry:target/<branch>) — overrides git.target_branch (the branch the PR is opened against).
+   * - prDraft (ferry:pr/draft or ferry:pr/ready) — true forces draft, false forces ready-for-review.
    */
   git?: {
     noPr?: boolean;
+    baseBranch?: string;
+    targetBranch?: string;
+    prDraft?: boolean;
   };
 
   // --- ferry:paused (safety) ---

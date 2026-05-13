@@ -126,6 +126,32 @@ describe('GitHubActionsRunner', () => {
       expect(mock.pulls.create).toHaveBeenCalledWith(expect.objectContaining({ draft: true }));
     });
 
+    it('opens PR as ready-for-review when options.draft=false', async () => {
+      mock.pulls.create.mockResolvedValue({
+        data: { html_url: 'https://github.com/acme/ferry/pull/100' },
+      });
+      await runner.createPR(OWNER, REPO, 'feature', 'main', 'title', 'body', { draft: false });
+      expect(mock.pulls.create).toHaveBeenCalledWith(expect.objectContaining({ draft: false }));
+    });
+
+    it('opens PR as draft when options.draft=true (explicit)', async () => {
+      mock.pulls.create.mockResolvedValue({
+        data: { html_url: 'https://github.com/acme/ferry/pull/101' },
+      });
+      await runner.createPR(OWNER, REPO, 'feature', 'main', 'title', 'body', { draft: true });
+      expect(mock.pulls.create).toHaveBeenCalledWith(expect.objectContaining({ draft: true }));
+    });
+
+    it('passes the supplied base branch to octokit (target branch override)', async () => {
+      mock.pulls.create.mockResolvedValue({
+        data: { html_url: 'https://github.com/acme/ferry/pull/102' },
+      });
+      await runner.createPR(OWNER, REPO, 'feature', 'release-1.x', 'title', 'body');
+      expect(mock.pulls.create).toHaveBeenCalledWith(
+        expect.objectContaining({ base: 'release-1.x' }),
+      );
+    });
+
     it('returns existing PR url when creation fails (PR already exists)', async () => {
       mock.pulls.create.mockRejectedValue(new Error('Validation Failed'));
       mock.pulls.list.mockResolvedValue({

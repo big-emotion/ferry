@@ -134,6 +134,7 @@ export class GitHubActionsRunner implements CIRunner {
     base: string,
     title: string,
     body: string,
+    options?: { draft?: boolean },
   ): Promise<string> {
     try {
       const { data } = await this.octokit.pulls.create({
@@ -143,7 +144,7 @@ export class GitHubActionsRunner implements CIRunner {
         base,
         title,
         body,
-        draft: true,
+        draft: options?.draft ?? true,
       });
       return data.html_url;
     } catch {

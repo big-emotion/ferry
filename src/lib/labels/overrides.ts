@@ -8,6 +8,13 @@ const PHASES_ORDERED: readonly AgentPhase[] = ['refiner', 'dev', 'review', 'iter
 const LLM_PROVIDERS: ReadonlySet<string> = new Set(['anthropic', 'openai', 'google']);
 
 /**
+ * Permitted character set for branch names supplied via ferry:base/* and
+ * ferry:target/* labels. Intentionally narrow — matches the portable subset
+ * of refnames used by GitHub branch protections.
+ */
+const BRANCH_NAME_REGEX = /^[a-zA-Z0-9._/-]+$/;
+
+/**
  * Thrown when two ferry labels on the same ticket set the same override field
  * to contradictory values. Callers should catch this, post a Jira comment explaining
  * the conflict, and exit non-zero.
@@ -145,6 +152,13 @@ export function resolveTicketOverrides(
   let dryRun = false;
   let readOnly = false;
   const skipPhases: AgentPhase[] = [];
+
+  let baseBranchLabel: string | undefined;
+  let baseBranch: string | undefined;
+  let targetBranchLabel: string | undefined;
+  let targetBranch: string | undefined;
+  let prDraftLabel: string | undefined;
+  let prDraft: boolean | undefined;
 
   for (const label of labels) {
     if (!label.startsWith('ferry:')) continue;
@@ -388,6 +402,68 @@ export function resolveTicketOverrides(
       continue;
     }
 
+    // ferry:base/<branch> — override git.base_branch
+    if (label.startsWith('ferry:base/')) {
+      const branch = label.slice('ferry:base/'.length);
+      if (!BRANCH_NAME_REGEX.test(branch)) {
+        logger?.warn('invalid branch name in ferry:base label (expected ^[a-zA-Z0-9._/-]+$)', {
+          label,
+        });
+        continue;
+      }
+      if (baseBranch !== undefined && baseBranch !== branch) {
+        throw new LabelConflictError(baseBranchLabel!, label, 'git.baseBranch');
+      }
+      if (baseBranch === undefined) {
+        baseBranch = branch;
+        baseBranchLabel = label;
+      }
+      continue;
+    }
+
+    // ferry:target/<branch> — override git.target_branch
+    if (label.startsWith('ferry:target/')) {
+      const branch = label.slice('ferry:target/'.length);
+      if (!BRANCH_NAME_REGEX.test(branch)) {
+        logger?.warn('invalid branch name in ferry:target label (expected ^[a-zA-Z0-9._/-]+$)', {
+          label,
+        });
+        continue;
+      }
+      if (targetBranch !== undefined && targetBranch !== branch) {
+        throw new LabelConflictError(targetBranchLabel!, label, 'git.targetBranch');
+      }
+      if (targetBranch === undefined) {
+        targetBranch = branch;
+        targetBranchLabel = label;
+      }
+      continue;
+    }
+
+    // ferry:pr/draft — force PR draft state
+    // ferry:pr/ready — force PR ready-for-review state
+    if (label.startsWith('ferry:pr/')) {
+      const suffix = label.slice('ferry:pr/'.length);
+      let val: boolean | undefined;
+      if (suffix === 'draft') val = true;
+      else if (suffix === 'ready') val = false;
+      if (val === undefined) {
+        logger?.warn('unknown suffix in ferry:pr label (expected draft or ready)', {
+          label,
+          suffix,
+        });
+        continue;
+      }
+      if (prDraft !== undefined && prDraft !== val) {
+        throw new LabelConflictError(prDraftLabel!, label, 'git.prDraft');
+      }
+      if (prDraft === undefined) {
+        prDraft = val;
+        prDraftLabel = label;
+      }
+      continue;
+    }
+
     // ferry:paused
     if (label === 'ferry:paused') {
       paused = true;
@@ -430,6 +506,17 @@ export function resolveTicketOverrides(
   const hasModelOverrides = Object.keys(modelOverrides).length > 0;
   const hasBudget = budgetMaxCostEur !== undefined || budgetMaxTokens !== undefined;
 
+  const hasGit =
+    noPr || baseBranch !== undefined || targetBranch !== undefined || prDraft !== undefined;
+  const gitOverride = hasGit
+    ? {
+        ...(noPr ? { noPr: true } : {}),
+        ...(baseBranch !== undefined ? { baseBranch } : {}),
+        ...(targetBranch !== undefined ? { targetBranch } : {}),
+        ...(prDraft !== undefined ? { prDraft } : {}),
+      }
+    : undefined;
+
   return {
     ...typeOverrides,
     ...(hasModelOverrides ? { modelOverrides } : {}),
@@ -448,7 +535,7 @@ export function resolveTicketOverrides(
     ...(noAutoTransition ? { noAutoTransition: true } : {}),
     ...(thinking !== undefined ? { thinking } : {}),
     ...(reviewRubric !== undefined ? { reviewRubric } : {}),
-    ...(noPr ? { git: { noPr: true } } : {}),
+    ...(gitOverride ? { git: gitOverride } : {}),
     ...(paused ? { paused: true } : {}),
     ...(dryRun ? { dryRun: true } : {}),
     ...(readOnly ? { readOnly: true } : {}),
@@ -544,6 +631,9 @@ export function hasNonDefaultOverrides(overrides: TicketOverrides): boolean {
     overrides.thinking !== undefined ||
     overrides.reviewRubric !== undefined ||
     overrides.git?.noPr === true ||
+    overrides.git?.baseBranch !== undefined ||
+    overrides.git?.targetBranch !== undefined ||
+    overrides.git?.prDraft !== undefined ||
     overrides.paused === true ||
     overrides.dryRun === true ||
     overrides.readOnly === true
@@ -577,7 +667,15 @@ export function buildOverridesAuditComment(
   if (overrides.noAutoTransition) payload.noAutoTransition = true;
   if (overrides.thinking !== undefined) payload.thinking = overrides.thinking;
   if (overrides.reviewRubric !== undefined) payload.reviewRubric = overrides.reviewRubric;
-  if (overrides.git?.noPr) payload.git = overrides.git;
+  if (
+    overrides.git !== undefined &&
+    (overrides.git.noPr === true ||
+      overrides.git.baseBranch !== undefined ||
+      overrides.git.targetBranch !== undefined ||
+      overrides.git.prDraft !== undefined)
+  ) {
+    payload.git = overrides.git;
+  }
   if (overrides.paused) payload.paused = true;
   if (overrides.dryRun) payload.dryRun = true;
   if (overrides.readOnly) payload.readOnly = true;

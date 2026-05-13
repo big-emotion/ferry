@@ -51,6 +51,12 @@ export const LABELS_ALLOWLIST = [
   'ferry:lenient-review',
   'ferry:git/',
   'ferry:git/no-pr',
+  // Git base / target / PR-state overrides (per-ticket; #241)
+  'ferry:base/',
+  'ferry:target/',
+  'ferry:pr/',
+  'ferry:pr/draft',
+  'ferry:pr/ready',
   // Config-label namespace prefixes (handled by resolveCapabilities, not resolveTicketOverrides)
   'ferry:mcp/',
   'ferry:profile/',

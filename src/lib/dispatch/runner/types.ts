@@ -90,6 +90,7 @@ export interface CIRunner {
     base: string,
     title: string,
     body: string,
+    options?: { draft?: boolean },
   ): Promise<string>;
   /**
    * Promote draft → ready-for-review (GitHub) or remove `Draft:` prefix from
