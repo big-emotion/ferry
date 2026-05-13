@@ -30,6 +30,7 @@ import {
   handleAuditIssue,
   type ExecOptions,
 } from './execute.js';
+import { resolveForgeFromArgv } from '../lib/forge.js';
 import type { UninstallOptions } from './types.js';
 
 const TOTAL_STEPS = 4;
@@ -71,6 +72,28 @@ function parseArgs(argv: string[]): UninstallOptions {
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
+
+  const forge = resolveForgeFromArgv(argv);
+  if (forge === 'gitlab') {
+    process.stdout.write(
+      [
+        '',
+        'ferry-uninstall --forge gitlab is not yet implemented (tracked: #214).',
+        '',
+        'Until then, uninstall manually:',
+        '  1. Delete the Ferry includes from your project root',
+        '     (.gitlab-ci.yml, refine/dev/review/iterate/reconcile/cost-daily',
+        '     .gitlab-ci.yml).',
+        '  2. Settings → CI/CD → Variables: remove every FERRY_* and',
+        '     {ANTHROPIC,OPENAI,GOOGLE}_API_KEY variable.',
+        '  3. Settings → CI/CD → Pipeline triggers: revoke the trigger token.',
+        '  4. Settings → Access tokens: revoke the FERRY_GITLAB_TOKEN.',
+        '  5. Disable or remove the Jira Automation rules pointing at the pipeline trigger.',
+        '',
+      ].join('\n'),
+    );
+    process.exit(0);
+  }
 
   if (hasFlag(argv, '--help') || hasFlag(argv, '-h')) {
     process.stdout.write(`ferry-uninstall — cleanly remove Ferry from a consumer repo
