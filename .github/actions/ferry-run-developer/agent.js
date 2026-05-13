@@ -5202,8 +5202,249 @@ var GitHubActionsRunner = class {
   }
 };
 
+// src/lib/dispatch/runner/gitlab/index.ts
+var MAX_CONTENT_CHARS_DEFAULT2 = 4e4;
+var DRAFT_PREFIX = "Draft: ";
+var GitLabRunner = class {
+  constructor(token, defaultOwner, defaultRepo, opts = {}) {
+    this.defaultOwner = defaultOwner;
+    this.defaultRepo = defaultRepo;
+    this.authHeader = `Bearer ${token}`;
+    this.apiBase = (opts.apiBase ?? "https://gitlab.com/api/v4").replace(/\/+$/, "");
+    this.pipelineTriggerToken = opts.pipelineTriggerToken;
+    this.triggerRef = opts.triggerRef ?? "main";
+  }
+  defaultOwner;
+  defaultRepo;
+  authHeader;
+  apiBase;
+  pipelineTriggerToken;
+  triggerRef;
+  // ── Internals ────────────────────────────────────────────────────────────
+  projectPath(owner, repo) {
+    return encodeURIComponent(`${owner}/${repo}`);
+  }
+  baseHeaders(extra) {
+    return { Authorization: this.authHeader, Accept: "application/json", ...extra };
+  }
+  async request(method, path7, init = {}) {
+    const headers = this.baseHeaders(init.headers);
+    let body;
+    if (init.rawBody !== void 0) {
+      body = init.rawBody;
+    } else if (init.body !== void 0) {
+      headers["Content-Type"] = "application/json";
+      body = JSON.stringify(init.body);
+    }
+    const url = `${this.apiBase}${path7}`;
+    const response = await fetch(url, { method, headers, body });
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new FerryError("transient", {
+        reason: "gitlab-request-failed",
+        method,
+        path: path7,
+        status: response.status,
+        body: text.slice(0, 500)
+      });
+    }
+    if (response.status === 204) return void 0;
+    return await response.json();
+  }
+  async getProject(owner, repo) {
+    return this.request("GET", `/projects/${this.projectPath(owner, repo)}`);
+  }
+  // ── CIRunner methods ─────────────────────────────────────────────────────
+  async dispatch(phase, payload) {
+    const route = PHASE_TO_WORKFLOW[phase];
+    if (!route) throw new Error(`Unknown phase for dispatch: ${phase}`);
+    if (!this.pipelineTriggerToken) {
+      throw new FerryError("state-invariant", {
+        reason: "missing-pipeline-trigger-token",
+        env: "FERRY_GITLAB_PIPELINE_TRIGGER_TOKEN"
+      });
+    }
+    const form = new URLSearchParams();
+    form.set("token", this.pipelineTriggerToken);
+    form.set("ref", this.triggerRef);
+    form.set("variables[FERRY_DISPATCH_TYPE]", route.dispatchType);
+    form.set("variables[FERRY_ENVELOPE_PAYLOAD]", JSON.stringify(payload));
+    const url = `${this.apiBase}/projects/${this.projectPath(this.defaultOwner, this.defaultRepo)}/trigger/pipeline`;
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: form.toString()
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new FerryError("transient", {
+        reason: "gitlab-pipeline-trigger-failed",
+        status: response.status,
+        body: text.slice(0, 500)
+      });
+    }
+  }
+  async getRepoDefaultBranch(owner, repo) {
+    const project = await this.getProject(owner, repo);
+    return project.default_branch;
+  }
+  async listPRsForBranch(owner, repo, branch) {
+    const path7 = `/projects/${this.projectPath(owner, repo)}/merge_requests?state=opened&source_branch=${encodeURIComponent(branch)}&per_page=1`;
+    const mrs = await this.request("GET", path7);
+    return mrs.map((mr) => this.toPR(mr));
+  }
+  async getPR(prRef) {
+    const path7 = `/projects/${this.projectPath(prRef.owner, prRef.repo)}/merge_requests/${prRef.prNumber}`;
+    const mr = await this.request("GET", path7);
+    return this.toPR(mr);
+  }
+  async listPRFiles(prRef) {
+    const path7 = `/projects/${this.projectPath(prRef.owner, prRef.repo)}/merge_requests/${prRef.prNumber}/changes`;
+    const data = await this.request("GET", path7);
+    return data.changes.map((c) => ({
+      filename: c.new_path || c.old_path,
+      status: c.new_file ? "added" : c.deleted_file ? "removed" : c.renamed_file ? "renamed" : "modified",
+      additions: countDiffLines(c.diff, "+"),
+      deletions: countDiffLines(c.diff, "-"),
+      patch: c.diff || void 0
+    }));
+  }
+  async listPRCommits(prRef) {
+    const path7 = `/projects/${this.projectPath(prRef.owner, prRef.repo)}/merge_requests/${prRef.prNumber}/commits?per_page=50`;
+    const commits = await this.request("GET", path7);
+    return commits.map((c) => ({ sha: c.id, message: c.message }));
+  }
+  async getCommitStatus(owner, repo, sha) {
+    const path7 = `/projects/${this.projectPath(owner, repo)}/pipelines?sha=${encodeURIComponent(sha)}&per_page=1&order_by=id&sort=desc`;
+    const pipelines = await this.request("GET", path7);
+    if (pipelines.length === 0) return "pending";
+    return collapsePipelineStatus(pipelines[0].status);
+  }
+  async getFileContent(owner, repo, path7, ref) {
+    try {
+      const url = `${this.apiBase}/projects/${this.projectPath(owner, repo)}/repository/files/${encodeURIComponent(path7)}/raw?ref=${encodeURIComponent(ref)}`;
+      const response = await fetch(url, { method: "GET", headers: this.baseHeaders() });
+      if (!response.ok) {
+        return `(error fetching content: HTTP ${response.status})`;
+      }
+      const text = await response.text();
+      const maxChars = parseInt(process.env.FERRY_FILE_DISPLAY_CHARS ?? "", 10) || MAX_CONTENT_CHARS_DEFAULT2;
+      return text.length > maxChars ? text.slice(0, maxChars) + "\n... (truncated)" : text;
+    } catch (e) {
+      return `(error fetching content: ${e.message})`;
+    }
+  }
+  async createPR(owner, repo, head, base, title, body) {
+    const draftTitle = title.startsWith(DRAFT_PREFIX) ? title : `${DRAFT_PREFIX}${title}`;
+    const path7 = `/projects/${this.projectPath(owner, repo)}/merge_requests`;
+    try {
+      const mr = await this.request("POST", path7, {
+        body: {
+          source_branch: head,
+          target_branch: base,
+          title: draftTitle,
+          description: body
+        }
+      });
+      return mr.web_url;
+    } catch {
+      const existing = await this.listPRsForBranch(owner, repo, head);
+      if (existing.length > 0) {
+        const mr = await this.request(
+          "GET",
+          `/projects/${this.projectPath(owner, repo)}/merge_requests/${existing[0].number}`
+        );
+        return mr.web_url;
+      }
+      throw new Error(`Failed to create or find MR for source branch ${head}`);
+    }
+  }
+  async markPRReadyForReview(owner, repo, prNumber) {
+    const mr = await this.request(
+      "GET",
+      `/projects/${this.projectPath(owner, repo)}/merge_requests/${prNumber}`
+    );
+    if (!mr.title.startsWith(DRAFT_PREFIX)) return;
+    const newTitle = mr.title.slice(DRAFT_PREFIX.length);
+    await this.request(
+      "PUT",
+      `/projects/${this.projectPath(owner, repo)}/merge_requests/${prNumber}`,
+      {
+        body: { title: newTitle }
+      }
+    );
+  }
+  async commentOnPR(prRef, body) {
+    await this.request(
+      "POST",
+      `/projects/${this.projectPath(prRef.owner, prRef.repo)}/merge_requests/${prRef.prNumber}/notes`,
+      { body: { body } }
+    );
+  }
+  async addLabelsToPR(prRef, labels) {
+    if (labels.length === 0) return;
+    await this.request(
+      "PUT",
+      `/projects/${this.projectPath(prRef.owner, prRef.repo)}/merge_requests/${prRef.prNumber}`,
+      { body: { add_labels: labels.join(",") } }
+    );
+  }
+  async removeLabelFromPR(prRef, label) {
+    await this.request(
+      "PUT",
+      `/projects/${this.projectPath(prRef.owner, prRef.repo)}/merge_requests/${prRef.prNumber}`,
+      { body: { remove_labels: label } }
+    );
+  }
+  async listPRComments(prRef, count) {
+    const perPage = Math.min(Math.max(count, 1), 100);
+    const path7 = `/projects/${this.projectPath(prRef.owner, prRef.repo)}/merge_requests/${prRef.prNumber}/notes?sort=desc&order_by=created_at&per_page=${perPage}`;
+    const notes = await this.request("GET", path7);
+    return notes.map((n) => ({ id: n.id, body: n.body ?? "" }));
+  }
+  // ── Helpers ──────────────────────────────────────────────────────────────
+  toPR(mr) {
+    const conflict = mr.has_conflicts === true || typeof mr.detailed_merge_status === "string" && mr.detailed_merge_status.includes("conflict");
+    const mergeable = conflict === true ? false : mr.has_conflicts === false ? true : null;
+    return {
+      number: mr.iid,
+      title: mr.title,
+      baseRef: mr.target_branch,
+      headRef: mr.source_branch,
+      headSha: mr.sha,
+      mergeable
+    };
+  }
+};
+function countDiffLines(diff, prefix) {
+  if (!diff) return 0;
+  let count = 0;
+  for (const line of diff.split("\n")) {
+    if (line.startsWith(prefix) && !line.startsWith(prefix.repeat(3))) count += 1;
+  }
+  return count;
+}
+function collapsePipelineStatus(status) {
+  switch (status) {
+    case "success":
+    case "skipped":
+    case "manual":
+      return "green";
+    case "failed":
+      return "red";
+    case "canceled":
+      return "red";
+    case "created":
+    case "waiting_for_resource":
+    case "preparing":
+    case "pending":
+    case "running":
+    case "scheduled":
+      return "pending";
+  }
+}
+
 // src/lib/dispatch/runner/factory.ts
-var GITLAB_TRACKING_ISSUE = "https://github.com/big-emotion/ferry/issues/210";
 function resolveForgeFromEnv() {
   const raw = (process.env.FERRY_FORGE ?? "").trim().toLowerCase();
   if (raw === "" || raw === "github") return "github";
@@ -5220,9 +5461,10 @@ function createRunnerFromEnv(token, owner, repo) {
     case "github":
       return new GitHubActionsRunner(token, owner, repo);
     case "gitlab":
-      throw new FerryError("state-invariant", {
-        reason: "gitlab-runner-not-implemented",
-        tracking: GITLAB_TRACKING_ISSUE
+      return new GitLabRunner(token, owner, repo, {
+        apiBase: process.env.FERRY_GITLAB_API_BASE,
+        pipelineTriggerToken: process.env.FERRY_GITLAB_PIPELINE_TRIGGER_TOKEN,
+        triggerRef: process.env.FERRY_GITLAB_TRIGGER_REF
       });
   }
 }
