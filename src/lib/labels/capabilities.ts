@@ -112,9 +112,25 @@ export interface TicketOverrides {
 
   /**
    * Extended-thinking mode override.
-   * ferry:thinking/on enables thinking; ferry:thinking/off disables it.
+   * - `ferry:thinking/on` enables thinking with the default budget.
+   * - `ferry:thinking/extended` enables thinking with a larger budget for complex tasks.
+   * - `ferry:thinking/off` force-disables thinking even if repo defaults enable it.
+   *
+   * Anthropic-only — non-Anthropic providers ignore the flag with a stderr warning
+   * at invocation time (not at resolution time, so the override stays visible in the audit).
    */
-  thinking?: 'on' | 'off';
+  thinking?: 'on' | 'off' | 'extended';
+
+  // --- ferry:strict-review / ferry:lenient-review ---
+
+  /**
+   * Reviewer rubric override for this ticket.
+   * - `ferry:strict-review` → 'strict' — Reviewer applies a stricter rubric (blocks more easily).
+   * - `ferry:lenient-review` → 'lenient' — Reviewer applies a more permissive rubric (passes more easily).
+   *
+   * Consumed when assembling the Reviewer's prompt; ignored by other agents.
+   */
+  reviewRubric?: 'strict' | 'lenient';
 
   // --- ferry:git/* ---
 

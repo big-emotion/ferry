@@ -521,10 +521,10 @@ Disable Ferry's automatic Jira column moves (FR18, FR24, FR28) for this ticket o
 
 Let a Jira ticket run Ferry without producing side effects — to validate prompts, MCP wiring, or rough token spend before committing real work.
 
-| Label             | Effect                                                                                                                                                                                                                                       |
-| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Label             | Effect                                                                                                                                                                                                                                        |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ferry:dry-run`   | Run every phase but suppress all external writes: no branch push, no PR creation, no Jira label / transition / sub-task writes. The audit comment still posts, prefixed with `[dry-run]` so consumers can spot it in the Jira comment stream. |
-| `ferry:read-only` | Refiner runs normally; Developer / Reviewer / Iterator short-circuit at entry with a single `[ferry:<role>:<run-id>] read-only: agent skipped` audit comment and exit cleanly. Useful for "what would Ferry plan for this ticket?".            |
+| `ferry:read-only` | Refiner runs normally; Developer / Reviewer / Iterator short-circuit at entry with a single `[ferry:<role>:<run-id>] read-only: agent skipped` audit comment and exit cleanly. Useful for "what would Ferry plan for this ticket?".           |
 
 **LLM cost warning:** `ferry:dry-run` only suppresses **external** side effects. LLM calls still happen and **token cost is still incurred**. Each agent logs a `DRY-RUN: LLM calls will still incur cost; no commits or PRs will be pushed.` warning at start. Use `ferry:read-only` to also skip Developer / Reviewer / Iterator LLM calls — only the Refiner pays tokens.
 
@@ -536,12 +536,30 @@ Let a Jira ticket run Ferry without producing side effects — to validate promp
 
 ##### Extended thinking (`ferry:thinking/*`)
 
-| Label                | Effect                                                         |
-| -------------------- | -------------------------------------------------------------- |
-| `ferry:thinking/on`  | Enable extended-thinking mode for this ticket (Anthropic only) |
-| `ferry:thinking/off` | Disable extended-thinking mode                                 |
+| Label                     | Effect                                                                                 |
+| ------------------------- | -------------------------------------------------------------------------------------- |
+| `ferry:thinking/on`       | Enable extended-thinking mode for this ticket with the default budget (Anthropic only) |
+| `ferry:thinking/extended` | Enable extended-thinking mode with a larger budget for complex tasks (Anthropic only)  |
+| `ferry:thinking/off`      | Force-disable extended-thinking mode even if repo defaults enable it                   |
 
-**Conflict rule:** `ferry:thinking/on` and `ferry:thinking/off` on the same ticket is a conflict.
+**Anthropic-only:** these labels are only honoured when the resolved provider for the agent is `anthropic`. With `openai` or `google` the flag is ignored at invoke time and the agent logs a `ferry:thinking/* label set but provider is not anthropic — ignoring` warning to stderr. The override stays visible in the audit comment so the user's intent is recorded.
+
+**Budgets:** `on` uses a conservative `budget_tokens` for routine reasoning; `extended` uses a larger budget appropriate for complex refactors or analyses. Both budgets are below the call's `max_tokens` so the SDK accepts them. See [Anthropic extended thinking](https://docs.claude.com/en/docs/build-with-claude/extended-thinking).
+
+**Conflict rule:** any two of `ferry:thinking/on`, `ferry:thinking/extended`, `ferry:thinking/off` on the same ticket is a conflict — the Refiner / Developer / Reviewer / Iterator throws `LabelConflictError`, posts a conflict-audit comment, and exits non-zero.
+
+##### Reviewer rubric (`ferry:strict-review`, `ferry:lenient-review`)
+
+| Label                  | Effect                                                                                                             |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `ferry:strict-review`  | Reviewer applies a stricter rubric: blocks on missing tests, edge cases, weak naming, incomplete docs              |
+| `ferry:lenient-review` | Reviewer applies a more permissive rubric: blocks only on failing tests, unimplemented ACs, conflicts, or security |
+
+A rubric-override directive is appended at the end of the reviewer's system prompt (after `prompts/review.md` and any optional `prompts/review-comment.md` overlay) so it takes precedence over earlier instructions about review strictness.
+
+**Conflict rule:** `ferry:strict-review` + `ferry:lenient-review` on the same ticket is a conflict — the Reviewer throws `LabelConflictError`, posts a conflict-audit comment, and exits non-zero.
+
+**Use case:** a complex refactor gets `ferry:thinking/extended` + `ferry:strict-review` — Ferry takes its time and the Reviewer holds the bar high. A trivial copy change gets `ferry:thinking/off` + `ferry:lenient-review` — fast and cheap.
 
 ##### Git overrides (`ferry:git/*`)
 

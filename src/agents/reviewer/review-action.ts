@@ -3,6 +3,7 @@ import { delimitUntrusted } from '../../lib/llm/delimit-untrusted.js';
 import { checkIdempotencyMarker } from '../../lib/io/idempotency.js';
 import { gateCi } from './ci-gate.js';
 import { detectMergeConflicts, buildFileList, runReviewLoop } from './review-loop.js';
+import { applyRubricToPrompt } from './rubric.js';
 import {
   resolveCapabilities,
   resolveTicketOverrides,
@@ -55,6 +56,8 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
   let autoApprove = false;
   let noAutoTransition = false;
   let dryRun = false;
+  let thinkingOverride: 'on' | 'off' | 'extended' | undefined;
+  let reviewRubricOverride: 'strict' | 'lenient' | undefined;
   try {
     const overrides = resolveTicketOverrides(issue.labels, logger, {
       allowSkipReview: ferryCfg.safety?.allow_skip_review === true,
@@ -63,6 +66,8 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
     autoApprove = overrides.skipPhases?.includes('review') === true;
     noAutoTransition = overrides.noAutoTransition === true;
     dryRun = overrides.dryRun === true;
+    thinkingOverride = overrides.thinking;
+    reviewRubricOverride = overrides.reviewRubric;
     if (dryRun) {
       logger.warn('DRY-RUN: LLM calls will still incur cost; no commits or PRs will be pushed.');
     }
@@ -249,11 +254,12 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
     .filter((l) => l !== null)
     .join('\n');
 
-  const system = buildSystem('review', REPO_ROOT, {
+  const baseSystem = buildSystem('review', REPO_ROOT, {
     extraParts: [loadOptionalPrompt('review-comment', REPO_ROOT)],
     separator: '\n\n---\n\n',
   });
-  const loop = createToolCallLoop({ provider, model });
+  const system = applyRubricToPrompt(baseSystem, reviewRubricOverride);
+  const loop = createToolCallLoop({ provider, model, thinking: thinkingOverride, logger });
 
   const {
     result: review,

@@ -3,7 +3,9 @@ import { resolveAnthropicAuth } from '../anthropic-auth.js';
 import { createAnthropicAgentLoop } from './anthropic.js';
 import { createOpenAIAgentLoop } from './openai.js';
 import { createGoogleAgentLoop } from './google.js';
+import { resolveThinkingForProvider } from '../thinking.js';
 import type { AgentLoop } from './types.js';
+import type { TicketOverrides } from '../../labels/capabilities.js';
 
 export type {
   AgentLoop,
@@ -38,6 +40,8 @@ export interface CreateAgentLoopOpts {
   maxTokens?: number;
   maxCostEur?: number;
   compactWindow?: number;
+  /** Extended-thinking override from the ferry:thinking/{on,off,extended} label — Anthropic-only, ignored elsewhere. */
+  thinking?: TicketOverrides['thinking'];
   logger?: import('../../logger/index.js').Logger;
 }
 
@@ -52,6 +56,7 @@ function requireEnv(key: string): string {
 export function createAgentLoop(opts: CreateAgentLoopOpts): AgentLoop {
   if (opts.provider === 'anthropic') {
     const auth = resolveAnthropicAuth({ apiKeyEnv: 'ANTHROPIC_API_KEY' });
+    const thinking = resolveThinkingForProvider(opts.thinking, opts.provider, opts.logger);
     return createAnthropicAgentLoop({
       ...auth,
       model: opts.model,
@@ -63,9 +68,14 @@ export function createAgentLoop(opts: CreateAgentLoopOpts): AgentLoop {
       maxTokens: opts.maxTokens,
       maxCostEur: opts.maxCostEur,
       compactWindow: opts.compactWindow,
+      thinking,
       logger: opts.logger,
     });
   }
+
+  // Non-Anthropic providers: emit the "ignored — non-Anthropic provider" warning
+  // when a thinking override is set, then fall through without passing the param.
+  resolveThinkingForProvider(opts.thinking, opts.provider, opts.logger);
 
   if (opts.provider === 'openai') {
     const apiKey = requireEnv('FERRY_OPENAI_KEY');

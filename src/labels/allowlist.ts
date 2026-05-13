@@ -46,6 +46,9 @@ export const LABELS_ALLOWLIST = [
   'ferry:thinking/',
   'ferry:thinking/on',
   'ferry:thinking/off',
+  'ferry:thinking/extended',
+  'ferry:strict-review',
+  'ferry:lenient-review',
   'ferry:git/',
   'ferry:git/no-pr',
   // Config-label namespace prefixes (handled by resolveCapabilities, not resolveTicketOverrides)

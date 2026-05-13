@@ -78,6 +78,7 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
   let typeOverride: string | undefined;
   let forceLabel: string | undefined;
   let noAutoTransition = false;
+  let thinkingOverride: 'on' | 'off' | 'extended' | undefined;
   try {
     const overrides = resolveTicketOverrides(issue.labels, logger, {
       allowSkipReview: ferryCfg.safety?.allow_skip_review === true,
@@ -85,6 +86,7 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
     typeOverride = overrides.typeOverride;
     forceLabel = overrides.forceLabel;
     noAutoTransition = overrides.noAutoTransition === true;
+    thinkingOverride = overrides.thinking;
     // ferry:dry-run label → enable dry-run mode (same gating as FERRY_DRY_RUN env var).
     if (overrides.dryRun === true && !dryRun) {
       dryRun = true;
@@ -252,6 +254,7 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
     maxInputTokens: effectiveCfg.limits.max_tokens_per_run,
     maxTokens: effectiveCfg.limits.max_tokens_per_message,
     maxCostEur: effectiveCfg.limits.max_cost_eur_per_run,
+    thinking: thinkingOverride,
     executeTool,
     commitProgress: makeCommitProgress(logger, { dryRun }),
     spawnSubagent: (task) =>

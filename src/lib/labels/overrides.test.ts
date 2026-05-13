@@ -425,8 +425,28 @@ describe('resolveTicketOverrides — thinking mode (ferry:thinking/*)', () => {
     expect(resolveTicketOverrides(['ferry:thinking/off']).thinking).toBe('off');
   });
 
+  it('sets thinking to "extended" for ferry:thinking/extended', () => {
+    expect(resolveTicketOverrides(['ferry:thinking/extended']).thinking).toBe('extended');
+  });
+
   it('throws LabelConflictError when ferry:thinking/on and ferry:thinking/off both present', () => {
     expect(() => resolveTicketOverrides(['ferry:thinking/on', 'ferry:thinking/off'])).toThrow(
+      LabelConflictError,
+    );
+  });
+
+  it('throws LabelConflictError when ferry:thinking/extended and ferry:thinking/off both present', () => {
+    try {
+      resolveTicketOverrides(['ferry:thinking/extended', 'ferry:thinking/off']);
+      throw new Error('expected LabelConflictError');
+    } catch (e) {
+      expect(e).toBeInstanceOf(LabelConflictError);
+      expect((e as LabelConflictError).field).toBe('thinking');
+    }
+  });
+
+  it('throws LabelConflictError when ferry:thinking/extended and ferry:thinking/on both present', () => {
+    expect(() => resolveTicketOverrides(['ferry:thinking/extended', 'ferry:thinking/on'])).toThrow(
       LabelConflictError,
     );
   });
@@ -434,6 +454,63 @@ describe('resolveTicketOverrides — thinking mode (ferry:thinking/*)', () => {
   it('does not throw when the same thinking label appears twice', () => {
     expect(() => resolveTicketOverrides(['ferry:thinking/on', 'ferry:thinking/on'])).not.toThrow();
     expect(resolveTicketOverrides(['ferry:thinking/on', 'ferry:thinking/on']).thinking).toBe('on');
+  });
+
+  it('does not throw when ferry:thinking/extended appears twice', () => {
+    expect(() =>
+      resolveTicketOverrides(['ferry:thinking/extended', 'ferry:thinking/extended']),
+    ).not.toThrow();
+    expect(
+      resolveTicketOverrides(['ferry:thinking/extended', 'ferry:thinking/extended']).thinking,
+    ).toBe('extended');
+  });
+
+  it('logs a warning and ignores an unknown ferry:thinking/<unknown> suffix', () => {
+    const { logger, records } = createTestLogger('t', 'test');
+    const r = resolveTicketOverrides(['ferry:thinking/foo'], logger);
+    expect(r.thinking).toBeUndefined();
+    expect(records.some((rec) => rec.level === 'warn')).toBe(true);
+  });
+});
+
+// ------------------------------------------------------------------
+// ferry:strict-review / ferry:lenient-review (reviewer rubric)
+// ------------------------------------------------------------------
+
+describe('resolveTicketOverrides — reviewer rubric (ferry:strict-review / ferry:lenient-review)', () => {
+  it('sets reviewRubric to "strict" for ferry:strict-review', () => {
+    expect(resolveTicketOverrides(['ferry:strict-review']).reviewRubric).toBe('strict');
+  });
+
+  it('sets reviewRubric to "lenient" for ferry:lenient-review', () => {
+    expect(resolveTicketOverrides(['ferry:lenient-review']).reviewRubric).toBe('lenient');
+  });
+
+  it('reviewRubric is undefined when no rubric label is present', () => {
+    expect(resolveTicketOverrides([]).reviewRubric).toBeUndefined();
+  });
+
+  it('throws LabelConflictError when both strict and lenient review labels are present', () => {
+    try {
+      resolveTicketOverrides(['ferry:strict-review', 'ferry:lenient-review']);
+      throw new Error('expected LabelConflictError');
+    } catch (e) {
+      expect(e).toBeInstanceOf(LabelConflictError);
+      expect((e as LabelConflictError).field).toBe('reviewRubric');
+    }
+  });
+
+  it('does not throw when the same rubric label appears twice', () => {
+    expect(() =>
+      resolveTicketOverrides(['ferry:strict-review', 'ferry:strict-review']),
+    ).not.toThrow();
+    expect(
+      resolveTicketOverrides(['ferry:strict-review', 'ferry:strict-review']).reviewRubric,
+    ).toBe('strict');
+  });
+
+  it('hasNonDefaultOverrides returns true when reviewRubric is set', () => {
+    expect(hasNonDefaultOverrides(resolveTicketOverrides(['ferry:strict-review']))).toBe(true);
   });
 });
 
@@ -743,6 +820,19 @@ describe('buildOverridesAuditComment', () => {
     const overrides = resolveTicketOverrides(['ferry:no-auto-transition']);
     const comment = buildOverridesAuditComment('developer', 'r1', overrides);
     expect(comment).toContain('"noAutoTransition":true');
+  });
+
+  it('includes thinking and reviewRubric when both are set', () => {
+    const overrides = resolveTicketOverrides(['ferry:thinking/extended', 'ferry:strict-review']);
+    const comment = buildOverridesAuditComment('reviewer', 'run1', overrides);
+    expect(comment).toContain('"thinking":"extended"');
+    expect(comment).toContain('"reviewRubric":"strict"');
+  });
+
+  it('includes thinking when set to "off"', () => {
+    const overrides = resolveTicketOverrides(['ferry:thinking/off']);
+    const comment = buildOverridesAuditComment('developer', 'run1', overrides);
+    expect(comment).toContain('"thinking":"off"');
   });
 });
 
