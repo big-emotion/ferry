@@ -32,6 +32,8 @@ export const LABELS_ALLOWLIST = [
   'ferry:budget/',
   'ferry:budget/max-cost/',
   'ferry:budget/max-tokens/',
+  'ferry:max-iterations/',
+  'ferry:max-tokens/',
   'ferry:skip/',
   'ferry:thinking/',
   'ferry:thinking/on',
