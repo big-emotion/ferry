@@ -1403,6 +1403,9 @@ function logTicketOverrides(logger, overrides) {
   if (overrides.thinking !== void 0) {
     logger.info("thinking override", { thinking: overrides.thinking });
   }
+  if (overrides.reviewRubric !== void 0) {
+    logger.info("review rubric override", { reviewRubric: overrides.reviewRubric });
+  }
   if (overrides.git?.noPr) {
     logger.info("git override: no-pr (PR creation skipped)");
   }
@@ -5926,6 +5929,8 @@ function resolveTicketOverrides(labels, logger, options) {
   let maxTokens;
   let thinkingLabel;
   let thinking;
+  let reviewRubricLabel;
+  let reviewRubric;
   let noPr = false;
   let paused = false;
   let noAutoTransition = false;
@@ -6107,14 +6112,33 @@ function resolveTicketOverrides(labels, logger, options) {
       noAutoTransition = true;
       continue;
     }
-    if (label === "ferry:thinking/on" || label === "ferry:thinking/off") {
-      const val = label === "ferry:thinking/on" ? "on" : "off";
+    if (label.startsWith("ferry:thinking/")) {
+      const suffix = label.slice("ferry:thinking/".length);
+      let val;
+      if (suffix === "on") val = "on";
+      else if (suffix === "off") val = "off";
+      else if (suffix === "extended") val = "extended";
+      if (val === void 0) {
+        logger?.warn("unknown suffix in ferry:thinking label", { label, suffix });
+        continue;
+      }
       if (thinking !== void 0 && thinking !== val) {
         throw new LabelConflictError(thinkingLabel, label, "thinking");
       }
       if (thinking === void 0) {
         thinking = val;
         thinkingLabel = label;
+      }
+      continue;
+    }
+    if (label === "ferry:strict-review" || label === "ferry:lenient-review") {
+      const val = label === "ferry:strict-review" ? "strict" : "lenient";
+      if (reviewRubric !== void 0 && reviewRubric !== val) {
+        throw new LabelConflictError(reviewRubricLabel, label, "reviewRubric");
+      }
+      if (reviewRubric === void 0) {
+        reviewRubric = val;
+        reviewRubricLabel = label;
       }
       continue;
     }
@@ -6167,6 +6191,7 @@ function resolveTicketOverrides(labels, logger, options) {
     ...skipPhases.length > 0 ? { skipPhases } : {},
     ...noAutoTransition ? { noAutoTransition: true } : {},
     ...thinking !== void 0 ? { thinking } : {},
+    ...reviewRubric !== void 0 ? { reviewRubric } : {},
     ...noPr ? { git: { noPr: true } } : {},
     ...paused ? { paused: true } : {},
     ...dryRun ? { dryRun: true } : {},
@@ -6225,7 +6250,7 @@ function applyTicketOverrides(cfg, overrides) {
   return { ...cfg, models, limits };
 }
 function hasNonDefaultOverrides(overrides) {
-  return overrides.bypassTaskSkip || overrides.typeOverride !== void 0 || overrides.modelOverrides !== void 0 || overrides.budget !== void 0 || overrides.budgetEur !== void 0 || overrides.maxIterations !== void 0 || overrides.maxTokens !== void 0 || (overrides.skipPhases?.length ?? 0) > 0 || overrides.noAutoTransition === true || overrides.thinking !== void 0 || overrides.git?.noPr === true || overrides.paused === true || overrides.dryRun === true || overrides.readOnly === true;
+  return overrides.bypassTaskSkip || overrides.typeOverride !== void 0 || overrides.modelOverrides !== void 0 || overrides.budget !== void 0 || overrides.budgetEur !== void 0 || overrides.maxIterations !== void 0 || overrides.maxTokens !== void 0 || (overrides.skipPhases?.length ?? 0) > 0 || overrides.noAutoTransition === true || overrides.thinking !== void 0 || overrides.reviewRubric !== void 0 || overrides.git?.noPr === true || overrides.paused === true || overrides.dryRun === true || overrides.readOnly === true;
 }
 function buildOverridesAuditComment(role, runId, overrides) {
   const payload = {};
@@ -6239,6 +6264,7 @@ function buildOverridesAuditComment(role, runId, overrides) {
   if ((overrides.skipPhases?.length ?? 0) > 0) payload.skipPhases = overrides.skipPhases;
   if (overrides.noAutoTransition) payload.noAutoTransition = true;
   if (overrides.thinking !== void 0) payload.thinking = overrides.thinking;
+  if (overrides.reviewRubric !== void 0) payload.reviewRubric = overrides.reviewRubric;
   if (overrides.git?.noPr) payload.git = overrides.git;
   if (overrides.paused) payload.paused = true;
   if (overrides.dryRun) payload.dryRun = true;
@@ -7912,7 +7938,8 @@ function createAnthropicAgentLoop(opts) {
         max_tokens: maxTokens,
         system: systemBlocks,
         tools: effectiveTools,
-        messages
+        messages,
+        ...opts.thinking !== void 0 ? { thinking: opts.thinking } : {}
       };
       const response = hasHttp ? await anthropic.beta.messages.create({
         ...baseParams,
@@ -8818,6 +8845,33 @@ function createGoogleAgentLoop(opts) {
   };
 }
 
+// src/lib/llm/thinking.ts
+var THINKING_BUDGET_ON = 2e3;
+var THINKING_BUDGET_EXTENDED = 8e3;
+function thinkingParamFromOverride(thinking) {
+  switch (thinking) {
+    case "extended":
+      return { type: "enabled", budget_tokens: THINKING_BUDGET_EXTENDED };
+    case "on":
+      return { type: "enabled", budget_tokens: THINKING_BUDGET_ON };
+    case "off":
+      return { type: "disabled" };
+    default:
+      return void 0;
+  }
+}
+function resolveThinkingForProvider(thinking, provider, logger) {
+  if (thinking === void 0) return void 0;
+  if (provider !== "anthropic") {
+    logger?.warn("ferry:thinking label set but provider is not anthropic \u2014 ignoring", {
+      provider,
+      thinking
+    });
+    return void 0;
+  }
+  return thinkingParamFromOverride(thinking);
+}
+
 // src/lib/llm/agent-loop/index.ts
 function requireEnv3(key) {
   const val = process.env[key];
@@ -8829,6 +8883,7 @@ function requireEnv3(key) {
 function createAgentLoop(opts) {
   if (opts.provider === "anthropic") {
     const auth2 = resolveAnthropicAuth({ apiKeyEnv: "ANTHROPIC_API_KEY" });
+    const thinking = resolveThinkingForProvider(opts.thinking, opts.provider, opts.logger);
     return createAnthropicAgentLoop({
       ...auth2,
       model: opts.model,
@@ -8840,9 +8895,11 @@ function createAgentLoop(opts) {
       maxTokens: opts.maxTokens,
       maxCostEur: opts.maxCostEur,
       compactWindow: opts.compactWindow,
+      thinking,
       logger: opts.logger
     });
   }
+  resolveThinkingForProvider(opts.thinking, opts.provider, opts.logger);
   if (opts.provider === "openai") {
     const apiKey = requireEnv3("FERRY_OPENAI_KEY");
     return createOpenAIAgentLoop({
@@ -9106,6 +9163,7 @@ async function main2(envelope, logger) {
   let typeOverride;
   let forceLabel;
   let noAutoTransition = false;
+  let thinkingOverride;
   try {
     const overrides = resolveTicketOverrides(issue.labels, logger, {
       allowSkipReview: ferryCfg.safety?.allow_skip_review === true
@@ -9113,6 +9171,7 @@ async function main2(envelope, logger) {
     typeOverride = overrides.typeOverride;
     forceLabel = overrides.forceLabel;
     noAutoTransition = overrides.noAutoTransition === true;
+    thinkingOverride = overrides.thinking;
     if (overrides.dryRun === true && !dryRun) {
       dryRun = true;
       logger.warn("DRY-RUN: LLM calls will still incur cost; no commits or PRs will be pushed.");
@@ -9263,6 +9322,7 @@ ${tree}`,
     maxInputTokens: effectiveCfg.limits.max_tokens_per_run,
     maxTokens: effectiveCfg.limits.max_tokens_per_message,
     maxCostEur: effectiveCfg.limits.max_cost_eur_per_run,
+    thinking: thinkingOverride,
     executeTool,
     commitProgress: makeCommitProgress(logger, { dryRun }),
     spawnSubagent: (task) => loop.run({
@@ -9520,7 +9580,8 @@ function createAnthropicToolCallLoop(opts) {
           max_tokens: maxTokens,
           system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
           tools: anthropicTools,
-          messages
+          messages,
+          ...opts.thinking !== void 0 ? { thinking: opts.thinking } : {}
         });
         inputTokens += response.usage.input_tokens;
         outputTokens += response.usage.output_tokens;
@@ -9926,8 +9987,10 @@ function createToolCallLoop(opts) {
   if (opts.provider === "anthropic") {
     const auth2 = resolveAnthropicAuth({ apiKeyEnv: "ANTHROPIC_API_KEY" });
     const client = new Anthropic4(auth2);
-    return createAnthropicToolCallLoop({ client, model: opts.model });
+    const thinking = resolveThinkingForProvider(opts.thinking, opts.provider, opts.logger);
+    return createAnthropicToolCallLoop({ client, model: opts.model, thinking });
   }
+  resolveThinkingForProvider(opts.thinking, opts.provider, opts.logger);
   if (opts.provider === "openai") {
     const apiKey = requireEnv4("FERRY_OPENAI_KEY");
     return createOpenAIToolCallLoop({ apiKey, model: opts.model });
@@ -10089,6 +10152,38 @@ async function runReviewLoop(opts) {
   };
 }
 
+// src/agents/reviewer/rubric.ts
+var STRICT_DIRECTIVE = [
+  "## Rubric override \u2014 strict",
+  "",
+  "For this review, apply a STRICTER bar than usual:",
+  "",
+  "- Block on any missing test coverage for new/changed behaviour.",
+  "- Block on missing edge-case handling, error paths, or input validation.",
+  "- Block on weak naming, dead code, or unreachable branches.",
+  "- Block on incomplete documentation when public APIs change.",
+  "- Approve only when every acceptance criterion is fully satisfied with concrete evidence."
+].join("\n");
+var LENIENT_DIRECTIVE = [
+  "## Rubric override \u2014 lenient",
+  "",
+  "For this review, apply a MORE PERMISSIVE bar than usual:",
+  "",
+  "- Approve when the acceptance criteria are met, even if minor polish is missing.",
+  "- Treat naming nits, non-blocking style issues, and stylistic preferences as comments \u2014 not blockers.",
+  "- Block only on: failing tests, unimplemented ACs, merge conflicts, committed build artefacts, or security regressions.",
+  '- Prefer "approve with comments" over "request changes" when issues are non-blocking.'
+].join("\n");
+function applyRubricToPrompt(basePrompt, rubric) {
+  if (rubric === void 0) return basePrompt;
+  const directive = rubric === "strict" ? STRICT_DIRECTIVE : LENIENT_DIRECTIVE;
+  return `${basePrompt}
+
+---
+
+${directive}`;
+}
+
 // src/agents/reviewer/changes-guard.ts
 function countPriorIterations(existingComments) {
   return existingComments.filter(
@@ -10113,6 +10208,8 @@ async function main3(envelope, logger) {
   let autoApprove = false;
   let noAutoTransition = false;
   let dryRun = false;
+  let thinkingOverride;
+  let reviewRubricOverride;
   try {
     const overrides = resolveTicketOverrides(issue.labels, logger, {
       allowSkipReview: ferryCfg.safety?.allow_skip_review === true
@@ -10121,6 +10218,8 @@ async function main3(envelope, logger) {
     autoApprove = overrides.skipPhases?.includes("review") === true;
     noAutoTransition = overrides.noAutoTransition === true;
     dryRun = overrides.dryRun === true;
+    thinkingOverride = overrides.thinking;
+    reviewRubricOverride = overrides.reviewRubric;
     if (dryRun) {
       logger.warn("DRY-RUN: LLM calls will still incur cost; no commits or PRs will be pushed.");
     }
@@ -10267,11 +10366,12 @@ async function main3(envelope, logger) {
     "Use get_file_patch to inspect individual file diffs, get_file_content for full file contents.",
     "When you have enough information, call finish_review."
   ].filter((l) => l !== null).join("\n");
-  const system = buildSystem("review", REPO_ROOT3, {
+  const baseSystem = buildSystem("review", REPO_ROOT3, {
     extraParts: [loadOptionalPrompt("review-comment", REPO_ROOT3)],
     separator: "\n\n---\n\n"
   });
-  const loop = createToolCallLoop({ provider, model });
+  const system = applyRubricToPrompt(baseSystem, reviewRubricOverride);
+  const loop = createToolCallLoop({ provider, model, thinking: thinkingOverride, logger });
   const {
     result: review,
     inputTokens,
@@ -10431,6 +10531,7 @@ async function main4(envelope, logger) {
   let labelMaxIterations;
   let noAutoTransition = false;
   let dryRun = false;
+  let thinkingOverride;
   try {
     const overrides = resolveTicketOverrides(issue.labels, logger, {
       allowSkipReview: ferryCfg.safety?.allow_skip_review === true
@@ -10439,6 +10540,7 @@ async function main4(envelope, logger) {
     labelMaxIterations = overrides.maxIterations;
     noAutoTransition = overrides.noAutoTransition === true;
     dryRun = overrides.dryRun === true;
+    thinkingOverride = overrides.thinking;
     if (dryRun) {
       logger.warn("DRY-RUN: LLM calls will still incur cost; no commits or PRs will be pushed.");
     }
@@ -10593,6 +10695,7 @@ ${existingLog}` : "",
     maxInputTokens: effectiveCfg.limits.max_tokens_per_run,
     maxTokens: effectiveCfg.limits.max_tokens_per_message,
     maxCostEur: effectiveCfg.limits.max_cost_eur_per_run,
+    thinking: thinkingOverride,
     executeTool,
     commitProgress: makeCommitProgress(logger),
     logger

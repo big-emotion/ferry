@@ -9580,7 +9580,8 @@ function createAnthropicToolCallLoop(opts) {
           max_tokens: maxTokens,
           system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
           tools: anthropicTools,
-          messages
+          messages,
+          ...opts.thinking !== void 0 ? { thinking: opts.thinking } : {}
         });
         inputTokens += response.usage.input_tokens;
         outputTokens += response.usage.output_tokens;
@@ -9986,8 +9987,10 @@ function createToolCallLoop(opts) {
   if (opts.provider === "anthropic") {
     const auth2 = resolveAnthropicAuth({ apiKeyEnv: "ANTHROPIC_API_KEY" });
     const client = new Anthropic4(auth2);
-    return createAnthropicToolCallLoop({ client, model: opts.model });
+    const thinking = resolveThinkingForProvider(opts.thinking, opts.provider, opts.logger);
+    return createAnthropicToolCallLoop({ client, model: opts.model, thinking });
   }
+  resolveThinkingForProvider(opts.thinking, opts.provider, opts.logger);
   if (opts.provider === "openai") {
     const apiKey = requireEnv4("FERRY_OPENAI_KEY");
     return createOpenAIToolCallLoop({ apiKey, model: opts.model });
@@ -10149,6 +10152,38 @@ async function runReviewLoop(opts) {
   };
 }
 
+// src/agents/reviewer/rubric.ts
+var STRICT_DIRECTIVE = [
+  "## Rubric override \u2014 strict",
+  "",
+  "For this review, apply a STRICTER bar than usual:",
+  "",
+  "- Block on any missing test coverage for new/changed behaviour.",
+  "- Block on missing edge-case handling, error paths, or input validation.",
+  "- Block on weak naming, dead code, or unreachable branches.",
+  "- Block on incomplete documentation when public APIs change.",
+  "- Approve only when every acceptance criterion is fully satisfied with concrete evidence."
+].join("\n");
+var LENIENT_DIRECTIVE = [
+  "## Rubric override \u2014 lenient",
+  "",
+  "For this review, apply a MORE PERMISSIVE bar than usual:",
+  "",
+  "- Approve when the acceptance criteria are met, even if minor polish is missing.",
+  "- Treat naming nits, non-blocking style issues, and stylistic preferences as comments \u2014 not blockers.",
+  "- Block only on: failing tests, unimplemented ACs, merge conflicts, committed build artefacts, or security regressions.",
+  '- Prefer "approve with comments" over "request changes" when issues are non-blocking.'
+].join("\n");
+function applyRubricToPrompt(basePrompt, rubric) {
+  if (rubric === void 0) return basePrompt;
+  const directive = rubric === "strict" ? STRICT_DIRECTIVE : LENIENT_DIRECTIVE;
+  return `${basePrompt}
+
+---
+
+${directive}`;
+}
+
 // src/agents/reviewer/changes-guard.ts
 function countPriorIterations(existingComments) {
   return existingComments.filter(
@@ -10173,6 +10208,8 @@ async function main3(envelope, logger) {
   let autoApprove = false;
   let noAutoTransition = false;
   let dryRun = false;
+  let thinkingOverride;
+  let reviewRubricOverride;
   try {
     const overrides = resolveTicketOverrides(issue.labels, logger, {
       allowSkipReview: ferryCfg.safety?.allow_skip_review === true
@@ -10181,6 +10218,8 @@ async function main3(envelope, logger) {
     autoApprove = overrides.skipPhases?.includes("review") === true;
     noAutoTransition = overrides.noAutoTransition === true;
     dryRun = overrides.dryRun === true;
+    thinkingOverride = overrides.thinking;
+    reviewRubricOverride = overrides.reviewRubric;
     if (dryRun) {
       logger.warn("DRY-RUN: LLM calls will still incur cost; no commits or PRs will be pushed.");
     }
@@ -10327,11 +10366,12 @@ async function main3(envelope, logger) {
     "Use get_file_patch to inspect individual file diffs, get_file_content for full file contents.",
     "When you have enough information, call finish_review."
   ].filter((l) => l !== null).join("\n");
-  const system = buildSystem("review", REPO_ROOT3, {
+  const baseSystem = buildSystem("review", REPO_ROOT3, {
     extraParts: [loadOptionalPrompt("review-comment", REPO_ROOT3)],
     separator: "\n\n---\n\n"
   });
-  const loop = createToolCallLoop({ provider, model });
+  const system = applyRubricToPrompt(baseSystem, reviewRubricOverride);
+  const loop = createToolCallLoop({ provider, model, thinking: thinkingOverride, logger });
   const {
     result: review,
     inputTokens,
@@ -10491,6 +10531,7 @@ async function main4(envelope, logger) {
   let labelMaxIterations;
   let noAutoTransition = false;
   let dryRun = false;
+  let thinkingOverride;
   try {
     const overrides = resolveTicketOverrides(issue.labels, logger, {
       allowSkipReview: ferryCfg.safety?.allow_skip_review === true
@@ -10499,6 +10540,7 @@ async function main4(envelope, logger) {
     labelMaxIterations = overrides.maxIterations;
     noAutoTransition = overrides.noAutoTransition === true;
     dryRun = overrides.dryRun === true;
+    thinkingOverride = overrides.thinking;
     if (dryRun) {
       logger.warn("DRY-RUN: LLM calls will still incur cost; no commits or PRs will be pushed.");
     }
@@ -10653,6 +10695,7 @@ ${existingLog}` : "",
     maxInputTokens: effectiveCfg.limits.max_tokens_per_run,
     maxTokens: effectiveCfg.limits.max_tokens_per_message,
     maxCostEur: effectiveCfg.limits.max_cost_eur_per_run,
+    thinking: thinkingOverride,
     executeTool,
     commitProgress: makeCommitProgress(logger),
     logger
