@@ -25,6 +25,7 @@ import type {
 import { isStdioMcpServer, isHttpMcpServer } from './types.js';
 import { compactOldToolResults } from './compact.js';
 import { computeCostEur } from '../pricing.js';
+import type { ThinkingParam } from '../thinking.js';
 
 // Tools kept available in commit-and-stop mode (>=85% budget used).
 const COMMIT_AND_STOP_TOOL_NAMES = new Set([
@@ -142,6 +143,8 @@ export function createAnthropicAgentLoop(opts: {
   maxTokens?: number;
   maxCostEur?: number;
   compactWindow?: number;
+  /** Optional extended-thinking config; passed through to messages.create when set. */
+  thinking?: ThinkingParam;
   logger?: Logger;
 }): AgentLoop {
   const anthropic =
@@ -366,6 +369,7 @@ export function createAnthropicAgentLoop(opts: {
         system: systemBlocks,
         tools: effectiveTools,
         messages,
+        ...(opts.thinking !== undefined ? { thinking: opts.thinking } : {}),
       };
 
       const response: ApiResponse = hasHttp

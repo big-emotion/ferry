@@ -70,6 +70,7 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
   let labelMaxIterations: number | undefined;
   let noAutoTransition = false;
   let dryRun = false;
+  let thinkingOverride: 'on' | 'off' | 'extended' | undefined;
   try {
     const overrides = resolveTicketOverrides(issue.labels, logger, {
       allowSkipReview: ferryCfg.safety?.allow_skip_review === true,
@@ -78,6 +79,7 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
     labelMaxIterations = overrides.maxIterations;
     noAutoTransition = overrides.noAutoTransition === true;
     dryRun = overrides.dryRun === true;
+    thinkingOverride = overrides.thinking;
     if (dryRun) {
       logger.warn('DRY-RUN: LLM calls will still incur cost; no commits or PRs will be pushed.');
     }
@@ -264,6 +266,7 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
     maxInputTokens: effectiveCfg.limits.max_tokens_per_run,
     maxTokens: effectiveCfg.limits.max_tokens_per_message,
     maxCostEur: effectiveCfg.limits.max_cost_eur_per_run,
+    thinking: thinkingOverride,
     executeTool,
     commitProgress: makeCommitProgress(logger),
     logger,

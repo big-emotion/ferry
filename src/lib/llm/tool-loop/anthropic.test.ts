@@ -174,4 +174,49 @@ describe('createAnthropicToolCallLoop', () => {
     expect(out.usage.inputTokens).toBe(300);
     expect(out.usage.outputTokens).toBe(100);
   });
+
+  describe('thinking parameter wiring', () => {
+    function makeSpyClient(): { client: Anthropic; create: ReturnType<typeof vi.fn> } {
+      const create = vi.fn().mockImplementation(async () => ({
+        stop_reason: 'tool_use',
+        content: [{ type: 'tool_use', id: 'tu1', name: 'finish', input: { result: 'ok' } }],
+        usage: { input_tokens: 1, output_tokens: 1 },
+      }));
+      const client = { messages: { create } } as unknown as Anthropic;
+      return { client, create };
+    }
+
+    it('does not pass `thinking` to messages.create when no override is set', async () => {
+      const { client, create } = makeSpyClient();
+      const loop = createAnthropicToolCallLoop({ client, model: 'claude-test' });
+      await loop.run(baseRunOpts);
+      expect(create).toHaveBeenCalledOnce();
+      const callArgs = create.mock.calls[0][0] as Record<string, unknown>;
+      expect('thinking' in callArgs).toBe(false);
+    });
+
+    it('passes `thinking: { type: "enabled", budget_tokens: ... }` for on/extended', async () => {
+      const { client, create } = makeSpyClient();
+      const loop = createAnthropicToolCallLoop({
+        client,
+        model: 'claude-test',
+        thinking: { type: 'enabled', budget_tokens: 8000 },
+      });
+      await loop.run(baseRunOpts);
+      const callArgs = create.mock.calls[0][0] as Record<string, unknown>;
+      expect(callArgs.thinking).toEqual({ type: 'enabled', budget_tokens: 8000 });
+    });
+
+    it('passes `thinking: { type: "disabled" }` when override is off', async () => {
+      const { client, create } = makeSpyClient();
+      const loop = createAnthropicToolCallLoop({
+        client,
+        model: 'claude-test',
+        thinking: { type: 'disabled' },
+      });
+      await loop.run(baseRunOpts);
+      const callArgs = create.mock.calls[0][0] as Record<string, unknown>;
+      expect(callArgs.thinking).toEqual({ type: 'disabled' });
+    });
+  });
 });

@@ -65,6 +65,10 @@ export function logTicketOverrides(logger: Logger, overrides: TicketOverrides): 
     logger.info('thinking override', { thinking: overrides.thinking });
   }
 
+  if (overrides.reviewRubric !== undefined) {
+    logger.info('review rubric override', { reviewRubric: overrides.reviewRubric });
+  }
+
   if (overrides.git?.noPr) {
     logger.info('git override: no-pr (PR creation skipped)');
   }

@@ -93,7 +93,8 @@ export interface ResolveOverridesOptions {
  * - ferry:budget/*             — cost / token budget overrides
  * - ferry:skip/phase           — phase skip (refiner | dev | review | iter | iterate)
  * - ferry:no-auto-transition   — disable FR18 / FR24 / FR28 auto-transitions
- * - ferry:thinking/on|off      — extended-thinking toggle
+ * - ferry:thinking/on|off|extended — extended-thinking toggle (Anthropic-only at invoke time)
+ * - ferry:strict-review|lenient-review — Reviewer rubric override
  * - ferry:git/no-pr            — skip PR creation
  * - ferry:paused               — safety pause flag
  *
@@ -133,7 +134,10 @@ export function resolveTicketOverrides(
   let maxTokens: number | undefined;
 
   let thinkingLabel: string | undefined;
-  let thinking: 'on' | 'off' | undefined;
+  let thinking: 'on' | 'off' | 'extended' | undefined;
+
+  let reviewRubricLabel: string | undefined;
+  let reviewRubric: 'strict' | 'lenient' | undefined;
 
   let noPr = false;
   let paused = false;
@@ -344,15 +348,36 @@ export function resolveTicketOverrides(
       continue;
     }
 
-    // ferry:thinking/on | ferry:thinking/off
-    if (label === 'ferry:thinking/on' || label === 'ferry:thinking/off') {
-      const val: 'on' | 'off' = label === 'ferry:thinking/on' ? 'on' : 'off';
+    // ferry:thinking/on | ferry:thinking/off | ferry:thinking/extended
+    if (label.startsWith('ferry:thinking/')) {
+      const suffix = label.slice('ferry:thinking/'.length);
+      let val: 'on' | 'off' | 'extended' | undefined;
+      if (suffix === 'on') val = 'on';
+      else if (suffix === 'off') val = 'off';
+      else if (suffix === 'extended') val = 'extended';
+      if (val === undefined) {
+        logger?.warn('unknown suffix in ferry:thinking label', { label, suffix });
+        continue;
+      }
       if (thinking !== undefined && thinking !== val) {
         throw new LabelConflictError(thinkingLabel!, label, 'thinking');
       }
       if (thinking === undefined) {
         thinking = val;
         thinkingLabel = label;
+      }
+      continue;
+    }
+
+    // ferry:strict-review | ferry:lenient-review — reviewer rubric override
+    if (label === 'ferry:strict-review' || label === 'ferry:lenient-review') {
+      const val: 'strict' | 'lenient' = label === 'ferry:strict-review' ? 'strict' : 'lenient';
+      if (reviewRubric !== undefined && reviewRubric !== val) {
+        throw new LabelConflictError(reviewRubricLabel!, label, 'reviewRubric');
+      }
+      if (reviewRubric === undefined) {
+        reviewRubric = val;
+        reviewRubricLabel = label;
       }
       continue;
     }
@@ -422,6 +447,7 @@ export function resolveTicketOverrides(
     ...(skipPhases.length > 0 ? { skipPhases } : {}),
     ...(noAutoTransition ? { noAutoTransition: true } : {}),
     ...(thinking !== undefined ? { thinking } : {}),
+    ...(reviewRubric !== undefined ? { reviewRubric } : {}),
     ...(noPr ? { git: { noPr: true } } : {}),
     ...(paused ? { paused: true } : {}),
     ...(dryRun ? { dryRun: true } : {}),
@@ -516,6 +542,7 @@ export function hasNonDefaultOverrides(overrides: TicketOverrides): boolean {
     (overrides.skipPhases?.length ?? 0) > 0 ||
     overrides.noAutoTransition === true ||
     overrides.thinking !== undefined ||
+    overrides.reviewRubric !== undefined ||
     overrides.git?.noPr === true ||
     overrides.paused === true ||
     overrides.dryRun === true ||
@@ -549,6 +576,7 @@ export function buildOverridesAuditComment(
   if ((overrides.skipPhases?.length ?? 0) > 0) payload.skipPhases = overrides.skipPhases;
   if (overrides.noAutoTransition) payload.noAutoTransition = true;
   if (overrides.thinking !== undefined) payload.thinking = overrides.thinking;
+  if (overrides.reviewRubric !== undefined) payload.reviewRubric = overrides.reviewRubric;
   if (overrides.git?.noPr) payload.git = overrides.git;
   if (overrides.paused) payload.paused = true;
   if (overrides.dryRun) payload.dryRun = true;

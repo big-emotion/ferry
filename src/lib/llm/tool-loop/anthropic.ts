@@ -8,10 +8,13 @@ import { FerryError } from '../../errors/index.js';
 import { emitDebug } from '../debug-log.js';
 import { createLogger } from '../../logger/index.js';
 import type { ToolCallLoop, ToolLoopRunOpts, ToolLoopResult } from './types.js';
+import type { ThinkingParam } from '../thinking.js';
 
 export function createAnthropicToolCallLoop(opts: {
   client: Anthropic;
   model: string;
+  /** Optional extended-thinking config; passed through to messages.create when set. */
+  thinking?: ThinkingParam;
 }): ToolCallLoop {
   return {
     async run<T>(runOpts: ToolLoopRunOpts<T>): Promise<ToolLoopResult<T>> {
@@ -62,6 +65,7 @@ export function createAnthropicToolCallLoop(opts: {
           system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
           tools: anthropicTools,
           messages,
+          ...(opts.thinking !== undefined ? { thinking: opts.thinking } : {}),
         });
 
         inputTokens += response.usage.input_tokens;
