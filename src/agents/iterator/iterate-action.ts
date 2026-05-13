@@ -56,8 +56,7 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
   const ferryCfg = loadFerryConfigFromBaseBranch(baseBranch, REPO_ROOT, initialCfg);
 
   const iteratorWorkflow = ferryCfg.workflow.agents.iterator;
-  const shouldAutoTransition = iteratorWorkflow.auto_transition !== null;
-  const reviewTransitionId = shouldAutoTransition ? requireEnv('FERRY_REVIEW_TRANSITION_ID') : '';
+  const configAutoTransition = iteratorWorkflow.auto_transition !== null;
 
   const issue = await tracker.getIssue(ticketKey);
   const existingComments = issue.comments;
@@ -68,10 +67,14 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
   let effectiveCfg: typeof ferryCfg;
   let typeOverride: string | undefined;
   let labelMaxIterations: number | undefined;
+  let noAutoTransition = false;
   try {
-    const overrides = resolveTicketOverrides(issue.labels, logger);
+    const overrides = resolveTicketOverrides(issue.labels, logger, {
+      allowSkipReview: ferryCfg.safety?.allow_skip_review === true,
+    });
     typeOverride = overrides.typeOverride;
     labelMaxIterations = overrides.maxIterations;
+    noAutoTransition = overrides.noAutoTransition === true;
     effectiveCfg = applyTicketOverrides(ferryCfg, overrides);
     logTicketOverrides(logger, overrides);
     if (hasNonDefaultOverrides(overrides)) {
@@ -80,6 +83,15 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
         buildOverridesAuditComment('iterator', eventId, overrides),
       );
     }
+    // ferry:skip/iter (alias: iterate) — Iterator becomes a no-op.
+    if (overrides.skipPhases?.includes('iterate')) {
+      logger.info('iterate phase skipped via ferry:skip/iter — exiting (no-op)');
+      await tracker.postComment(
+        ticketKey,
+        `[ferry:iterator:${eventId}] Iterator skipped via ferry:skip/iter — no iteration performed.`,
+      );
+      return;
+    }
   } catch (err) {
     if (err instanceof LabelConflictError) {
       await tracker.postComment(ticketKey, buildConflictComment('iterator', eventId, err));
@@ -87,6 +99,10 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
     }
     throw err;
   }
+
+  // FR28 auto-transition is gated by both config and the ferry:no-auto-transition label.
+  const shouldAutoTransition = configAutoTransition && !noAutoTransition;
+  const reviewTransitionId = shouldAutoTransition ? requireEnv('FERRY_REVIEW_TRANSITION_ID') : '';
 
   const { provider: iterProvider, model } = effectiveCfg.models.iterate;
   const mcpPool = loadMcpServers();
@@ -357,7 +373,11 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
   }
 
   const { next_iteration } = decideIteratorTransition({ current_iteration: priorIterations });
-  const transitionNote = shouldAutoTransition ? ' Moved back to Review.' : '';
+  const transitionNote = shouldAutoTransition
+    ? ' Moved back to Review.'
+    : noAutoTransition
+      ? ' FR28 auto-transition skipped (ferry:no-auto-transition).'
+      : '';
 
   const terminalComment =
     resolvedOutcome === 'already_satisfied'

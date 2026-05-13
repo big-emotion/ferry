@@ -300,20 +300,48 @@ describe('resolveTicketOverrides — budget overrides (ferry:budget/*)', () => {
 // ------------------------------------------------------------------
 
 describe('resolveTicketOverrides — phase skips (ferry:skip/*)', () => {
-  it('adds a phase to skipPhases', () => {
-    const r = resolveTicketOverrides(['ferry:skip/review']);
-    expect(r.skipPhases).toEqual(['review']);
+  it('parses ferry:skip/refiner to skipPhases ["refiner"]', () => {
+    const r = resolveTicketOverrides(['ferry:skip/refiner']);
+    expect(r.skipPhases).toEqual(['refiner']);
   });
 
-  it('accumulates multiple skip phases without conflict', () => {
-    const r = resolveTicketOverrides(['ferry:skip/review', 'ferry:skip/iterate']);
+  it('parses ferry:skip/dev to skipPhases ["dev"]', () => {
+    const r = resolveTicketOverrides(['ferry:skip/dev']);
+    expect(r.skipPhases).toEqual(['dev']);
+  });
+
+  it('parses ferry:skip/iter as an alias for the iterate phase', () => {
+    const r = resolveTicketOverrides(['ferry:skip/iter']);
+    expect(r.skipPhases).toEqual(['iterate']);
+  });
+
+  it('parses ferry:skip/iterate (long form) to skipPhases ["iterate"]', () => {
+    const r = resolveTicketOverrides(['ferry:skip/iterate']);
+    expect(r.skipPhases).toEqual(['iterate']);
+  });
+
+  it('accumulates different skip phases additively (refiner + iter)', () => {
+    const r = resolveTicketOverrides(['ferry:skip/refiner', 'ferry:skip/iter']);
+    expect(r.skipPhases).toContain('refiner');
+    expect(r.skipPhases).toContain('iterate');
+  });
+
+  it('accumulates multiple skip phases without conflict (review opt-in on)', () => {
+    const r = resolveTicketOverrides(['ferry:skip/review', 'ferry:skip/iterate'], undefined, {
+      allowSkipReview: true,
+    });
     expect(r.skipPhases).toContain('review');
     expect(r.skipPhases).toContain('iterate');
   });
 
-  it('deduplicates repeated skip labels for the same phase', () => {
+  it('deduplicates repeated skip labels for the same phase (vacuous, no conflict)', () => {
     const r = resolveTicketOverrides(['ferry:skip/dev', 'ferry:skip/dev']);
     expect(r.skipPhases?.filter((p) => p === 'dev')).toHaveLength(1);
+  });
+
+  it('treats ferry:skip/iter and ferry:skip/iterate as the same phase (dedup)', () => {
+    const r = resolveTicketOverrides(['ferry:skip/iter', 'ferry:skip/iterate']);
+    expect(r.skipPhases).toEqual(['iterate']);
   });
 
   it('logs a warning and ignores unknown phase in ferry:skip label', () => {
@@ -321,6 +349,65 @@ describe('resolveTicketOverrides — phase skips (ferry:skip/*)', () => {
     const r = resolveTicketOverrides(['ferry:skip/badphase'], logger);
     expect(r.skipPhases).toBeUndefined();
     expect(records.some((rec) => rec.level === 'warn')).toBe(true);
+  });
+});
+
+// ------------------------------------------------------------------
+// ferry:skip/review — safety opt-in
+// ------------------------------------------------------------------
+
+describe('resolveTicketOverrides — ferry:skip/review opt-in guardrail', () => {
+  it('ignores ferry:skip/review when allow_skip_review is not set (default)', () => {
+    const { logger, records } = createTestLogger('t', 'test');
+    const r = resolveTicketOverrides(['ferry:skip/review'], logger);
+    expect(r.skipPhases).toBeUndefined();
+    const warns = records.filter((rec) => rec.level === 'warn');
+    expect(warns.length).toBeGreaterThan(0);
+    expect(warns.some((rec) => /allow_skip_review/.test(rec.message))).toBe(true);
+  });
+
+  it('ignores ferry:skip/review when allowSkipReview is explicitly false', () => {
+    const { logger, records } = createTestLogger('t', 'test');
+    const r = resolveTicketOverrides(['ferry:skip/review'], logger, {
+      allowSkipReview: false,
+    });
+    expect(r.skipPhases).toBeUndefined();
+    expect(records.some((rec) => rec.level === 'warn')).toBe(true);
+  });
+
+  it('honours ferry:skip/review when allowSkipReview is true', () => {
+    const r = resolveTicketOverrides(['ferry:skip/review'], undefined, {
+      allowSkipReview: true,
+    });
+    expect(r.skipPhases).toEqual(['review']);
+  });
+
+  it('opt-in does not affect other skip phases', () => {
+    const r = resolveTicketOverrides(['ferry:skip/refiner', 'ferry:skip/review'], undefined, {
+      allowSkipReview: false,
+    });
+    expect(r.skipPhases).toEqual(['refiner']);
+  });
+});
+
+// ------------------------------------------------------------------
+// ferry:no-auto-transition
+// ------------------------------------------------------------------
+
+describe('resolveTicketOverrides — ferry:no-auto-transition', () => {
+  it('sets noAutoTransition to true when label is present', () => {
+    const r = resolveTicketOverrides(['ferry:no-auto-transition']);
+    expect(r.noAutoTransition).toBe(true);
+  });
+
+  it('does not set noAutoTransition when label is absent', () => {
+    expect(resolveTicketOverrides([]).noAutoTransition).toBeUndefined();
+  });
+
+  it('combines with skipPhases additively', () => {
+    const r = resolveTicketOverrides(['ferry:skip/refiner', 'ferry:no-auto-transition']);
+    expect(r.skipPhases).toEqual(['refiner']);
+    expect(r.noAutoTransition).toBe(true);
   });
 });
 
@@ -438,12 +525,16 @@ describe('resolveTicketOverrides — mixed label sets', () => {
   });
 
   it('combines model + provider + skip + thinking', () => {
-    const r = resolveTicketOverrides([
-      'ferry:model/dev/claude-opus-4-7',
-      'ferry:provider/dev/anthropic',
-      'ferry:skip/review',
-      'ferry:thinking/on',
-    ]);
+    const r = resolveTicketOverrides(
+      [
+        'ferry:model/dev/claude-opus-4-7',
+        'ferry:provider/dev/anthropic',
+        'ferry:skip/review',
+        'ferry:thinking/on',
+      ],
+      undefined,
+      { allowSkipReview: true },
+    );
     expect(r.modelOverrides?.dev?.model).toBe('claude-opus-4-7');
     expect(r.modelOverrides?.dev?.provider).toBe('anthropic');
     expect(r.skipPhases).toContain('review');
@@ -590,7 +681,7 @@ describe('hasNonDefaultOverrides', () => {
   });
 
   it('returns true when skipPhases is non-empty', () => {
-    expect(hasNonDefaultOverrides(resolveTicketOverrides(['ferry:skip/review']))).toBe(true);
+    expect(hasNonDefaultOverrides(resolveTicketOverrides(['ferry:skip/refiner']))).toBe(true);
   });
 
   it('returns true when thinking is set', () => {
@@ -603,6 +694,10 @@ describe('hasNonDefaultOverrides', () => {
 
   it('returns true when paused is set', () => {
     expect(hasNonDefaultOverrides(resolveTicketOverrides(['ferry:paused']))).toBe(true);
+  });
+
+  it('returns true when noAutoTransition is set', () => {
+    expect(hasNonDefaultOverrides(resolveTicketOverrides(['ferry:no-auto-transition']))).toBe(true);
   });
 });
 
@@ -628,6 +723,25 @@ describe('buildOverridesAuditComment', () => {
     const overrides = resolveTicketOverrides(['ferry:budget/max-cost/5']);
     const comment = buildOverridesAuditComment('refiner', 'r1', overrides);
     expect(comment).toContain('overrides applied:');
+  });
+
+  it('includes skipPhases when ferry:skip/* labels are set', () => {
+    const overrides = resolveTicketOverrides(
+      ['ferry:skip/refiner', 'ferry:skip/iter', 'ferry:skip/review'],
+      undefined,
+      { allowSkipReview: true },
+    );
+    const comment = buildOverridesAuditComment('refiner', 'run1', overrides);
+    expect(comment).toContain('"skipPhases"');
+    expect(comment).toContain('"refiner"');
+    expect(comment).toContain('"iterate"');
+    expect(comment).toContain('"review"');
+  });
+
+  it('includes noAutoTransition when ferry:no-auto-transition is set', () => {
+    const overrides = resolveTicketOverrides(['ferry:no-auto-transition']);
+    const comment = buildOverridesAuditComment('developer', 'r1', overrides);
+    expect(comment).toContain('"noAutoTransition":true');
   });
 });
 

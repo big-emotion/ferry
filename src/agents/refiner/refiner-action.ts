@@ -184,7 +184,9 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
   const issueForLabels = await tracker.getIssue(ticketKey);
   let effectiveCfg;
   try {
-    const overrides = resolveTicketOverrides(issueForLabels.labels, logger);
+    const overrides = resolveTicketOverrides(issueForLabels.labels, logger, {
+      allowSkipReview: ferryCfg.safety?.allow_skip_review === true,
+    });
     logTicketOverrides(logger, overrides);
     effectiveCfg = applyTicketOverrides(ferryCfg, overrides);
     if (hasNonDefaultOverrides(overrides)) {
@@ -192,6 +194,15 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
         ticketKey,
         buildOverridesAuditComment('refiner', eventId, overrides),
       );
+    }
+    // ferry:skip/refiner — exit early; the ticket goes straight to Dev when triggered.
+    if (overrides.skipPhases?.includes('refiner')) {
+      logger.info('refiner phase skipped via ferry:skip/refiner — exiting');
+      await tracker.postComment(
+        ticketKey,
+        `[ferry:refiner:${eventId}] Refiner skipped via ferry:skip/refiner — no refinement performed.`,
+      );
+      return;
     }
   } catch (err) {
     if (err instanceof LabelConflictError) {

@@ -91,8 +91,22 @@ export interface TicketOverrides {
   /**
    * Phases to skip for this ticket.
    * ferry:skip/dev means the Developer agent exits immediately.
+   * ferry:skip/refiner sends the ticket straight to Dev.
+   * ferry:skip/review auto-approves the PR at the Reviewer phase (requires the
+   *   `safety.allow_skip_review` opt-in flag; otherwise the label is ignored).
+   * ferry:skip/iter (alias: ferry:skip/iterate) makes the Iterator a no-op.
    */
   skipPhases?: AgentPhase[];
+
+  // --- ferry:no-auto-transition ---
+
+  /**
+   * True when the ticket carries the ferry:no-auto-transition label.
+   * Disables Ferry's auto-transitions for FR18 (Dev → In Review),
+   * FR24 (Reviewer → Ready/Changes), and FR28 (Iterator → In Review).
+   * The human moves the Jira column manually.
+   */
+  noAutoTransition?: boolean;
 
   // --- ferry:thinking/* ---
 

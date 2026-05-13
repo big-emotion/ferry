@@ -480,16 +480,42 @@ Override cost / token budgets and iteration limits for this ticket only.
 
 ##### Phase skips (`ferry:skip/*`)
 
-Force a specific phase to exit immediately without doing any work.
+Force a specific phase to exit immediately without doing any work. Useful for tickets that don't need the full Ferry pipeline (e.g. a trivial typo fix that doesn't warrant a refinement pass).
 
-| Label                | Effect                      |
-| -------------------- | --------------------------- |
-| `ferry:skip/refine`  | Refiner exits immediately   |
-| `ferry:skip/dev`     | Developer exits immediately |
-| `ferry:skip/review`  | Reviewer exits immediately  |
-| `ferry:skip/iterate` | Iterator exits immediately  |
+| Label                | Effect                                                                                                                                                              |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ferry:skip/refiner` | Refiner exits immediately — the ticket goes straight to Dev when triggered.                                                                                         |
+| `ferry:skip/dev`     | Developer exits immediately — no branch, no PR, no implementation.                                                                                                  |
+| `ferry:skip/review`  | Reviewer auto-approves the PR without running the review loop. **Dangerous** — requires the `safety.allow_skip_review` opt-in (see below) and is ignored otherwise. |
+| `ferry:skip/iter`    | Iterator becomes a no-op — review feedback is not auto-iterated. Alias: `ferry:skip/iterate`.                                                                       |
 
-Multiple `ferry:skip/*` labels can coexist without conflict.
+Multiple `ferry:skip/*` labels for **different** phases coexist additively (e.g. `ferry:skip/refiner` + `ferry:skip/iter` is allowed). Duplicate labels for the same phase are deduplicated silently.
+
+**Safety opt-in for `ferry:skip/review`:** Because bypassing the review phase auto-approves the PR, the label is ignored unless the repository owner has opted in by setting:
+
+```yaml
+# ferry.config.yaml
+safety:
+  allow_skip_review: true # default: false
+```
+
+Without the opt-in, the label is treated as unknown — a warning is logged to stderr and review proceeds normally. This prevents a single Jira user from bypassing review without explicit repo-level consent.
+
+When honoured, the Reviewer:
+
+- Posts a `[ferry:reviewer:<run-id>] Auto-approved via ferry:skip/review` comment on the Jira ticket.
+- Adds the `ferry:approved` label to the PR.
+- Performs `auto_transition_approve` (FR24) if configured and `ferry:no-auto-transition` is not also set.
+
+##### No auto-transition (`ferry:no-auto-transition`)
+
+Disable Ferry's automatic Jira column moves (FR18, FR24, FR28) for this ticket only. The agent still does its work — only the Jira board transition is suppressed, and the engineer moves the column manually.
+
+| Label                      | Effect                                                                                                                                                                                                                     |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ferry:no-auto-transition` | Suppresses FR18 (Developer → In Review), FR24 (Reviewer → Ready / Changes Requested), and FR28 (Iterator → In Review). The terminal Jira comment notes which transition was skipped (e.g. `FR18 auto-transition skipped`). |
+
+**Use case:** a research spike where the engineer wants to read the agent's output before deciding the next column.
 
 ##### Extended thinking (`ferry:thinking/*`)
 
@@ -553,6 +579,21 @@ workflow:
 > **Finding Jira transition IDs for custom columns:** Call `GET https://<your-domain>.atlassian.net/rest/api/3/issue/<TICKET-KEY>/transitions` with Basic Auth. Match the transition `name` to your target column and use the `id` field as the secret value.
 
 > **`ferry-doctor` validates columns:** When `workflow.agents` is present in your config, `ferry-doctor` calls the Jira API to confirm each `trigger_column` and `auto_transition` value exists in your project. Run `ferry-doctor` after changing column names.
+
+---
+
+#### `safety`
+
+Repo-level opt-ins that gate dangerous Jira-label overrides. All flags default to `false` (the safest behaviour) and must be explicitly enabled by the repository owner.
+
+```yaml
+safety:
+  allow_skip_review: false # default — set true to honour ferry:skip/review
+```
+
+| Field                      | Default | Description                                                                                                                                                                                                                                          |
+| -------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `safety.allow_skip_review` | `false` | When `true`, the `ferry:skip/review` label auto-approves the PR at the Reviewer phase (bypassing the review loop). When `false` (default), the label is logged to stderr and ignored. Prevents bypassing review without explicit repo-owner consent. |
 
 ---
 
