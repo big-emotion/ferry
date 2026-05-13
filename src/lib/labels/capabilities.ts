@@ -187,10 +187,30 @@ const FORCE_TYPE_LABELS: Readonly<Record<string, string>> = Object.freeze({
 
 const ENABLE_TASK_LABEL = 'ferry:type:enable-task';
 
-/** All recognised built-in ferry:type:* labels (used to suppress unknown-label warnings). */
+/**
+ * Alias namespace ferry:as/<type> (issue #242). Maps directly to the same
+ * typeOverride field as ferry:type:force-<type> but with stricter conflict
+ * semantics — multiple ferry:as/<x> with different suffixes throw
+ * LabelConflictError, and mixing ferry:as/<a> with ferry:type:force-<b>
+ * also throws when <a> and <b> resolve to different values.
+ *
+ * Unlike ferry:type:enable-task, the alias namespace does NOT bypass the
+ * FR6 Task-skip — a Task ticket with ferry:as/story is still skipped.
+ */
+export const AS_LABEL_PREFIX = 'ferry:as/';
+
+/** Suffix → normalised issue type mapping for the ferry:as/<type> namespace. */
+export const AS_TYPE_LABELS: Readonly<Record<string, string>> = Object.freeze({
+  bug: 'Bug',
+  spike: 'Spike',
+  story: 'Story',
+});
+
+/** All recognised built-in ferry:type:* and ferry:as/<type> labels (suppress warnings). */
 const BUILTIN_TYPE_LABELS: ReadonlySet<string> = new Set([
   ENABLE_TASK_LABEL,
   ...Object.keys(FORCE_TYPE_LABELS),
+  ...Object.keys(AS_TYPE_LABELS).map((s) => `${AS_LABEL_PREFIX}${s}`),
 ]);
 
 /**

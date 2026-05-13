@@ -1,6 +1,11 @@
 import type { Logger } from '../logger/index.js';
 import type { FerryConfig } from '../config.js';
-import { resolveTypeOverrides, isBuiltinTypeLabel } from './capabilities.js';
+import {
+  resolveTypeOverrides,
+  isBuiltinTypeLabel,
+  AS_LABEL_PREFIX,
+  AS_TYPE_LABELS,
+} from './capabilities.js';
 import type { TicketOverrides, AgentPhase, PhaseModelOverride } from './capabilities.js';
 
 const AGENT_PHASES: ReadonlySet<string> = new Set(['refiner', 'dev', 'review', 'iterate']);
@@ -118,6 +123,40 @@ export function resolveTicketOverrides(
   options?: ResolveOverridesOptions,
 ): TicketOverrides {
   const typeOverrides = resolveTypeOverrides(labels);
+
+  // ferry:as/<type> (alias namespace from issue #242).
+  // Distinct from ferry:type:force-<type> in two ways:
+  //   - multiple ferry:as/<x> with different suffixes throw LabelConflictError;
+  //   - mixing ferry:as/<a> with ferry:type:force-<b> throws when they
+  //     resolve to different typeOverride values.
+  // The alias does NOT set bypassTaskSkip — a Task ticket with ferry:as/story
+  // is still skipped by FR6.
+  let asLabel: string | undefined;
+  let asTypeValue: string | undefined;
+  for (const label of labels) {
+    if (!label.startsWith(AS_LABEL_PREFIX)) continue;
+    const suffix = label.slice(AS_LABEL_PREFIX.length);
+    const mapped = AS_TYPE_LABELS[suffix];
+    if (mapped === undefined) {
+      logger?.warn('unknown suffix in ferry:as label', { label, suffix });
+      continue;
+    }
+    if (asTypeValue !== undefined && asTypeValue !== mapped) {
+      throw new LabelConflictError(asLabel!, label, 'typeOverride');
+    }
+    if (asTypeValue === undefined) {
+      asTypeValue = mapped;
+      asLabel = label;
+    }
+  }
+  if (asTypeValue !== undefined) {
+    // Cross-namespace conflict: ferry:as/<a> vs ferry:type:force-<b> with different values.
+    if (typeOverrides.typeOverride !== undefined && typeOverrides.typeOverride !== asTypeValue) {
+      throw new LabelConflictError(typeOverrides.forceLabel!, asLabel!, 'typeOverride');
+    }
+    typeOverrides.typeOverride = asTypeValue;
+    typeOverrides.forceLabel = asLabel;
+  }
 
   const modelOverrides: Partial<Record<AgentPhase, PhaseModelOverride>> = {};
   const modelSources: Partial<Record<AgentPhase, string>> = {};

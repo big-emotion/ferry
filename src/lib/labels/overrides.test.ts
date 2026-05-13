@@ -65,6 +65,94 @@ describe('resolveTicketOverrides — ticket-type (ferry:type:*)', () => {
 });
 
 // ------------------------------------------------------------------
+// ferry:as/<type> (alias namespace from issue #242)
+// ------------------------------------------------------------------
+
+describe('resolveTicketOverrides — ferry:as/<type> alias namespace (#242)', () => {
+  it('sets typeOverride to Spike for ferry:as/spike', () => {
+    const r = resolveTicketOverrides(['ferry:as/spike']);
+    expect(r.typeOverride).toBe('Spike');
+    expect(r.forceLabel).toBe('ferry:as/spike');
+  });
+
+  it('sets typeOverride to Bug for ferry:as/bug', () => {
+    const r = resolveTicketOverrides(['ferry:as/bug']);
+    expect(r.typeOverride).toBe('Bug');
+    expect(r.forceLabel).toBe('ferry:as/bug');
+  });
+
+  it('sets typeOverride to Story for ferry:as/story', () => {
+    const r = resolveTicketOverrides(['ferry:as/story']);
+    expect(r.typeOverride).toBe('Story');
+    expect(r.forceLabel).toBe('ferry:as/story');
+  });
+
+  it('does NOT set bypassTaskSkip — Task-skip is preserved (FR6 structural rule)', () => {
+    const r = resolveTicketOverrides(['ferry:as/story']);
+    expect(r.bypassTaskSkip).toBe(false);
+  });
+
+  it('throws LabelConflictError when two different ferry:as/<x> labels are present', () => {
+    expect(() => resolveTicketOverrides(['ferry:as/bug', 'ferry:as/story'])).toThrow(
+      LabelConflictError,
+    );
+  });
+
+  it('is vacuous (no conflict) when the same ferry:as/<x> label is repeated', () => {
+    const r = resolveTicketOverrides(['ferry:as/bug', 'ferry:as/bug']);
+    expect(r.typeOverride).toBe('Bug');
+  });
+
+  it('throws LabelConflictError when ferry:as/<a> and ferry:type:force-<b> map to different values', () => {
+    expect(() => resolveTicketOverrides(['ferry:as/bug', 'ferry:type:force-story'])).toThrow(
+      LabelConflictError,
+    );
+  });
+
+  it('emits typeOverride field name on cross-namespace conflict', () => {
+    try {
+      resolveTicketOverrides(['ferry:as/bug', 'ferry:type:force-story']);
+      throw new Error('expected LabelConflictError');
+    } catch (err) {
+      expect(err).toBeInstanceOf(LabelConflictError);
+      expect((err as LabelConflictError).field).toBe('typeOverride');
+    }
+  });
+
+  it('does NOT conflict when ferry:as/<x> and ferry:type:force-<x> map to the same value', () => {
+    const r = resolveTicketOverrides(['ferry:as/bug', 'ferry:type:force-bug']);
+    expect(r.typeOverride).toBe('Bug');
+  });
+
+  it('logs a warning and ignores ferry:as/<unknown> suffix', () => {
+    const { logger, records } = createTestLogger('t', 'test');
+    const r = resolveTicketOverrides(['ferry:as/improvement'], logger);
+    expect(r.typeOverride).toBeUndefined();
+    expect(records.some((rec) => rec.level === 'warn' && rec.message.includes('ferry:as'))).toBe(
+      true,
+    );
+  });
+
+  it('still allows ferry:type:enable-task to coexist with ferry:as/<x> (different fields)', () => {
+    const r = resolveTicketOverrides(['ferry:type:enable-task', 'ferry:as/story']);
+    expect(r.bypassTaskSkip).toBe(true);
+    expect(r.typeOverride).toBe('Story');
+  });
+
+  it('surfaces ferry:as/<x> typeOverride in the audit comment payload', () => {
+    const overrides = resolveTicketOverrides(['ferry:as/spike']);
+    const body = buildOverridesAuditComment('developer', 'r1', overrides);
+    expect(body).toContain('"typeOverride":"Spike"');
+  });
+
+  it('does NOT emit ferry:as/<x> as an unknown label warning', () => {
+    const { logger, records } = createTestLogger('t', 'test');
+    resolveTicketOverrides(['ferry:as/bug'], logger);
+    expect(records.filter((r) => r.level === 'warn')).toHaveLength(0);
+  });
+});
+
+// ------------------------------------------------------------------
 // ferry:model/<phase>/<model-id>
 // ------------------------------------------------------------------
 
