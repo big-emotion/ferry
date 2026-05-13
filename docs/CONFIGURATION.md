@@ -458,16 +458,25 @@ Valid `<provider>` values: `anthropic`, `openai`, `google`.
 
 **Use case:** keep Sonnet as the repo default; tag the two hardest tickets of the sprint with `ferry:model/claude-opus-4-7` so they get higher-quality output while routine work stays cheap.
 
-##### Budget (`ferry:budget/*`)
+##### Budget, iteration, and token caps
 
-Override cost or token budgets for this ticket only.
+Override cost / token budgets and iteration limits for this ticket only.
 
-| Label pattern                 | Example                          | Effect                                                                    |
-| ----------------------------- | -------------------------------- | ------------------------------------------------------------------------- |
-| `ferry:budget/max-cost/<eur>` | `ferry:budget/max-cost/5`        | Cap spend at EUR 5 for this run (overrides `limits.max_cost_eur_per_run`) |
-| `ferry:budget/max-tokens/<n>` | `ferry:budget/max-tokens/200000` | Cap input tokens at 200 000 (overrides `limits.max_tokens_per_run`)       |
+| Label pattern                 | Example                          | Effect                                                                                                                                                                                                  |
+| ----------------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ferry:budget/<eur>`          | `ferry:budget/3`                 | Hard EUR cap for this ticket. When the accumulated cost reaches this value the agent exits and the ticket is labeled `ferry:spend-cap`. Positive integer only. Overrides `limits.max_cost_eur_per_run`. |
+| `ferry:max-iterations/<n>`    | `ferry:max-iterations/50`        | Cap the agent-loop internal iteration count for this ticket. In the Iterator, hitting this cap is treated as success-of-intent (no `ferry:blocked`). Overrides `limits.max_agent_iterations`.           |
+| `ferry:max-tokens/<n>`        | `ferry:max-tokens/4096`          | Cap per-LLM-call output tokens for this ticket. Forwarded to the provider SDK `max_tokens` parameter. Overrides `limits.max_tokens_per_message`.                                                        |
+| `ferry:budget/max-cost/<eur>` | `ferry:budget/max-cost/5`        | Cap spend at EUR 5 for this run (overrides `limits.max_cost_eur_per_run`). Accepts decimals (e.g. `2.5`).                                                                                               |
+| `ferry:budget/max-tokens/<n>` | `ferry:budget/max-tokens/200000` | Cap input tokens at 200 000 (overrides `limits.max_tokens_per_run`). Must be a positive integer.                                                                                                        |
 
-The `<eur>` value accepts decimals (e.g. `2.5`). The `<n>` value must be a positive integer.
+**`ferry:budget/<eur>` behaviour:** Budget is checked before each LLM call using the accumulated token counts for the current run. When the EUR limit is hit:
+
+- The agent throws a spend-cap error and exits the current phase.
+- `ferry:spend-cap` is applied to the ticket.
+- A Jira audit comment is posted naming the ticket and EUR consumed.
+
+**Conflict rules:** Duplicate labels for the same field (e.g. two `ferry:budget/<n>` labels with different values) are a conflict — the agent posts a Jira comment and exits non-zero. `ferry:budget/<eur>` and `ferry:budget/max-cost/<eur>` set the same config field (`limits.max_cost_eur_per_run`); they can coexist as they are separate fields, but the last one applied via `applyTicketOverrides` wins — avoid combining them.
 
 ##### Phase skips (`ferry:skip/*`)
 

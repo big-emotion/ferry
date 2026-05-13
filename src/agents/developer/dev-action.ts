@@ -23,6 +23,7 @@ import {
 import type { EventEnvelopeV1 } from '../../lib/envelope/types.js';
 import type { Logger } from '../../lib/agent-runtime/index.js';
 import { isDryRun } from '../../lib/dry-run.js';
+import { FerryError } from '../../lib/errors/index.js';
 import { formatDeveloperCommit } from './commit.js';
 import { formatPullRequestTitle, formatPullRequestBody } from './pr.js';
 import {
@@ -214,6 +215,7 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
     maxIterations: effectiveCfg.limits.max_agent_iterations,
     maxInputTokens: effectiveCfg.limits.max_tokens_per_run,
     maxTokens: effectiveCfg.limits.max_tokens_per_message,
+    maxCostEur: effectiveCfg.limits.max_cost_eur_per_run,
     executeTool,
     commitProgress: makeCommitProgress(logger, { dryRun }),
     spawnSubagent: (task) =>
@@ -241,6 +243,25 @@ async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
       mcpServers,
     });
   } catch (loopErr) {
+    // EUR budget cap: apply ferry:spend-cap label and post audit comment.
+    if (
+      !dryRun &&
+      loopErr instanceof FerryError &&
+      loopErr.code === 'spend-cap' &&
+      loopErr.context?.reason === 'eur-budget-exceeded'
+    ) {
+      const consumedEur = (loopErr.context.consumed as number | undefined) ?? 0;
+      const capEur = (loopErr.context.cap as number | undefined) ?? 0;
+      try {
+        await tracker.addLabel(ticketKey, 'ferry:spend-cap');
+        await tracker.postComment(
+          ticketKey,
+          `[ferry:dev:${eventId}] Budget cap €${capEur} reached — €${consumedEur.toFixed(4)} spent. Labeled ferry:spend-cap.`,
+        );
+      } catch {
+        // best-effort
+      }
+    }
     await runWipFinalizer({
       error: loopErr,
       ticketKey,

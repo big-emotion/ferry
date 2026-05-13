@@ -24,6 +24,7 @@ import type {
 } from './types.js';
 import { isStdioMcpServer, isHttpMcpServer } from './types.js';
 import { compactOldToolResults } from './compact.js';
+import { computeCostEur } from '../pricing.js';
 
 // Tools kept available in commit-and-stop mode (>=85% budget used).
 const COMMIT_AND_STOP_TOOL_NAMES = new Set([
@@ -139,6 +140,7 @@ export function createAnthropicAgentLoop(opts: {
   maxIterations?: number;
   maxInputTokens?: number;
   maxTokens?: number;
+  maxCostEur?: number;
   compactWindow?: number;
   logger?: Logger;
 }): AgentLoop {
@@ -162,6 +164,7 @@ export function createAnthropicAgentLoop(opts: {
     const maxInputTokens =
       opts.maxInputTokens ?? parseInt(process.env.FERRY_DEV_MAX_INPUT_TOKENS ?? '500000', 10);
     const maxTokens = opts.maxTokens ?? parseInt(process.env.FERRY_DEV_MAX_TOKENS ?? '16384', 10);
+    const maxCostEur = opts.maxCostEur;
     const compactWindow =
       opts.compactWindow ?? parseInt(process.env.FERRY_DEV_COMPACT_WINDOW ?? '8', 10);
 
@@ -202,6 +205,7 @@ export function createAnthropicAgentLoop(opts: {
         maxIterations,
         maxInputTokens,
         maxTokens,
+        maxCostEur,
         compactWindow,
         hasHttp,
         mcpServerParams,
@@ -224,6 +228,7 @@ export function createAnthropicAgentLoop(opts: {
     maxIterations: number;
     maxInputTokens: number;
     maxTokens: number;
+    maxCostEur: number | undefined;
     compactWindow: number;
     hasHttp: boolean;
     mcpServerParams: McpServerParam[];
@@ -241,6 +246,7 @@ export function createAnthropicAgentLoop(opts: {
       maxIterations,
       maxInputTokens,
       maxTokens,
+      maxCostEur,
       compactWindow,
       hasHttp,
       mcpServerParams,
@@ -303,6 +309,22 @@ export function createAnthropicAgentLoop(opts: {
           cap: maxInputTokens,
           consumed: billableEquiv,
         });
+      }
+
+      if (maxCostEur !== undefined) {
+        const costEur = computeCostEur(
+          'anthropic',
+          opts.model,
+          usage.input_tokens + usage.cache_creation_input_tokens,
+          usage.output_tokens,
+        );
+        if (costEur >= maxCostEur) {
+          throw new FerryError('spend-cap', {
+            reason: 'eur-budget-exceeded',
+            cap: maxCostEur,
+            consumed: costEur,
+          });
+        }
       }
 
       const budgetFraction = maxInputTokens > 0 ? billableEquiv / maxInputTokens : 0;

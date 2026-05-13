@@ -850,6 +850,40 @@ function compactOldToolResults(messages, windowTurns) {
   }
 }
 
+// src/lib/llm/pricing.ts
+var EUR_TO_USD = 1 / 0.93;
+var RATES = {
+  "anthropic/claude-sonnet-4-6": { inputPer1M: 2.79, outputPer1M: 13.95 },
+  "anthropic/claude-opus": { inputPer1M: 13.95, outputPer1M: 69.75 },
+  "anthropic/claude-haiku": { inputPer1M: 0.23, outputPer1M: 1.16 },
+  "openai/gpt-4.1-nano": { inputPer1M: 0.09, outputPer1M: 0.37 },
+  "openai/gpt-4.1-mini": { inputPer1M: 0.14, outputPer1M: 0.56 },
+  "openai/gpt-4.": { inputPer1M: 2.79, outputPer1M: 8.37 },
+  "openai/gpt-5.": { inputPer1M: 2.79, outputPer1M: 8.37 },
+  "google/gemini-2.5-flash": { inputPer1M: 0.07, outputPer1M: 0.28 },
+  "google/gemini-2.5-pro": { inputPer1M: 1.05, outputPer1M: 4.2 }
+};
+var PROVIDER_FALLBACK = {
+  anthropic: RATES["anthropic/claude-opus"],
+  openai: RATES["openai/gpt-4."],
+  google: RATES["google/gemini-2.5-pro"]
+};
+function lookupRates(provider, model) {
+  const exactKey = `${provider}/${model}`;
+  if (RATES[exactKey]) return RATES[exactKey];
+  for (const key of Object.keys(RATES)) {
+    if (key !== exactKey && key.startsWith(`${provider}/`) && model.startsWith(key.slice(provider.length + 1))) {
+      return RATES[key];
+    }
+  }
+  return PROVIDER_FALLBACK[provider];
+}
+function computeCostEur(provider, model, inputTokens, outputTokens) {
+  const rates = lookupRates(provider, model);
+  const cost = inputTokens / 1e6 * rates.inputPer1M + outputTokens / 1e6 * rates.outputPer1M;
+  return Math.round(cost * 1e4) / 1e4;
+}
+
 // src/lib/llm/agent-loop/anthropic.ts
 var COMMIT_AND_STOP_TOOL_NAMES = /* @__PURE__ */ new Set([
   "bash",
@@ -908,6 +942,7 @@ function createAnthropicAgentLoop(opts) {
     const maxIterations = opts.maxIterations ?? parseInt(process.env.FERRY_DEV_MAX_ITERATIONS ?? "200", 10);
     const maxInputTokens = opts.maxInputTokens ?? parseInt(process.env.FERRY_DEV_MAX_INPUT_TOKENS ?? "500000", 10);
     const maxTokens = opts.maxTokens ?? parseInt(process.env.FERRY_DEV_MAX_TOKENS ?? "16384", 10);
+    const maxCostEur = opts.maxCostEur;
     const compactWindow = opts.compactWindow ?? parseInt(process.env.FERRY_DEV_COMPACT_WINDOW ?? "8", 10);
     const allServers = input.mcpServers ?? [];
     const httpServers = allServers.filter(
@@ -939,6 +974,7 @@ function createAnthropicAgentLoop(opts) {
         maxIterations,
         maxInputTokens,
         maxTokens,
+        maxCostEur,
         compactWindow,
         hasHttp,
         mcpServerParams,
@@ -961,6 +997,7 @@ function createAnthropicAgentLoop(opts) {
       maxIterations,
       maxInputTokens,
       maxTokens,
+      maxCostEur,
       compactWindow,
       hasHttp,
       mcpServerParams,
@@ -1008,6 +1045,21 @@ function createAnthropicAgentLoop(opts) {
           cap: maxInputTokens,
           consumed: billableEquiv
         });
+      }
+      if (maxCostEur !== void 0) {
+        const costEur = computeCostEur(
+          "anthropic",
+          opts.model,
+          usage.input_tokens + usage.cache_creation_input_tokens,
+          usage.output_tokens
+        );
+        if (costEur >= maxCostEur) {
+          throw new FerryError("spend-cap", {
+            reason: "eur-budget-exceeded",
+            cap: maxCostEur,
+            consumed: costEur
+          });
+        }
       }
       const budgetFraction = maxInputTokens > 0 ? billableEquiv / maxInputTokens : 0;
       if (!warned70 && budgetFraction >= 0.7) {
@@ -1338,6 +1390,7 @@ function createOpenAIAgentLoop(opts) {
     const maxIterations = opts.maxIterations ?? parseInt(process.env.FERRY_DEV_MAX_ITERATIONS ?? "200", 10);
     const maxInputTokens = opts.maxInputTokens ?? parseInt(process.env.FERRY_DEV_MAX_INPUT_TOKENS ?? "500000", 10);
     const maxTokens = opts.maxTokens ?? parseInt(process.env.FERRY_DEV_MAX_TOKENS ?? "16384", 10);
+    const maxCostEur = opts.maxCostEur;
     const compactWindow = opts.compactWindow ?? parseInt(process.env.FERRY_DEV_COMPACT_WINDOW ?? "8", 10);
     const allServers = input.mcpServers ?? [];
     const httpServers = allServers.filter((s) => isHttpMcpServer(s) && "url" in s);
@@ -1394,6 +1447,21 @@ function createOpenAIAgentLoop(opts) {
             cap: maxInputTokens,
             consumed: billableEquiv
           });
+        }
+        if (maxCostEur !== void 0) {
+          const costEur = computeCostEur(
+            "openai",
+            opts.model,
+            usage.input_tokens,
+            usage.output_tokens
+          );
+          if (costEur >= maxCostEur) {
+            throw new FerryError("spend-cap", {
+              reason: "eur-budget-exceeded",
+              cap: maxCostEur,
+              consumed: costEur
+            });
+          }
         }
         const budgetFraction = maxInputTokens > 0 ? billableEquiv / maxInputTokens : 0;
         if (!warned70 && budgetFraction >= 0.7) {
@@ -1652,6 +1720,7 @@ function createGoogleAgentLoop(opts) {
     const maxIterations = opts.maxIterations ?? parseInt(process.env.FERRY_DEV_MAX_ITERATIONS ?? "200", 10);
     const maxInputTokens = opts.maxInputTokens ?? parseInt(process.env.FERRY_DEV_MAX_INPUT_TOKENS ?? "500000", 10);
     const maxTokens = opts.maxTokens ?? parseInt(process.env.FERRY_DEV_MAX_TOKENS ?? "16384", 10);
+    const maxCostEur = opts.maxCostEur;
     const compactWindow = opts.compactWindow ?? parseInt(process.env.FERRY_DEV_COMPACT_WINDOW ?? "8", 10);
     const allServers = input.mcpServers ?? [];
     const httpServers = allServers.filter((s) => isHttpMcpServer(s) && "url" in s);
@@ -1709,6 +1778,21 @@ function createGoogleAgentLoop(opts) {
             cap: maxInputTokens,
             consumed: billableEquiv
           });
+        }
+        if (maxCostEur !== void 0) {
+          const costEur = computeCostEur(
+            "google",
+            opts.model,
+            usage.input_tokens,
+            usage.output_tokens
+          );
+          if (costEur >= maxCostEur) {
+            throw new FerryError("spend-cap", {
+              reason: "eur-budget-exceeded",
+              cap: maxCostEur,
+              consumed: costEur
+            });
+          }
         }
         const budgetFraction = maxInputTokens > 0 ? billableEquiv / maxInputTokens : 0;
         if (!warned70 && budgetFraction >= 0.7) {
@@ -1930,6 +2014,7 @@ function createAgentLoop(opts) {
       maxIterations: opts.maxIterations,
       maxInputTokens: opts.maxInputTokens,
       maxTokens: opts.maxTokens,
+      maxCostEur: opts.maxCostEur,
       compactWindow: opts.compactWindow,
       logger: opts.logger
     });
@@ -1944,6 +2029,7 @@ function createAgentLoop(opts) {
       maxIterations: opts.maxIterations,
       maxInputTokens: opts.maxInputTokens,
       maxTokens: opts.maxTokens,
+      maxCostEur: opts.maxCostEur,
       compactWindow: opts.compactWindow,
       logger: opts.logger
     });
@@ -1958,6 +2044,7 @@ function createAgentLoop(opts) {
       maxIterations: opts.maxIterations,
       maxInputTokens: opts.maxInputTokens,
       maxTokens: opts.maxTokens,
+      maxCostEur: opts.maxCostEur,
       compactWindow: opts.compactWindow,
       logger: opts.logger
     });
@@ -2195,42 +2282,6 @@ ${opts.comments}` : ""
 
 // src/lib/agent-runtime/output.ts
 import { appendFileSync } from "node:fs";
-
-// src/lib/llm/pricing.ts
-var EUR_TO_USD = 1 / 0.93;
-var RATES = {
-  "anthropic/claude-sonnet-4-6": { inputPer1M: 2.79, outputPer1M: 13.95 },
-  "anthropic/claude-opus": { inputPer1M: 13.95, outputPer1M: 69.75 },
-  "anthropic/claude-haiku": { inputPer1M: 0.23, outputPer1M: 1.16 },
-  "openai/gpt-4.1-nano": { inputPer1M: 0.09, outputPer1M: 0.37 },
-  "openai/gpt-4.1-mini": { inputPer1M: 0.14, outputPer1M: 0.56 },
-  "openai/gpt-4.": { inputPer1M: 2.79, outputPer1M: 8.37 },
-  "openai/gpt-5.": { inputPer1M: 2.79, outputPer1M: 8.37 },
-  "google/gemini-2.5-flash": { inputPer1M: 0.07, outputPer1M: 0.28 },
-  "google/gemini-2.5-pro": { inputPer1M: 1.05, outputPer1M: 4.2 }
-};
-var PROVIDER_FALLBACK = {
-  anthropic: RATES["anthropic/claude-opus"],
-  openai: RATES["openai/gpt-4."],
-  google: RATES["google/gemini-2.5-pro"]
-};
-function lookupRates(provider, model) {
-  const exactKey = `${provider}/${model}`;
-  if (RATES[exactKey]) return RATES[exactKey];
-  for (const key of Object.keys(RATES)) {
-    if (key !== exactKey && key.startsWith(`${provider}/`) && model.startsWith(key.slice(provider.length + 1))) {
-      return RATES[key];
-    }
-  }
-  return PROVIDER_FALLBACK[provider];
-}
-function computeCostEur(provider, model, inputTokens, outputTokens) {
-  const rates = lookupRates(provider, model);
-  const cost = inputTokens / 1e6 * rates.inputPer1M + outputTokens / 1e6 * rates.outputPer1M;
-  return Math.round(cost * 1e4) / 1e4;
-}
-
-// src/lib/agent-runtime/output.ts
 function appendOutput(usage) {
   const githubOutput = process.env.GITHUB_OUTPUT;
   if (githubOutput) {
@@ -7454,6 +7505,12 @@ function resolveTicketOverrides(labels, logger) {
   let budgetMaxTokensLabel;
   let budgetMaxCostEur;
   let budgetMaxTokens;
+  let budgetEurLabel;
+  let budgetEur;
+  let maxIterationsLabel;
+  let maxIterations;
+  let maxTokensLabel;
+  let maxTokens;
   let thinkingLabel;
   let thinking;
   let noPr = false;
@@ -7541,32 +7598,76 @@ function resolveTicketOverrides(labels, logger) {
       };
       continue;
     }
-    if (label.startsWith("ferry:budget/max-cost/")) {
-      const raw = label.slice("ferry:budget/max-cost/".length);
-      const val = parsePositiveFloat(raw);
-      if (val === void 0) {
-        logger?.warn("invalid cost value in ferry:budget/max-cost label", { label });
+    if (label.startsWith("ferry:budget/")) {
+      const rest = label.slice("ferry:budget/".length);
+      if (rest.startsWith("max-cost/")) {
+        const raw = rest.slice("max-cost/".length);
+        const val2 = parsePositiveFloat(raw);
+        if (val2 === void 0) {
+          logger?.warn("invalid cost value in ferry:budget/max-cost label", { label });
+          continue;
+        }
+        if (budgetMaxCostLabel !== void 0) {
+          throw new LabelConflictError(budgetMaxCostLabel, label, "budget.maxCostEurPerRun");
+        }
+        budgetMaxCostLabel = label;
+        budgetMaxCostEur = val2;
         continue;
       }
-      if (budgetMaxCostLabel !== void 0) {
-        throw new LabelConflictError(budgetMaxCostLabel, label, "budget.maxCostEurPerRun");
+      if (rest.startsWith("max-tokens/")) {
+        const raw = rest.slice("max-tokens/".length);
+        const val2 = parsePositiveInt(raw);
+        if (val2 === void 0) {
+          logger?.warn("invalid token count in ferry:budget/max-tokens label", { label });
+          continue;
+        }
+        if (budgetMaxTokensLabel !== void 0) {
+          throw new LabelConflictError(budgetMaxTokensLabel, label, "budget.maxTokensPerRun");
+        }
+        budgetMaxTokensLabel = label;
+        budgetMaxTokens = val2;
+        continue;
       }
-      budgetMaxCostLabel = label;
-      budgetMaxCostEur = val;
+      const val = parsePositiveInt(rest);
+      if (val === void 0) {
+        logger?.warn("invalid EUR value in ferry:budget label (expected positive integer)", {
+          label
+        });
+        continue;
+      }
+      if (budgetEurLabel !== void 0) {
+        throw new LabelConflictError(budgetEurLabel, label, "budgetEur");
+      }
+      budgetEurLabel = label;
+      budgetEur = val;
       continue;
     }
-    if (label.startsWith("ferry:budget/max-tokens/")) {
-      const raw = label.slice("ferry:budget/max-tokens/".length);
+    if (label.startsWith("ferry:max-iterations/")) {
+      const raw = label.slice("ferry:max-iterations/".length);
       const val = parsePositiveInt(raw);
       if (val === void 0) {
-        logger?.warn("invalid token count in ferry:budget/max-tokens label", { label });
+        logger?.warn("invalid count in ferry:max-iterations label", { label });
         continue;
       }
-      if (budgetMaxTokensLabel !== void 0) {
-        throw new LabelConflictError(budgetMaxTokensLabel, label, "budget.maxTokensPerRun");
+      if (maxIterationsLabel !== void 0) {
+        throw new LabelConflictError(maxIterationsLabel, label, "maxIterations");
       }
-      budgetMaxTokensLabel = label;
-      budgetMaxTokens = val;
+      maxIterationsLabel = label;
+      maxIterations = val;
+      continue;
+    }
+    if (label.startsWith("ferry:max-tokens/")) {
+      const raw = label.slice("ferry:max-tokens/".length);
+      const val = parsePositiveInt(raw);
+      if (val === void 0) {
+        logger?.warn("invalid count in ferry:max-tokens label", { label });
+        continue;
+      }
+      if (maxTokensLabel !== void 0) {
+        throw new LabelConflictError(maxTokensLabel, label, "maxTokens");
+      }
+      maxTokensLabel = label;
+      maxTokens = val;
       continue;
     }
     if (label.startsWith("ferry:skip/")) {
@@ -7625,6 +7726,9 @@ function resolveTicketOverrides(labels, logger) {
         ...budgetMaxTokens !== void 0 ? { maxTokensPerRun: budgetMaxTokens } : {}
       }
     } : {},
+    ...budgetEur !== void 0 ? { budgetEur } : {},
+    ...maxIterations !== void 0 ? { maxIterations } : {},
+    ...maxTokens !== void 0 ? { maxTokens } : {},
     ...skipPhases.length > 0 ? { skipPhases } : {},
     ...thinking !== void 0 ? { thinking } : {},
     ...noPr ? { git: { noPr: true } } : {},
@@ -7632,7 +7736,8 @@ function resolveTicketOverrides(labels, logger) {
   };
 }
 function applyTicketOverrides(cfg, overrides) {
-  if (!overrides.modelOverrides && !overrides.budget) return cfg;
+  if (!overrides.modelOverrides && !overrides.budget && overrides.budgetEur === void 0 && overrides.maxIterations === void 0 && overrides.maxTokens === void 0)
+    return cfg;
   const models = { ...cfg.models };
   const limits = { ...cfg.limits };
   const mo = overrides.modelOverrides;
@@ -7670,10 +7775,19 @@ function applyTicketOverrides(cfg, overrides) {
       limits.max_tokens_per_run = overrides.budget.maxTokensPerRun;
     }
   }
+  if (overrides.budgetEur !== void 0) {
+    limits.max_cost_eur_per_run = overrides.budgetEur;
+  }
+  if (overrides.maxIterations !== void 0) {
+    limits.max_agent_iterations = overrides.maxIterations;
+  }
+  if (overrides.maxTokens !== void 0) {
+    limits.max_tokens_per_message = overrides.maxTokens;
+  }
   return { ...cfg, models, limits };
 }
 function hasNonDefaultOverrides(overrides) {
-  return overrides.bypassTaskSkip || overrides.typeOverride !== void 0 || overrides.modelOverrides !== void 0 || overrides.budget !== void 0 || (overrides.skipPhases?.length ?? 0) > 0 || overrides.thinking !== void 0 || overrides.git?.noPr === true || overrides.paused === true;
+  return overrides.bypassTaskSkip || overrides.typeOverride !== void 0 || overrides.modelOverrides !== void 0 || overrides.budget !== void 0 || overrides.budgetEur !== void 0 || overrides.maxIterations !== void 0 || overrides.maxTokens !== void 0 || (overrides.skipPhases?.length ?? 0) > 0 || overrides.thinking !== void 0 || overrides.git?.noPr === true || overrides.paused === true;
 }
 function buildOverridesAuditComment(role, runId, overrides) {
   const payload = {};
@@ -7681,6 +7795,9 @@ function buildOverridesAuditComment(role, runId, overrides) {
   if (overrides.typeOverride !== void 0) payload.typeOverride = overrides.typeOverride;
   if (overrides.modelOverrides !== void 0) payload.modelOverrides = overrides.modelOverrides;
   if (overrides.budget !== void 0) payload.budget = overrides.budget;
+  if (overrides.budgetEur !== void 0) payload.budgetEur = overrides.budgetEur;
+  if (overrides.maxIterations !== void 0) payload.maxIterations = overrides.maxIterations;
+  if (overrides.maxTokens !== void 0) payload.maxTokens = overrides.maxTokens;
   if ((overrides.skipPhases?.length ?? 0) > 0) payload.skipPhases = overrides.skipPhases;
   if (overrides.thinking !== void 0) payload.thinking = overrides.thinking;
   if (overrides.git?.noPr) payload.git = overrides.git;
@@ -7708,11 +7825,13 @@ async function main(envelope, logger) {
   const reviewTransitionId = shouldAutoTransition ? requireEnv2("FERRY_REVIEW_TRANSITION_ID") : "";
   const issue = await tracker.getIssue(ticketKey);
   const existingComments = issue.comments;
-  let effectiveCfg = ferryCfg;
+  let effectiveCfg;
   let typeOverride;
+  let labelMaxIterations;
   try {
     const overrides = resolveTicketOverrides(issue.labels, logger);
     typeOverride = overrides.typeOverride;
+    labelMaxIterations = overrides.maxIterations;
     effectiveCfg = applyTicketOverrides(ferryCfg, overrides);
     logTicketOverrides(logger, overrides);
     if (hasNonDefaultOverrides(overrides)) {
@@ -7842,19 +7961,47 @@ ${existingLog}` : "",
     maxIterations: effectiveCfg.limits.max_agent_iterations,
     maxInputTokens: effectiveCfg.limits.max_tokens_per_run,
     maxTokens: effectiveCfg.limits.max_tokens_per_message,
+    maxCostEur: effectiveCfg.limits.max_cost_eur_per_run,
     executeTool,
     commitProgress: makeCommitProgress(logger),
     logger
   });
-  const loopResult = await loop.run({
-    system,
-    initialPrompt,
-    tools: [...TOOL_SCHEMAS, COMMIT_PROGRESS_SCHEMA],
-    repoRoot: REPO_ROOT,
-    branchName,
-    secretScan,
-    mcpServers
-  });
+  let loopResult;
+  try {
+    loopResult = await loop.run({
+      system,
+      initialPrompt,
+      tools: [...TOOL_SCHEMAS, COMMIT_PROGRESS_SCHEMA],
+      repoRoot: REPO_ROOT,
+      branchName,
+      secretScan,
+      mcpServers
+    });
+  } catch (loopErr) {
+    if (loopErr instanceof FerryError && loopErr.code === "spend-cap" && loopErr.context?.reason === "eur-budget-exceeded") {
+      const consumedEur = loopErr.context.consumed ?? 0;
+      const capEur = loopErr.context.cap ?? 0;
+      try {
+        await tracker.addLabel(ticketKey, "ferry:spend-cap");
+        await tracker.postComment(
+          ticketKey,
+          `${idempotencyMarker} Budget cap \u20AC${capEur} reached \u2014 \u20AC${consumedEur.toFixed(4)} spent. Labeled ferry:spend-cap.`
+        );
+      } catch {
+      }
+      appendOutput({ input_tokens: 0, output_tokens: 0, model, provider: iterProvider });
+      process.exit(1);
+    }
+    if (labelMaxIterations !== void 0 && loopErr instanceof FerryError && loopErr.code === "state-invariant" && loopErr.context?.reason === "iteration-cap-exceeded") {
+      await tracker.postComment(
+        ticketKey,
+        `${idempotencyMarker} Agent iteration cap (${labelMaxIterations}) reached per ferry:max-iterations/${labelMaxIterations} label \u2014 exiting cleanly.`
+      );
+      appendOutput({ input_tokens: 0, output_tokens: 0, model, provider: iterProvider });
+      process.exit(0);
+    }
+    throw loopErr;
+  }
   const { done, usage, iterations } = loopResult;
   const resolvedOutcome = done.outcome ?? (done.actionable ? "implemented" : "blocked");
   logger.info("done", {

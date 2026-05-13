@@ -98,6 +98,13 @@ export function resolveTicketOverrides(labels: string[], logger?: Logger): Ticke
   let budgetMaxCostEur: number | undefined;
   let budgetMaxTokens: number | undefined;
 
+  let budgetEurLabel: string | undefined;
+  let budgetEur: number | undefined;
+  let maxIterationsLabel: string | undefined;
+  let maxIterations: number | undefined;
+  let maxTokensLabel: string | undefined;
+  let maxTokens: number | undefined;
+
   let thinkingLabel: string | undefined;
   let thinking: 'on' | 'off' | undefined;
 
@@ -199,35 +206,85 @@ export function resolveTicketOverrides(labels: string[], logger?: Logger): Ticke
       continue;
     }
 
-    // ferry:budget/max-cost/<eur>
-    if (label.startsWith('ferry:budget/max-cost/')) {
-      const raw = label.slice('ferry:budget/max-cost/'.length);
-      const val = parsePositiveFloat(raw);
-      if (val === undefined) {
-        logger?.warn('invalid cost value in ferry:budget/max-cost label', { label });
+    // ferry:budget/* — handles max-cost/<eur>, max-tokens/<n>, and short form <eur>
+    if (label.startsWith('ferry:budget/')) {
+      const rest = label.slice('ferry:budget/'.length);
+
+      if (rest.startsWith('max-cost/')) {
+        const raw = rest.slice('max-cost/'.length);
+        const val = parsePositiveFloat(raw);
+        if (val === undefined) {
+          logger?.warn('invalid cost value in ferry:budget/max-cost label', { label });
+          continue;
+        }
+        if (budgetMaxCostLabel !== undefined) {
+          throw new LabelConflictError(budgetMaxCostLabel, label, 'budget.maxCostEurPerRun');
+        }
+        budgetMaxCostLabel = label;
+        budgetMaxCostEur = val;
         continue;
       }
-      if (budgetMaxCostLabel !== undefined) {
-        throw new LabelConflictError(budgetMaxCostLabel, label, 'budget.maxCostEurPerRun');
+
+      if (rest.startsWith('max-tokens/')) {
+        const raw = rest.slice('max-tokens/'.length);
+        const val = parsePositiveInt(raw);
+        if (val === undefined) {
+          logger?.warn('invalid token count in ferry:budget/max-tokens label', { label });
+          continue;
+        }
+        if (budgetMaxTokensLabel !== undefined) {
+          throw new LabelConflictError(budgetMaxTokensLabel, label, 'budget.maxTokensPerRun');
+        }
+        budgetMaxTokensLabel = label;
+        budgetMaxTokens = val;
+        continue;
       }
-      budgetMaxCostLabel = label;
-      budgetMaxCostEur = val;
+
+      // Short form: ferry:budget/<eur> — positive integer EUR hard cap
+      const val = parsePositiveInt(rest);
+      if (val === undefined) {
+        logger?.warn('invalid EUR value in ferry:budget label (expected positive integer)', {
+          label,
+        });
+        continue;
+      }
+      if (budgetEurLabel !== undefined) {
+        throw new LabelConflictError(budgetEurLabel, label, 'budgetEur');
+      }
+      budgetEurLabel = label;
+      budgetEur = val;
       continue;
     }
 
-    // ferry:budget/max-tokens/<n>
-    if (label.startsWith('ferry:budget/max-tokens/')) {
-      const raw = label.slice('ferry:budget/max-tokens/'.length);
+    // ferry:max-iterations/<n>
+    if (label.startsWith('ferry:max-iterations/')) {
+      const raw = label.slice('ferry:max-iterations/'.length);
       const val = parsePositiveInt(raw);
       if (val === undefined) {
-        logger?.warn('invalid token count in ferry:budget/max-tokens label', { label });
+        logger?.warn('invalid count in ferry:max-iterations label', { label });
         continue;
       }
-      if (budgetMaxTokensLabel !== undefined) {
-        throw new LabelConflictError(budgetMaxTokensLabel, label, 'budget.maxTokensPerRun');
+      if (maxIterationsLabel !== undefined) {
+        throw new LabelConflictError(maxIterationsLabel, label, 'maxIterations');
       }
-      budgetMaxTokensLabel = label;
-      budgetMaxTokens = val;
+      maxIterationsLabel = label;
+      maxIterations = val;
+      continue;
+    }
+
+    // ferry:max-tokens/<n>
+    if (label.startsWith('ferry:max-tokens/')) {
+      const raw = label.slice('ferry:max-tokens/'.length);
+      const val = parsePositiveInt(raw);
+      if (val === undefined) {
+        logger?.warn('invalid count in ferry:max-tokens label', { label });
+        continue;
+      }
+      if (maxTokensLabel !== undefined) {
+        throw new LabelConflictError(maxTokensLabel, label, 'maxTokens');
+      }
+      maxTokensLabel = label;
+      maxTokens = val;
       continue;
     }
 
@@ -303,6 +360,9 @@ export function resolveTicketOverrides(labels: string[], logger?: Logger): Ticke
           },
         }
       : {}),
+    ...(budgetEur !== undefined ? { budgetEur } : {}),
+    ...(maxIterations !== undefined ? { maxIterations } : {}),
+    ...(maxTokens !== undefined ? { maxTokens } : {}),
     ...(skipPhases.length > 0 ? { skipPhases } : {}),
     ...(thinking !== undefined ? { thinking } : {}),
     ...(noPr ? { git: { noPr: true } } : {}),
@@ -319,7 +379,14 @@ export function resolveTicketOverrides(labels: string[], logger?: Logger): Ticke
  * git, paused) are handled at the agent level and do not change the config struct.
  */
 export function applyTicketOverrides(cfg: FerryConfig, overrides: TicketOverrides): FerryConfig {
-  if (!overrides.modelOverrides && !overrides.budget) return cfg;
+  if (
+    !overrides.modelOverrides &&
+    !overrides.budget &&
+    overrides.budgetEur === undefined &&
+    overrides.maxIterations === undefined &&
+    overrides.maxTokens === undefined
+  )
+    return cfg;
 
   const models = { ...cfg.models };
   const limits = { ...cfg.limits };
@@ -361,6 +428,16 @@ export function applyTicketOverrides(cfg: FerryConfig, overrides: TicketOverride
     }
   }
 
+  if (overrides.budgetEur !== undefined) {
+    limits.max_cost_eur_per_run = overrides.budgetEur;
+  }
+  if (overrides.maxIterations !== undefined) {
+    limits.max_agent_iterations = overrides.maxIterations;
+  }
+  if (overrides.maxTokens !== undefined) {
+    limits.max_tokens_per_message = overrides.maxTokens;
+  }
+
   return { ...cfg, models, limits };
 }
 
@@ -374,6 +451,9 @@ export function hasNonDefaultOverrides(overrides: TicketOverrides): boolean {
     overrides.typeOverride !== undefined ||
     overrides.modelOverrides !== undefined ||
     overrides.budget !== undefined ||
+    overrides.budgetEur !== undefined ||
+    overrides.maxIterations !== undefined ||
+    overrides.maxTokens !== undefined ||
     (overrides.skipPhases?.length ?? 0) > 0 ||
     overrides.thinking !== undefined ||
     overrides.git?.noPr === true ||
@@ -398,6 +478,9 @@ export function buildOverridesAuditComment(
   if (overrides.typeOverride !== undefined) payload.typeOverride = overrides.typeOverride;
   if (overrides.modelOverrides !== undefined) payload.modelOverrides = overrides.modelOverrides;
   if (overrides.budget !== undefined) payload.budget = overrides.budget;
+  if (overrides.budgetEur !== undefined) payload.budgetEur = overrides.budgetEur;
+  if (overrides.maxIterations !== undefined) payload.maxIterations = overrides.maxIterations;
+  if (overrides.maxTokens !== undefined) payload.maxTokens = overrides.maxTokens;
   if ((overrides.skipPhases?.length ?? 0) > 0) payload.skipPhases = overrides.skipPhases;
   if (overrides.thinking !== undefined) payload.thinking = overrides.thinking;
   if (overrides.git?.noPr) payload.git = overrides.git;
