@@ -1,0 +1,17 @@
+{
+  "id": 999001,
+  "iid": 7,
+  "project_id": 12345,
+  "title": "Draft: feat: ACME-1 implement login",
+  "description": "Implements the ticket.\n\nSee Jira ACME-1.",
+  "state": "opened",
+  "source_branch": "ferry/ACME-1",
+  "target_branch": "main",
+  "sha": "abc1234deadbeef0000000000000000000000",
+  "merge_status": "can_be_merged",
+  "detailed_merge_status": "mergeable",
+  "has_conflicts": false,
+  "draft": true,
+  "labels": ["ferry:reviewing"],
+  "web_url": "https://gitlab.example/acme/widgets/-/merge_requests/7"
+}

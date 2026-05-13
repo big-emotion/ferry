@@ -1,0 +1,18 @@
+[
+  {
+    "id": "abc1234deadbeef0000000000000000000000",
+    "short_id": "abc1234",
+    "title": "feat(login): hash passwords",
+    "message": "feat(login): hash passwords\n\nReplaces plain-text comparison with hashed lookup.\n",
+    "author_name": "Ferry",
+    "author_email": "dev@example.com"
+  },
+  {
+    "id": "def5678cafebabe000000000000000000000",
+    "short_id": "def5678",
+    "title": "test(login): cover bad password",
+    "message": "test(login): cover bad password\n",
+    "author_name": "Ferry",
+    "author_email": "dev@example.com"
+  }
+]

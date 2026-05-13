@@ -1,0 +1,13 @@
+{
+  "id": 999001,
+  "iid": 7,
+  "project_id": 12345,
+  "title": "feat: ACME-1 implement login",
+  "state": "opened",
+  "source_branch": "ferry/ACME-1",
+  "target_branch": "main",
+  "sha": "abc1234deadbeef0000000000000000000000",
+  "draft": false,
+  "labels": ["ferry:approved"],
+  "web_url": "https://gitlab.example/acme/widgets/-/merge_requests/7"
+}

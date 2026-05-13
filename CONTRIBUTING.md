@@ -139,7 +139,26 @@ After rebuilding `.ferry/` bundles (`npm run build:ferry`), verify the bundles a
 npm run smoke:bundle
 ```
 
-This is `scripts/smoke-bundle.sh`. It boots each `.ferry/<role>-action.js` with stub credentials and asserts stderr is free of the v0.5.1 DOA failure class: `Dynamic require of`, `Cannot find module`, and `is not a function`. The bundles exit non-zero because real API credentials are not provided — that is expected and intentional. The only assertion is that no module-loading error appeared. The drift check (`npm run check:bundle`) verifies the bundle is current; the smoke test verifies it actually runs. Both gates run in CI.
+This is `scripts/smoke-bundle.sh`. It boots `.ferry/agent.js` once per role (`run --role <refiner|developer|reviewer|iterator>`) with stub credentials and asserts stderr is free of the v0.5.1 DOA failure class: `Dynamic require of`, `Cannot find module`, and `is not a function`. The bundles exit non-zero because real API credentials are not provided — that is expected and intentional. The only assertion is that no module-loading error appeared. The drift check (`npm run check:bundle`) verifies the bundle is current; the smoke test verifies it actually runs. Both gates run in CI.
+
+## GitLab fixture refresh (experimental forge)
+
+The GitLab adapter (`src/lib/dispatch/runner/gitlab/`) is verified two ways in CI:
+
+1. **Inline-mock unit tests** (`src/lib/dispatch/runner/gitlab/index.test.ts`) — every method's URL, body, headers, and error path with `vi.stubGlobal('fetch', …)`.
+2. **Fixture-replay tests** (`src/lib/dispatch/runner/gitlab/fixtures.test.ts`) — load recorded GitLab REST shapes from `src/__fixtures__/gitlab/` and feed them through the adapter, asserting it parses without contract drift.
+
+The dedicated `gitlab-adapter` job in `.github/workflows/ferry-ci.yml` runs both suites in isolation so any GitLab-only regression surfaces as a clearly-named CI job rather than buried in the main test job.
+
+When the GitLab REST contract changes (usually a field rename or a new optional field on `merge_requests`), refresh the affected fixture:
+
+1. Spin up a throwaway GitLab project (gitlab.com or a self-managed instance).
+2. Hit the matching endpoint with `curl -H "PRIVATE-TOKEN: <pat>" …`.
+3. Strip any personally-identifying fields (commit author emails, user IDs, real web URLs) and replace them with the sentinels documented in `src/__fixtures__/gitlab/README.md` (owners → `acme`, repo → `widgets`, etc.).
+4. `npx prettier --write src/__fixtures__/gitlab/<file>`.
+5. `npx vitest run src/lib/dispatch/runner/gitlab/` to confirm the adapter still parses.
+
+The fixtures are intentionally hand-crafted samples, **not** captured from a live instance — they are a contract document, not a replay log. Keep them minimal.
 
 ## Releasing
 

@@ -1,0 +1,12 @@
+[
+  {
+    "id": 5550001,
+    "iid": 42,
+    "project_id": 12345,
+    "sha": "abc1234deadbeef0000000000000000000000",
+    "ref": "ferry/ACME-1",
+    "status": "success",
+    "source": "merge_request_event",
+    "web_url": "https://gitlab.example/acme/widgets/-/pipelines/5550001"
+  }
+]

@@ -1,0 +1,24 @@
+{
+  "id": 999001,
+  "iid": 7,
+  "changes": [
+    {
+      "old_path": "src/login.ts",
+      "new_path": "src/login.ts",
+      "a_mode": "100644",
+      "b_mode": "100644",
+      "new_file": false,
+      "renamed_file": false,
+      "deleted_file": false,
+      "diff": "@@ -1,3 +1,5 @@\n+import { hash } from './crypto';\n+\n export function login(user, pw) {\n-  return user === 'admin' && pw === 'admin';\n+  return user === 'admin' && hash(pw) === ADMIN_HASH;\n }\n"
+    },
+    {
+      "old_path": "src/login.test.ts",
+      "new_path": "src/login.test.ts",
+      "new_file": true,
+      "renamed_file": false,
+      "deleted_file": false,
+      "diff": "+import { login } from './login';\n+test('login rejects bad password', () => {\n+  expect(login('admin', 'wrong')).toBe(false);\n+});\n"
+    }
+  ]
+}
