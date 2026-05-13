@@ -1,12 +1,19 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { resolveForgeFromEnv, createRunnerFromEnv } from './factory.js';
 import { GitHubActionsRunner } from './github-actions/index.js';
+import { GitLabRunner } from './gitlab/index.js';
 import { FerryError } from '../../errors/index.js';
 
 const FORGE_VAR = 'FERRY_FORGE';
+const GITLAB_VARS = [
+  'FERRY_GITLAB_API_BASE',
+  'FERRY_GITLAB_PIPELINE_TRIGGER_TOKEN',
+  'FERRY_GITLAB_TRIGGER_REF',
+];
 
 afterEach(() => {
   delete process.env[FORGE_VAR];
+  for (const v of GITLAB_VARS) delete process.env[v];
 });
 
 describe('resolveForgeFromEnv', () => {
@@ -54,18 +61,18 @@ describe('createRunnerFromEnv', () => {
     expect(runner).toBeInstanceOf(GitHubActionsRunner);
   });
 
-  it('throws a clear FerryError for FERRY_FORGE=gitlab pointing at the tracking issue', () => {
+  it('returns a GitLabRunner for FERRY_FORGE=gitlab', () => {
     process.env[FORGE_VAR] = 'gitlab';
-    expect(() => createRunnerFromEnv('token', 'owner', 'repo')).toThrowError(
-      /gitlab-runner-not-implemented/,
-    );
-    try {
-      createRunnerFromEnv('token', 'owner', 'repo');
-    } catch (err) {
-      expect(err).toBeInstanceOf(FerryError);
-      const ferryErr = err as FerryError;
-      expect(ferryErr.code).toBe('state-invariant');
-      expect(ferryErr.context?.tracking).toBe('https://github.com/big-emotion/ferry/issues/210');
-    }
+    const runner = createRunnerFromEnv('token', 'owner', 'repo');
+    expect(runner).toBeInstanceOf(GitLabRunner);
+  });
+
+  it('propagates GitLab options from env vars', () => {
+    process.env[FORGE_VAR] = 'gitlab';
+    process.env.FERRY_GITLAB_API_BASE = 'https://gitlab.example/api/v4';
+    process.env.FERRY_GITLAB_PIPELINE_TRIGGER_TOKEN = 'trig';
+    process.env.FERRY_GITLAB_TRIGGER_REF = 'release';
+    const runner = createRunnerFromEnv('token', 'owner', 'repo');
+    expect(runner).toBeInstanceOf(GitLabRunner);
   });
 });

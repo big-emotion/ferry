@@ -9,6 +9,10 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **GitLab runner adapter (experimental)** (#212, part of #210) — `FERRY_FORGE=gitlab` now resolves to a working `GitLabRunner` that implements the full `CIRunner` surface against the GitLab REST API v4 (native fetch; no SDK dependency). Vocabulary mapping: GitLab merge request ↔ pull request; `Draft:` title prefix ↔ draft PR; latest pipeline status ↔ aggregated commit status (success/skipped/manual → green; failed/canceled → red; everything else → pending). `dispatch()` triggers a downstream pipeline via the pipeline-trigger token, passing the envelope as `FERRY_ENVELOPE_PAYLOAD`. Required env vars: `FERRY_GITLAB_API_BASE` (defaults to `https://gitlab.com/api/v4`), `FERRY_GITLAB_PIPELINE_TRIGGER_TOKEN`, `FERRY_GITLAB_TRIGGER_REF`. Marked **experimental** until at least one consumer has exercised the full cycle in production — see #210 for the promotion checklist.
+
 ### Changed
 
 - **Runner factory + unified `ferry-agent` CLI** (#211, prerequisite for #210) — the runner layer is now resolved through `createRunnerFromEnv()` (`src/lib/dispatch/runner/factory.ts`), switching on a new `FERRY_FORGE` env var (default `github`; `gitlab` throws a clear "not yet implemented" error pointing at #210). The four agent composite actions (`ferry-run-{refiner,developer,reviewer,iterator}`) now invoke a single `ferry-agent run --role <role>` CLI; the per-role `.ferry/{refiner,dev,review,iterate}-action.js` bundles are replaced by a unified `.ferry/agent.js`. **No behaviour change for consumers** — the composite action interface is unchanged.
