@@ -41,6 +41,7 @@ import {
   hasNonDefaultOverrides,
   buildOverridesAuditComment,
   buildConflictComment,
+  applyDryRunMarker,
   LabelConflictError,
 } from '../../lib/agent-runtime/index.js';
 import { detectTestRunner, repoTree, packageJsonPath, detectPackageManager } from './workspace.js';
@@ -52,7 +53,7 @@ const REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
 export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
   const { ticket_key: ticketKey, event_id: eventId } = envelope;
 
-  const dryRun = isDryRun();
+  let dryRun = isDryRun();
   if (dryRun) {
     logger.info('DRY_RUN mode — no branch push, no PR, no Jira writes');
   }
@@ -84,6 +85,11 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
     typeOverride = overrides.typeOverride;
     forceLabel = overrides.forceLabel;
     noAutoTransition = overrides.noAutoTransition === true;
+    // ferry:dry-run label → enable dry-run mode (same gating as FERRY_DRY_RUN env var).
+    if (overrides.dryRun === true && !dryRun) {
+      dryRun = true;
+      logger.warn('DRY-RUN: LLM calls will still incur cost; no commits or PRs will be pushed.');
+    }
     effectiveCfg = applyTicketOverrides(ferryCfg, overrides);
     logTicketOverrides(logger, overrides);
     if (hasNonDefaultOverrides(overrides)) {
@@ -92,12 +98,27 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
         buildOverridesAuditComment('developer', eventId, overrides),
       );
     }
+    // ferry:read-only — Developer short-circuits at entry; Refiner runs normally.
+    if (overrides.readOnly === true) {
+      logger.info('read-only mode — developer agent skipped');
+      await tracker.postComment(
+        ticketKey,
+        applyDryRunMarker(
+          `[ferry:developer:${eventId}] read-only: agent skipped`,
+          overrides.dryRun,
+        ),
+      );
+      process.exit(0);
+    }
     // ferry:skip/dev — Developer exits immediately.
     if (overrides.skipPhases?.includes('dev')) {
       logger.info('dev phase skipped via ferry:skip/dev — exiting');
       await tracker.postComment(
         ticketKey,
-        `[ferry:developer:${eventId}] Developer skipped via ferry:skip/dev — no implementation performed.`,
+        applyDryRunMarker(
+          `[ferry:developer:${eventId}] Developer skipped via ferry:skip/dev — no implementation performed.`,
+          overrides.dryRun,
+        ),
       );
       process.exit(0);
     }
@@ -109,10 +130,10 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
     throw err;
   }
 
-  // FR18 auto-transition is gated by both config and the ferry:no-auto-transition label.
-  const shouldAutoTransition = configAutoTransition && !noAutoTransition;
-  const reviewTransitionId =
-    dryRun || !shouldAutoTransition ? '' : requireEnv('FERRY_REVIEW_TRANSITION_ID');
+  // FR18 auto-transition is gated by config, the ferry:no-auto-transition label,
+  // and dry-run mode (dry-run suppresses all external writes).
+  const shouldAutoTransition = configAutoTransition && !noAutoTransition && !dryRun;
+  const reviewTransitionId = !shouldAutoTransition ? '' : requireEnv('FERRY_REVIEW_TRANSITION_ID');
   const jiraBaseUrl = requireEnv('FERRY_JIRA_BASE_URL');
 
   const { provider: devProvider } = effectiveCfg.models.dev;

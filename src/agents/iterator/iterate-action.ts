@@ -15,6 +15,7 @@ import {
   hasNonDefaultOverrides,
   buildOverridesAuditComment,
   buildConflictComment,
+  applyDryRunMarker,
   LabelConflictError,
 } from '../../lib/agent-runtime/index.js';
 import {
@@ -68,6 +69,7 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
   let typeOverride: string | undefined;
   let labelMaxIterations: number | undefined;
   let noAutoTransition = false;
+  let dryRun = false;
   try {
     const overrides = resolveTicketOverrides(issue.labels, logger, {
       allowSkipReview: ferryCfg.safety?.allow_skip_review === true,
@@ -75,6 +77,10 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
     typeOverride = overrides.typeOverride;
     labelMaxIterations = overrides.maxIterations;
     noAutoTransition = overrides.noAutoTransition === true;
+    dryRun = overrides.dryRun === true;
+    if (dryRun) {
+      logger.warn('DRY-RUN: LLM calls will still incur cost; no commits or PRs will be pushed.');
+    }
     effectiveCfg = applyTicketOverrides(ferryCfg, overrides);
     logTicketOverrides(logger, overrides);
     if (hasNonDefaultOverrides(overrides)) {
@@ -83,12 +89,24 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
         buildOverridesAuditComment('iterator', eventId, overrides),
       );
     }
+    // ferry:read-only — Iterator short-circuits at entry; Refiner runs normally.
+    if (overrides.readOnly === true) {
+      logger.info('read-only mode — iterator agent skipped');
+      await tracker.postComment(
+        ticketKey,
+        applyDryRunMarker(`[ferry:iterator:${eventId}] read-only: agent skipped`, overrides.dryRun),
+      );
+      return;
+    }
     // ferry:skip/iter (alias: iterate) — Iterator becomes a no-op.
     if (overrides.skipPhases?.includes('iterate')) {
       logger.info('iterate phase skipped via ferry:skip/iter — exiting (no-op)');
       await tracker.postComment(
         ticketKey,
-        `[ferry:iterator:${eventId}] Iterator skipped via ferry:skip/iter — no iteration performed.`,
+        applyDryRunMarker(
+          `[ferry:iterator:${eventId}] Iterator skipped via ferry:skip/iter — no iteration performed.`,
+          overrides.dryRun,
+        ),
       );
       return;
     }
@@ -100,8 +118,9 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
     throw err;
   }
 
-  // FR28 auto-transition is gated by both config and the ferry:no-auto-transition label.
-  const shouldAutoTransition = configAutoTransition && !noAutoTransition;
+  // FR28 auto-transition is gated by config, the ferry:no-auto-transition label,
+  // and the ferry:dry-run label (dry-run suppresses all external writes).
+  const shouldAutoTransition = configAutoTransition && !noAutoTransition && !dryRun;
   const reviewTransitionId = shouldAutoTransition ? requireEnv('FERRY_REVIEW_TRANSITION_ID') : '';
 
   const { provider: iterProvider, model } = effectiveCfg.models.iterate;
@@ -351,8 +370,13 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
     await secretScan();
     execFileSync('git', ['commit', '-m', commitMessage], { cwd: REPO_ROOT });
   }
-  execFileSync('git', ['push', 'origin', branchName, '--force-with-lease'], { cwd: REPO_ROOT });
-  const branchPushed = true;
+  // ferry:dry-run suppresses the branch push (no external write side effects).
+  if (!dryRun) {
+    execFileSync('git', ['push', 'origin', branchName, '--force-with-lease'], { cwd: REPO_ROOT });
+  } else {
+    logger.info('DRY_RUN — skipped: git push origin branch');
+  }
+  const branchPushed = !dryRun;
 
   let iterFilesTouched: string[] = [];
   try {
@@ -366,7 +390,10 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
   }
 
   // Output-contract guard: verify required outputs exist before terminal comment.
-  assertIterOutputContract(resolvedOutcome, { branchPushed, prNumber });
+  // Skip the assertion under dry-run since branchPushed is intentionally false.
+  if (!dryRun) {
+    assertIterOutputContract(resolvedOutcome, { branchPushed, prNumber });
+  }
 
   if (shouldAutoTransition) {
     await tracker.postTransition(ticketKey, reviewTransitionId);
@@ -377,14 +404,17 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
     ? ' Moved back to Review.'
     : noAutoTransition
       ? ' FR28 auto-transition skipped (ferry:no-auto-transition).'
-      : '';
+      : dryRun
+        ? ' FR28 auto-transition skipped (ferry:dry-run).'
+        : '';
 
+  const pushNote = dryRun ? ' (dry-run: branch push suppressed)' : '';
   const terminalComment =
     resolvedOutcome === 'already_satisfied'
       ? `${idempotencyMarker} Findings already addressed — no changes needed. Pushed to PR#${prNumber}.${transitionNote}`
-      : `${idempotencyMarker} Iteration ${next_iteration} complete. Pushed fixes to PR#${prNumber}.${transitionNote}`;
+      : `${idempotencyMarker} Iteration ${next_iteration} complete. Pushed fixes to PR#${prNumber}${pushNote}.${transitionNote}`;
 
-  await tracker.postComment(ticketKey, terminalComment);
+  await tracker.postComment(ticketKey, applyDryRunMarker(terminalComment, dryRun));
 
   writeStepSummary({
     role: 'iterator',

@@ -101,6 +101,42 @@ describe('refiner-action normal mode — first run (no FERRY_DRY_RUN)', () => {
   });
 });
 
+describe('refiner-action dry-run (label-driven via deps.dryRun)', () => {
+  beforeEach(() => {
+    delete process.env.FERRY_DRY_RUN;
+  });
+
+  it('calls the LLM but posts no Jira comment when deps.dryRun=true', async () => {
+    const tracker = makeTracker();
+    const mockLlm = makeMockLlm();
+    await run(envelope, { tracker, callLlm: mockLlm, dryRun: true });
+
+    expect(mockLlm).toHaveBeenCalledOnce();
+    expect(tracker.postedComments).toHaveLength(0);
+  });
+
+  it('creates no subtasks when deps.dryRun=true (Refiner sub-task write suppressed)', async () => {
+    const tracker = makeTracker();
+    await run(envelope, { tracker, callLlm: makeMockLlm(), dryRun: true });
+
+    expect(tracker.createdSubtasks).toHaveLength(0);
+  });
+
+  it('posts no transitions when deps.dryRun=true', async () => {
+    const tracker = makeTracker();
+    await run(envelope, { tracker, callLlm: makeMockLlm(), dryRun: true });
+
+    expect(tracker.postedTransitions).toHaveLength(0);
+  });
+
+  it('adds no labels when deps.dryRun=true (cost-estimate label suppressed)', async () => {
+    const tracker = makeTracker();
+    await run(envelope, { tracker, callLlm: makeMockLlm(), dryRun: true });
+
+    expect(tracker.addedLabels).toHaveLength(0);
+  });
+});
+
 describe('refiner-action re-trigger scenario', () => {
   beforeEach(() => {
     delete process.env.FERRY_DRY_RUN;

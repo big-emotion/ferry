@@ -5,6 +5,7 @@ import {
   hasNonDefaultOverrides,
   buildOverridesAuditComment,
   buildConflictComment,
+  applyDryRunMarker,
   LabelConflictError,
 } from './overrides.js';
 import { createTestLogger } from '../logger/index.js';
@@ -914,5 +915,136 @@ describe('buildConflictComment', () => {
     expect(comment).toContain('ferry:model/dev/opus');
     expect(comment).toContain('ferry:model/dev/sonnet');
     expect(comment).toContain('model.dev');
+  });
+});
+
+// ------------------------------------------------------------------
+// ferry:dry-run
+// ------------------------------------------------------------------
+
+describe('resolveTicketOverrides — ferry:dry-run', () => {
+  it('sets dryRun to true when ferry:dry-run label is present', () => {
+    expect(resolveTicketOverrides(['ferry:dry-run']).dryRun).toBe(true);
+  });
+
+  it('does not set dryRun when label is absent', () => {
+    expect(resolveTicketOverrides([]).dryRun).toBeUndefined();
+  });
+
+  it('does not set dryRun for other ferry labels', () => {
+    expect(resolveTicketOverrides(['ferry:paused']).dryRun).toBeUndefined();
+  });
+
+  it('logs a warning for unknown suffix ferry:dry-run/foo', () => {
+    const { logger, records } = createTestLogger('t', 'test');
+    const r = resolveTicketOverrides(['ferry:dry-run/foo'], logger);
+    expect(r.dryRun).toBeUndefined();
+    expect(records.some((rec) => rec.level === 'warn')).toBe(true);
+  });
+
+  it('hasNonDefaultOverrides returns true when dryRun is set', () => {
+    expect(hasNonDefaultOverrides(resolveTicketOverrides(['ferry:dry-run']))).toBe(true);
+  });
+});
+
+// ------------------------------------------------------------------
+// ferry:read-only
+// ------------------------------------------------------------------
+
+describe('resolveTicketOverrides — ferry:read-only', () => {
+  it('sets readOnly to true when ferry:read-only label is present', () => {
+    expect(resolveTicketOverrides(['ferry:read-only']).readOnly).toBe(true);
+  });
+
+  it('does not set readOnly when label is absent', () => {
+    expect(resolveTicketOverrides([]).readOnly).toBeUndefined();
+  });
+
+  it('logs a warning for unknown suffix ferry:read-only/foo', () => {
+    const { logger, records } = createTestLogger('t', 'test');
+    const r = resolveTicketOverrides(['ferry:read-only/foo'], logger);
+    expect(r.readOnly).toBeUndefined();
+    expect(records.some((rec) => rec.level === 'warn')).toBe(true);
+  });
+
+  it('hasNonDefaultOverrides returns true when readOnly is set', () => {
+    expect(hasNonDefaultOverrides(resolveTicketOverrides(['ferry:read-only']))).toBe(true);
+  });
+});
+
+// ------------------------------------------------------------------
+// ferry:dry-run + ferry:read-only — combination (NOT mutually exclusive)
+// ------------------------------------------------------------------
+
+describe('resolveTicketOverrides — ferry:dry-run + ferry:read-only', () => {
+  it('sets both dryRun and readOnly when both labels are present (no conflict)', () => {
+    const r = resolveTicketOverrides(['ferry:dry-run', 'ferry:read-only']);
+    expect(r.dryRun).toBe(true);
+    expect(r.readOnly).toBe(true);
+  });
+
+  it('does not throw LabelConflictError for the combination', () => {
+    expect(() => resolveTicketOverrides(['ferry:dry-run', 'ferry:read-only'])).not.toThrow();
+  });
+});
+
+// ------------------------------------------------------------------
+// buildOverridesAuditComment — dryRun / readOnly payload + marker
+// ------------------------------------------------------------------
+
+describe('buildOverridesAuditComment — dry-run / read-only', () => {
+  it('includes dryRun in the JSON payload', () => {
+    const overrides = resolveTicketOverrides(['ferry:dry-run']);
+    const comment = buildOverridesAuditComment('developer', 'run1', overrides);
+    expect(comment).toContain('"dryRun":true');
+  });
+
+  it('includes readOnly in the JSON payload', () => {
+    const overrides = resolveTicketOverrides(['ferry:read-only']);
+    const comment = buildOverridesAuditComment('developer', 'run1', overrides);
+    expect(comment).toContain('"readOnly":true');
+  });
+
+  it('prepends [dry-run] marker after fingerprint when overrides.dryRun is set', () => {
+    const overrides = resolveTicketOverrides(['ferry:dry-run']);
+    const comment = buildOverridesAuditComment('developer', 'run1', overrides);
+    expect(comment).toMatch(/^\[ferry:developer:run1\] \[dry-run\]/);
+  });
+
+  it('does not prepend [dry-run] marker when overrides.dryRun is not set', () => {
+    const overrides = resolveTicketOverrides(['ferry:read-only']);
+    const comment = buildOverridesAuditComment('developer', 'run1', overrides);
+    expect(comment).not.toContain('[dry-run]');
+  });
+});
+
+// ------------------------------------------------------------------
+// applyDryRunMarker
+// ------------------------------------------------------------------
+
+describe('applyDryRunMarker', () => {
+  it('prepends [dry-run] after [ferry:role:run-id] prefix when dryRun=true', () => {
+    const out = applyDryRunMarker('[ferry:developer:run1] some message', true);
+    expect(out).toBe('[ferry:developer:run1] [dry-run] some message');
+  });
+
+  it('returns body unchanged when dryRun=false', () => {
+    const out = applyDryRunMarker('[ferry:developer:run1] some message', false);
+    expect(out).toBe('[ferry:developer:run1] some message');
+  });
+
+  it('returns body unchanged when dryRun is undefined', () => {
+    const out = applyDryRunMarker('[ferry:developer:run1] some message', undefined);
+    expect(out).toBe('[ferry:developer:run1] some message');
+  });
+
+  it('returns body unchanged when there is no [ferry:...] prefix', () => {
+    const out = applyDryRunMarker('plain body', true);
+    expect(out).toBe('plain body');
+  });
+
+  it('handles multiline body correctly (marker only on first line)', () => {
+    const out = applyDryRunMarker('[ferry:developer:run1] line1\nline2', true);
+    expect(out).toBe('[ferry:developer:run1] [dry-run] line1\nline2');
   });
 });

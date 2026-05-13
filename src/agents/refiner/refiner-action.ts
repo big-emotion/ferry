@@ -11,6 +11,7 @@ import {
   hasNonDefaultOverrides,
   buildOverridesAuditComment,
   buildConflictComment,
+  applyDryRunMarker,
   LabelConflictError,
   logTicketOverrides,
 } from '../../lib/agent-runtime/index.js';
@@ -30,12 +31,18 @@ export interface RefinerActionDeps {
   tracker: IssueTracker;
   callLlm: LlmCall;
   logger?: Logger;
+  /**
+   * When true (set via ferry:dry-run label or FERRY_DRY_RUN=1), the Refiner skips
+   * all Jira mutations (sub-task create, label add, transition, comment except
+   * the audit comment marker). LLM cost is still incurred.
+   */
+  dryRun?: boolean;
 }
 
 export async function run(envelope: EventEnvelopeV1, deps: RefinerActionDeps): Promise<void> {
   const { ticket_key: ticketKey, event_id: eventId } = envelope;
   const logger = deps.logger ?? createLogger(eventId, 'ferry:refiner-action');
-  const dryRun = isDryRun();
+  const dryRun = isDryRun() || deps.dryRun === true;
 
   const issue = await deps.tracker.getIssue(ticketKey);
   const runLink = `https://github.com/${process.env.GITHUB_REPO ?? 'unknown'}/actions/runs/${process.env.GITHUB_RUN_ID ?? '0'}`;
@@ -183,10 +190,15 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
   // Resolve label overrides (model/provider/budget/…) before creating the LLM call.
   const issueForLabels = await tracker.getIssue(ticketKey);
   let effectiveCfg;
+  let labelDryRun = false;
   try {
     const overrides = resolveTicketOverrides(issueForLabels.labels, logger, {
       allowSkipReview: ferryCfg.safety?.allow_skip_review === true,
     });
+    labelDryRun = overrides.dryRun === true;
+    if (labelDryRun) {
+      logger.warn('DRY-RUN: LLM calls will still incur cost; no commits or PRs will be pushed.');
+    }
     logTicketOverrides(logger, overrides);
     effectiveCfg = applyTicketOverrides(ferryCfg, overrides);
     if (hasNonDefaultOverrides(overrides)) {
@@ -200,10 +212,15 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
       logger.info('refiner phase skipped via ferry:skip/refiner — exiting');
       await tracker.postComment(
         ticketKey,
-        `[ferry:refiner:${eventId}] Refiner skipped via ferry:skip/refiner — no refinement performed.`,
+        applyDryRunMarker(
+          `[ferry:refiner:${eventId}] Refiner skipped via ferry:skip/refiner — no refinement performed.`,
+          labelDryRun,
+        ),
       );
       return;
     }
+    // ferry:read-only does NOT short-circuit the Refiner — per spec, Refiner runs normally.
+    // When combined with ferry:dry-run, the dryRun gating below suppresses sub-task writes.
   } catch (err) {
     if (err instanceof LabelConflictError) {
       await tracker.postComment(ticketKey, buildConflictComment('refiner', eventId, err));
@@ -214,5 +231,5 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
 
   const route = effectiveCfg.models.refiner;
   const callLlm: LlmCall = createLlmCall(route);
-  await run(envelope, { tracker, callLlm, logger });
+  await run(envelope, { tracker, callLlm, logger, dryRun: labelDryRun });
 }
