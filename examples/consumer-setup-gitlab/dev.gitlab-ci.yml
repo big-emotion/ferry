@@ -1,0 +1,15 @@
+# Ferry — Developer role (GitLab CI, EXPERIMENTAL)
+# Triggered with variables[FERRY_DISPATCH_TYPE]=ferry-dev.
+
+ferry-dev:
+  stage: build
+  image: node:20-alpine
+  rules:
+    - if: '$FERRY_DISPATCH_TYPE == "ferry-dev"'
+  variables:
+    FERRY_AGENT_ROLE: developer
+    FERRY_DEV_MODEL: ${FERRY_DEV_MODEL:-claude-sonnet-4-6}
+  script:
+    - apk add --no-cache git
+    - npm install -g "@big-emotion/ferry@${FERRY_VERSION}"
+    - ferry-agent run --role developer

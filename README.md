@@ -98,6 +98,8 @@ All auto-transitions are configurable via `workflow.agents` in `ferry.config.yam
 
 ## Quick install
 
+> **Forge:** Ferry runs natively on **GitHub Actions** (production-ready) and on **GitLab CI** (experimental — see [#210](https://github.com/big-emotion/ferry/issues/210)). The wizard targets GitHub; GitLab consumers should copy the templates from [`examples/consumer-setup-gitlab/`](examples/consumer-setup-gitlab) and follow the [GitLab section in `docs/CONFIGURATION.md`](docs/CONFIGURATION.md#gitlab-experimental).
+
 ```bash
 npx -p @big-emotion/ferry ferry-init
 ```

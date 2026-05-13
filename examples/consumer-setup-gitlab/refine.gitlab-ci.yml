@@ -1,0 +1,15 @@
+# Ferry — Refiner role (GitLab CI, EXPERIMENTAL)
+# Triggered by Jira Automation → POST /projects/:id/trigger/pipeline
+# with variables[FERRY_DISPATCH_TYPE]=ferry-refine.
+
+ferry-refine:
+  stage: build
+  image: node:20-alpine
+  rules:
+    - if: '$FERRY_DISPATCH_TYPE == "ferry-refine"'
+  variables:
+    FERRY_AGENT_ROLE: refiner
+    FERRY_REFINER_MODEL: ${FERRY_REFINER_MODEL:-claude-sonnet-4-6}
+  script:
+    - npm install -g "@big-emotion/ferry@${FERRY_VERSION}"
+    - ferry-agent run --role refiner

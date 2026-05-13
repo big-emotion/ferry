@@ -644,3 +644,70 @@ git.base_branch / git.target_branch (when null)
 ```
 
 Secrets (`ANTHROPIC_API_KEY`, `FERRY_OPENAI_KEY`, `FERRY_GOOGLE_AI_KEY`) are credentials only — they do not participate in model or limit configuration.
+
+---
+
+## GitLab (experimental)
+
+> **Experimental** — see [#210](https://github.com/big-emotion/ferry/issues/210). Same artifact may break across minor versions until promoted.
+
+Ferry can run on GitLab CI as an alternative to GitHub Actions. Selection is controlled by the `FERRY_FORGE` env var:
+
+| `FERRY_FORGE`   | Behaviour                                       |
+| --------------- | ----------------------------------------------- |
+| unset (default) | GitHub Actions runner — current production path |
+| `github`        | same as unset                                   |
+| `gitlab`        | GitLab REST adapter (experimental)              |
+
+### GitLab-specific env vars
+
+| Variable                              | Required when                            | Description                                                                                                                                                               |
+| ------------------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `FERRY_GITLAB_TOKEN`                  | always (under GitLab)                    | Project access token with `api` scope; used for MR read/write and label management. Set the existing `GITHUB_TOKEN` env to the same value (the agent runtime expects it). |
+| `FERRY_GITLAB_API_BASE`               | optional                                 | Defaults to `https://gitlab.com/api/v4`. Set to your self-managed instance's API URL when applicable (e.g. `https://gitlab.example/api/v4`).                              |
+| `FERRY_GITLAB_PIPELINE_TRIGGER_TOKEN` | when chaining pipelines via `dispatch()` | Pipeline trigger token created at Settings → CI/CD → Pipeline triggers.                                                                                                   |
+| `FERRY_GITLAB_TRIGGER_REF`            | optional                                 | Defaults to `main`. The ref that `dispatch()` triggers the downstream pipeline on.                                                                                        |
+
+### Wiring Jira Automation → GitLab pipeline trigger
+
+Every column transition that fires a Ferry agent maps to one Jira Automation rule whose webhook POSTs to the GitLab pipeline-trigger endpoint:
+
+```http
+POST {API_BASE}/projects/{ENCODED_PATH}/trigger/pipeline
+Content-Type: application/x-www-form-urlencoded
+
+token={FERRY_GITLAB_PIPELINE_TRIGGER_TOKEN}&
+ref={FERRY_GITLAB_TRIGGER_REF}&
+variables[FERRY_DISPATCH_TYPE]=ferry-{role}&
+variables[FERRY_ENVELOPE_PAYLOAD]={JSON envelope (same shape as the GitHub repository_dispatch payload)}
+```
+
+The four `FERRY_DISPATCH_TYPE` values are `ferry-refine`, `ferry-dev`, `ferry-review`, `ferry-iterate`. The envelope JSON shape is identical to what you'd send as `repository_dispatch.client_payload` on GitHub — no schema divergence between forges.
+
+### Templates
+
+Copy-pasteable GitLab CI templates live in [`examples/consumer-setup-gitlab/`](../examples/consumer-setup-gitlab). Each role has a ~10-line include file that:
+
+1. Installs Node ≥ 20 (alpine image).
+2. `npm install -g @big-emotion/ferry@${FERRY_VERSION}`.
+3. Runs `ferry-agent run --role <role>`.
+
+### Pipeline status mapping
+
+The reviewer's CI gate is forge-neutral, so collapsing GitLab pipeline statuses into Ferry's `green | red | pending` enum happens inside the GitLab adapter:
+
+| GitLab pipeline status                                                            | Ferry status |
+| --------------------------------------------------------------------------------- | ------------ |
+| `success`, `skipped`, `manual`                                                    | `green`      |
+| `failed`, `canceled`                                                              | `red`        |
+| `created`, `pending`, `running`, `preparing`, `waiting_for_resource`, `scheduled` | `pending`    |
+
+### Token scopes (GitLab project access token)
+
+- `api` (full read/write).
+
+The token must be able to: read MRs, create MR notes, set/unset MR labels, update MR titles (for the `Draft:` → ready transition), and trigger pipelines.
+
+### Promotion checklist
+
+GitLab support remains marked experimental until every box on [#210](https://github.com/big-emotion/ferry/issues/210) is ticked: at least one consumer has run a full Refiner→Developer→Reviewer→Iterator cycle in prod, `ferry-doctor --forge gitlab` ([#214](https://github.com/big-emotion/ferry/issues/214)) has caught a real misconfiguration, and no open P0/P1 issues against the adapter.
