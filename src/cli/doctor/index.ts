@@ -17,6 +17,7 @@ import { checkEnvVarSanity } from './checks/env-vars.js';
 import { checkAuditIssue } from './checks/audit-issue.js';
 import { checkAuditLog } from './checks/audit-log.js';
 import { renderTable } from './table.js';
+import { parseGitLabConfig, runGitLabDoctor } from './gitlab/index.js';
 import type { DoctorConfig } from './types.js';
 
 function detectRepo(): string | undefined {
@@ -95,25 +96,12 @@ async function main(): Promise<void> {
 
   const forge = resolveForgeFromArgv(argv);
   if (forge === 'gitlab') {
-    process.stdout.write(
-      [
-        '',
-        'ferry-doctor --forge gitlab is not yet implemented (tracked: #214).',
-        '',
-        'Until then, validate a GitLab install manually:',
-        '  1. Settings → CI/CD → Variables: confirm FERRY_GITLAB_TOKEN and the',
-        '     other secrets from examples/consumer-setup-gitlab/README.md are set',
-        '     and marked protected + masked.',
-        '  2. Settings → CI/CD → Pipeline triggers: confirm FERRY_GITLAB_PIPELINE_TRIGGER_TOKEN',
-        '     exists and your Jira Automation rule targets it.',
-        '  3. Run a dry-run pipeline by manually POSTing the trigger URL with',
-        '     a synthetic envelope and verifying the agent job picks it up.',
-        '',
-        'See docs/CONFIGURATION.md → "GitLab (experimental)" for the full reference.',
-        '',
-      ].join('\n'),
-    );
-    process.exit(0);
+    const gitlabConfig = parseGitLabConfig(argv);
+    const exitCode = await runGitLabDoctor({
+      ...gitlabConfig,
+      write: (s) => process.stdout.write(s),
+    });
+    process.exit(exitCode);
   }
 
   if (hasFlag(argv, '--help') || hasFlag(argv, '-h')) {
@@ -138,6 +126,13 @@ Options:
   --version <tag>              Ferry version tag for workflow drift check (default: v1)
   --repo-root <path>           Path to the repo root (default: cwd)
   --no-dispatch                Skip the synthetic dispatch probe
+  --forge github|gitlab        Forge to validate (default: auto-detect from git remote)
+
+GitLab options (when --forge gitlab):
+  --api-base <url>             GitLab API base URL (default: FERRY_GITLAB_API_BASE or https://gitlab.com/api/v4)
+  --token <pat>                Project access token (default: FERRY_GITLAB_TOKEN)
+  --project <owner/repo>       Project path with namespace (default: FERRY_GITLAB_PROJECT_PATH)
+  --trigger-token <token>      Pipeline trigger token (default: FERRY_GITLAB_PIPELINE_TRIGGER_TOKEN)
   -h, --help                   Show this help
 
 Checks run in order:
