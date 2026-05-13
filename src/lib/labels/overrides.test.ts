@@ -530,6 +530,162 @@ describe('resolveTicketOverrides — git overrides (ferry:git/*)', () => {
 });
 
 // ------------------------------------------------------------------
+// ferry:base/<branch> / ferry:target/<branch> / ferry:pr/draft|ready
+// ------------------------------------------------------------------
+
+describe('resolveTicketOverrides — ferry:base/<branch>', () => {
+  it('sets git.baseBranch from ferry:base/release-1.x', () => {
+    const r = resolveTicketOverrides(['ferry:base/release-1.x']);
+    expect(r.git?.baseBranch).toBe('release-1.x');
+  });
+
+  it('accepts slashes inside the branch name (e.g. feat/foo)', () => {
+    const r = resolveTicketOverrides(['ferry:base/feat/foo']);
+    expect(r.git?.baseBranch).toBe('feat/foo');
+  });
+
+  it('accepts dots, underscores, dashes', () => {
+    const r = resolveTicketOverrides(['ferry:base/release_1.2-rc']);
+    expect(r.git?.baseBranch).toBe('release_1.2-rc');
+  });
+
+  it('warns and ignores invalid branch names containing spaces', () => {
+    const { logger, records } = createTestLogger('t', 'test');
+    const r = resolveTicketOverrides(['ferry:base/has space'], logger);
+    expect(r.git?.baseBranch).toBeUndefined();
+    expect(records.some((rec) => rec.level === 'warn')).toBe(true);
+  });
+
+  it('warns and ignores branch names with disallowed chars ($, etc.)', () => {
+    const { logger, records } = createTestLogger('t', 'test');
+    const r = resolveTicketOverrides(['ferry:base/$invalid'], logger);
+    expect(r.git?.baseBranch).toBeUndefined();
+    expect(records.some((rec) => rec.level === 'warn')).toBe(true);
+  });
+
+  it('warns and ignores empty branch name (ferry:base/)', () => {
+    const { logger, records } = createTestLogger('t', 'test');
+    const r = resolveTicketOverrides(['ferry:base/'], logger);
+    expect(r.git?.baseBranch).toBeUndefined();
+    expect(records.some((rec) => rec.level === 'warn')).toBe(true);
+  });
+
+  it('throws LabelConflictError when two different ferry:base/* labels are present', () => {
+    expect(() =>
+      resolveTicketOverrides(['ferry:base/release-1.x', 'ferry:base/release-2.x']),
+    ).toThrow(LabelConflictError);
+  });
+
+  it('does not throw for identical duplicate ferry:base/* labels (vacuous)', () => {
+    const r = resolveTicketOverrides(['ferry:base/release-1.x', 'ferry:base/release-1.x']);
+    expect(r.git?.baseBranch).toBe('release-1.x');
+  });
+
+  it('records correct field name (git.baseBranch) on LabelConflictError', () => {
+    try {
+      resolveTicketOverrides(['ferry:base/a', 'ferry:base/b']);
+      throw new Error('expected throw');
+    } catch (e) {
+      expect(e).toBeInstanceOf(LabelConflictError);
+      expect((e as LabelConflictError).field).toBe('git.baseBranch');
+    }
+  });
+});
+
+describe('resolveTicketOverrides — ferry:target/<branch>', () => {
+  it('sets git.targetBranch from ferry:target/release-1.x', () => {
+    const r = resolveTicketOverrides(['ferry:target/release-1.x']);
+    expect(r.git?.targetBranch).toBe('release-1.x');
+  });
+
+  it('accepts slashes inside the branch name', () => {
+    const r = resolveTicketOverrides(['ferry:target/release/v2']);
+    expect(r.git?.targetBranch).toBe('release/v2');
+  });
+
+  it('warns and ignores invalid branch names', () => {
+    const { logger, records } = createTestLogger('t', 'test');
+    const r = resolveTicketOverrides(['ferry:target/has space'], logger);
+    expect(r.git?.targetBranch).toBeUndefined();
+    expect(records.some((rec) => rec.level === 'warn')).toBe(true);
+  });
+
+  it('warns and ignores empty branch name (ferry:target/)', () => {
+    const { logger, records } = createTestLogger('t', 'test');
+    const r = resolveTicketOverrides(['ferry:target/'], logger);
+    expect(r.git?.targetBranch).toBeUndefined();
+    expect(records.some((rec) => rec.level === 'warn')).toBe(true);
+  });
+
+  it('throws LabelConflictError when two different ferry:target/* labels are present', () => {
+    expect(() => resolveTicketOverrides(['ferry:target/main', 'ferry:target/develop'])).toThrow(
+      LabelConflictError,
+    );
+  });
+
+  it('does not throw for identical duplicate ferry:target/* labels (vacuous)', () => {
+    const r = resolveTicketOverrides(['ferry:target/main', 'ferry:target/main']);
+    expect(r.git?.targetBranch).toBe('main');
+  });
+
+  it('records correct field name (git.targetBranch) on LabelConflictError', () => {
+    try {
+      resolveTicketOverrides(['ferry:target/a', 'ferry:target/b']);
+      throw new Error('expected throw');
+    } catch (e) {
+      expect(e).toBeInstanceOf(LabelConflictError);
+      expect((e as LabelConflictError).field).toBe('git.targetBranch');
+    }
+  });
+
+  it('does not conflict with ferry:base/<branch> (different fields)', () => {
+    const r = resolveTicketOverrides(['ferry:base/develop', 'ferry:target/release-1.x']);
+    expect(r.git?.baseBranch).toBe('develop');
+    expect(r.git?.targetBranch).toBe('release-1.x');
+  });
+});
+
+describe('resolveTicketOverrides — ferry:pr/draft and ferry:pr/ready', () => {
+  it('sets git.prDraft to true for ferry:pr/draft', () => {
+    const r = resolveTicketOverrides(['ferry:pr/draft']);
+    expect(r.git?.prDraft).toBe(true);
+  });
+
+  it('sets git.prDraft to false for ferry:pr/ready', () => {
+    const r = resolveTicketOverrides(['ferry:pr/ready']);
+    expect(r.git?.prDraft).toBe(false);
+  });
+
+  it('throws LabelConflictError when both ferry:pr/draft and ferry:pr/ready are present', () => {
+    expect(() => resolveTicketOverrides(['ferry:pr/draft', 'ferry:pr/ready'])).toThrow(
+      LabelConflictError,
+    );
+  });
+
+  it('records correct field name (git.prDraft) on LabelConflictError', () => {
+    try {
+      resolveTicketOverrides(['ferry:pr/draft', 'ferry:pr/ready']);
+      throw new Error('expected throw');
+    } catch (e) {
+      expect(e).toBeInstanceOf(LabelConflictError);
+      expect((e as LabelConflictError).field).toBe('git.prDraft');
+    }
+  });
+
+  it('does not throw for duplicate identical ferry:pr/draft labels', () => {
+    const r = resolveTicketOverrides(['ferry:pr/draft', 'ferry:pr/draft']);
+    expect(r.git?.prDraft).toBe(true);
+  });
+
+  it('warns on unknown ferry:pr/<other> suffix', () => {
+    const { logger, records } = createTestLogger('t', 'test');
+    const r = resolveTicketOverrides(['ferry:pr/foo'], logger);
+    expect(r.git?.prDraft).toBeUndefined();
+    expect(records.some((rec) => rec.level === 'warn')).toBe(true);
+  });
+});
+
+// ------------------------------------------------------------------
 // ferry:paused (safety)
 // ------------------------------------------------------------------
 
@@ -770,6 +926,22 @@ describe('hasNonDefaultOverrides', () => {
     expect(hasNonDefaultOverrides(resolveTicketOverrides(['ferry:git/no-pr']))).toBe(true);
   });
 
+  it('returns true when git.baseBranch is set', () => {
+    expect(hasNonDefaultOverrides(resolveTicketOverrides(['ferry:base/release-1.x']))).toBe(true);
+  });
+
+  it('returns true when git.targetBranch is set', () => {
+    expect(hasNonDefaultOverrides(resolveTicketOverrides(['ferry:target/release-1.x']))).toBe(true);
+  });
+
+  it('returns true when git.prDraft is set (ferry:pr/draft)', () => {
+    expect(hasNonDefaultOverrides(resolveTicketOverrides(['ferry:pr/draft']))).toBe(true);
+  });
+
+  it('returns true when git.prDraft is set to false (ferry:pr/ready)', () => {
+    expect(hasNonDefaultOverrides(resolveTicketOverrides(['ferry:pr/ready']))).toBe(true);
+  });
+
   it('returns true when paused is set', () => {
     expect(hasNonDefaultOverrides(resolveTicketOverrides(['ferry:paused']))).toBe(true);
   });
@@ -833,6 +1005,44 @@ describe('buildOverridesAuditComment', () => {
     const overrides = resolveTicketOverrides(['ferry:thinking/off']);
     const comment = buildOverridesAuditComment('developer', 'run1', overrides);
     expect(comment).toContain('"thinking":"off"');
+  });
+
+  it('includes git.baseBranch when ferry:base/<branch> is set', () => {
+    const overrides = resolveTicketOverrides(['ferry:base/release-1.x']);
+    const comment = buildOverridesAuditComment('developer', 'run1', overrides);
+    expect(comment).toContain('"baseBranch":"release-1.x"');
+  });
+
+  it('includes git.targetBranch when ferry:target/<branch> is set', () => {
+    const overrides = resolveTicketOverrides(['ferry:target/release-1.x']);
+    const comment = buildOverridesAuditComment('developer', 'run1', overrides);
+    expect(comment).toContain('"targetBranch":"release-1.x"');
+  });
+
+  it('includes git.prDraft=true when ferry:pr/draft is set', () => {
+    const overrides = resolveTicketOverrides(['ferry:pr/draft']);
+    const comment = buildOverridesAuditComment('developer', 'run1', overrides);
+    expect(comment).toContain('"prDraft":true');
+  });
+
+  it('includes git.prDraft=false when ferry:pr/ready is set', () => {
+    const overrides = resolveTicketOverrides(['ferry:pr/ready']);
+    const comment = buildOverridesAuditComment('developer', 'run1', overrides);
+    expect(comment).toContain('"prDraft":false');
+  });
+
+  it('includes all four git fields together in a single audit payload', () => {
+    const overrides = resolveTicketOverrides([
+      'ferry:git/no-pr',
+      'ferry:base/release-1.x',
+      'ferry:target/release-1.x',
+      'ferry:pr/draft',
+    ]);
+    const comment = buildOverridesAuditComment('developer', 'run1', overrides);
+    expect(comment).toContain('"noPr":true');
+    expect(comment).toContain('"baseBranch":"release-1.x"');
+    expect(comment).toContain('"targetBranch":"release-1.x"');
+    expect(comment).toContain('"prDraft":true');
   });
 });
 

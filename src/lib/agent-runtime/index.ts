@@ -12,6 +12,7 @@ export {
   fetchOriginBranch,
   fetchAndMergeBase,
   checkoutExistingBranch,
+  remoteBranchExists,
 } from './git.js';
 export type { CommitProgressFn } from './git.js';
 export { loadFerryConfigFromBaseBranch } from './config-reload.js';

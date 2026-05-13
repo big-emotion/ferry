@@ -40,6 +40,23 @@ export function makeCommitProgress(
   };
 }
 
+/**
+ * Returns true when the given branch exists on `origin`.
+ * Used to validate ferry:base/* and ferry:target/* overrides before consuming
+ * them — a missing branch must fail loudly.
+ */
+export function remoteBranchExists(branchName: string, repoRoot: string): boolean {
+  try {
+    execFileSync('git', ['ls-remote', '--exit-code', '--heads', 'origin', branchName], {
+      cwd: repoRoot,
+      stdio: 'pipe',
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function checkoutExistingBranch(branchName: string, repoRoot: string): 'ok' | 'not-found' {
   try {
     execFileSync('git', ['ls-remote', '--exit-code', '--heads', 'origin', branchName], {

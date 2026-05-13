@@ -567,6 +567,32 @@ A rubric-override directive is appended at the end of the reviewer's system prom
 | ----------------- | ------------------------------------------------------------------ |
 | `ferry:git/no-pr` | Developer skips PR creation (branch is pushed but no PR is opened) |
 
+##### Per-ticket branch and PR-state overrides (`ferry:base/*`, `ferry:target/*`, `ferry:pr/*`)
+
+Lets a single Jira ticket pick its own base branch, PR target branch, and PR draft state without editing `ferry.config.yaml`.
+
+| Label                   | Effect                                                                                    |
+| ----------------------- | ----------------------------------------------------------------------------------------- |
+| `ferry:base/<branch>`   | Override `git.base_branch` — the branch Ferry creates the `ferry/...` working branch from |
+| `ferry:target/<branch>` | Override `git.target_branch` — the branch the PR is opened against                        |
+| `ferry:pr/draft`        | Open the PR as draft regardless of repo default                                           |
+| `ferry:pr/ready`        | Open the PR as ready-for-review regardless of repo default                                |
+
+**Branch validation:** `<branch>` must match the regex `^[a-zA-Z0-9._/-]+$` (alphanumerics plus `.`, `_`, `/`, `-`). Anything else — spaces, `$`, shell metacharacters, empty string — is rejected as a parse error: the label is logged to stderr and ignored, and no conflict is raised. This is intentional: a typo in the value should not block the ticket.
+
+**Remote existence:** the Developer agent validates that the resolved base and target branches exist on `origin` before branching off them or opening the PR. A missing branch fails loudly with a Jira comment naming the missing branch and a non-zero exit. The Iterator performs the same check for `baseBranch` before merging the base into the working branch.
+
+**Conflict rules:**
+
+- `ferry:pr/draft` + `ferry:pr/ready` on the same ticket → `LabelConflictError` (field `git.prDraft`).
+- Two different `ferry:base/<x>` values → `LabelConflictError` (field `git.baseBranch`).
+- Two different `ferry:target/<x>` values → `LabelConflictError` (field `git.targetBranch`).
+- Identical duplicates (e.g. two `ferry:base/release-1.x` labels) are accepted as vacuous.
+
+**Security:** `ferry:target/<branch>` can theoretically be abused to ship to a protected branch. Ferry only **opens** the PR — it does not merge — so existing GitHub branch protection rules and CODEOWNERS still apply unchanged. Risk is contained at the merge gate; treat the label as a target-branch hint, not a merge authorization.
+
+**Use case (backport):** a ticket fixing a regression on the maintenance branch is labeled `ferry:base/release-1.x` + `ferry:target/release-1.x` + `ferry:pr/ready`. The Developer agent branches off `release-1.x`, opens a ready-for-review PR against `release-1.x`, and the reviewer can merge straight into the maintenance line.
+
 ##### Safety labels
 
 | Label             | Applied by               | Effect                                                                                                                                            |

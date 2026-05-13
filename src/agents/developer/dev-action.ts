@@ -43,6 +43,7 @@ import {
   buildConflictComment,
   applyDryRunMarker,
   LabelConflictError,
+  remoteBranchExists,
 } from '../../lib/agent-runtime/index.js';
 import { detectTestRunner, repoTree, packageJsonPath, detectPackageManager } from './workspace.js';
 import { assertDevOutputContract } from './outcome-guard.js';
@@ -63,10 +64,13 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
   // Resolve baseBranch before using any config values, then reload config from that branch.
   // On repository_dispatch, actions/checkout resolves to the default branch, not base_branch,
   // so the workspace may contain a stale ferry.config.json.
-  const { baseBranch, targetBranch } = await resolveGitConfig(initialCfg, runner, owner, repo);
+  const resolvedGit = await resolveGitConfig(initialCfg, runner, owner, repo);
   // loadFerryConfigFromBaseBranch also fetches origin/<baseBranch>, which makes
   // `git log origin/<base>..HEAD` work correctly later in this function.
-  const ferryCfg = loadFerryConfigFromBaseBranch(baseBranch, REPO_ROOT, initialCfg);
+  const ferryCfg = loadFerryConfigFromBaseBranch(resolvedGit.baseBranch, REPO_ROOT, initialCfg);
+  // base/target branches may be overridden by ferry:base/* and ferry:target/* labels below.
+  let baseBranch = resolvedGit.baseBranch;
+  let targetBranch = resolvedGit.targetBranch;
 
   const devWorkflow = ferryCfg.workflow.agents.developer;
   const configAutoTransition = devWorkflow.auto_transition !== null;
@@ -79,6 +83,7 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
   let forceLabel: string | undefined;
   let noAutoTransition = false;
   let thinkingOverride: 'on' | 'off' | 'extended' | undefined;
+  let prDraftOverride: boolean | undefined;
   try {
     const overrides = resolveTicketOverrides(issue.labels, logger, {
       allowSkipReview: ferryCfg.safety?.allow_skip_review === true,
@@ -87,6 +92,14 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
     forceLabel = overrides.forceLabel;
     noAutoTransition = overrides.noAutoTransition === true;
     thinkingOverride = overrides.thinking;
+    prDraftOverride = overrides.git?.prDraft;
+    // ferry:base/<branch> and ferry:target/<branch> — runtime-validated branch overrides.
+    if (overrides.git?.baseBranch !== undefined) {
+      baseBranch = overrides.git.baseBranch;
+    }
+    if (overrides.git?.targetBranch !== undefined) {
+      targetBranch = overrides.git.targetBranch;
+    }
     // ferry:dry-run label → enable dry-run mode (same gating as FERRY_DRY_RUN env var).
     if (overrides.dryRun === true && !dryRun) {
       dryRun = true;
@@ -99,6 +112,26 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
         ticketKey,
         buildOverridesAuditComment('developer', eventId, overrides),
       );
+    }
+    // Validate overridden base / target branches exist on origin — fail loudly if missing.
+    if (!dryRun) {
+      if (overrides.git?.baseBranch !== undefined && !remoteBranchExists(baseBranch, REPO_ROOT)) {
+        await tracker.postComment(
+          ticketKey,
+          `[ferry:dev:${eventId}] base branch '${baseBranch}' not found on origin — remove or fix the ferry:base/* label.`,
+        );
+        process.exit(1);
+      }
+      if (
+        overrides.git?.targetBranch !== undefined &&
+        !remoteBranchExists(targetBranch, REPO_ROOT)
+      ) {
+        await tracker.postComment(
+          ticketKey,
+          `[ferry:dev:${eventId}] target branch '${targetBranch}' not found on origin — remove or fix the ferry:target/* label.`,
+        );
+        process.exit(1);
+      }
     }
     // ferry:read-only — Developer short-circuits at entry; Refiner runs normally.
     if (overrides.readOnly === true) {
@@ -467,7 +500,15 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
       notes: done.notes ?? [],
     });
 
-    const prUrl = await runner.createPR(owner, repo, branchName, targetBranch, prTitle, prBody);
+    const prUrl = await runner.createPR(
+      owner,
+      repo,
+      branchName,
+      targetBranch,
+      prTitle,
+      prBody,
+      prDraftOverride !== undefined ? { draft: prDraftOverride } : undefined,
+    );
 
     // Output-contract guard: verify all required outputs exist before terminal comment.
     assertDevOutputContract(resolvedOutcome, { branchPushed, prUrl, verificationNoteWritten });

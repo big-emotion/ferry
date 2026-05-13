@@ -17,6 +17,7 @@ import {
   buildConflictComment,
   applyDryRunMarker,
   LabelConflictError,
+  remoteBranchExists,
 } from '../../lib/agent-runtime/index.js';
 import {
   requireEnv,
@@ -53,8 +54,10 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
   // Resolve baseBranch before using any config values, then reload config from that branch.
   // On repository_dispatch, actions/checkout resolves to the default branch, not base_branch,
   // so the workspace may contain a stale ferry.config.json.
-  const { baseBranch } = await resolveGitConfig(initialCfg, runner, owner, repo);
-  const ferryCfg = loadFerryConfigFromBaseBranch(baseBranch, REPO_ROOT, initialCfg);
+  const resolvedGit = await resolveGitConfig(initialCfg, runner, owner, repo);
+  const ferryCfg = loadFerryConfigFromBaseBranch(resolvedGit.baseBranch, REPO_ROOT, initialCfg);
+  // baseBranch may be overridden by the ferry:base/<branch> label below.
+  let baseBranch = resolvedGit.baseBranch;
 
   const iteratorWorkflow = ferryCfg.workflow.agents.iterator;
   const configAutoTransition = iteratorWorkflow.auto_transition !== null;
@@ -80,6 +83,10 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
     noAutoTransition = overrides.noAutoTransition === true;
     dryRun = overrides.dryRun === true;
     thinkingOverride = overrides.thinking;
+    // ferry:base/<branch> — runtime-validated base-branch override (Iterator merges from this).
+    if (overrides.git?.baseBranch !== undefined) {
+      baseBranch = overrides.git.baseBranch;
+    }
     if (dryRun) {
       logger.warn('DRY-RUN: LLM calls will still incur cost; no commits or PRs will be pushed.');
     }
@@ -90,6 +97,18 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
         ticketKey,
         buildOverridesAuditComment('iterator', eventId, overrides),
       );
+    }
+    // Validate overridden base branch exists on origin — fail loudly if missing.
+    if (
+      !dryRun &&
+      overrides.git?.baseBranch !== undefined &&
+      !remoteBranchExists(baseBranch, REPO_ROOT)
+    ) {
+      await tracker.postComment(
+        ticketKey,
+        `[ferry:iter:${eventId}] base branch '${baseBranch}' not found on origin — remove or fix the ferry:base/* label.`,
+      );
+      process.exit(1);
     }
     // ferry:read-only — Iterator short-circuits at entry; Refiner runs normally.
     if (overrides.readOnly === true) {
