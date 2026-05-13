@@ -517,6 +517,23 @@ Disable Ferry's automatic Jira column moves (FR18, FR24, FR28) for this ticket o
 
 **Use case:** a research spike where the engineer wants to read the agent's output before deciding the next column.
 
+##### Dry-run / read-only (`ferry:dry-run`, `ferry:read-only`)
+
+Let a Jira ticket run Ferry without producing side effects — to validate prompts, MCP wiring, or rough token spend before committing real work.
+
+| Label             | Effect                                                                                                                                                                                                                                       |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ferry:dry-run`   | Run every phase but suppress all external writes: no branch push, no PR creation, no Jira label / transition / sub-task writes. The audit comment still posts, prefixed with `[dry-run]` so consumers can spot it in the Jira comment stream. |
+| `ferry:read-only` | Refiner runs normally; Developer / Reviewer / Iterator short-circuit at entry with a single `[ferry:<role>:<run-id>] read-only: agent skipped` audit comment and exit cleanly. Useful for "what would Ferry plan for this ticket?".            |
+
+**LLM cost warning:** `ferry:dry-run` only suppresses **external** side effects. LLM calls still happen and **token cost is still incurred**. Each agent logs a `DRY-RUN: LLM calls will still incur cost; no commits or PRs will be pushed.` warning at start. Use `ferry:read-only` to also skip Developer / Reviewer / Iterator LLM calls — only the Refiner pays tokens.
+
+**Combination:** `ferry:dry-run` + `ferry:read-only` is **not a conflict** — the two labels compose. Read-only is stricter (only Refiner runs); combining with dry-run additionally suppresses the Refiner's Jira sub-task creation, so the entire pipeline produces no Jira mutations beyond the audit comment.
+
+**Auto-transitions:** under `ferry:dry-run`, FR18 / FR24 / FR28 are skipped just like with `ferry:no-auto-transition`. The terminal Jira comment notes that the transition was suppressed.
+
+**Use case:** validate a new MCP server configuration or refined prompt by running the full agent loop on a real ticket without touching the repo or the Jira board.
+
 ##### Extended thinking (`ferry:thinking/*`)
 
 | Label                | Effect                                                         |
