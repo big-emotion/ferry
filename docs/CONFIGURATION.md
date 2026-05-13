@@ -878,6 +878,33 @@ The five probes are:
 
 Exit code is `0` if no `[FAIL]`, `1` otherwise. All flags fall back to environment variables (`FERRY_GITLAB_API_BASE`, `FERRY_GITLAB_TOKEN`, `FERRY_GITLAB_PROJECT_PATH`, `FERRY_GITLAB_PIPELINE_TRIGGER_TOKEN`).
 
+### Uninstalling Ferry from a GitLab project
+
+```bash
+# Plan only — no files changed:
+npx -p @big-emotion/ferry ferry-uninstall --forge gitlab
+
+# Actually delete Ferry includes + stub files:
+npx -p @big-emotion/ferry ferry-uninstall --forge gitlab --apply
+```
+
+What the CLI **does** (locally, with `--apply`):
+
+- Removes `include:` entries from the project's root `.gitlab-ci.yml` that reference one of the six canonical Ferry templates (`refine.gitlab-ci.yml`, `dev.gitlab-ci.yml`, `review.gitlab-ci.yml`, `iterate.gitlab-ci.yml`, `reconcile.gitlab-ci.yml`, `cost-daily.gitlab-ci.yml`). User-authored `include:` lines are left intact.
+- Deletes the matching template stub files at the repo root.
+- If stripping Ferry includes leaves `.gitlab-ci.yml` with no meaningful content, the file is **kept** on disk with a printed notice — the CLI never deletes a file that might still hold project-level CI config you authored.
+
+What the CLI **does not do** (no GitLab API call is ever made):
+
+- Revoke the project access token (`FERRY_GITLAB_TOKEN`).
+- Revoke the pipeline trigger token (`FERRY_GITLAB_PIPELINE_TRIGGER_TOKEN`).
+- Delete any CI/CD variable.
+- Disable or remove Jira Automation rules.
+
+Instead, the CLI prints deep-link URLs to **Settings → Access Tokens**, **Settings → CI/CD → Triggers**, and **Settings → CI/CD → Variables**, plus the full list of variables to remove (every `FERRY_*` from the install README, plus your LLM provider key if it was added solely for Ferry). The remote project URL is auto-detected from `git remote get-url origin`; override with `--project-url <url>`.
+
+Re-running `ferry-uninstall --forge gitlab` on an already-cleaned repo prints `Nothing to remove` and exits 0 — the local cleanup is idempotent.
+
 ### Promotion checklist
 
 GitLab support remains marked experimental until every box on [#210](https://github.com/big-emotion/ferry/issues/210) is ticked: at least one consumer has run a full Refiner→Developer→Reviewer→Iterator cycle in prod, `ferry-doctor --forge gitlab` ([#214](https://github.com/big-emotion/ferry/issues/214)) has caught a real misconfiguration, and no open P0/P1 issues against the adapter.

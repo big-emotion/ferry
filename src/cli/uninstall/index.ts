@@ -31,6 +31,7 @@ import {
   type ExecOptions,
 } from './execute.js';
 import { resolveForgeFromArgv } from '../lib/forge.js';
+import { runGitlabUninstall } from './gitlab/run.js';
 import type { UninstallOptions } from './types.js';
 
 const TOTAL_STEPS = 4;
@@ -43,6 +44,24 @@ function detectRepo(): string | undefined {
     }).trim();
     const match = remote.match(/github\.com[:/]([^/]+\/[^/.]+)/);
     return match ? match[1] : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function detectGitlabProjectUrl(): string | undefined {
+  try {
+    const remote = execSync('git remote get-url origin', {
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim();
+    // SSH form: git@gitlab.com:group/repo.git  →  https://gitlab.com/group/repo
+    const ssh = remote.match(/^(?:ssh:\/\/)?git@([^:]+):(.+?)(?:\.git)?$/);
+    if (ssh) return `https://${ssh[1]}/${ssh[2]}`;
+    // HTTPS form: https://gitlab.example.com/group/repo(.git)?
+    const https = remote.match(/^https?:\/\/[^/]+\/.+$/);
+    if (https) return remote.replace(/\.git$/, '');
+    return undefined;
   } catch {
     return undefined;
   }
@@ -75,24 +94,12 @@ async function main(): Promise<void> {
 
   const forge = resolveForgeFromArgv(argv);
   if (forge === 'gitlab') {
-    process.stdout.write(
-      [
-        '',
-        'ferry-uninstall --forge gitlab is not yet implemented (tracked: #214).',
-        '',
-        'Until then, uninstall manually:',
-        '  1. Delete the Ferry includes from your project root',
-        '     (.gitlab-ci.yml, refine/dev/review/iterate/reconcile/cost-daily',
-        '     .gitlab-ci.yml).',
-        '  2. Settings → CI/CD → Variables: remove every FERRY_* and',
-        '     {ANTHROPIC,OPENAI,GOOGLE}_API_KEY variable.',
-        '  3. Settings → CI/CD → Pipeline triggers: revoke the trigger token.',
-        '  4. Settings → Access tokens: revoke the FERRY_GITLAB_TOKEN.',
-        '  5. Disable or remove the Jira Automation rules pointing at the pipeline trigger.',
-        '',
-      ].join('\n'),
-    );
-    process.exit(0);
+    const repoRoot = getArg(argv, '--repo-root') ?? process.cwd();
+    const apply = hasFlag(argv, '--apply');
+    const yes = hasFlag(argv, '--yes');
+    const projectUrl = getArg(argv, '--project-url') ?? detectGitlabProjectUrl();
+    const code = await runGitlabUninstall({ repoRoot, apply, yes, projectUrl });
+    process.exit(code);
   }
 
   if (hasFlag(argv, '--help') || hasFlag(argv, '-h')) {
@@ -102,9 +109,12 @@ Usage:
   npx -p @big-emotion/ferry ferry-uninstall [options]
 
 Options:
+  --forge <github|gitlab>  Target forge. Defaults to auto-detect from origin remote.
   --repo <owner/repo>      GitHub repository (default: auto-detect from git remote)
   --repo-root <path>       Path to the repo root (default: cwd)
-  --dry-run                Print the plan and change nothing
+  --dry-run                Print the plan and change nothing  [github]
+  --apply                  Perform deletion  [gitlab — default is dry-run]
+  --project-url <url>      GitLab project URL (default: auto-detect from origin remote)
   --yes                    Skip confirmation prompt (for CI / scripts)
   --keep-secrets           Leave all secrets and variables in place
   --keep-workflows         Leave workflow files and CODEOWNERS entries
