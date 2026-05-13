@@ -4,3 +4,4 @@ paths-ignore:
   - '.ferry/**'
   - '.github/actions/**/*-action.js'
   - '.github/actions/**/skip-task-type-action.js'
+  - '.github/actions/**/agent.js'
