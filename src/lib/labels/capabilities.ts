@@ -59,6 +59,33 @@ export interface TicketOverrides {
     maxTokensPerRun?: number;
   };
 
+  // --- ferry:budget/<eur> ---
+
+  /**
+   * Hard EUR cap for this ticket. ferry:budget/<eur> label (e.g. ferry:budget/3).
+   * When the accumulated EUR cost exceeds this, the agent throws spend-cap and
+   * the ticket is labeled ferry:spend-cap.
+   * Overrides limits.max_cost_eur_per_run.
+   */
+  budgetEur?: number;
+
+  // --- ferry:max-iterations/<n> ---
+
+  /**
+   * Cap agent-loop iteration count for this ticket. ferry:max-iterations/<n> label.
+   * Overrides limits.max_agent_iterations.
+   * Hitting this cap in the Iterator is treated as success-of-intent (no ferry:blocked).
+   */
+  maxIterations?: number;
+
+  // --- ferry:max-tokens/<n> ---
+
+  /**
+   * Cap per-LLM-call output tokens for this ticket. ferry:max-tokens/<n> label.
+   * Overrides limits.max_tokens_per_message, forwarded to provider SDK max_tokens.
+   */
+  maxTokens?: number;
+
   // --- ferry:skip/<phase> ---
 
   /**

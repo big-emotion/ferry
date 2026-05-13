@@ -1,6 +1,7 @@
 import { GoogleGenAI, FunctionCallingConfigMode } from '@google/genai';
 import type { Content, Part } from '@google/genai';
 import { FerryError } from '../../errors/index.js';
+import { computeCostEur } from '../pricing.js';
 import { emitDebug } from '../debug-log.js';
 import { McpClientPool } from '../../mcp/pool.js';
 import { createLogger } from '../../logger/index.js';
@@ -127,6 +128,7 @@ export function createGoogleAgentLoop(opts: {
   maxIterations?: number;
   maxInputTokens?: number;
   maxTokens?: number;
+  maxCostEur?: number;
   compactWindow?: number;
   logger?: Logger;
 }): AgentLoop {
@@ -148,6 +150,7 @@ export function createGoogleAgentLoop(opts: {
     const maxInputTokens =
       opts.maxInputTokens ?? parseInt(process.env.FERRY_DEV_MAX_INPUT_TOKENS ?? '500000', 10);
     const maxTokens = opts.maxTokens ?? parseInt(process.env.FERRY_DEV_MAX_TOKENS ?? '16384', 10);
+    const maxCostEur = opts.maxCostEur;
     const compactWindow =
       opts.compactWindow ?? parseInt(process.env.FERRY_DEV_COMPACT_WINDOW ?? '8', 10);
 
@@ -213,6 +216,22 @@ export function createGoogleAgentLoop(opts: {
             cap: maxInputTokens,
             consumed: billableEquiv,
           });
+        }
+
+        if (maxCostEur !== undefined) {
+          const costEur = computeCostEur(
+            'google',
+            opts.model,
+            usage.input_tokens,
+            usage.output_tokens,
+          );
+          if (costEur >= maxCostEur) {
+            throw new FerryError('spend-cap', {
+              reason: 'eur-budget-exceeded',
+              cap: maxCostEur,
+              consumed: costEur,
+            });
+          }
         }
 
         const budgetFraction = maxInputTokens > 0 ? billableEquiv / maxInputTokens : 0;
