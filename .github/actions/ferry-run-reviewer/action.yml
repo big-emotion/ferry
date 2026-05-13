@@ -125,7 +125,7 @@ runs:
     - name: Run Reviewer agent
       id: run-reviewer
       shell: bash
-      run: node ${{ github.action_path }}/review-action.js
+      run: node ${{ github.action_path }}/agent.js run --role reviewer
       env:
         FERRY_ENVELOPE_PAYLOAD: ${{ inputs.payload }}
         FERRY_JIRA_BASE_URL: ${{ inputs.jira_base_url }}

@@ -5,6 +5,7 @@ mkdirSync('dist/cli/init', { recursive: true });
 mkdirSync('dist/cli/doctor', { recursive: true });
 mkdirSync('dist/cli/uninstall', { recursive: true });
 mkdirSync('dist/cli/update', { recursive: true });
+mkdirSync('dist/cli/agent', { recursive: true });
 mkdirSync('dist/cli/cost', { recursive: true });
 
 const shared = {
@@ -13,6 +14,14 @@ const shared = {
   target: 'node20',
   format: 'esm',
   minify: false,
+};
+
+// The agent bundle pulls in the four agent entrypoints, which import LLM SDKs
+// with CJS transitive deps that break esbuild's ESM shim. Keep them external —
+// they're declared in package.json dependencies and resolved at runtime.
+const agentShared = {
+  ...shared,
+  external: ['@anthropic-ai/sdk', '@google/genai', 'openai'],
 };
 
 await Promise.all([
@@ -35,6 +44,11 @@ await Promise.all([
     ...shared,
     entryPoints: ['src/cli/update/index.ts'],
     outfile: 'dist/cli/update/index.js',
+  }),
+  build({
+    ...agentShared,
+    entryPoints: ['src/cli/agent/run.ts'],
+    outfile: 'dist/cli/agent/run.js',
   }),
   build({
     ...shared,
@@ -62,6 +76,7 @@ chmodSync('dist/cli/init/index.js', 0o755);
 chmodSync('dist/cli/doctor/index.js', 0o755);
 chmodSync('dist/cli/uninstall/index.js', 0o755);
 chmodSync('dist/cli/update/index.js', 0o755);
+chmodSync('dist/cli/agent/run.js', 0o755);
 chmodSync('dist/cli/cost/run.js', 0o755);
 chmodSync('dist/cli/cost/reconcile-cmd.js', 0o755);
 chmodSync('dist/cli/cost/advice-cmd.js', 0o755);

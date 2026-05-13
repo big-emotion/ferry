@@ -24,13 +24,14 @@ set -euo pipefail
 
 ENVELOPE='{"version":"v1","event_id":"smoke0001","ticket_key":"SMOKE-1","phase":"refine","source":"jira-column","ts":"2026-01-01T00:00:00Z"}'
 
-# Bundles under .ferry/ — ESM files built by npm run build:ferry.
-BUNDLES=(
-  refiner-action.js
-  dev-action.js
-  review-action.js
-  iterate-action.js
+# Roles exercised through the unified agent.js bundle (built by npm run build:ferry).
+ROLES=(
+  refiner
+  developer
+  reviewer
+  iterator
 )
+BUNDLE_PATH=".ferry/agent.js"
 
 # These patterns are signatures of bundle-loading failures from the v0.5.1 DOA
 # incident. Their presence in stderr means a transitive dep broke esbuild's
@@ -59,20 +60,18 @@ PASS=0
 FAIL=0
 FAIL_DETAILS=()
 
-for bundle in "${BUNDLES[@]}"; do
-  bundle_path=".ferry/${bundle}"
-  if [[ ! -f "$bundle_path" ]]; then
-    echo "SKIP: ${bundle_path} not found — run 'npm run build:ferry' first" >&2
-    FAIL=$((FAIL + 1))
-    FAIL_DETAILS+=("  ${bundle_path}: file not found")
-    continue
-  fi
+if [[ ! -f "$BUNDLE_PATH" ]]; then
+  echo "SKIP: ${BUNDLE_PATH} not found — run 'npm run build:ferry' first" >&2
+  exit 1
+fi
 
-  printf 'smoke: %-36s ... ' "${bundle_path}"
+for role in "${ROLES[@]}"; do
+  label="${BUNDLE_PATH} --role ${role}"
+  printf 'smoke: %-44s ... ' "${label}"
   stderr_file=$(mktemp)
 
   # Accept any exit code — only the stderr patterns matter.
-  env "${SMOKE_ENV[@]}" timeout 10 node "$bundle_path" 2>"$stderr_file" || true
+  env "${SMOKE_ENV[@]}" timeout 10 node "$BUNDLE_PATH" run --role "$role" 2>"$stderr_file" || true
 
   stderr=$(<"$stderr_file")
   rm -f "$stderr_file"
@@ -81,7 +80,7 @@ for bundle in "${BUNDLES[@]}"; do
   for pattern in "${BANNED_PATTERNS[@]}"; do
     if [[ "$stderr" == *"$pattern"* ]]; then
       found_banned=true
-      FAIL_DETAILS+=("  ${bundle_path}: banned pattern found → '${pattern}'")
+      FAIL_DETAILS+=("  ${label}: banned pattern found → '${pattern}'")
       break
     fi
   done

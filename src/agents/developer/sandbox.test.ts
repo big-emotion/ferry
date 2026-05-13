@@ -37,7 +37,7 @@ describe('assertWriteAllowed', () => {
   });
 
   it('denies writes to .ferry/', () => {
-    expect(() => assertWriteAllowed(ROOT, '/repo/.ferry/dev-action.js')).toThrow('protected path');
+    expect(() => assertWriteAllowed(ROOT, '/repo/.ferry/agent.js')).toThrow('protected path');
   });
 
   it('denies writes to node_modules/', () => {

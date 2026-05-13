@@ -1,5 +1,5 @@
 import { build } from 'esbuild';
-import { mkdirSync, copyFileSync, writeFileSync, readFileSync } from 'fs';
+import { mkdirSync, copyFileSync, writeFileSync, readFileSync, existsSync, rmSync } from 'fs';
 import { execSync } from 'child_process';
 
 const rootDeps = JSON.parse(readFileSync('package.json', 'utf8')).dependencies;
@@ -8,6 +8,16 @@ mkdirSync('.ferry/schemas', { recursive: true });
 mkdirSync('.ferry/prompts', { recursive: true });
 for (const name of ['refiner', 'dev', 'review', 'review-comment', 'iterate']) {
   copyFileSync(`prompts/${name}.md`, `.ferry/prompts/${name}.md`);
+}
+
+// Drop legacy per-role bundles — replaced by the unified agent.js entrypoint.
+for (const stale of [
+  '.ferry/refiner-action.js',
+  '.ferry/dev-action.js',
+  '.ferry/review-action.js',
+  '.ferry/iterate-action.js',
+]) {
+  if (existsSync(stale)) rmSync(stale);
 }
 
 const shared = {
@@ -40,23 +50,8 @@ await Promise.all([
   }),
   build({
     ...shared,
-    entryPoints: ['src/agents/refiner/refiner-action.ts'],
-    outfile: '.ferry/refiner-action.js',
-  }),
-  build({
-    ...shared,
-    entryPoints: ['src/agents/developer/dev-action.ts'],
-    outfile: '.ferry/dev-action.js',
-  }),
-  build({
-    ...shared,
-    entryPoints: ['src/agents/reviewer/review-action.ts'],
-    outfile: '.ferry/review-action.js',
-  }),
-  build({
-    ...shared,
-    entryPoints: ['src/agents/iterator/iterate-action.ts'],
-    outfile: '.ferry/iterate-action.js',
+    entryPoints: ['src/cli/agent/run.ts'],
+    outfile: '.ferry/agent.js',
   }),
 ]);
 
@@ -67,10 +62,7 @@ copyFileSync('src/schemas/event.v1.schema.json', '.ferry/schemas/event.v1.schema
 for (const f of [
   'validate-action.js',
   'skip-task-type-action.js',
-  'refiner-action.js',
-  'dev-action.js',
-  'review-action.js',
-  'iterate-action.js',
+  'agent.js',
 ]) {
   const p = `.ferry/${f}`;
   writeFileSync(
@@ -160,20 +152,17 @@ writeFileSync(
 );
 execSync('npm install --prefer-offline', { cwd: emitAuditActionDir, stdio: 'inherit' });
 
-// --- Agent runner composite action bundles (fixes issue #71) ---
-// Each agent has a self-contained composite action under .github/actions/ferry-run-{agent}/.
-// The bundle + prompts + schema live in the action directory; consumers need no .ferry/.
+// --- Agent runner composite action bundles ---
+// Each agent has a self-contained composite action under .github/actions/ferry-run-{role}/.
+// All four directories receive the SAME unified agent.js bundle; the action.yml
+// passes --role <role> to disambiguate at runtime.
 
-// Shared deps needed by every agent action.
 const agentBaseDeps = {
   ajv: rootDeps['ajv'],
   'ajv-formats': rootDeps['ajv-formats'],
   yaml: '^2.6.0',
 };
 
-// Every agent bundle statically imports all three provider SDKs (the agent-loop
-// modules are evaluated at import time, not lazily), so each action needs all
-// three installed at runtime.
 const allProviderDeps = {
   '@anthropic-ai/sdk': rootDeps['@anthropic-ai/sdk'],
   '@google/genai': rootDeps['@google/genai'],
@@ -184,34 +173,26 @@ const agentActions = [
   {
     actionDir: '.github/actions/ferry-run-refiner',
     packageName: 'ferry-run-refiner-action',
-    bundle: '.ferry/refiner-action.js',
-    bundleOut: 'refiner-action.js',
     prompts: ['refiner'],
-    sdkDeps: allProviderDeps,
+    legacyBundle: 'refiner-action.js',
   },
   {
     actionDir: '.github/actions/ferry-run-developer',
     packageName: 'ferry-run-developer-action',
-    bundle: '.ferry/dev-action.js',
-    bundleOut: 'dev-action.js',
     prompts: ['dev'],
-    sdkDeps: allProviderDeps,
+    legacyBundle: 'dev-action.js',
   },
   {
     actionDir: '.github/actions/ferry-run-reviewer',
     packageName: 'ferry-run-reviewer-action',
-    bundle: '.ferry/review-action.js',
-    bundleOut: 'review-action.js',
     prompts: ['review', 'review-comment'],
-    sdkDeps: allProviderDeps,
+    legacyBundle: 'review-action.js',
   },
   {
     actionDir: '.github/actions/ferry-run-iterator',
     packageName: 'ferry-run-iterator-action',
-    bundle: '.ferry/iterate-action.js',
-    bundleOut: 'iterate-action.js',
     prompts: ['iterate'],
-    sdkDeps: allProviderDeps,
+    legacyBundle: 'iterate-action.js',
   },
 ];
 
@@ -219,8 +200,12 @@ for (const agent of agentActions) {
   mkdirSync(`${agent.actionDir}/schemas`, { recursive: true });
   mkdirSync(`${agent.actionDir}/prompts`, { recursive: true });
 
-  // Copy the already-built bundle (schema path already fixed above)
-  copyFileSync(agent.bundle, `${agent.actionDir}/${agent.bundleOut}`);
+  // Copy the unified agent bundle (schema path already fixed above)
+  copyFileSync('.ferry/agent.js', `${agent.actionDir}/agent.js`);
+
+  // Drop the legacy per-role bundle if it exists.
+  const legacyPath = `${agent.actionDir}/${agent.legacyBundle}`;
+  if (existsSync(legacyPath)) rmSync(legacyPath);
 
   // Copy skip-task bundle into each agent action dir
   copyFileSync('.ferry/skip-task-type-action.js', `${agent.actionDir}/skip-task-type-action.js`);
@@ -244,7 +229,7 @@ for (const agent of agentActions) {
         version: '0.0.0',
         private: true,
         type: 'module',
-        dependencies: { ...agentBaseDeps, ...agent.sdkDeps },
+        dependencies: { ...agentBaseDeps, ...allProviderDeps },
       },
       null,
       2,

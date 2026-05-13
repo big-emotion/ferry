@@ -8,6 +8,7 @@
     "ferry-doctor": "./dist/cli/doctor/index.js",
     "ferry-uninstall": "./dist/cli/uninstall/index.js",
     "ferry-update": "./dist/cli/update/index.js",
+    "ferry-agent": "./dist/cli/agent/run.js",
     "ferry-cost-report": "./dist/cli/cost/run.js",
     "ferry-cost-reconcile": "./dist/cli/cost/reconcile-cmd.js",
     "ferry-cost-advice": "./dist/cli/cost/advice-cmd.js",

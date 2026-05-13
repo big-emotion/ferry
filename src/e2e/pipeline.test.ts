@@ -21,6 +21,7 @@ import { run as runRefinerAction } from '../agents/refiner/refiner-action.js';
 import { emitAudit } from '../lib/audit/index.js';
 import { InMemoryTracker } from '../lib/io/tracker/in-memory.js';
 import { GitHubActionsRunner } from '../lib/dispatch/runner/github-actions/index.js';
+import type { CIRunner } from '../lib/dispatch/runner/types.js';
 import { checkIdempotencyMarker } from '../lib/io/idempotency.js';
 import { byEventId, byPrHeadSha, byReviewCommentId } from '../lib/agent-runtime/idempotency.js';
 import type { EventEnvelopeV1 } from '../lib/envelope/types.js';
@@ -71,7 +72,7 @@ const MOCK_PLAN = {
 interface MockIO {
   octokit: Octokit;
   tracker: InMemoryTracker;
-  runner: GitHubActionsRunner;
+  runner: CIRunner;
   auditComments: Array<{ id: number; body: string }>;
   /** Spy for octokit.issues.addLabels / octokit.rest.issues.addLabels */
   addLabelsSpy: ReturnType<typeof vi.fn>;
