@@ -16,11 +16,14 @@ const HTTPS_GITLAB = new RegExp(
   `${REMOTE_PREFIX}(?<host>[^/]*gitlab[^/]*)\\/(?<path>.+?)(?:\\.git)?$`,
 );
 const SSH_GITLAB = new RegExp(`${REMOTE_PREFIX}(?<host>[^:]*gitlab[^:]*):(?<path>.+?)(?:\\.git)?$`);
+// Anchored to the host segment so it can't be bypassed by github.com appearing
+// inside a path or query — only matches when the URL's host is (or ends with) github.com.
+const GITHUB_HOST = new RegExp(`${REMOTE_PREFIX}[^/:]*github\\.com[/:]`);
 
 export function detectGitLabProject(remote: string): GitLabProject | undefined {
   if (!remote) return undefined;
   // Reject github explicitly so a misclassified remote can't pass.
-  if (/github\.com/.test(remote)) return undefined;
+  if (GITHUB_HOST.test(remote)) return undefined;
 
   const ssh = SSH_GITLAB.exec(remote);
   if (ssh?.groups) {
