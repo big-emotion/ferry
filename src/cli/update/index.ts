@@ -16,6 +16,7 @@ import { workflowTemplates } from '../init/templates.js';
 import { buildManualSetupDoc } from '../init/steps/jira-bundle.js';
 import { detectInstalledVersion, computeWorkflowChanges } from './detect.js';
 import { getRelevantMigrations } from './migrations.js';
+import { runCredentialGate } from './credential-gate-run.js';
 import { extractJiraConfigFromSetupFile } from './extract-jira-config.js';
 import { resolveForgeFromArgv, type ForgeKind } from '../lib/forge.js';
 import { rewriteGitLabVersion } from './gitlab/rewriter.js';
@@ -167,6 +168,31 @@ async function runGitLabUpdate(argv: string[]): Promise<void> {
   print('');
 }
 
+/**
+ * Print the combined "Manual follow-ups required" block (MIGRATIONS.md notes
+ * for the crossed GitHub range + any credential-gate follow-ups). Returns
+ * true when anything was printed.
+ */
+function printGitHubFollowUps(fromVersion: string, toVersion: string, extra: string[]): boolean {
+  const migrations = getRelevantMigrations(fromVersion, toVersion, {
+    forge: 'github' as ForgeKind,
+  });
+  if (migrations.length === 0 && extra.length === 0) return false;
+  print('');
+  print('════════════════════════════════════════');
+  print('  Manual follow-ups required');
+  print('════════════════════════════════════════');
+  for (const note of migrations) {
+    const prefix = note.kind === 'action' ? '  [action] ' : '  [info]   ';
+    print(`${prefix}${note.message}`);
+  }
+  for (const msg of extra) {
+    print(`  [action] ${msg}`);
+  }
+  print('');
+  return true;
+}
+
 function printGitLabMigrations(fromVersion: string, toVersion: string): void {
   const migrations = getRelevantMigrations(fromVersion, toVersion, {
     forge: 'gitlab' as ForgeKind,
@@ -277,6 +303,7 @@ Exit code: 0 on success, 1 on error.
   }
   const fromVersion = config.fromVersion || detected;
   const toVersion = config.toVersion;
+  const interactive = !!process.stdin.isTTY && !config.yes;
   print(`  From: ${fromVersion}  →  To: ${toVersion}`);
 
   if (fromVersion === toVersion) {
@@ -294,7 +321,17 @@ Exit code: 0 on success, 1 on error.
 
   if (toUpdate.length === 0 && toAdd.length === 0) {
     printSkip('All workflow files already match the target version — nothing to do.');
+    // A code-only range stays silent; a range that declares a newly-required
+    // secret is still gated even when no workflow file changed (e.g. re-run).
+    const gate = await runCredentialGate({
+      repoRoot: config.repoRoot,
+      fromVersion,
+      toVersion,
+      interactive,
+      dryRun: config.dryRun,
+    });
     closePrompt();
+    if (gate.ran) printGitHubFollowUps(fromVersion, toVersion, gate.followUps);
     process.exit(0);
   }
 
@@ -331,7 +368,15 @@ Exit code: 0 on success, 1 on error.
   if (config.dryRun) {
     print('');
     print('Dry-run mode — no changes written.');
+    const gate = await runCredentialGate({
+      repoRoot: config.repoRoot,
+      fromVersion,
+      toVersion,
+      interactive,
+      dryRun: true,
+    });
     closePrompt();
+    if (gate.ran) printGitHubFollowUps(fromVersion, toVersion, gate.followUps);
     process.exit(0);
   }
 
@@ -348,6 +393,15 @@ Exit code: 0 on success, 1 on error.
       process.exit(0);
     }
   }
+
+  // ── Credential gate (must run while the prompt is still open) ──────────────
+  const gate = await runCredentialGate({
+    repoRoot: config.repoRoot,
+    fromVersion,
+    toVersion,
+    interactive,
+    dryRun: false,
+  });
 
   closePrompt();
 
@@ -386,21 +440,8 @@ Exit code: 0 on success, 1 on error.
     }
   }
 
-  // ── Migration notes ───────────────────────────────────────────────────────
-  const migrations = getRelevantMigrations(fromVersion, toVersion, {
-    forge: 'github' as ForgeKind,
-  });
-  if (migrations.length > 0) {
-    print('');
-    print('════════════════════════════════════════');
-    print('  Manual follow-ups required');
-    print('════════════════════════════════════════');
-    for (const note of migrations) {
-      const prefix = note.kind === 'action' ? '  [action] ' : '  [info]   ';
-      print(`${prefix}${note.message}`);
-    }
-    print('');
-  }
+  // ── Migration notes + credential-gate follow-ups ──────────────────────────
+  const hadFollowUps = printGitHubFollowUps(fromVersion, toVersion, gate.followUps);
 
   // ── Summary ───────────────────────────────────────────────────────────────
   print('');
@@ -414,7 +455,7 @@ Exit code: 0 on success, 1 on error.
   print('Next steps:');
   print('  1. Review git diff in .github/workflows/');
   print('  2. Commit and push — the new pinned version takes effect on the next workflow run');
-  if (migrations.length === 0) {
+  if (!hadFollowUps) {
     print('  3. No manual follow-ups required for this upgrade');
   }
   print('');

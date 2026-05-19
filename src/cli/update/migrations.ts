@@ -14,6 +14,12 @@ export type MigrationForge = 'github' | 'gitlab' | 'both';
 export interface ParsedMigration {
   keyTo: string;
   forge: MigrationForge;
+  /**
+   * Secrets the consumer must have set before this version transition is safe.
+   * Declared via an optional `requires-secrets:` line (parallel to `forge:`).
+   * Empty for code-only releases — the credential gate stays silent then.
+   */
+  requiresSecrets: string[];
   notes: MigrationNote[];
 }
 
@@ -51,12 +57,28 @@ function parseForgeLine(line: string): MigrationForge | undefined {
 }
 
 /**
+ * Parse a `requires-secrets:` field (case-insensitive) from a single line.
+ * Value is a comma- and/or whitespace-separated list of secret names.
+ * Returns `undefined` when the line is not a `requires-secrets:` line.
+ */
+function parseRequiresSecretsLine(line: string): string[] | undefined {
+  const m = line.match(/^\s*requires-secrets\s*:\s*(.*)$/i);
+  if (!m) return undefined;
+  return m[1]!
+    .split(/[\s,]+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
+/**
  * Parse MIGRATIONS.md content into structured entries.
  *
  * Each `## <from> → <to>` heading starts a section. Optional `forge:` field
  * on a subsequent line declares which forge the section applies to
- * (`github`, `gitlab`, or `both`). Default is `both`. Note bullets follow
- * the existing `- **(action)** ...` / `- **(info)** ...` shape.
+ * (`github`, `gitlab`, or `both`). Default is `both`. An optional
+ * `requires-secrets:` field (parallel to `forge:`, comma/space separated)
+ * declares secrets the consumer must have set for this transition. Note
+ * bullets follow the existing `- **(action)** ...` / `- **(info)** ...` shape.
  *
  * Exported for unit tests; consumers should call `getRelevantMigrations()`.
  */
@@ -69,18 +91,23 @@ export function parseMigrationsContent(content: string): ParsedMigration[] {
     const headingMatch = line.match(/^##\s+v[\d.x]+\s*(?:→|->)\s*(v[\d.]+)/);
     if (headingMatch) {
       if (current !== null) result.push(current);
-      current = { keyTo: headingMatch[1]!, forge: 'both', notes: [] };
+      current = { keyTo: headingMatch[1]!, forge: 'both', requiresSecrets: [], notes: [] };
       continue;
     }
 
     if (current === null) continue;
 
-    // ── Optional `forge:` annotation (case-insensitive, anywhere before
-    //    the first bullet) ─────────────────────────────────────────────
+    // ── Optional `forge:` / `requires-secrets:` annotations
+    //    (case-insensitive, anywhere before the first bullet) ───────────
     if (current.notes.length === 0) {
       const forge = parseForgeLine(line);
       if (forge !== undefined) {
         current.forge = forge;
+        continue;
+      }
+      const requiresSecrets = parseRequiresSecretsLine(line);
+      if (requiresSecrets !== undefined) {
+        current.requiresSecrets = requiresSecrets;
         continue;
       }
     }
@@ -146,14 +173,44 @@ export function getRelevantMigrations(
   toVersion: string,
   options: GetRelevantMigrationsOptions = {},
 ): MigrationNote[] {
-  const all = parseMigrationsFile(options.migrationsPath);
-  const filtered = filterMigrationsByForge(all, options.forge);
-
   const notes: MigrationNote[] = [];
-  for (const { keyTo, notes: migNotes } of filtered) {
-    if (semverLt(fromVersion, keyTo) && semverLte(keyTo, toVersion)) {
-      notes.push(...migNotes);
-    }
+  for (const m of crossedMigrations(fromVersion, toVersion, options)) {
+    notes.push(...m.notes);
   }
   return notes;
+}
+
+/** Entries whose target version is in `(fromVersion, toVersion]`, forge-filtered. */
+function crossedMigrations(
+  fromVersion: string,
+  toVersion: string,
+  options: GetRelevantMigrationsOptions,
+): ParsedMigration[] {
+  const all = parseMigrationsFile(options.migrationsPath);
+  const filtered = filterMigrationsByForge(all, options.forge);
+  return filtered.filter((m) => semverLt(fromVersion, m.keyTo) && semverLte(m.keyTo, toVersion));
+}
+
+/**
+ * Collect the deduped union of `requires-secrets:` declared across every
+ * migration section crossed when upgrading `fromVersion` → `toVersion`
+ * (forge-filtered). Empty for code-only ranges — that is the property the
+ * credential gate relies on to stay silent (ADR-0006 §7, decisions/0002 §G).
+ */
+export function getRequiredSecretsForRange(
+  fromVersion: string,
+  toVersion: string,
+  options: GetRelevantMigrationsOptions = {},
+): string[] {
+  const seen = new Set<string>();
+  const ordered: string[] = [];
+  for (const m of crossedMigrations(fromVersion, toVersion, options)) {
+    for (const secret of m.requiresSecrets) {
+      if (!seen.has(secret)) {
+        seen.add(secret);
+        ordered.push(secret);
+      }
+    }
+  }
+  return ordered;
 }
