@@ -190,6 +190,8 @@ export function resolveTicketOverrides(
   let noAutoTransition = false;
   let dryRun = false;
   let readOnly = false;
+  let hasClaudeCode = false;
+  let hasNoClaudeCode = false;
   const skipPhases: AgentPhase[] = [];
 
   let baseBranchLabel: string | undefined;
@@ -521,9 +523,30 @@ export function resolveTicketOverrides(
       continue;
     }
 
+    // ferry:claude-code / ferry:no-claude-code — per-ticket execution-path override.
+    // Conflicting labels are NOT a LabelConflictError: a routing ambiguity must
+    // fail closed onto the safe script path (resolved after the loop).
+    if (label === 'ferry:claude-code') {
+      hasClaudeCode = true;
+      continue;
+    }
+    if (label === 'ferry:no-claude-code') {
+      hasNoClaudeCode = true;
+      continue;
+    }
+
     // Unrecognised ferry:* label in override namespace — log and ignore
     logger?.warn('unknown ferry override label ignored', { label });
   }
+
+  // Resolve the execution-path override. Order-independent and fail-closed:
+  // any conflict (both labels present) collapses to the safe script path.
+  const claudeCodePath: 'claude-code' | 'script' | undefined =
+    hasClaudeCode && !hasNoClaudeCode
+      ? 'claude-code'
+      : hasClaudeCode || hasNoClaudeCode
+        ? 'script'
+        : undefined;
 
   // Apply blanket model/provider to phases not already overridden per-phase.
   // Per-phase labels take precedence: blanket only fills phases with no explicit per-phase override.
@@ -578,6 +601,7 @@ export function resolveTicketOverrides(
     ...(paused ? { paused: true } : {}),
     ...(dryRun ? { dryRun: true } : {}),
     ...(readOnly ? { readOnly: true } : {}),
+    ...(claudeCodePath !== undefined ? { claudeCodePath } : {}),
   };
 }
 
@@ -675,7 +699,8 @@ export function hasNonDefaultOverrides(overrides: TicketOverrides): boolean {
     overrides.git?.prDraft !== undefined ||
     overrides.paused === true ||
     overrides.dryRun === true ||
-    overrides.readOnly === true
+    overrides.readOnly === true ||
+    overrides.claudeCodePath !== undefined
   );
 }
 
@@ -718,6 +743,7 @@ export function buildOverridesAuditComment(
   if (overrides.paused) payload.paused = true;
   if (overrides.dryRun) payload.dryRun = true;
   if (overrides.readOnly) payload.readOnly = true;
+  if (overrides.claudeCodePath !== undefined) payload.claudeCodePath = overrides.claudeCodePath;
 
   const body = `[ferry:${role}:${runId}] overrides applied: ${JSON.stringify(payload)}`;
   return applyDryRunMarker(body, overrides.dryRun);

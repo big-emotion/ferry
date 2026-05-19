@@ -38,27 +38,27 @@
     },
     {
       "id": "1118924",
-      "rationale": "New advisory in protobufjs (transitive dep via @google/genai → protobufjs@^7.5.4). No patched protobufjs release available; @google/genai still pins the same range. Ferry only uses @google/genai to call Gemini APIs — protobuf messages are never decoded from untrusted sources. Remove when @google/genai bumps to a patched protobufjs."
+      "rationale": "Pre-existing advisory in protobufjs (transitive dep via @google/genai → protobufjs@^7.5.4). No patched protobufjs release yet, and @google/genai’s latest 2.2.0 still pins the same range. Ferry only uses @google/genai to call Gemini APIs over Google’s gRPC endpoints — protobuf messages are never decoded from untrusted sources. Remove when @google/genai bumps to a patched protobufjs."
     },
     {
       "id": "1118926",
-      "rationale": "New advisory in protobufjs (transitive dep via @google/genai → protobufjs@^7.5.4). No patched protobufjs release available; @google/genai still pins the same range. Ferry only uses @google/genai to call Gemini APIs — protobuf messages are never decoded from untrusted sources. Remove when @google/genai bumps to a patched protobufjs."
+      "rationale": "Pre-existing advisory in protobufjs (transitive dep via @google/genai → protobufjs@^7.5.4). No patched protobufjs release yet, and @google/genai’s latest 2.2.0 still pins the same range. Ferry only uses @google/genai to call Gemini APIs over Google’s gRPC endpoints — protobuf messages are never decoded from untrusted sources. Remove when @google/genai bumps to a patched protobufjs."
     },
     {
       "id": "1118928",
-      "rationale": "New advisory in protobufjs (transitive dep via @google/genai → protobufjs@^7.5.4). No patched protobufjs release available; @google/genai still pins the same range. Ferry only uses @google/genai to call Gemini APIs — protobuf messages are never decoded from untrusted sources. Remove when @google/genai bumps to a patched protobufjs."
+      "rationale": "Pre-existing advisory in protobufjs (transitive dep via @google/genai → protobufjs@^7.5.4). No patched protobufjs release yet, and @google/genai’s latest 2.2.0 still pins the same range. Ferry only uses @google/genai to call Gemini APIs over Google’s gRPC endpoints — protobuf messages are never decoded from untrusted sources. Remove when @google/genai bumps to a patched protobufjs."
     },
     {
       "id": "1118930",
-      "rationale": "New advisory in protobufjs (transitive dep via @google/genai → protobufjs@^7.5.4). No patched protobufjs release available; @google/genai still pins the same range. Ferry only uses @google/genai to call Gemini APIs — protobuf messages are never decoded from untrusted sources. Remove when @google/genai bumps to a patched protobufjs."
+      "rationale": "Pre-existing advisory in protobufjs (transitive dep via @google/genai → protobufjs@^7.5.4). No patched protobufjs release yet, and @google/genai’s latest 2.2.0 still pins the same range. Ferry only uses @google/genai to call Gemini APIs over Google’s gRPC endpoints — protobuf messages are never decoded from untrusted sources. Remove when @google/genai bumps to a patched protobufjs."
     },
     {
       "id": "1118932",
-      "rationale": "New advisory in protobufjs (transitive dep via @google/genai → protobufjs@^7.5.4). No patched protobufjs release available; @google/genai still pins the same range. Ferry only uses @google/genai to call Gemini APIs — protobuf messages are never decoded from untrusted sources. Remove when @google/genai bumps to a patched protobufjs."
+      "rationale": "Pre-existing advisory in protobufjs (transitive dep via @google/genai → protobufjs@^7.5.4). No patched protobufjs release yet, and @google/genai’s latest 2.2.0 still pins the same range. Ferry only uses @google/genai to call Gemini APIs over Google’s gRPC endpoints — protobuf messages are never decoded from untrusted sources. Remove when @google/genai bumps to a patched protobufjs."
     },
     {
       "id": "1118935",
-      "rationale": "New advisory in protobufjs (transitive dep via @google/genai → protobufjs@^7.5.4). No patched protobufjs release available; @google/genai still pins the same range. Ferry only uses @google/genai to call Gemini APIs — protobuf messages are never decoded from untrusted sources. Remove when @google/genai bumps to a patched protobufjs."
+      "rationale": "Pre-existing advisory in protobufjs (transitive dep via @google/genai → protobufjs@^7.5.4). No patched protobufjs release yet, and @google/genai’s latest 2.2.0 still pins the same range. Ferry only uses @google/genai to call Gemini APIs over Google’s gRPC endpoints — protobuf messages are never decoded from untrusted sources. Remove when @google/genai bumps to a patched protobufjs."
     }
   ]
 }

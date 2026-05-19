@@ -176,6 +176,24 @@ export interface TicketOverrides {
    * even the Refiner's Jira sub-task writes are suppressed (per dryRun gating).
    */
   readOnly?: boolean;
+
+  // --- ferry:claude-code / ferry:no-claude-code (execution path) ---
+
+  /**
+   * Per-ticket execution-path override (ADR-0006 §3, #300).
+   * - `ferry:claude-code`    → 'claude-code' (force the claude-code-action path).
+   * - `ferry:no-claude-code` → 'script' (force the bundled script path).
+   *
+   * Conflicting labels (both present) resolve to the **safe path** `'script'`
+   * — deliberately, this pair does NOT throw `LabelConflictError`: a routing
+   * ambiguity must fail closed onto the deterministic script path rather than
+   * block the ticket.
+   *
+   * Consumed by `resolveExecutionPath` (src/lib/cc-wrappers/routing.ts): it
+   * takes precedence over the heuristic and the conditional default, but an
+   * explicit `execution_path: script` in ferry.config still wins.
+   */
+  claudeCodePath?: 'claude-code' | 'script';
 }
 
 /** Built-in label → normalised issue type mapping. Order matters: last match wins. */

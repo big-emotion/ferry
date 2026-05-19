@@ -769,3 +769,49 @@ describe('parseFerryConfigJson', () => {
     expect(cfg.models.dev.model).toBe('claude-haiku-4-5-20251001');
   });
 });
+
+describe('execution_path + routing config (ADR-0006, #300)', () => {
+  it('defaults: execution_path is unset (conditional default) and routing threshold is 2', () => {
+    const cfg = parseFerryConfigJson('{}');
+    expect(cfg.execution_path).toBeUndefined();
+    expect(cfg.routing.claude_code_round_trip_threshold).toBe(2);
+  });
+
+  it('DEFAULT_FERRY_CONFIG carries the routing default and no execution_path', () => {
+    expect(DEFAULT_FERRY_CONFIG.execution_path).toBeUndefined();
+    expect(DEFAULT_FERRY_CONFIG.routing.claude_code_round_trip_threshold).toBe(2);
+  });
+
+  it('parses execution_path "script"', () => {
+    const cfg = parseFerryConfigJson(JSON.stringify({ execution_path: 'script' }));
+    expect(cfg.execution_path).toBe('script');
+  });
+
+  it('parses execution_path "claude-code"', () => {
+    const cfg = parseFerryConfigJson(JSON.stringify({ execution_path: 'claude-code' }));
+    expect(cfg.execution_path).toBe('claude-code');
+  });
+
+  it('parses a custom routing threshold', () => {
+    const cfg = parseFerryConfigJson(
+      JSON.stringify({ routing: { claude_code_round_trip_threshold: 5 } }),
+    );
+    expect(cfg.routing.claude_code_round_trip_threshold).toBe(5);
+  });
+
+  it('rejects an unknown execution_path value', () => {
+    expect(() => parseFerryConfigJson(JSON.stringify({ execution_path: 'agent-sdk' }))).toThrow(
+      FerryError,
+    );
+  });
+
+  it('rejects a non-positive routing threshold', () => {
+    expect(() =>
+      parseFerryConfigJson(JSON.stringify({ routing: { claude_code_round_trip_threshold: 0 } })),
+    ).toThrow(FerryError);
+  });
+
+  it('rejects a non-object routing', () => {
+    expect(() => parseFerryConfigJson(JSON.stringify({ routing: 'fast' }))).toThrow(FerryError);
+  });
+});

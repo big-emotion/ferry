@@ -545,6 +545,26 @@ Let a Jira ticket run Ferry without producing side effects — to validate promp
 
 **Use case:** validate a new MCP server configuration or refined prompt by running the full agent loop on a real ticket without touching the repo or the Jira board.
 
+##### Execution-path routing (`ferry:claude-code`, `ferry:no-claude-code`)
+
+> **Experimental — resolver only.** These labels and config keys are recognised today but only take effect once the `claude-code-action` path itself ships (epic [#299](https://github.com/big-emotion/ferry/issues/299), #302). Until then every consumer runs the bundled-script path regardless. See [Execution paths & accepted divergences](#execution-paths--accepted-divergences-experimental).
+
+Which execution path an agent run takes is decided by a deterministic resolver ([ADR-0006](./adr/0006-claude-code-action-execution-path.md) §3, [#300](https://github.com/big-emotion/ferry/issues/300)). Precedence, highest first:
+
+1. **Explicit `execution_path: "script"`** in `ferry.config.*` — a hard lock; never overridden by the label or the heuristic.
+2. **Per-ticket label** — `ferry:claude-code` forces the claude-code-action path; `ferry:no-claude-code` forces the bundled script. Both labels present is **not** a `LabelConflictError`: it fails closed to the safe `script` path.
+3. **Automatic heuristic** — a `developer` / `iterator` run with `priorRoundTrips >= routing.claude_code_round_trip_threshold` escalates an otherwise-script default to claude-code.
+4. **Conditional default** — explicit `execution_path: "claude-code"`, else `claude-code` for an Anthropic-only consumer, else `script`.
+
+The resolved path **and the reason** (`label` / `heuristic` / `default`) are recorded in the audit comment so the Reconciler observes which path ran and why.
+
+| Config key                                  | Default     | Effect                                                                                                  |
+| ------------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------- |
+| `execution_path`                            | _(unset)_   | `"script"` (hard lock) or `"claude-code"` (explicit). Unset → conditional default applies.               |
+| `routing.claude_code_round_trip_threshold`  | `2`         | Positive integer N for the developer/iterator escalation heuristic.                                      |
+
+`ferry:claude-code` only _selects_ the path — it does not provision the `CLAUDE_CODE_OAUTH_TOKEN` the path needs. The hard invariants (cost-governance auto-pause, no-auto-merge) apply regardless of how the path was chosen.
+
 ##### Extended thinking (`ferry:thinking/*`)
 
 | Label                     | Effect                                                                                 |
