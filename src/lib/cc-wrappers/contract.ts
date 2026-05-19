@@ -141,6 +141,17 @@ export function decideContract(output: AgentOutputV1, ctx: ContractContext): Con
   const g = ctx.gates;
 
   switch (output.role) {
+    // Accepted divergence (documented — #313 review): the script path appends a
+    // ` [type override: {…}]` suffix (`overrideNote`) to the developer terminal
+    // comment when a force/type override is in play (dev-action.ts:526-534).
+    // The claude-code path has no force/type-override concept (the validated
+    // agent artifact carries no override metadata, and threading it through
+    // ContractContext would couple this pure decision to script-only state),
+    // so the developer audit comment intentionally omits `overrideNote`. This
+    // is an accepted, documented path divergence — markers, transitions and the
+    // base comment string remain byte-identical; only the override annotation
+    // (a human-readable note, not a Reconciler-relevant marker) differs. This
+    // sits alongside the dry-run accepted divergence documented in the PR body.
     case 'developer': {
       if (output.outcome === 'blocked') {
         const reason = output.reason ?? 'no reason given';
@@ -156,6 +167,9 @@ export function decideContract(output: AgentOutputV1, ctx: ContractContext): Con
       const transitions: TransitionPlan[] = g.shouldAutoTransition
         ? [{ transitionIdEnv: 'FERRY_REVIEW_TRANSITION_ID', when: 'before-comment' }]
         : [];
+      // NB: deliberately no `overrideNote` suffix here — see the accepted
+      // divergence note above (dev-action.ts:526-534 appends one; cc-wrapper
+      // has no override metadata, so it is intentionally omitted).
       const comment =
         output.outcome === 'already_satisfied'
           ? `${m} Spec already satisfied — verification PR: ${prUrl}.${tn}`
@@ -192,6 +206,11 @@ export function decideContract(output: AgentOutputV1, ctx: ContractContext): Con
         };
       }
       const nextIteration = Math.max(0, ctx.priorIterations ?? 0) + 1;
+      // Invariant: the script appends a dry-run-only ` (dry-run: branch push
+      // suppressed)` `pushNote` here (iterate-action.ts:437). It is safely
+      // omitted: `apply.ts` returns early under `ferry:dry-run` and suppresses
+      // ALL external writes (apply.ts:75-83), so this comment is never posted
+      // on the dry-run cc-wrapper path — `pushNote` can never surface.
       return {
         comment: `${m} Iteration ${nextIteration} complete. Pushed fixes to PR#${prNumber}.${tn}`,
         labels: [],
