@@ -16,6 +16,7 @@ import { checkWorkflowColumns } from './checks/workflow-columns.js';
 import { checkEnvVarSanity } from './checks/env-vars.js';
 import { checkAuditIssue } from './checks/audit-issue.js';
 import { checkAuditLog } from './checks/audit-log.js';
+import { checkClaudeCodePath } from './checks/claude-code-path.js';
 import { renderTable } from './table.js';
 import { parseGitLabConfig, runGitLabDoctor } from './gitlab/index.js';
 import type { DoctorConfig } from './types.js';
@@ -85,6 +86,8 @@ function parseConfig(argv: string[]): DoctorConfig {
       process.env['GOOGLE_API_KEY'] ??
       process.env['FERRY_GOOGLE_AI_KEY'] ??
       '',
+    claudeCodeOauthToken:
+      getArg(argv, '--claude-code-token') ?? process.env['CLAUDE_CODE_OAUTH_TOKEN'] ?? '',
     ferryVersion: getArg(argv, '--version') ?? 'v1',
     repoRoot: getArg(argv, '--repo-root') ?? process.cwd(),
     noDispatch: hasFlag(argv, '--no-dispatch'),
@@ -123,6 +126,7 @@ Options:
   --anthropic-key <key>        Anthropic API key (default: ANTHROPIC_API_KEY)
   --openai-key <key>           OpenAI API key (default: FERRY_OPENAI_KEY)
   --google-key <key>           Google AI API key (default: FERRY_GOOGLE_AI_KEY)
+  --claude-code-token <token>  Claude subscription OAuth token (default: CLAUDE_CODE_OAUTH_TOKEN)
   --version <tag>              Ferry version tag for workflow drift check (default: v1)
   --repo-root <path>           Path to the repo root (default: cwd)
   --no-dispatch                Skip the synthetic dispatch probe
@@ -150,6 +154,7 @@ Checks run in order:
   12. Workflow columns       — validate workflow.agents column names exist in Jira project
   13. Audit issue            — FERRY_AUDIT_ISSUE variable set and referenced issue is open
   14. Audit log file         — ferry-audit.jsonl present and non-empty
+  15. Claude-code path       — when execution_path = claude-code, CLAUDE_CODE_OAUTH_TOKEN present/valid
 
 Exit code: 0 if all checks green/yellow, 1 if any check red.
 `);
@@ -203,6 +208,11 @@ Exit code: 0 if all checks green/yellow, 1 if any check red.
     }),
     checkAuditIssue(config.repo),
     checkAuditLog(config.repoRoot),
+    checkClaudeCodePath({
+      repoRoot: config.repoRoot,
+      repo: config.repo,
+      claudeCodeOauthToken: config.claudeCodeOauthToken,
+    }),
   ]);
 
   process.stdout.write(renderTable(results));

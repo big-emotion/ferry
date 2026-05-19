@@ -23,6 +23,15 @@ export const FERRY_SECRETS = [
 ];
 
 export const ANTHROPIC_SECRET = 'ANTHROPIC_API_KEY';
+/**
+ * Ferry-provisioned subscription OAuth token for the claude-code execution
+ * path (ADR-0006 §6). Created via `claude setup-token` specifically for Ferry,
+ * so it is removed by default — leaving it would orphan a stale subscription
+ * token (decisions/0002 §F). This is unlike ANTHROPIC_API_KEY, which may be a
+ * consumer's general-purpose key and is therefore gated behind
+ * --include-anthropic.
+ */
+export const CLAUDE_CODE_OAUTH_SECRET = 'CLAUDE_CODE_OAUTH_TOKEN';
 export const FERRY_VARIABLE = 'FERRY_AUDIT_ISSUE';
 export const AUDIT_LABEL = 'ferry:audit-log:active';
 
@@ -57,7 +66,11 @@ function listSecrets(repo: string): string[] {
 
 export function detectSecrets(repo: string, includeAnthropic: boolean): string[] {
   const all = listSecrets(repo);
-  const targets = includeAnthropic ? [...FERRY_SECRETS, ANTHROPIC_SECRET] : FERRY_SECRETS;
+  const targets = [
+    ...FERRY_SECRETS,
+    CLAUDE_CODE_OAUTH_SECRET,
+    ...(includeAnthropic ? [ANTHROPIC_SECRET] : []),
+  ];
   return targets.filter((s) => all.includes(s));
 }
 

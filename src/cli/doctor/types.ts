@@ -18,6 +18,7 @@ export interface DoctorConfig {
   anthropicApiKey: string;
   openaiApiKey: string;
   googleApiKey: string;
+  claudeCodeOauthToken: string;
   ferryVersion: string;
   repoRoot: string;
   noDispatch: boolean;

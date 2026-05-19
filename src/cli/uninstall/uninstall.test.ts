@@ -16,6 +16,7 @@ import {
   FERRY_WORKFLOW_FILES,
   FERRY_SECRETS,
   ANTHROPIC_SECRET,
+  CLAUDE_CODE_OAUTH_SECRET,
   FERRY_VARIABLE,
 } from './detect.js';
 import {
@@ -168,6 +169,37 @@ describe('detectSecrets', () => {
       spawnOk(JSON.stringify([{ name: 'FERRY_APP_ID' }, { name: 'FERRY_PRIVATE_KEY' }])),
     );
     expect(detectSecrets('owner/repo', false)).toEqual(['FERRY_APP_ID', 'FERRY_PRIVATE_KEY']);
+  });
+
+  it('removes CLAUDE_CODE_OAUTH_SECRET by default (claude-code path token, not orphaned)', () => {
+    mockSpawnSync.mockReturnValue(
+      spawnOk(
+        JSON.stringify([...FERRY_SECRETS, CLAUDE_CODE_OAUTH_SECRET].map((name) => ({ name }))),
+      ),
+    );
+    const secrets = detectSecrets('owner/repo', false);
+    expect(secrets).toContain(CLAUDE_CODE_OAUTH_SECRET);
+  });
+
+  it('does not include CLAUDE_CODE_OAUTH_SECRET when it is not set in the repo', () => {
+    mockSpawnSync.mockReturnValue(spawnOk(JSON.stringify(FERRY_SECRETS.map((name) => ({ name })))));
+    const secrets = detectSecrets('owner/repo', false);
+    expect(secrets).not.toContain(CLAUDE_CODE_OAUTH_SECRET);
+    expect(secrets).toEqual([...FERRY_SECRETS]);
+  });
+
+  it('removes both CLAUDE_CODE_OAUTH_SECRET and ANTHROPIC_SECRET when includeAnthropic is true', () => {
+    mockSpawnSync.mockReturnValue(
+      spawnOk(
+        JSON.stringify(
+          [...FERRY_SECRETS, CLAUDE_CODE_OAUTH_SECRET, ANTHROPIC_SECRET].map((name) => ({ name })),
+        ),
+      ),
+    );
+    const secrets = detectSecrets('owner/repo', true);
+    expect(secrets).toContain(CLAUDE_CODE_OAUTH_SECRET);
+    expect(secrets).toContain(ANTHROPIC_SECRET);
+    expect(secrets).toHaveLength(FERRY_SECRETS.length + 2);
   });
 });
 
