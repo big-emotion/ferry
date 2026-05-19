@@ -33,9 +33,12 @@ If there are no consumer-visible changes, omit the section (or note `(none — i
 
 ---
 
-## v0.10.x → v0.11.0 (pending — GitLab support)
+## v0.10.x → v0.11.0
 
 - **(info)** **GitLab support added behind an `FERRY_FORGE=gitlab` flag — experimental.** GitHub users are not affected; the default forge remains GitHub Actions. The GitLab adapter is shipped under [#210](https://github.com/big-emotion/ferry/issues/210) with templates in `examples/consumer-setup-gitlab/`. The experimental flag is expected to drop once a real consumer has run a full Refiner→Developer→Reviewer→Iterator cycle in production for two weeks. Until then, the bundled artifact may break across minor releases. See the promotion checklist on #210.
+- **(info)** Per-ticket label overrides are now available (`ferry:model:*`, `ferry:provider:*`, `ferry:max-iterations:*`, `ferry:no-auto-transition`, `ferry:as/<type>`, `ferry:dry-run`, etc.) — opt-in, no action required. See `docs/CONFIGURATION.md`.
+- **(info)** New cost CLIs: `ferry-cost-advice` (ranked savings) and `ferry-cost-reconcile` (audit-vs-Anthropic-CSV diff), alongside the existing `ferry-cost-report` / `ferry-cost-stats`. See `docs/COST.md`.
+- **(info)** The four agent composite actions now invoke a single `ferry-agent` CLI internally (the per-role `.ferry/*-action.js` bundles are replaced by `.ferry/agent.js`). The composite-action interface is unchanged — `ferry-update` re-pins workflows to `@v0.11.0` automatically; no consumer action required.
 
 ---
 

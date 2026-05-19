@@ -19,7 +19,7 @@ Copy-pasteable GitLab CI templates that wire Ferry's four agents (Refiner / Deve
 
 1. **Copy these files** to the root of your project (or into your existing `.gitlab-ci.yml` via `include:`).
 2. **Set the CI/CD variables** (Settings → CI/CD → Variables). Mark every token-bearing variable as both **Protected** and **Masked**:
-   - `FERRY_VERSION` — e.g. `v0.10.3` (the npm version of `@big-emotion/ferry`)
+   - `FERRY_VERSION` — e.g. `v0.11.0` (the npm version of `@big-emotion/ferry`)
    - `FERRY_JIRA_BASE_URL`, `FERRY_JIRA_EMAIL`, `FERRY_JIRA_API_TOKEN`
    - `FERRY_GITLAB_TOKEN`, `FERRY_GITLAB_PIPELINE_TRIGGER_TOKEN`
    - `FERRY_REVIEW_TRANSITION_ID`, `FERRY_ITER_TRANSITION_ID`, `FERRY_APPROVE_TRANSITION_ID`

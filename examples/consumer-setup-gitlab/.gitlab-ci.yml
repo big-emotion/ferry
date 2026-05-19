@@ -16,7 +16,7 @@
 #      matches `FERRY_DISPATCH_TYPE` to run exactly one agent per pipeline.
 #
 # Required CI/CD variables (Settings → CI/CD → Variables):
-#   FERRY_VERSION              — npm version to install (e.g. v0.10.3)
+#   FERRY_VERSION              — npm version to install (e.g. v0.11.0)
 #   FERRY_JIRA_BASE_URL        — Jira Cloud base URL
 #   FERRY_JIRA_EMAIL           — Jira account email
 #   FERRY_JIRA_API_TOKEN       — Jira API token  (protected, masked)

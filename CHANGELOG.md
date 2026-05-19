@@ -9,6 +9,10 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+---
+
+## [0.11.0] — 2026-05-19
+
 ### Added
 
 - **`ferry-init --forge gitlab` full wizard (experimental)** (part of #214, follow-up to #283) — the GitLab branch of `ferry-init` is no longer a pointer to the docs. It now detects the GitLab project (host + namespaced path; subgroups supported) from `git remote get-url origin`, scaffolds the six GitLab CI templates (`refine`, `dev`, `review`, `iterate`, `reconcile`, `cost-daily`) under `ci/ferry/`, and prints the required project-access-token scopes (`api`) plus the CI/CD variables consumers must create in **Settings → CI/CD → Variables** (`FERRY_VERSION`, `FERRY_JIRA_BASE_URL`, `FERRY_JIRA_EMAIL`, `FERRY_JIRA_API_TOKEN`, `FERRY_GITLAB_TOKEN`, `FERRY_GITLAB_PIPELINE_TRIGGER_TOKEN`, `FERRY_REVIEW_TRANSITION_ID`, `FERRY_ITER_TRANSITION_ID`, `FERRY_APPROVE_TRANSITION_ID`, `FERRY_AUDIT_ISSUE`, plus one LLM key). The wizard is **idempotent**: re-running on an initialised repo leaves matching files untouched and reports user-edited ones as "would overwrite"; `--force` replaces them, `--dry-run` previews without writing, `--project namespace/project` overrides remote detection. Tokens are never accepted on the command line or written to disk. The GitHub path is byte-identical — only the `gitlab` branch grew new behaviour. First of four deferred follow-ups noted in #283.
@@ -29,22 +33,47 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **GitLab consumer-setup templates (experimental)** (#213, part of #210) — `examples/consumer-setup-gitlab/` now ships seven copy-pasteable GitLab CI files (one per role + reconcile + cost-daily + a top-level `.gitlab-ci.yml`). Each role's job is ~10 lines: installs Node 20, `npm install -g @big-emotion/ferry@${FERRY_VERSION}`, runs `ferry-agent run --role <role>`. `rules:` clauses match on `$FERRY_DISPATCH_TYPE` so the same pipeline trigger handles all four agents. A new GitLab section in `docs/CONFIGURATION.md` documents the Jira Automation → pipeline-trigger webhook payload, required CI/CD variables, project-token scopes, and the pipeline-status collapse rules. The README's Quick install gains a forge selector noting GitLab is experimental.
 
+- **Per-ticket label-override system** (#236 foundation; #237–#243) — a new label resolver (`src/lib/labels/`) lets operators steer an individual ticket by adding Jira labels, without touching `ferry.config`. The foundation (#236) defines the precedence chain (per-ticket label → per-agent config → global config → bundled default), conflict rules (last-writer-wins within a family, hard error on contradictory pairs), and an audit line so every applied override is traceable in the run log. Override families shipped on top of it: **model / provider per ticket** (`ferry:model:<id>`, `ferry:provider:<name>`, #237); **budget / iterations / tokens per ticket** (`ferry:max-iterations:<n>`, `ferry:max-tokens:<n>`, `ferry:budget:<usd>`, #238); **phase control / no-auto-transition** (`ferry:no-auto-transition`, per-phase enable/disable, #239); **thinking / review rubric** (`ferry:thinking:<level>`, `ferry:rubric:<name>`, #240); **git base / target / draft** (`ferry:base:<branch>`, `ferry:target:<branch>`, `ferry:draft`, #241); **ticket typing** (`ferry:as/<type>` forces the issue-type used for branch-prefix and routing resolution, #242); and **dry-run / read-only safety** (`ferry:dry-run`, `ferry:read-only` short-circuit all external writes for a single ticket, #243). Unknown or malformed labels are ignored with a warning rather than failing the run.
+
+- **Ticket-type routing label overrides** (#routing) — `ferry:type:enable-<type>` and `ferry:type:force-<type>` labels let a ticket opt into or force a routing type (e.g. `enable-task`) independent of its Jira issue type, complementing the per-issue-type working-branch-prefix mapping below.
+
+- **`ferry-cost-advice` CLI** (#254) — `npx -p @big-emotion/ferry ferry-cost-advice` reads `ferry-audit.jsonl` and prints a ranked list of cost-optimisation recommendations (e.g. phases that would be cheaper on a smaller model, tickets with runaway iteration counts, cache-hit opportunities), each with an estimated monthly saving. Supports `--audit-log`, `--repo`, and `--format` (`md`/`json`). Also exposed as the `/ferry-cost-advice` skill. See [`docs/COST.md`](docs/COST.md).
+
+- **`ferry-cost-reconcile` CLI** (#254) — `npx -p @big-emotion/ferry ferry-cost-reconcile` diffs Ferry's own per-run spend (`ferry-audit.jsonl`) against an Anthropic Console CSV export so operators can verify the audit log against the provider's billing of record and surface drift (untracked runs, model-price changes). Flags: `--audit-log`, `--csv`, `--from`, `--to`, `--format`.
+
+- **`ferry-cost-stats` CLI** — `npx -p @big-emotion/ferry ferry-cost-stats` reads `ferry-audit.jsonl` and writes `cost-baseline.json` with per-phase median and p90 cost in USD. Flags: `--audit-log`, `--repo`, `--out`. Commit the baseline to your repo root so the Refiner can read it at runtime. See [`docs/COST.md`](docs/COST.md) for full usage.
+
+- **Refiner cost estimation** — when `cost-baseline.json` is present, the Refiner now computes a `$lo–$hi` cost range after producing its plan, posts it as a Jira comment (`[ferry:refiner-estimate:<id>]`), and applies a `ferry:cost-estimate:<lo>-<hi>` label. Set `COST_TICKET_MAX_USD` to refuse tickets whose estimated high exceeds the cap (posts a `[ferry:refiner-cap:<id>]` comment and exits without creating subtasks). See [`docs/COST.md`](docs/COST.md) for configuration details.
+
+- **`ferry-cost-report` CLI** — `npx -p @big-emotion/ferry ferry-cost-report` reads `ferry-audit.jsonl` and renders a spend breakdown with per-phase, per-model, per-ticket (top 20), and daily tables plus ASCII sparklines for daily spend and tokens/run trends. Supports `--from`, `--to`, `--ticket`, `--phase`, `--format` (`md`/`json`/`csv`), `--out`, and `--audit-log` flags. An anomalies section flags runs above p95 cost. See [`docs/COST.md`](docs/COST.md) for full usage.
+
+- **`ferry-doctor` audit-log check** — a new check (#14) warns when `ferry-audit.jsonl` is missing, empty, or has fewer than 5 entries, so consumers know the file is ready before running `ferry-cost-report`.
+
+- **Configurable working branch prefix per issue type** (`git.working_branch_prefix` mapping) — `working_branch_prefix` now accepts either a plain string (existing behaviour, default `"ferry/"`) or a mapping object whose keys are Jira issue type names and whose `default` key covers unmatched types. At runtime the prefix is resolved by checking for a `ferry:type:<name>` label on the ticket first, then the ticket's Jira issue type, then `mapping.default`. This enables [Conventional Branch](https://conventional-branch.github.io/) naming out of the box — see `docs/CONFIGURATION.md` for a copy-pasteable recipe. Existing consumers are unaffected; the default remains `"ferry/"`.
+
+- **Context7 enabled as a default MCP server for all agents** (#261) — agents now have the Context7 documentation MCP server wired in by default, so they can fetch current library/framework docs at runtime instead of relying on stale training data. Consumers can disable it via the MCP configuration.
+
+- **MCP registry table** (#259) — `docs/MCP.md` documents the MCP servers Ferry agents can use, their transport, and their default-enabled status.
+
 ### Changed
 
 - **Runner factory + unified `ferry-agent` CLI** (#211, prerequisite for #210) — the runner layer is now resolved through `createRunnerFromEnv()` (`src/lib/dispatch/runner/factory.ts`), switching on a new `FERRY_FORGE` env var (default `github`; `gitlab` throws a clear "not yet implemented" error pointing at #210). The four agent composite actions (`ferry-run-{refiner,developer,reviewer,iterator}`) now invoke a single `ferry-agent run --role <role>` CLI; the per-role `.ferry/{refiner,dev,review,iterate}-action.js` bundles are replaced by a unified `.ferry/agent.js`. **No behaviour change for consumers** — the composite action interface is unchanged.
 
-### Added
-
-- **Configurable working branch prefix per issue type** (`git.working_branch_prefix` mapping) — `working_branch_prefix` now accepts either a plain string (existing behaviour, default `"ferry/"`) or a mapping object whose keys are Jira issue type names and whose `default` key covers unmatched types. At runtime the prefix is resolved by checking for a `ferry:type:<name>` label on the ticket first, then the ticket's Jira issue type, then `mapping.default`. This enables [Conventional Branch](https://conventional-branch.github.io/) naming out of the box — see `docs/CONFIGURATION.md` for a copy-pasteable recipe. Existing consumers are unaffected; the default remains `"ferry/"`.
+- **Anthropic HTTP MCP beta status qualified in constraints** (#260) — `docs/CONFIGURATION.md` and the agent constraints now explicitly note that Anthropic HTTP MCP support is a beta capability, so consumers don't assume GA-level stability.
 
 ### Fixed
 
 - **Reviewer agent was ignoring `git.working_branch_prefix` config** — `review-action.ts` hardcoded the PR branch lookup as `` `ferry/${ticketKey}` `` instead of reading the resolved prefix from `ferry.config`. Consumers who overrode `working_branch_prefix` found the Reviewer unable to locate the PR. The Reviewer now resolves the prefix from the reloaded base-branch config, consistent with the Developer and Iterator agents.
 
-- **`ferry-cost-stats` CLI** — `npx -p @big-emotion/ferry ferry-cost-stats` reads `ferry-audit.jsonl` and writes `cost-baseline.json` with per-phase median and p90 cost in USD. Flags: `--audit-log`, `--repo`, `--out`. Commit the baseline to your repo root so the Refiner can read it at runtime. See [`docs/COST.md`](docs/COST.md) for full usage.
-- **Refiner cost estimation** — when `cost-baseline.json` is present, the Refiner now computes a `$lo–$hi` cost range after producing its plan, posts it as a Jira comment (`[ferry:refiner-estimate:<id>]`), and applies a `ferry:cost-estimate:<lo>-<hi>` label. Set `COST_TICKET_MAX_USD` to refuse tickets whose estimated high exceeds the cap (posts a `[ferry:refiner-cap:<id>]` comment and exits without creating subtasks). See [`docs/COST.md`](docs/COST.md) for configuration details.
-- **`ferry-cost-report` CLI** — `npx -p @big-emotion/ferry ferry-cost-report` reads `ferry-audit.jsonl` and renders a spend breakdown with per-phase, per-model, per-ticket (top 20), and daily tables plus ASCII sparklines for daily spend and tokens/run trends. Supports `--from`, `--to`, `--ticket`, `--phase`, `--format` (`md`/`json`/`csv`), `--out`, and `--audit-log` flags. An anomalies section flags runs above p95 cost. See [`docs/COST.md`](docs/COST.md) for full usage.
-- **`ferry-doctor` audit-log check** — a new check (#14) warns when `ferry-audit.jsonl` is missing, empty, or has fewer than 5 entries, so consumers know the file is ready before running `ferry-cost-report`.
+- **Developer uses the verbatim Jira summary in the PR title** (#256) — the Developer previously massaged the Jira summary when building the PR title, which could drift from the ticket. It now uses the ticket summary verbatim, keeping the PR title traceable to the source ticket.
+
+- **`cost_eur` and token outputs wired through composite actions** (#257) — the `cost_eur` and token-count step outputs were computed by the agent but not propagated through the `ferry-emit-audit` composite action, so they never reached `ferry-audit.jsonl`. They are now plumbed end-to-end, so cost reporting reflects real spend.
+
+- **Jira issue-type locale normalised at the tracker boundary** (#258) — Jira returns localised issue-type names depending on the workspace locale, which broke type-based routing and branch-prefix resolution on non-English Jira instances. The tracker boundary now normalises the issue type to a locale-invariant form so routing is consistent regardless of the Jira UI language.
+
+### Dependencies
+
+- Bumped `@anthropic-ai/sdk` (0.93.0 → 0.95.2), `@google/genai` (1.x → 2.0.1), `openai` (6.36.0 → 6.37.0), `lint-staged` (16.4.0 → 17.0.4), and the typescript-toolchain group (4 updates).
 
 ---
 
@@ -336,7 +365,8 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
-[Unreleased]: https://github.com/big-emotion/ferry/compare/v0.10.1...HEAD
+[Unreleased]: https://github.com/big-emotion/ferry/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/big-emotion/ferry/releases/tag/v0.11.0
 [0.10.1]: https://github.com/big-emotion/ferry/releases/tag/v0.10.1
 [0.10.0]: https://github.com/big-emotion/ferry/releases/tag/v0.10.0
 [0.9.0]: https://github.com/big-emotion/ferry/releases/tag/v0.9.0
