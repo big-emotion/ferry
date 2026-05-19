@@ -41,6 +41,28 @@ describe('buildSecrets', () => {
       expect(s.description.length).toBeGreaterThan(0);
     }
   });
+
+  it('defaults to the script path (ANTHROPIC_API_KEY, no OAuth token)', () => {
+    const names = buildSecrets(cfg).map((s) => s.name);
+    expect(names).toContain('ANTHROPIC_API_KEY');
+    expect(names).not.toContain('CLAUDE_CODE_OAUTH_TOKEN');
+  });
+
+  it('claude-code path uses CLAUDE_CODE_OAUTH_TOKEN exclusively, never ANTHROPIC_API_KEY', () => {
+    const secrets = buildSecrets({
+      ...cfg,
+      executionPath: 'claude-code',
+      claudeCodeOauthToken: 'sk-ant-oat-xyz',
+    });
+    const names = secrets.map((s) => s.name);
+    expect(names).toContain('CLAUDE_CODE_OAUTH_TOKEN');
+    expect(names).not.toContain('ANTHROPIC_API_KEY');
+    expect(secrets.find((s) => s.name === 'CLAUDE_CODE_OAUTH_TOKEN')?.value).toBe('sk-ant-oat-xyz');
+    // GitHub App + Jira secrets are still reused unchanged.
+    expect(names).toContain('FERRY_APP_ID');
+    expect(names).toContain('FERRY_JIRA_API_TOKEN');
+    expect(secrets).toHaveLength(6);
+  });
 });
 
 // ── buildJiraBundle ───────────────────────────────────────────────────────────
@@ -176,5 +198,39 @@ describe('workflowTemplates', () => {
   it('ferry-refine.yml triggers on ferry-refine event', () => {
     const refine = workflowTemplates('v1').find((t) => t.filename === 'ferry-refine.yml');
     expect(refine?.content).toContain('ferry-refine');
+  });
+
+  it('script path is byte-identical whether the path is implicit or explicit', () => {
+    expect(workflowTemplates('v1', 'script')).toEqual(workflowTemplates('v1'));
+  });
+
+  it('script path contains no claude-code guard or header', () => {
+    for (const tmpl of workflowTemplates('v1')) {
+      expect(tmpl.content).not.toContain('CLAUDE_CODE_OAUTH_TOKEN');
+      expect(tmpl.content).not.toContain('Execution path: claude-code');
+    }
+  });
+
+  it('claude-code path materializes a fail-fast CLAUDE_CODE_OAUTH_TOKEN guard in every agent workflow', () => {
+    for (const tmpl of workflowTemplates('v1', 'claude-code')) {
+      expect(tmpl.content).toContain('# Execution path: claude-code');
+      expect(tmpl.content).toContain('Require CLAUDE_CODE_OAUTH_TOKEN');
+      expect(tmpl.content).toContain(
+        'CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}',
+      );
+      expect(tmpl.content).toContain('exit 1');
+      // The guard goes in the agent job only — exactly one occurrence per file.
+      const occurrences = tmpl.content.split('Require CLAUDE_CODE_OAUTH_TOKEN').length - 1;
+      expect(occurrences).toBe(1);
+    }
+  });
+
+  it('claude-code guard runs before the agent action', () => {
+    const dev = workflowTemplates('v1', 'claude-code').find((t) => t.filename === 'ferry-dev.yml');
+    const guardIdx = dev?.content.indexOf('Require CLAUDE_CODE_OAUTH_TOKEN') ?? -1;
+    const agentIdx = dev?.content.indexOf('ferry-run-developer') ?? -1;
+    expect(guardIdx).toBeGreaterThan(-1);
+    expect(agentIdx).toBeGreaterThan(-1);
+    expect(guardIdx).toBeLessThan(agentIdx);
   });
 });

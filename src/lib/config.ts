@@ -10,6 +10,15 @@ export interface LlmRoute {
   model: string;
 }
 
+/**
+ * Which execution path the agents run on (ADR-0006).
+ * - `script`: the bundled multi-provider deterministic agent loop (default).
+ * - `claude-code`: the `claude-code-action` reasoning core, bracketed by
+ *   deterministic Ferry contract steps. Anthropic-only; requires the
+ *   `CLAUDE_CODE_OAUTH_TOKEN` secret.
+ */
+export type ExecutionPath = 'script' | 'claude-code';
+
 export interface LabelCapability {
   mcp_servers?: string[];
   tools?: string[];
@@ -123,6 +132,12 @@ export interface FerryConfig {
   labels?: Record<string, LabelCapability>;
   workflow: WorkflowConfig;
   /**
+   * Execution path for the four agents (ADR-0006). Default `script`. Set to
+   * `claude-code` by `ferry-init` when the consumer picks the claude-code-action
+   * path at install time. A per-ticket Jira label still overrides this at runtime.
+   */
+  execution_path: ExecutionPath;
+  /**
    * Safety opt-ins. Currently:
    * - `allow_skip_review`: when true, the `ferry:skip/review` label auto-approves
    *   the PR at the Reviewer phase. Default false — the label is ignored without
@@ -188,6 +203,7 @@ export const DEFAULT_FERRY_CONFIG: FerryConfig = {
       iterator: { trigger_column: 'Changes Requested', auto_transition: 'In Review' },
     },
   },
+  execution_path: 'script',
 };
 
 // --- Validation helpers ---
@@ -491,6 +507,14 @@ function validateConfigShape(raw: unknown): ValidationError[] {
     }
   }
 
+  if (
+    c.execution_path !== undefined &&
+    c.execution_path !== 'script' &&
+    c.execution_path !== 'claude-code'
+  ) {
+    errs.push('execution_path: must be "script" or "claude-code"');
+  }
+
   return errs;
 }
 
@@ -695,6 +719,10 @@ function mergeWithDefaults(raw: RawConfig): FerryConfig {
     },
     ...(labels !== undefined ? { labels } : {}),
     workflow: mergeWorkflow(raw.workflow),
+    execution_path:
+      raw.execution_path === 'claude-code' || raw.execution_path === 'script'
+        ? raw.execution_path
+        : DEFAULT_FERRY_CONFIG.execution_path,
     ...(raw.safety && typeof raw.safety === 'object' && !Array.isArray(raw.safety)
       ? {
           safety: {

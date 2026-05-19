@@ -769,3 +769,49 @@ describe('parseFerryConfigJson', () => {
     expect(cfg.models.dev.model).toBe('claude-haiku-4-5-20251001');
   });
 });
+
+describe('execution_path', () => {
+  beforeEach(() => {
+    mockExistsSync.mockReset();
+    mockReadFileSync.mockReset();
+    vi.unstubAllEnvs();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('defaults execution_path to "script" when no file exists', () => {
+    mockNoConfigFile();
+    const cfg = loadFerryConfig('/repo');
+    expect(cfg.execution_path).toBe('script');
+  });
+
+  it('defaults execution_path to "script" when key is absent from config', () => {
+    mockConfigFile('ferry.config.json', JSON.stringify({ limits: { max_iterations: 2 } }));
+    const cfg = loadFerryConfig('/repo');
+    expect(cfg.execution_path).toBe('script');
+  });
+
+  it('reads execution_path: "claude-code" from config', () => {
+    mockConfigFile('ferry.config.json', JSON.stringify({ execution_path: 'claude-code' }));
+    const cfg = loadFerryConfig('/repo');
+    expect(cfg.execution_path).toBe('claude-code');
+  });
+
+  it('reads explicit execution_path: "script" from config', () => {
+    mockConfigFile('ferry.config.json', JSON.stringify({ execution_path: 'script' }));
+    const cfg = loadFerryConfig('/repo');
+    expect(cfg.execution_path).toBe('script');
+  });
+
+  it('rejects an unknown execution_path value', () => {
+    mockConfigFile('ferry.config.json', JSON.stringify({ execution_path: 'free-for-all' }));
+    expect(() => loadFerryConfig('/repo')).toThrow(FerryError);
+  });
+
+  it('rejects a non-string execution_path value', () => {
+    mockConfigFile('ferry.config.json', JSON.stringify({ execution_path: 42 }));
+    expect(() => loadFerryConfig('/repo')).toThrow(FerryError);
+  });
+});

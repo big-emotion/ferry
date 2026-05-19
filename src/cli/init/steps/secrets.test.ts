@@ -14,8 +14,18 @@ vi.mock('../prompt.js', () => ({
   print: vi.fn(),
 }));
 
-import { listExistingSecrets, setSecret, stepSecrets } from './secrets.js';
+import { buildSecrets, listExistingSecrets, setSecret, stepSecrets } from './secrets.js';
 import type { SecretEntry } from '../types.js';
+
+const CLAUDE_CODE_CFG = {
+  appId: '12345',
+  privateKey: 'pem-data',
+  jiraBaseUrl: 'https://acme.atlassian.net',
+  jiraEmail: 'bot@acme.com',
+  jiraApiToken: 'token-abc',
+  executionPath: 'claude-code' as const,
+  claudeCodeOauthToken: 'sk-ant-oat-xyz',
+};
 
 const SECRET_ENTRIES: SecretEntry[] = [
   { name: 'FERRY_APP_ID', value: '12345', description: 'App ID' },
@@ -129,5 +139,20 @@ describe('stepSecrets', () => {
       expect(result.reason).toContain('FERRY_APP_ID');
       expect(result.reason).toContain('FERRY_PRIVATE_KEY');
     }
+  });
+
+  it('sets CLAUDE_CODE_OAUTH_TOKEN (and never ANTHROPIC_API_KEY) for the claude-code path', async () => {
+    mockExecSync
+      .mockReturnValueOnce('[]') // listExistingSecrets
+      .mockReturnValue(''); // setSecret calls
+
+    const result = await stepSecrets('org/repo', buildSecrets(CLAUDE_CODE_CFG), false);
+    expect(result.ok).toBe(true);
+
+    const setCalls = mockExecSync.mock.calls.map((c) => String(c[0]));
+    expect(setCalls.some((cmd) => cmd.includes('gh secret set CLAUDE_CODE_OAUTH_TOKEN'))).toBe(
+      true,
+    );
+    expect(setCalls.some((cmd) => cmd.includes('gh secret set ANTHROPIC_API_KEY'))).toBe(false);
   });
 });
