@@ -646,6 +646,9 @@ var DEFAULT_FERRY_CONFIG = {
       },
       iterator: { trigger_column: "Changes Requested", auto_transition: "In Review" }
     }
+  },
+  routing: {
+    claude_code_round_trip_threshold: 2
   }
 };
 function validateProvider(val, fieldPath) {
@@ -904,6 +907,24 @@ function validateConfigShape(raw) {
       }
     }
   }
+  if (c.execution_path !== void 0 && c.execution_path !== "script" && c.execution_path !== "claude-code") {
+    errs.push('execution_path: must be "script" or "claude-code"');
+  }
+  if (c.routing !== void 0) {
+    if (!c.routing || typeof c.routing !== "object" || Array.isArray(c.routing)) {
+      errs.push("routing: must be an object");
+    } else {
+      const r = c.routing;
+      if (r.claude_code_round_trip_threshold !== void 0) {
+        errs.push(
+          ...validatePosInt(
+            r.claude_code_round_trip_threshold,
+            "routing.claude_code_round_trip_threshold"
+          )
+        );
+      }
+    }
+  }
   return errs;
 }
 function readJsonConfig(filePath) {
@@ -1078,6 +1099,13 @@ function mergeWithDefaults(raw) {
     },
     ...labels !== void 0 ? { labels } : {},
     workflow: mergeWorkflow(raw.workflow),
+    ...raw.execution_path === "script" || raw.execution_path === "claude-code" ? { execution_path: raw.execution_path } : {},
+    routing: {
+      claude_code_round_trip_threshold: num(
+        raw.routing?.claude_code_round_trip_threshold,
+        DEFAULT_FERRY_CONFIG.routing.claude_code_round_trip_threshold
+      )
+    },
     ...raw.safety && typeof raw.safety === "object" && !Array.isArray(raw.safety) ? {
       safety: {
         ...typeof raw.safety.allow_skip_review === "boolean" ? {
@@ -5980,6 +6008,8 @@ function resolveTicketOverrides(labels, logger, options) {
   let noAutoTransition = false;
   let dryRun = false;
   let readOnly = false;
+  let hasClaudeCode = false;
+  let hasNoClaudeCode = false;
   const skipPhases = [];
   let baseBranchLabel;
   let baseBranch;
@@ -6263,8 +6293,17 @@ function resolveTicketOverrides(labels, logger, options) {
       readOnly = true;
       continue;
     }
+    if (label === "ferry:claude-code") {
+      hasClaudeCode = true;
+      continue;
+    }
+    if (label === "ferry:no-claude-code") {
+      hasNoClaudeCode = true;
+      continue;
+    }
     logger?.warn("unknown ferry override label ignored", { label });
   }
+  const claudeCodePath = hasClaudeCode && !hasNoClaudeCode ? "claude-code" : hasClaudeCode || hasNoClaudeCode ? "script" : void 0;
   if (blanketModel !== void 0) {
     for (const phase of PHASES_ORDERED) {
       if (modelSources[phase] === void 0) {
@@ -6307,7 +6346,8 @@ function resolveTicketOverrides(labels, logger, options) {
     ...gitOverride ? { git: gitOverride } : {},
     ...paused ? { paused: true } : {},
     ...dryRun ? { dryRun: true } : {},
-    ...readOnly ? { readOnly: true } : {}
+    ...readOnly ? { readOnly: true } : {},
+    ...claudeCodePath !== void 0 ? { claudeCodePath } : {}
   };
 }
 function applyTicketOverrides(cfg, overrides) {
@@ -6362,7 +6402,7 @@ function applyTicketOverrides(cfg, overrides) {
   return { ...cfg, models, limits };
 }
 function hasNonDefaultOverrides(overrides) {
-  return overrides.bypassTaskSkip || overrides.typeOverride !== void 0 || overrides.modelOverrides !== void 0 || overrides.budget !== void 0 || overrides.budgetEur !== void 0 || overrides.maxIterations !== void 0 || overrides.maxTokens !== void 0 || (overrides.skipPhases?.length ?? 0) > 0 || overrides.noAutoTransition === true || overrides.thinking !== void 0 || overrides.reviewRubric !== void 0 || overrides.git?.noPr === true || overrides.git?.baseBranch !== void 0 || overrides.git?.targetBranch !== void 0 || overrides.git?.prDraft !== void 0 || overrides.paused === true || overrides.dryRun === true || overrides.readOnly === true;
+  return overrides.bypassTaskSkip || overrides.typeOverride !== void 0 || overrides.modelOverrides !== void 0 || overrides.budget !== void 0 || overrides.budgetEur !== void 0 || overrides.maxIterations !== void 0 || overrides.maxTokens !== void 0 || (overrides.skipPhases?.length ?? 0) > 0 || overrides.noAutoTransition === true || overrides.thinking !== void 0 || overrides.reviewRubric !== void 0 || overrides.git?.noPr === true || overrides.git?.baseBranch !== void 0 || overrides.git?.targetBranch !== void 0 || overrides.git?.prDraft !== void 0 || overrides.paused === true || overrides.dryRun === true || overrides.readOnly === true || overrides.claudeCodePath !== void 0;
 }
 function buildOverridesAuditComment(role, runId, overrides) {
   const payload = {};
@@ -6383,6 +6423,7 @@ function buildOverridesAuditComment(role, runId, overrides) {
   if (overrides.paused) payload.paused = true;
   if (overrides.dryRun) payload.dryRun = true;
   if (overrides.readOnly) payload.readOnly = true;
+  if (overrides.claudeCodePath !== void 0) payload.claudeCodePath = overrides.claudeCodePath;
   const body = `[ferry:${role}:${runId}] overrides applied: ${JSON.stringify(payload)}`;
   return applyDryRunMarker(body, overrides.dryRun);
 }

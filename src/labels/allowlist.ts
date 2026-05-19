@@ -48,6 +48,8 @@ export const LABELS_ALLOWLIST = [
   'ferry:no-auto-transition',
   'ferry:dry-run',
   'ferry:read-only',
+  'ferry:claude-code',
+  'ferry:no-claude-code',
   'ferry:thinking/',
   'ferry:thinking/on',
   'ferry:thinking/off',

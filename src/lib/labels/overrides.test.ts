@@ -1436,3 +1436,57 @@ describe('applyDryRunMarker', () => {
     expect(out).toBe('[ferry:developer:run1] [dry-run] line1\nline2');
   });
 });
+
+// ------------------------------------------------------------------
+// ferry:claude-code / ferry:no-claude-code (execution-path override, #300)
+// ------------------------------------------------------------------
+
+describe('resolveTicketOverrides — ferry:claude-code / ferry:no-claude-code', () => {
+  it('is undefined when neither label is present', () => {
+    expect(resolveTicketOverrides([]).claudeCodePath).toBeUndefined();
+  });
+
+  it('ferry:claude-code → claudeCodePath "claude-code"', () => {
+    expect(resolveTicketOverrides(['ferry:claude-code']).claudeCodePath).toBe('claude-code');
+  });
+
+  it('ferry:no-claude-code → claudeCodePath "script"', () => {
+    expect(resolveTicketOverrides(['ferry:no-claude-code']).claudeCodePath).toBe('script');
+  });
+
+  it('conflicting labels resolve to the safe path (script) WITHOUT throwing', () => {
+    expect(() =>
+      resolveTicketOverrides(['ferry:claude-code', 'ferry:no-claude-code']),
+    ).not.toThrow();
+    expect(
+      resolveTicketOverrides(['ferry:claude-code', 'ferry:no-claude-code']).claudeCodePath,
+    ).toBe('script');
+    // order-independent
+    expect(
+      resolveTicketOverrides(['ferry:no-claude-code', 'ferry:claude-code']).claudeCodePath,
+    ).toBe('script');
+  });
+
+  it('does not emit an unknown-label warning for either label', () => {
+    const { logger, records } = createTestLogger('t', 'test');
+    resolveTicketOverrides(['ferry:claude-code', 'ferry:no-claude-code'], logger);
+    expect(records.some((rec) => rec.level === 'warn')).toBe(false);
+  });
+
+  it('counts toward hasNonDefaultOverrides', () => {
+    expect(hasNonDefaultOverrides(resolveTicketOverrides(['ferry:claude-code']))).toBe(true);
+    expect(hasNonDefaultOverrides(resolveTicketOverrides(['ferry:no-claude-code']))).toBe(true);
+  });
+
+  it('is recorded in the overrides audit comment', () => {
+    const body = buildOverridesAuditComment(
+      'developer',
+      'run1',
+      resolveTicketOverrides(['ferry:claude-code']),
+    );
+    expect(body).toContain('[ferry:developer:run1] overrides applied:');
+    expect(JSON.parse(body.split('overrides applied: ')[1])).toMatchObject({
+      claudeCodePath: 'claude-code',
+    });
+  });
+});

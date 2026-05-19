@@ -26,3 +26,10 @@ export type {
 
 export { applyContract, checkContractIdempotency } from './apply.js';
 export type { ApplyContractDeps, ApplyContractResult } from './apply.js';
+
+export {
+  resolveExecutionPath,
+  isAnthropicOnlyConfig,
+  formatExecutionPathAudit,
+} from './routing.js';
+export type { ExecutionPathDecision, ExecutionPathReason, ExecutionPathInput } from './routing.js';

@@ -10,6 +10,30 @@ export interface LlmRoute {
   model: string;
 }
 
+/**
+ * Which execution path the four agents run on (ADR-0006).
+ * - `script`: the bundled multi-provider deterministic agent loop.
+ * - `claude-code`: the `anthropics/claude-code-action` reasoning core,
+ *   bracketed by deterministic Ferry contract steps. Anthropic-only.
+ *
+ * When `FerryConfig.execution_path` is left unset, the resolver applies the
+ * *conditional default* (claude-code for Anthropic-only consumers, script
+ * otherwise — see `resolveExecutionPath`). An explicit `script` is a hard
+ * lock that the per-ticket label / heuristic never override.
+ */
+export type ExecutionPath = 'script' | 'claude-code';
+
+/** Deterministic execution-path routing knobs (ADR-0006 §3, #300). */
+export interface RoutingConfig {
+  /**
+   * Round-trip threshold N for the automatic claude-code escalation
+   * heuristic: a developer/iterator run with `priorRoundTrips >= N`
+   * escalates to the claude-code path (unless a label or an explicit
+   * `execution_path: script` takes precedence). Positive integer.
+   */
+  claude_code_round_trip_threshold: number;
+}
+
 export interface LabelCapability {
   mcp_servers?: string[];
   tools?: string[];
@@ -130,6 +154,15 @@ export interface FerryConfig {
    *   without the repo owner's consent.
    */
   safety?: SafetyConfig;
+  /**
+   * Explicit install-time execution-path choice (ADR-0006 point 6). When
+   * unset, the resolver applies the conditional default. An explicit
+   * `script` is a hard lock — never overridden by the per-ticket label or
+   * the round-trip heuristic.
+   */
+  execution_path?: ExecutionPath;
+  /** Deterministic execution-path routing knobs (#300). Always present (defaulted). */
+  routing: RoutingConfig;
 }
 
 export interface SafetyConfig {
@@ -187,6 +220,9 @@ export const DEFAULT_FERRY_CONFIG: FerryConfig = {
       },
       iterator: { trigger_column: 'Changes Requested', auto_transition: 'In Review' },
     },
+  },
+  routing: {
+    claude_code_round_trip_threshold: 2,
   },
 };
 
@@ -491,6 +527,30 @@ function validateConfigShape(raw: unknown): ValidationError[] {
     }
   }
 
+  if (
+    c.execution_path !== undefined &&
+    c.execution_path !== 'script' &&
+    c.execution_path !== 'claude-code'
+  ) {
+    errs.push('execution_path: must be "script" or "claude-code"');
+  }
+
+  if (c.routing !== undefined) {
+    if (!c.routing || typeof c.routing !== 'object' || Array.isArray(c.routing)) {
+      errs.push('routing: must be an object');
+    } else {
+      const r = c.routing as Record<string, unknown>;
+      if (r.claude_code_round_trip_threshold !== undefined) {
+        errs.push(
+          ...validatePosInt(
+            r.claude_code_round_trip_threshold,
+            'routing.claude_code_round_trip_threshold',
+          ),
+        );
+      }
+    }
+  }
+
   return errs;
 }
 
@@ -695,6 +755,15 @@ function mergeWithDefaults(raw: RawConfig): FerryConfig {
     },
     ...(labels !== undefined ? { labels } : {}),
     workflow: mergeWorkflow(raw.workflow),
+    ...(raw.execution_path === 'script' || raw.execution_path === 'claude-code'
+      ? { execution_path: raw.execution_path }
+      : {}),
+    routing: {
+      claude_code_round_trip_threshold: num(
+        (raw.routing as Record<string, unknown> | undefined)?.claude_code_round_trip_threshold,
+        DEFAULT_FERRY_CONFIG.routing.claude_code_round_trip_threshold,
+      ),
+    },
     ...(raw.safety && typeof raw.safety === 'object' && !Array.isArray(raw.safety)
       ? {
           safety: {
