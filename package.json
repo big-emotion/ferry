@@ -83,7 +83,7 @@
     "vitest": "^4.1.5"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.95.2",
+    "@anthropic-ai/sdk": "^0.97.0",
     "@google/genai": "^2.0.1",
     "@octokit/rest": "^22.0.1",
     "ajv": "^8.0.0",
