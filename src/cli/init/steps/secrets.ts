@@ -1,5 +1,6 @@
 import { execSync } from 'node:child_process';
 import { printSuccess, printSkip, printError } from '../prompt.js';
+import type { ExecutionPath } from '../../../lib/config.js';
 import type { SecretEntry, StepResult } from '../types.js';
 
 export function buildSecrets(config: {
@@ -8,9 +9,11 @@ export function buildSecrets(config: {
   jiraBaseUrl: string;
   jiraEmail: string;
   jiraApiToken: string;
-  anthropicApiKey: string;
+  anthropicApiKey?: string;
   openaiApiKey?: string;
   googleApiKey?: string;
+  executionPath?: ExecutionPath;
+  claudeCodeOauthToken?: string;
 }): SecretEntry[] {
   const secrets: SecretEntry[] = [
     { name: 'FERRY_APP_ID', value: config.appId, description: 'GitHub App numeric ID' },
@@ -26,12 +29,23 @@ export function buildSecrets(config: {
       value: config.jiraApiToken,
       description: 'Atlassian API token',
     },
-    {
-      name: 'ANTHROPIC_API_KEY',
-      value: config.anthropicApiKey,
-      description: 'Anthropic API key',
-    },
   ];
+
+  if (config.executionPath === 'claude-code') {
+    // ADR-0006 §6 / decisions-0002 §A: the claude-code path authenticates
+    // EXCLUSIVELY with CLAUDE_CODE_OAUTH_TOKEN — ANTHROPIC_API_KEY is forbidden.
+    secrets.push({
+      name: 'CLAUDE_CODE_OAUTH_TOKEN',
+      value: config.claudeCodeOauthToken ?? '',
+      description: 'Claude Code OAuth token (claude setup-token; Claude Pro/Max subscription)',
+    });
+  } else {
+    secrets.push({
+      name: 'ANTHROPIC_API_KEY',
+      value: config.anthropicApiKey ?? '',
+      description: 'Anthropic API key',
+    });
+  }
 
   if (config.openaiApiKey) {
     secrets.push({
