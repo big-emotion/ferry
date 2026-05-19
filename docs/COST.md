@@ -2,7 +2,7 @@
 
 `ferry-cost-report` is an on-demand CLI that reads your local `ferry-audit.jsonl` file and produces a spend breakdown across phases, models, tickets, and days.
 
-> **Data quality note:** Cost figures depend on `cost_eur` being non-zero in your audit log. If you see `€0.00` everywhere, see [#251](https://github.com/big-emotion/ferry/issues/251) — that issue tracks accurate cost-field population in the audit log writer.
+> **Data quality note:** Cost figures depend on `cost_eur` being non-zero in your audit log. If you see `€0.00` everywhere, see [#251](https://github.com/big-emotion/ferry/issues/251) — that issue tracks accurate cost-field population in the audit log writer. A separate, **expected** zero-cost case is the experimental `claude-code-action` execution path — see [Cost telemetry on the claude-code execution path](#cost-telemetry-on-the-claude-code-execution-path-experimental).
 
 ---
 
@@ -166,6 +166,25 @@ npx -p @big-emotion/ferry ferry-cost-reconcile \
 ### Provider support
 
 Today only `--provider anthropic` is implemented. OpenAI and Google billing exports follow different CSV schemas — follow-up issues will add them.
+
+---
+
+## Cost telemetry on the claude-code execution path (experimental)
+
+> **Experimental — not yet available.** The `claude-code-action` execution path is the target architecture of [ADR-0006](./adr/0006-claude-code-action-execution-path.md), tracked under epic [#299](https://github.com/big-emotion/ferry/issues/299). Until it ships, all runs use the bundled-script path and the EUR figures in this document are accurate as described. This note documents the **accepted, by-design** cost-telemetry divergence so operators can decide before opting in.
+
+Ferry's `cost_eur` audit field is computed from token counts × the provider's published list price (see `pricing.ts`). The bundled-script path authenticates with a metered API key, so this figure is accurate. The `claude-code-action` path authenticates **exclusively** with a Claude **subscription** token (`CLAUDE_CODE_OAUTH_TOKEN`), under which there is **no per-call EUR price** — usage is flat-rate against the subscription, not metered.
+
+Consequence: for runs executed on the `claude-code-action` path, **`cost_eur` is unknown** and recorded as `0` / null. This is **expected**, not the bug tracked in [#251](https://github.com/big-emotion/ferry/issues/251) (which is about the metered path under-populating the field). Downstream tooling behaves as follows on subscription-path runs:
+
+| Tool                    | Behavior on `claude-code-action` runs                                                                                                                  |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ferry-cost-report`     | Token counts are still aggregated, but `Cost (EUR)` columns show `€0.00` for these runs. Phase/model/ticket token breakdowns remain meaningful.        |
+| `ferry-cost-reconcile`  | There is no subscription billing CSV to diff against (the Anthropic Console export covers metered API usage only). Subscription-path runs cannot be reconciled and surface as unmatched Ferry rows. |
+| `ferry-cost-advice`     | EUR-saving estimates are skipped for these runs; token-ratio and cache-hit heuristics still apply where token data is present.                          |
+| Daily cost-governance   | The 50%-of-monthly-cap auto-pause (`ferry:paused`) backstop is **weakened** — monthly EUR spend is not measurable on a subscription token, so subscription-path spend cannot trip it. Bundled-script-path tickets are still governed normally. |
+
+**Rationale:** this is the deliberate trade in [ADR-0006](./adr/0006-claude-code-action-execution-path.md) — the `claude-code-action` path swaps per-run EUR metering for the subscription-billing + free-agent-loop profile. To keep cost telemetry and the auto-pause backstop fully effective, keep cost-sensitive work on the bundled-script path (the conditional default whenever OpenAI/Google is configured, and selectable at install time for Anthropic-only consumers). Full analysis: [decisions/0002 → Accepted divergences](./decisions/0002-claude-code-path-parity-analysis.md#accepted-divergences-the-set-aside-list).
 
 ---
 
