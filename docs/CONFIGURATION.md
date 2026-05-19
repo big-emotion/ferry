@@ -373,7 +373,7 @@ Maps Jira ticket labels to MCP server capabilities. If this section is omitted, 
 
 1. **Declare in the pool** — add an entry to the `AGENT_MCP_SERVERS` repo variable (HTTP/SSE example):
    ```bash
-   gh variable set AGENT_MCP_SERVERS '[{"name":"figma","url":"https://mcp.figma.com/mcp","authorization_token":"<pat>"}]'
+   gh variable set AGENT_MCP_SERVERS '[{"name":"atlassian","url":"https://mcp.atlassian.com/v1/mcp","authorization_token":"<atlassian-rovo-api-token>"}]'
    ```
    For a stdio server, use `"type":"stdio"` and `"command"` instead of `"url"`:
    ```bash

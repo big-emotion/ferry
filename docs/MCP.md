@@ -18,9 +18,13 @@ Known servers used with Ferry, ready to drop into `AGENT_MCP_SERVERS`:
 | Name | Transport | URL / Command | Purpose | Notes |
 | ---- | --------- | ------------- | ------- | ----- |
 | `context7` | HTTP | `https://mcp.context7.com/mcp` | Up-to-date library and framework docs | No auth required |
-| `figma` | HTTP | `https://mcp.figma.com/mcp` | Fetch design nodes and frames | Requires `authorization_token` (Figma PAT) |
+| `github` | HTTP | `https://api.githubcopilot.com/mcp/` | Repo-aware reads/writes (issues, PRs, code search, Actions) | `authorization_token` = fine-grained GitHub PAT. Toolsets can be scoped via `?toolsets=...` query string |
+| `atlassian` | HTTP | `https://mcp.atlassian.com/v1/mcp` | Jira, Confluence, Compass against the connected Atlassian Cloud site | `authorization_token` = Atlassian Rovo API token (machine-to-machine, headless-friendly). The legacy `…/v1/sse` endpoint is deprecated and stops working after 30 June 2026 |
+| `prismic` | Stdio | `npx -y @prismicio/mcp-server@latest` | Prismic content modeling, slice queries, document search | Reads Prismic project config from the runner cwd. See [Prismic MCP docs](https://prismic.io/docs/ai) for per-repository auth requirements. No hosted endpoint is published today |
 | `playwright` | Stdio | `npx @playwright/mcp` | Browser automation | Requires Playwright installed on the runner |
 | `sentry` | HTTP/Stdio | Varies | Runtime error logs and issue context | See Sentry MCP docs for auth |
+
+> **Figma is intentionally absent.** `https://mcp.figma.com/mcp` exists, but the endpoint rejects personal access tokens and the required `mcp:connect` OAuth scope is restricted to clients whitelisted by Figma (VS Code, Cursor, Claude Code, OpenAI Codex). There is no viable headless auth path for a custom integration like Ferry today. Tracked in [#325](https://github.com/big-emotion/ferry/issues/325); the per-server findings are recorded in [`docs/mcp-catalog-research.md`](mcp-catalog-research.md).
 
 Add any server above to `AGENT_MCP_SERVERS` and the corresponding label entry to `ferry.config.yaml` — see [Per-ticket capability boost](#per-ticket-capability-boost-via-jira-labels) below.
 
@@ -38,9 +42,14 @@ Set the `AGENT_MCP_SERVERS` environment variable (repository variable or secret)
   },
   {
     "name": "github",
-    "url": "https://api.githubcopilot.com/mcp",
-    "authorization_token": "<your-token>",
+    "url": "https://api.githubcopilot.com/mcp/",
+    "authorization_token": "<github-fine-grained-pat>",
     "allowed_tools": ["search_code", "get_file_contents"]
+  },
+  {
+    "name": "atlassian",
+    "url": "https://mcp.atlassian.com/v1/mcp",
+    "authorization_token": "<atlassian-rovo-api-token>"
   }
 ]
 ```
@@ -120,40 +129,43 @@ Then add the matching label to your Jira ticket (e.g. `ferry:mcp/context7`). Fer
 
 **Backward compatibility.** If the `labels:` section is absent, all servers in `AGENT_MCP_SERVERS` are passed through unchanged.
 
-## End-to-end example — Figma for UI refactors
+## End-to-end example — Atlassian for context-rich tickets
 
 **Step 1 — Declare the server** (`AGENT_MCP_SERVERS` repo variable):
 
 ```json
 [
   {
-    "name": "figma",
-    "url": "https://mcp.figma.com/mcp",
-    "authorization_token": "<your-figma-pat>",
-    "allowed_tools": ["get_node", "get_file"]
+    "name": "atlassian",
+    "url": "https://mcp.atlassian.com/v1/mcp",
+    "authorization_token": "<atlassian-rovo-api-token>",
+    "allowed_tools": ["search_confluence", "get_confluence_page", "get_jira_issue"]
   }
 ]
 ```
+
+Generate the API token from <https://id.atlassian.com/manage-profile/security/api-tokens>. Use an account with read access to the Confluence spaces and Jira projects you want Ferry to read.
 
 **Step 2 — Map a label** in `ferry.config.yaml`:
 
 ```yaml
 labels:
-  ferry:mcp/figma:
-    mcp_servers: [figma]
+  ferry:mcp/atlassian:
+    mcp_servers: [atlassian]
 ```
 
 **Step 3 — Tell the agent when to use it** in `prompts/dev.extra.md`:
 
 ```markdown
-## Figma design reference
+## Atlassian context
 
-When the ticket references a Figma frame URL or node ID,
-call `figma.get_node` before editing any UI component.
-If no Figma link is present, skip the tool call.
+When the ticket description links to a Confluence page or another Jira ticket,
+call `atlassian.get_confluence_page` or `atlassian.get_jira_issue` to load
+the linked context before planning the change. Skip the tool call when no
+such link is present.
 ```
 
-**Step 4 — Label the Jira ticket** with `ferry:mcp/figma` before moving it to _In Development_.
+**Step 4 — Label the Jira ticket** with `ferry:mcp/atlassian` before moving it to _In Development_.
 
 > MCP tools are passive — the agent must be explicitly told when to invoke them. Without instructions in `prompts/dev.extra.md`, the tool will be available but never called.
 
