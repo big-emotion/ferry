@@ -24,6 +24,11 @@
  */
 
 import type { DonePayload, DoneOutcome } from '../llm/agent-loop/types.js';
+import type {
+  RefinerAction,
+  RefinerCostEstimate,
+  RefinerOutput,
+} from '../../agents/refiner/schema.js';
 import type { FerryRole } from './tool-profiles.js';
 import { ROLE_ACCESS } from './tool-profiles.js';
 
@@ -36,21 +41,14 @@ export interface ReviewerVerdict {
   comment: string;
 }
 
-/** Refiner terminal output — mirrors `REFINER_OUTPUT_SCHEMA` (src/agents/refiner/schema.ts). */
-export interface RefinerArtifact {
-  actions: RefinerArtifactAction[];
-  touch_paths: string[];
-  output_locale: 'en' | 'fr';
-  audit_summary: string;
-  attachments?: string[];
-  cost_estimate?: Record<string, unknown>;
-}
-
-type RefinerArtifactAction =
-  | { type: 'create'; title: string; description: string }
-  | { type: 'keep'; existing_key: string; reason: string }
-  | { type: 'mark_stale'; existing_key: string; reason: string }
-  | { type: 'noop'; reason: string };
+/**
+ * Refiner terminal output — alias of `RefinerOutput` from
+ * `src/agents/refiner/schema.ts`, the single source of truth for the script
+ * and claude-code paths. Re-exported so that any future schema change (new
+ * action variant, additional required field, widened locale set, etc.)
+ * propagates to both execution paths without silent drift.
+ */
+export type RefinerArtifact = RefinerOutput;
 
 const DONE_OUTCOMES: readonly DoneOutcome[] = ['implemented', 'already_satisfied', 'blocked'];
 
@@ -121,7 +119,7 @@ export function parseReviewerArtifact(raw: unknown): ReviewerVerdict {
   return { approved: o.approved, comment: o.comment };
 }
 
-function parseRefinerAction(a: unknown, idx: number): RefinerArtifactAction {
+function parseRefinerAction(a: unknown, idx: number): RefinerAction {
   const o = asObject(a);
   switch (o.type) {
     case 'create':
@@ -147,6 +145,32 @@ function parseRefinerAction(a: unknown, idx: number): RefinerArtifactAction {
   }
 }
 
+function parseRefinerCostEstimate(raw: unknown): RefinerCostEstimate {
+  const o = asObject(raw);
+  if (typeof o.loUsd !== 'number' || !Number.isFinite(o.loUsd) || o.loUsd < 0) {
+    fail('cost_estimate.loUsd must be a non-negative number');
+  }
+  if (typeof o.hiUsd !== 'number' || !Number.isFinite(o.hiUsd) || o.hiUsd < 0) {
+    fail('cost_estimate.hiUsd must be a non-negative number');
+  }
+  if (o.confidence !== 'low' && o.confidence !== 'medium' && o.confidence !== 'high') {
+    fail("cost_estimate.confidence must be 'low', 'medium', or 'high'");
+  }
+  if (
+    typeof o.baselineRuns !== 'number' ||
+    !Number.isInteger(o.baselineRuns) ||
+    o.baselineRuns < 0
+  ) {
+    fail('cost_estimate.baselineRuns must be a non-negative integer');
+  }
+  return {
+    loUsd: o.loUsd,
+    hiUsd: o.hiUsd,
+    confidence: o.confidence,
+    baselineRuns: o.baselineRuns,
+  };
+}
+
 /** refiner — produces the same `RefinerOutput`-shaped object the script yields. */
 export function parseRefinerArtifact(raw: unknown): RefinerArtifact {
   const o = asObject(raw);
@@ -169,7 +193,7 @@ export function parseRefinerArtifact(raw: unknown): RefinerArtifact {
   };
   if (o.attachments !== undefined) out.attachments = o.attachments;
   if (o.cost_estimate !== undefined) {
-    out.cost_estimate = o.cost_estimate as Record<string, unknown>;
+    out.cost_estimate = parseRefinerCostEstimate(o.cost_estimate);
   }
   return out;
 }

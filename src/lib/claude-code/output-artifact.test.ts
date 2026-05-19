@@ -105,7 +105,11 @@ describe('parseRefinerArtifact (≈ REFINER_OUTPUT_SCHEMA shape)', () => {
   });
 
   it('accepts the optional attachments/cost_estimate fields', () => {
-    const withOpt = { ...valid, attachments: ['x.png'] };
+    const withOpt = {
+      ...valid,
+      attachments: ['x.png'],
+      cost_estimate: { loUsd: 0.12, hiUsd: 0.34, confidence: 'medium', baselineRuns: 3 },
+    };
     expect(parseRefinerArtifact(withOpt)).toEqual(withOpt);
   });
 
@@ -119,6 +123,28 @@ describe('parseRefinerArtifact (≈ REFINER_OUTPUT_SCHEMA shape)', () => {
     ['touch_paths not string[]', { ...valid, touch_paths: [1] }],
   ])('fail-closed: throws on %s', (_label, bad) => {
     expect(() => parseRefinerArtifact(bad)).toThrow(/cc-output/i);
+  });
+
+  it('fail-closed: rejects a malformed cost_estimate', () => {
+    // loUsd as a non-number string must be rejected — the claude-code parser
+    // must not accept payloads the strict RefinerCostEstimate shape rejects.
+    expect(() =>
+      parseRefinerArtifact({
+        ...valid,
+        cost_estimate: { loUsd: 'not-a-number', hiUsd: 1, confidence: 'low', baselineRuns: 0 },
+      }),
+    ).toThrow(/cost_estimate\.loUsd/i);
+    // Missing required fields are also rejected.
+    expect(() => parseRefinerArtifact({ ...valid, cost_estimate: { loUsd: 0.1 } })).toThrow(
+      /cost_estimate/i,
+    );
+    // Confidence outside the enum is rejected.
+    expect(() =>
+      parseRefinerArtifact({
+        ...valid,
+        cost_estimate: { loUsd: 0, hiUsd: 0, confidence: 'maybe', baselineRuns: 1 },
+      }),
+    ).toThrow(/cost_estimate\.confidence/i);
   });
 });
 
