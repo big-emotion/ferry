@@ -91,4 +91,39 @@ describe('mcpToolAllowlist', () => {
   it('returns an empty list for no servers', () => {
     expect(mcpToolAllowlist([])).toEqual([]);
   });
+
+  it('excludes denied tools from a per-tool allowed_tools list (parity with pool.ts)', () => {
+    const scoped: McpServerConfig = {
+      ...stdio,
+      allowed_tools: ['get_issue', 'search', 'delete_issue'],
+      denied_tools: ['delete_issue'],
+    };
+    expect(mcpToolAllowlist([scoped])).toEqual(['mcp__jira__get_issue', 'mcp__jira__search']);
+  });
+
+  it('drops a server entirely when denied_tools removes every allowed tool', () => {
+    const scoped: McpServerConfig = {
+      ...stdio,
+      allowed_tools: ['delete_issue'],
+      denied_tools: ['delete_issue'],
+    };
+    expect(mcpToolAllowlist([scoped])).toEqual([]);
+  });
+
+  it('fails closed when denied_tools is set without allowed_tools (stdio)', () => {
+    const scoped: McpServerConfig = { ...stdio, denied_tools: ['delete_issue'] };
+    expect(() => mcpToolAllowlist([scoped])).toThrow(
+      /denied_tools without allowed_tools.*failing closed/is,
+    );
+  });
+
+  it('fails closed when denied_tools is set without allowed_tools (http)', () => {
+    const scoped: McpServerConfig = { ...http, denied_tools: ['danger'] };
+    expect(() => mcpToolAllowlist([scoped])).toThrow(/denied_tools without allowed_tools/i);
+  });
+
+  it('treats an empty denied_tools as no deny and keeps the wildcard', () => {
+    const scoped: McpServerConfig = { ...stdio, denied_tools: [] };
+    expect(mcpToolAllowlist([scoped])).toEqual(['mcp__jira']);
+  });
 });

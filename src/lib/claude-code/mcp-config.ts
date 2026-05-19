@@ -68,15 +68,44 @@ export function toClaudeCodeMcpConfig(servers: McpServerConfig[]): ClaudeCodeMcp
 }
 
 /**
- * Derives the MCP entries for `--allowedTools`. A server with a non-empty
- * `allowed_tools` yields one `mcp__<server>__<tool>` entry per tool; otherwise
- * a single `mcp__<server>` wildcard allowing all of that server's tools.
+ * Derives the MCP entries for `--allowedTools`.
+ *
+ * `claude-code-action`'s `--allowedTools` is allow-only and matches by prefix
+ * (`mcp__<server>` allows every tool of that server; `mcp__<server>__<tool>`
+ * allows exactly one). It has no "deny" form and no enumeration of a server's
+ * live tool list at this layer, so "all tools except the denied set" is not
+ * directly expressible from a bare wildcard.
+ *
+ * To keep parity with the bundled path — which enforces `denied_tools`
+ * (`src/lib/llm/agent-loop/anthropic.ts` emits it into `mcp_toolset`;
+ * `src/lib/mcp/pool.ts` filters it out of the local stdio tool list) — this
+ * function honors `denied_tools`:
+ *
+ * - non-empty `allowed_tools`: emit one `mcp__<server>__<tool>` per tool, but
+ *   exclude any tool also present in `denied_tools` (mirrors pool.ts ordering:
+ *   allow-list intersect, then deny-list subtract);
+ * - no `allowed_tools` but a non-empty `denied_tools`: a `mcp__<server>`
+ *   wildcard would silently re-allow the denied tools and there is no tool
+ *   list to enumerate the complement from — fail closed by throwing rather
+ *   than silently widening the agent's MCP allowlist;
+ * - otherwise: a single `mcp__<server>` wildcard allowing all of that
+ *   server's tools.
  */
 export function mcpToolAllowlist(servers: McpServerConfig[]): string[] {
   const allow: string[] = [];
   for (const s of servers) {
+    const denied = new Set(s.denied_tools ?? []);
     if (s.allowed_tools && s.allowed_tools.length > 0) {
-      for (const tool of s.allowed_tools) allow.push(`mcp__${s.name}__${tool}`);
+      for (const tool of s.allowed_tools) {
+        if (denied.has(tool)) continue;
+        allow.push(`mcp__${s.name}__${tool}`);
+      }
+    } else if (denied.size > 0) {
+      throw new Error(
+        `mcp server "${s.name}" sets denied_tools without allowed_tools: ` +
+          `claude-code-action --allowedTools cannot express a deny-only allowlist ` +
+          `(failing closed to avoid silently re-allowing denied tools)`,
+      );
     } else {
       allow.push(`mcp__${s.name}`);
     }
