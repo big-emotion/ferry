@@ -127,7 +127,8 @@ What is removed by default:
   • Ferry entries in .github/CODEOWNERS (file kept; only Ferry lines removed)
   • Repo secrets: FERRY_APP_ID, FERRY_PRIVATE_KEY, FERRY_JIRA_BASE_URL,
                   FERRY_JIRA_EMAIL, FERRY_JIRA_API_TOKEN,
-                  FERRY_REVIEW_TRANSITION_ID, FERRY_ITER_TRANSITION_ID
+                  FERRY_REVIEW_TRANSITION_ID, FERRY_ITER_TRANSITION_ID,
+                  CLAUDE_CODE_OAUTH_TOKEN (claude-code path; if present)
   • Repo variable: ${FERRY_VARIABLE}
   • Label '${AUDIT_LABEL}' removed from audit-log issue (issue NOT closed)
 
