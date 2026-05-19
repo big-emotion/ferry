@@ -24,6 +24,26 @@ forge: gitlab
 - **(action)** GitLab-only follow-up …
 ```
 
+Optionally declare secrets the consumer must have set for the transition by
+adding a `requires-secrets:` line (parallel to `forge:`, comma- and/or
+whitespace-separated). This is a **general mechanism**: any release that
+introduces a newly-required secret uses it — it is not tied to one feature.
+
+```markdown
+## v0.X.x → v0.Y.0
+
+requires-secrets: SOME_NEW_TOKEN
+```
+
+`ferry-update` stays **credential-silent for code-only ranges** (no
+`requires-secrets:` → no prompt, credentials untouched). When the crossed
+range declares one or more required secrets, it diffs them against
+`gh secret list` and, **only for the missing ones**, prompts in an
+interactive run (or, in a non-interactive run, stays on the bundled script
+with no breakage and prints a mandatory follow-up to re-run interactively).
+An explicit `execution_path: script` in `ferry.config.json` is always
+respected. See ADR-0006 §7 and `docs/decisions/0002` §G.
+
 Each bullet should be one of:
 
 - `(action)` — something the consumer must do manually (new secret, Jira rule change, etc.)

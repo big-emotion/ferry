@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
   getRelevantMigrations,
+  getRequiredSecretsForRange,
   parseMigrationsContent,
   filterMigrationsByForge,
 } from './migrations.js';
@@ -219,5 +220,127 @@ forge: gitlab
     cleanup(file);
     const notes = getRelevantMigrations('v9.0.0', 'v9.0.1');
     expect(Array.isArray(notes)).toBe(true);
+  });
+});
+
+// ── parseMigrationsContent — requires-secrets field ──────────────────────────
+
+describe('parseMigrationsContent — requires-secrets field', () => {
+  it('defaults requiresSecrets to [] when no annotation is present', () => {
+    const md = `## v0.1.0 → v0.2.0\n- **(info)** code-only release\n`;
+    const parsed = parseMigrationsContent(md);
+    expect(parsed[0]!.requiresSecrets).toEqual([]);
+  });
+
+  it('parses a single `requires-secrets:` value', () => {
+    const md = `## v0.1.0 → v0.2.0
+requires-secrets: CLAUDE_CODE_OAUTH_TOKEN
+
+- **(info)** new path
+`;
+    const parsed = parseMigrationsContent(md);
+    expect(parsed[0]!.requiresSecrets).toEqual(['CLAUDE_CODE_OAUTH_TOKEN']);
+  });
+
+  it('parses a comma-separated list (general mechanism, not cc-specific)', () => {
+    const md = `## v0.1.0 → v0.2.0
+requires-secrets: FOO_TOKEN, BAR_KEY,BAZ_SECRET
+
+- **(info)** multi-secret release
+`;
+    const parsed = parseMigrationsContent(md);
+    expect(parsed[0]!.requiresSecrets).toEqual(['FOO_TOKEN', 'BAR_KEY', 'BAZ_SECRET']);
+  });
+
+  it('is case-insensitive on the field name and coexists with forge:', () => {
+    const md = `## v0.1.0 → v0.2.0
+forge: github
+Requires-Secrets: NEW_SECRET
+
+- **(action)** do the thing
+`;
+    const parsed = parseMigrationsContent(md);
+    expect(parsed[0]!.forge).toBe('github');
+    expect(parsed[0]!.requiresSecrets).toEqual(['NEW_SECRET']);
+    expect(parsed[0]!.notes).toHaveLength(1);
+  });
+
+  it('ignores a requires-secrets: line that appears after the first bullet', () => {
+    const md = `## v0.1.0 → v0.2.0
+- **(info)** first
+requires-secrets: TOO_LATE
+`;
+    const parsed = parseMigrationsContent(md);
+    expect(parsed[0]!.requiresSecrets).toEqual([]);
+  });
+});
+
+// ── getRequiredSecretsForRange ───────────────────────────────────────────────
+
+describe('getRequiredSecretsForRange', () => {
+  it('returns [] for a code-only range (property: credential-silent)', () => {
+    const file = writeFixture(`## v0.1.0 → v0.2.0
+
+- **(info)** internal only
+`);
+    expect(getRequiredSecretsForRange('v0.1.0', 'v0.2.0', { migrationsPath: file })).toEqual([]);
+    cleanup(file);
+  });
+
+  it('collects the deduped union across a multi-hop crossed range', () => {
+    const file = writeFixture(`## v0.1.x → v0.2.0
+requires-secrets: CLAUDE_CODE_OAUTH_TOKEN
+
+- **(action)** a
+
+## v0.2.x → v0.3.0
+requires-secrets: CLAUDE_CODE_OAUTH_TOKEN, OTHER_SECRET
+
+- **(action)** b
+`);
+    expect(getRequiredSecretsForRange('v0.1.0', 'v0.3.0', { migrationsPath: file })).toEqual([
+      'CLAUDE_CODE_OAUTH_TOKEN',
+      'OTHER_SECRET',
+    ]);
+    cleanup(file);
+  });
+
+  it('excludes sections outside the crossed range', () => {
+    const file = writeFixture(`## v0.1.x → v0.2.0
+requires-secrets: EARLY_SECRET
+
+- **(action)** a
+
+## v0.2.x → v0.3.0
+requires-secrets: LATE_SECRET
+
+- **(action)** b
+`);
+    expect(getRequiredSecretsForRange('v0.2.0', 'v0.3.0', { migrationsPath: file })).toEqual([
+      'LATE_SECRET',
+    ]);
+    cleanup(file);
+  });
+
+  it('applies the forge filter (gitlab-only required secret skipped for github)', () => {
+    const file = writeFixture(`## v0.1.0 → v0.2.0
+forge: gitlab
+requires-secrets: GITLAB_ONLY_SECRET
+
+- **(action)** gitlab
+`);
+    expect(
+      getRequiredSecretsForRange('v0.1.0', 'v0.2.0', {
+        migrationsPath: file,
+        forge: 'github' as ForgeKind,
+      }),
+    ).toEqual([]);
+    expect(
+      getRequiredSecretsForRange('v0.1.0', 'v0.2.0', {
+        migrationsPath: file,
+        forge: 'gitlab' as ForgeKind,
+      }),
+    ).toEqual(['GITLAB_ONLY_SECRET']);
+    cleanup(file);
   });
 });
