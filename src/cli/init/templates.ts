@@ -1,7 +1,48 @@
+import type { ExecutionPath } from '../../lib/config.js';
 import type { WorkflowEntry } from './types.js';
 
-export function workflowTemplates(version: string): WorkflowEntry[] {
-  return [
+const MANAGED_BY_LINE =
+  '# Managed by ferry-init. Re-run `npx -p @big-emotion/ferry ferry-init` to update.\n';
+
+const CLAUDE_CODE_HEADER =
+  '# Execution path: claude-code — agents run via claude-code-action.\n' +
+  '# Required secret: CLAUDE_CODE_OAUTH_TOKEN (run `claude setup-token`; Claude Pro/Max subscription).\n' +
+  '# Set execution_path: script in ferry.config.yaml to revert to the bundled multi-provider path.\n';
+
+// Deterministic fail-fast guard (ADR-0006 §6): the claude-code path must abort
+// before the agent runs if the OAuth token secret is absent. Anchored before the
+// gitleaks install, which exists only in the agent job (not gate-envelope /
+// emit-audit), so the guard is injected exactly once per workflow.
+const INSTALL_GITLEAKS_ANCHOR = '      - name: Install gitleaks\n';
+const CLAUDE_CODE_GUARD_STEP = `      - name: Require CLAUDE_CODE_OAUTH_TOKEN (claude-code execution path)
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: \${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        shell: bash
+        run: |
+          if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
+            echo "::error::CLAUDE_CODE_OAUTH_TOKEN is required for the claude-code execution path. Run 'claude setup-token' (needs a Claude Pro/Max subscription) and add it as a repo secret, or set execution_path: script in ferry.config.yaml."
+            exit 1
+          fi
+${INSTALL_GITLEAKS_ANCHOR}`;
+
+function applyExecutionPath(
+  templates: WorkflowEntry[],
+  executionPath: ExecutionPath,
+): WorkflowEntry[] {
+  if (executionPath !== 'claude-code') return templates;
+  return templates.map((t) => ({
+    filename: t.filename,
+    content: t.content
+      .replace(MANAGED_BY_LINE, MANAGED_BY_LINE + CLAUDE_CODE_HEADER)
+      .replace(INSTALL_GITLEAKS_ANCHOR, CLAUDE_CODE_GUARD_STEP),
+  }));
+}
+
+export function workflowTemplates(
+  version: string,
+  executionPath: ExecutionPath = 'script',
+): WorkflowEntry[] {
+  const templates: WorkflowEntry[] = [
     {
       filename: 'ferry-refine.yml',
       content: `# Managed by ferry-init. Re-run \`npx -p @big-emotion/ferry ferry-init\` to update.
@@ -410,4 +451,5 @@ jobs:
 `,
     },
   ];
+  return applyExecutionPath(templates, executionPath);
 }

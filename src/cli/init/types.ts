@@ -1,3 +1,7 @@
+import type { ExecutionPath } from '../../lib/config.js';
+
+export type { ExecutionPath };
+
 export type LlmProvider = 'anthropic' | 'openai' | 'google';
 
 export interface FerryConfig {
@@ -15,6 +19,10 @@ export interface FerryConfig {
   anthropicApiKey: string;
   openaiApiKey?: string;
   googleApiKey?: string;
+  /** Execution path chosen at install time (ADR-0006 §6). */
+  executionPath: ExecutionPath;
+  /** Claude Code OAuth token — set only on the claude-code path. */
+  claudeCodeOauthToken?: string;
   refinerProvider: LlmProvider;
   devProvider: LlmProvider;
   reviewProvider: LlmProvider;

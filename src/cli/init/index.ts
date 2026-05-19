@@ -22,7 +22,8 @@ import { installWorkflows, scaffoldCodeowners } from './steps/workflows.js';
 import { stepJiraBundle, DEFAULT_STATUS_NAMES } from './steps/jira-bundle.js';
 import { resolveJiraWorkspaceId, resolveJiraProjectId } from './steps/jira-resolve.js';
 import { stepVerify } from './steps/verify.js';
-import type { FerryConfig, LlmProvider } from './types.js';
+import { EXECUTION_PATH_QUESTION, parseExecutionPathChoice } from './steps/execution-path.js';
+import type { ExecutionPath, FerryConfig, LlmProvider } from './types.js';
 
 const FERRY_VERSION_DEFAULT = 'v1';
 
@@ -165,8 +166,11 @@ async function main(): Promise<void> {
   const iteratorAutoTransition = await ask('Iterator → after iteration (moves to)', 'In Review');
 
   print('');
-  print('LLM provider per phase (anthropic / openai / google, default: anthropic):');
-  print('  Note: MCP server support (labels, context7, etc.) requires Anthropic.');
+  print('Execution path (ADR-0006):');
+  print(`  ${EXECUTION_PATH_QUESTION}`);
+  const executionPath: ExecutionPath = parseExecutionPathChoice(
+    await ask('Execution path (a=script / b=claude-code)', 'a'),
+  );
 
   function validateProvider(input: string): LlmProvider {
     const lower = input.toLowerCase().trim();
@@ -174,35 +178,57 @@ async function main(): Promise<void> {
     return 'anthropic';
   }
 
-  const refinerProviderRaw = await ask('Refiner provider', 'anthropic');
-  const devProviderRaw = await ask('Developer provider', 'anthropic');
-  const reviewProviderRaw = await ask('Reviewer provider', 'anthropic');
-  const iterateProviderRaw = await ask('Iterator provider', 'anthropic');
-
-  const refinerProvider = validateProvider(refinerProviderRaw);
-  const devProvider = validateProvider(devProviderRaw);
-  const reviewProvider = validateProvider(reviewProviderRaw);
-  const iterateProvider = validateProvider(iterateProviderRaw);
-
-  const needsOpenAI = [refinerProvider, devProvider, reviewProvider, iterateProvider].includes(
-    'openai',
-  );
-  const needsGoogle = [refinerProvider, devProvider, reviewProvider, iterateProvider].includes(
-    'google',
-  );
-
-  print('');
-  print('API keys:');
-  const anthropicApiKey = await askSecret('Anthropic API key (sk-ant-...)');
-
+  let refinerProvider: LlmProvider = 'anthropic';
+  let devProvider: LlmProvider = 'anthropic';
+  let reviewProvider: LlmProvider = 'anthropic';
+  let iterateProvider: LlmProvider = 'anthropic';
+  let needsOpenAI = false;
+  let needsGoogle = false;
+  let anthropicApiKey = '';
   let openaiApiKey = '';
-  if (needsOpenAI) {
-    openaiApiKey = await askSecret('OpenAI API key (sk-...)');
-  }
-
   let googleApiKey = '';
-  if (needsGoogle) {
-    googleApiKey = await askSecret('Google AI API key');
+  let claudeCodeOauthToken = '';
+
+  if (executionPath === 'claude-code') {
+    // ADR-0006 §6: claude-code is Anthropic-only and authenticates EXCLUSIVELY
+    // with CLAUDE_CODE_OAUTH_TOKEN — no provider choice, no ANTHROPIC_API_KEY.
+    print('');
+    print('claude-code-action path selected — agents run on your Claude subscription.');
+    print('  Obtain a token by running:  claude setup-token   (needs Claude Pro/Max)');
+    claudeCodeOauthToken = await askSecret('Claude Code OAuth token');
+  } else {
+    print('');
+    print('LLM provider per phase (anthropic / openai / google, default: anthropic):');
+    print('  Note: MCP server support (labels, context7, etc.) requires Anthropic.');
+
+    const refinerProviderRaw = await ask('Refiner provider', 'anthropic');
+    const devProviderRaw = await ask('Developer provider', 'anthropic');
+    const reviewProviderRaw = await ask('Reviewer provider', 'anthropic');
+    const iterateProviderRaw = await ask('Iterator provider', 'anthropic');
+
+    refinerProvider = validateProvider(refinerProviderRaw);
+    devProvider = validateProvider(devProviderRaw);
+    reviewProvider = validateProvider(reviewProviderRaw);
+    iterateProvider = validateProvider(iterateProviderRaw);
+
+    needsOpenAI = [refinerProvider, devProvider, reviewProvider, iterateProvider].includes(
+      'openai',
+    );
+    needsGoogle = [refinerProvider, devProvider, reviewProvider, iterateProvider].includes(
+      'google',
+    );
+
+    print('');
+    print('API keys:');
+    anthropicApiKey = await askSecret('Anthropic API key (sk-ant-...)');
+
+    if (needsOpenAI) {
+      openaiApiKey = await askSecret('OpenAI API key (sk-...)');
+    }
+
+    if (needsGoogle) {
+      googleApiKey = await askSecret('Google AI API key');
+    }
   }
 
   closePrompt();
@@ -222,6 +248,8 @@ async function main(): Promise<void> {
     anthropicApiKey,
     openaiApiKey: openaiApiKey || undefined,
     googleApiKey: googleApiKey || undefined,
+    executionPath,
+    claudeCodeOauthToken: claudeCodeOauthToken || undefined,
     refinerProvider,
     devProvider,
     reviewProvider,
@@ -239,7 +267,7 @@ async function main(): Promise<void> {
 
   // ── Step 3: Workflows + ferry.config.yaml ────────────────────────────────
   printStep(3, TOTAL_STEPS, 'Installing workflow files');
-  const templates = workflowTemplates(config.ferryVersion);
+  const templates = workflowTemplates(config.ferryVersion, config.executionPath);
   const workflowDir = join(repoRoot, '.github', 'workflows');
   installWorkflows(workflowDir, templates, overwrite);
   scaffoldCodeowners(repoRoot, owner);
@@ -276,6 +304,8 @@ async function main(): Promise<void> {
         : [];
 
     const workflowYaml = [
+      `execution_path: ${config.executionPath}`,
+      '',
       ...modelsBlock,
       'workflow:',
       '  agents:',
@@ -316,7 +346,15 @@ async function main(): Promise<void> {
 
   // ── Step 5: Verify ────────────────────────────────────────────────────────
   printStep(5, TOTAL_STEPS, 'Verifying provider API key');
-  const verifyResult = await stepVerify(config.anthropicApiKey);
+  const verifyResult =
+    config.executionPath === 'claude-code'
+      ? ((): { ok: true } => {
+          printSkip(
+            'claude-code path: CLAUDE_CODE_OAUTH_TOKEN validity is probed by `ferry-doctor`',
+          );
+          return { ok: true };
+        })()
+      : await stepVerify(config.anthropicApiKey);
 
   // ── Summary ───────────────────────────────────────────────────────────────
   print('');
@@ -343,6 +381,12 @@ async function main(): Promise<void> {
   if (needsGoogle) {
     print(`  ${nextStep++}. Google AI key was set as GOOGLE_API_KEY secret.`);
     print('     Enable budget alerts: https://console.cloud.google.com/billing');
+  }
+  if (config.executionPath === 'claude-code') {
+    print(
+      `  ${nextStep++}. Execution path: claude-code (recorded in ferry.config.yaml). Agents run`,
+    );
+    print('     on your Claude subscription via CLAUDE_CODE_OAUTH_TOKEN — no ANTHROPIC_API_KEY.');
   }
   print(`  ${nextStep}. Move a Jira ticket to "Refinement" — watch the Actions tab!`);
   print('');
