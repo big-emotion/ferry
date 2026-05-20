@@ -14,6 +14,7 @@ import {
   applyDryRunMarker,
   LabelConflictError,
   logTicketOverrides,
+  prepareRefiner,
 } from '../../lib/agent-runtime/index.js';
 import type { Logger } from '../../lib/agent-runtime/index.js';
 import { runRefiner } from './refine.js';
@@ -24,8 +25,6 @@ import type { LlmCall } from './refine.js';
 import type { EventEnvelopeV1 } from '../../lib/envelope/types.js';
 
 const REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
-
-const PRIOR_RUN_MARKER = /\[ferry:refiner:[^\]]+\]/;
 
 export interface RefinerActionDeps {
   tracker: IssueTracker;
@@ -44,11 +43,12 @@ export async function run(envelope: EventEnvelopeV1, deps: RefinerActionDeps): P
   const logger = deps.logger ?? createLogger(eventId, 'ferry:refiner-action');
   const dryRun = isDryRun() || deps.dryRun === true;
 
-  const issue = await deps.tracker.getIssue(ticketKey);
-  const runLink = `https://github.com/${process.env.GITHUB_REPO ?? 'unknown'}/actions/runs/${process.env.GITHUB_RUN_ID ?? '0'}`;
-
-  const existingSubtasks = await deps.tracker.getSubtaskDetails(ticketKey);
-  const priorRefinerRuns = issue.comments.filter((c) => PRIOR_RUN_MARKER.test(c));
+  // Pre-loop setup: fetches the Jira issue, existing subtasks, prior refiner
+  // runs, and computes the runLink + idempotency marker. Extracted into a
+  // reusable prepare function (#330) so the future cc-prepare composite (#331)
+  // consumes the same source.
+  const prepared = await prepareRefiner({ envelope, tracker: deps.tracker });
+  const { issue, existingSubtasks, priorRefinerRuns, runLink, idempotencyMarker } = prepared;
 
   const { plan, auditSummary } = await runRefiner({
     ticket: {
@@ -134,8 +134,6 @@ export async function run(envelope: EventEnvelopeV1, deps: RefinerActionDeps): P
     existingSubtasks,
     tracker: deps.tracker,
   });
-
-  const idempotencyMarker = `[ferry:refiner:${eventId}]`;
 
   if (result.noop) {
     logger.info('noop — existing sub-tasks still valid', { ticket: ticketKey });

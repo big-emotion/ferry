@@ -32,6 +32,29 @@ export default [
       'no-console': 'error',
     },
   },
+  // Layering invariant: `src/lib/agent-runtime/**` is the lower shared layer
+  // and must never reach into `src/agents/**` (agents consume the lib layer,
+  // not the other way around). See issue #330 / PR #345 for the rationale.
+  {
+    files: ['src/lib/agent-runtime/**/*.ts'],
+    languageOptions: {
+      parserOptions: { project: null },
+    },
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/agents/**', '../../agents/**', '../agents/**'],
+              message:
+                'src/lib/agent-runtime/** must not import from src/agents/** — that inverts the lib/agents layering. Move shared helpers into src/lib/agent-runtime/ instead.',
+            },
+          ],
+        },
+      ],
+    },
+  },
   // Agent code must never import Octokit or Jira modules directly
   {
     files: ['src/agents/**/*.ts'],

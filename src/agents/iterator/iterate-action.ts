@@ -1,5 +1,4 @@
 import { execFileSync } from 'node:child_process';
-import { delimitUntrusted } from '../../lib/llm/delimit-untrusted.js';
 import { checkIdempotencyMarker } from '../../lib/io/idempotency.js';
 import { TOOL_SCHEMAS, COMMIT_PROGRESS_SCHEMA, executeTool } from '../developer/tools.js';
 import { createAgentLoop } from '../../lib/llm/agent-loop/index.js';
@@ -9,7 +8,6 @@ import { decideIteratorTransition } from './transition.js';
 import { formatCommitMessage } from './prompt.js';
 import {
   resolveCapabilities,
-  filterMcpServers,
   resolveTicketOverrides,
   applyTicketOverrides,
   hasNonDefaultOverrides,
@@ -22,8 +20,6 @@ import {
 import {
   requireEnv,
   loadMcpServers,
-  buildSystem,
-  buildTicketBlock,
   appendOutput,
   writeStepSummary,
   configureFerryGitUser,
@@ -39,6 +35,7 @@ import {
   loadFerryConfigFromBaseBranch,
   byEventId,
   byPrHeadSha,
+  prepareIterator,
 } from '../../lib/agent-runtime/index.js';
 import type { EventEnvelopeV1 } from '../../lib/envelope/types.js';
 import type { Logger } from '../../lib/agent-runtime/index.js';
@@ -146,10 +143,12 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
 
   const { provider: iterProvider, model } = effectiveCfg.models.iterate;
   const mcpPool = loadMcpServers();
-  const capabilities = resolveCapabilities(issue.labels, effectiveCfg.labels);
-  const hasLabelsConfig = effectiveCfg.labels !== undefined;
-  const mcpServers = filterMcpServers(mcpPool, capabilities, hasLabelsConfig);
 
+  // Resolve capabilities once, BEFORE every early-return gate below, so the
+  // capability telemetry is emitted on every invocation — not only when we
+  // reach the loop. The resolved value is threaded into `prepareIterator`
+  // (single source of truth per `RolePreparedContextBase`).
+  const capabilities = resolveCapabilities(issue.labels, effectiveCfg.labels, logger);
   logCapabilities(logger, capabilities);
 
   const priorIterations = existingComments.filter(
@@ -235,8 +234,6 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
     return;
   }
 
-  const system = buildSystem('iterate', REPO_ROOT);
-
   configureFerryGitUser(REPO_ROOT);
 
   if (checkoutExistingBranch(branchName, REPO_ROOT) === 'not-found') {
@@ -255,26 +252,26 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
     encoding: 'utf8',
   }).trim();
 
-  const ticketBlock = buildTicketBlock(ticketKey, issue, {
+  // Pre-loop setup: builds system prompt, ticket block, initial prompt, and
+  // the capability-filtered MCP pool. Extracted into a reusable prepare
+  // function (#330) so the future cc-prepare composite (#331) consumes the
+  // same source. `capabilities` and `idempotencyMarker` are threaded in
+  // from the action (single source of truth — see `RolePreparedContextBase`).
+  const prepared = prepareIterator({
+    ticketKey,
+    issue,
+    headSha,
+    reviewComment,
+    mergeConflicts,
+    existingLog,
+    mcpPool,
+    configLabels: effectiveCfg.labels,
+    capabilities,
+    idempotencyMarker,
     typeOverride,
+    repoRoot: REPO_ROOT,
   });
-
-  const initialPrompt = [
-    '## Jira Ticket',
-    delimitUntrusted(ticketBlock),
-    '',
-    '## Review Findings (fix only what is listed here)',
-    delimitUntrusted(reviewComment),
-    '',
-    mergeConflicts.length > 0
-      ? `## Merge Conflicts (resolve these first, before fixing review findings)\n${mergeConflicts.map((f) => `- ${f}`).join('\n')}`
-      : '',
-    existingLog ? `## Existing commits on branch\n${existingLog}` : '',
-    '',
-    'When you have fixed all findings, call the `done` tool.',
-  ]
-    .filter(Boolean)
-    .join('\n');
+  const { system, initialPrompt, mcpServers } = prepared;
 
   const secretScan = makeSecretScan(REPO_ROOT);
 

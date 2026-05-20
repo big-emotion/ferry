@@ -1,9 +1,7 @@
 import { createToolCallLoop } from '../../lib/llm/tool-loop/index.js';
-import { delimitUntrusted } from '../../lib/llm/delimit-untrusted.js';
 import { checkIdempotencyMarker } from '../../lib/io/idempotency.js';
 import { gateCi } from './ci-gate.js';
-import { detectMergeConflicts, buildFileList, runReviewLoop } from './review-loop.js';
-import { applyRubricToPrompt } from './rubric.js';
+import { runReviewLoop } from './review-loop.js';
 import {
   resolveCapabilities,
   resolveTicketOverrides,
@@ -18,9 +16,6 @@ import {
   requireEnv,
   appendOutput,
   writeStepSummary,
-  buildSystem,
-  loadOptionalPrompt,
-  buildTicketBlock,
   createGitHubContext,
   resolveGitConfig,
   resolveBranchPrefix,
@@ -29,6 +24,7 @@ import {
   logTicketOverrides,
   byEventId,
   byPrHeadSha,
+  prepareReviewer,
 } from '../../lib/agent-runtime/index.js';
 import { countPriorIterations } from './changes-guard.js';
 import type { EventEnvelopeV1 } from '../../lib/envelope/types.js';
@@ -131,7 +127,6 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
   // Fetch the full PR to get the `mergeable` field (not available in list response)
   const pr = await runner.getPR({ owner, repo, prNumber });
   const headSha = pr.headSha;
-  const mergeable = pr.mergeable;
 
   // Idempotency keyed on head SHA — a new push always produces a new SHA,
   // so the review runs fresh after each iteration regardless of event_id.
@@ -210,55 +205,31 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
     return;
   }
 
-  // Fetch ALL PR files (paginated)
+  // Fetch ALL PR files (paginated) + commits for context.
   const files = await runner.listPRFiles({ owner, repo, prNumber });
-  const fileMap = new Map<string, string | undefined>(files.map((f) => [f.filename, f.patch]));
-
-  // Detect merge conflicts in patches
-  const conflictedFiles = detectMergeConflicts(files);
-  const hasMergeConflicts = mergeable === false || conflictedFiles.length > 0;
-
-  // Fetch commits for context
   const commits = await runner.listPRCommits({ owner, repo, prNumber });
-  const commitLog = commits
-    .map((c) => `${c.sha.slice(0, 7)} ${c.message.split('\n')[0]}`)
-    .join('\n');
 
-  const ticketBlock = buildTicketBlock(ticketKey, issue, {
+  // Pre-loop setup: builds the reviewer system prompt (with review-comment
+  // overlay + rubric override), the initial prompt, the filename→patch map,
+  // and the capability-filtered MCP pool. Extracted into a reusable prepare
+  // function (#330) so the future cc-prepare composite (#331) consumes the
+  // same source. `capabilities` and `idempotencyMarker` are threaded in
+  // from the action (single source of truth — see `RolePreparedContextBase`).
+  const prepared = prepareReviewer({
+    ticketKey,
+    issue,
+    pr,
+    files,
+    commits,
+    branchName,
     typeOverride,
+    reviewRubric: reviewRubricOverride,
+    capabilities,
+    idempotencyMarker,
+    repoRoot: REPO_ROOT,
   });
+  const { system, initialPrompt, fileMap } = prepared;
 
-  const mergeConflictWarning = hasMergeConflicts
-    ? `\n⚠️  MERGE CONFLICTS DETECTED — mergeable=${String(mergeable)}${conflictedFiles.length > 0 ? `, conflicted files: ${conflictedFiles.join(', ')}` : ''}`
-    : '';
-
-  const initialPrompt = [
-    '## Jira Ticket',
-    delimitUntrusted(ticketBlock),
-    '',
-    '## PR Metadata',
-    `PR #${prNumber}: ${pr.title}`,
-    `Base: ${pr.baseRef} ← Head: ${branchName} (${headSha.slice(0, 7)})`,
-    `Files changed: ${files.length}  Commits: ${commits.length}`,
-    mergeConflictWarning,
-    '',
-    '## Commits',
-    commitLog,
-    '',
-    '## Changed files (status  +additions  -deletions  path)',
-    buildFileList(files),
-    '',
-    'Use get_file_patch to inspect individual file diffs, get_file_content for full file contents.',
-    'When you have enough information, call finish_review.',
-  ]
-    .filter((l) => l !== null)
-    .join('\n');
-
-  const baseSystem = buildSystem('review', REPO_ROOT, {
-    extraParts: [loadOptionalPrompt('review-comment', REPO_ROOT)],
-    separator: '\n\n---\n\n',
-  });
-  const system = applyRubricToPrompt(baseSystem, reviewRubricOverride);
   const loop = createToolCallLoop({ provider, model, thinking: thinkingOverride, logger });
 
   const {
