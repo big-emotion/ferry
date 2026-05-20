@@ -9,6 +9,10 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Routing decision wired into consumer workflows** (first half of the claude-code path activation, ADR-0006 §3, follow-up to #300/#302). The four agent workflows in `examples/consumer-setup/workflows/` now run a `route` job before the agent: it calls a new `big-emotion/ferry/.github/actions/ferry-route` composite (entry point `src/lib/dispatch/route-action.ts`), which wraps the existing pure `resolveExecutionPath` resolver, fetches the ticket's Jira labels, loads `ferry.config`, and exposes a `path` output (`script` | `claude-code`) + a `reason` output. Each agent job is now split into `run-agent` (gated `if: path == 'script'`) and a `run-agent-claude-code` placeholder (gated `if: path == 'claude-code'`) that fails loudly with a clear error — actual `anthropics/claude-code-action@v1` invocation lands in a follow-up PR. Heuristic-driven escalation (`priorRoundTrips`) is intentionally stubbed to 0 in this version; label + config-driven routing land first. `src/cli/init/templates.ts` is **not** mirrored in this change (follow-up): consumers using `ferry-init`-generated workflows still get the pre-route shape until that lands.
+
 ---
 
 ## [0.12.0] — 2026-05-20

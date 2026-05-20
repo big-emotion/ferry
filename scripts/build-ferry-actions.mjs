@@ -50,6 +50,11 @@ await Promise.all([
   }),
   build({
     ...shared,
+    entryPoints: ['src/lib/dispatch/route-action.ts'],
+    outfile: '.ferry/route-action.js',
+  }),
+  build({
+    ...shared,
     entryPoints: ['src/cli/agent/run.ts'],
     outfile: '.ferry/agent.js',
   }),
@@ -62,6 +67,7 @@ copyFileSync('src/schemas/event.v1.schema.json', '.ferry/schemas/event.v1.schema
 for (const f of [
   'validate-action.js',
   'skip-task-type-action.js',
+  'route-action.js',
   'agent.js',
 ]) {
   const p = `.ferry/${f}`;
@@ -131,6 +137,33 @@ writeFileSync(
   ) + '\n',
 );
 execSync('npm install --prefer-offline', { cwd: validateActionDir, stdio: 'inherit' });
+
+const routeActionDir = '.github/actions/ferry-route';
+mkdirSync(`${routeActionDir}/schemas`, { recursive: true });
+copyFileSync('.ferry/route-action.js', `${routeActionDir}/route-action.js`);
+copyFileSync(
+  'src/schemas/event.v1.schema.json',
+  `${routeActionDir}/schemas/event.v1.schema.json`,
+);
+writeFileSync(
+  `${routeActionDir}/package.json`,
+  JSON.stringify(
+    {
+      name: 'ferry-route-action',
+      version: '0.0.0',
+      private: true,
+      type: 'module',
+      dependencies: {
+        ajv: rootDeps['ajv'],
+        'ajv-formats': rootDeps['ajv-formats'],
+        yaml: '^2.6.0',
+      },
+    },
+    null,
+    2,
+  ) + '\n',
+);
+execSync('npm install --prefer-offline', { cwd: routeActionDir, stdio: 'inherit' });
 
 const emitAuditActionDir = '.github/actions/ferry-emit-audit';
 copyFileSync('.ferry/emit-audit-action.js', `${emitAuditActionDir}/emit-audit-action.js`);

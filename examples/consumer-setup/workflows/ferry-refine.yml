@@ -4,6 +4,8 @@
 #                   ANTHROPIC_API_KEY    — required when FERRY_REFINER_PROVIDER=anthropic (default)
 #                   OPENAI_API_KEY       — required when FERRY_REFINER_PROVIDER=openai
 #                   GOOGLE_API_KEY       — required when FERRY_REFINER_PROVIDER=google
+#                   CLAUDE_CODE_OAUTH_TOKEN — required only when execution_path=claude-code
+#                                             (ADR-0006 §6 — anthropic_api_key is forbidden on this path).
 # Required variables: FERRY_AUDIT_ISSUE (GitHub Issue number for the audit log)
 # Optional variables: FERRY_REFINER_MODEL (default: claude-sonnet-4-6; use model ID matching your provider)
 #                     FERRY_REFINER_PROVIDER (default: anthropic; also: openai, google)
@@ -41,9 +43,32 @@ jobs:
         with:
           payload: ${{ toJson(github.event.client_payload) }}
 
-  run-agent:
-    name: Run Refiner agent
+  route:
+    name: Resolve execution path
     needs: [gate-envelope]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      path: ${{ steps.route.outputs.path }}
+      reason: ${{ steps.route.outputs.reason }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Resolve execution path
+        id: route
+        uses: big-emotion/ferry/.github/actions/ferry-route@v0.12.0
+        with:
+          payload: ${{ toJson(github.event.client_payload) }}
+          role: refiner
+          jira_base_url: ${{ secrets.FERRY_JIRA_BASE_URL }}
+          jira_email: ${{ secrets.FERRY_JIRA_EMAIL }}
+          jira_api_token: ${{ secrets.FERRY_JIRA_API_TOKEN }}
+
+  run-agent:
+    name: Run Refiner agent (script path)
+    needs: [route]
+    if: needs.route.outputs.path == 'script'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -79,10 +104,30 @@ jobs:
           # pre_agent_timeout_minutes: '3'
           # post_agent_command: ''  # uncomment to run cleanup after the agent
 
+  run-agent-claude-code:
+    name: Run Refiner agent (claude-code path)
+    needs: [route]
+    if: needs.route.outputs.path == 'claude-code'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      # Placeholder: the claude-code-action wiring lands in a follow-up PR.
+      # The routing decision is fully implemented; only the action invocation
+      # and front-half loader (envelope/config/Jira/MCP) are out of scope here.
+      - name: claude-code execution path not yet wired
+        shell: bash
+        run: |
+          echo "::error::Ferry routing resolved this run to the claude-code-action path," \
+            "but the claude-code execution branch is not yet wired in this Ferry release." \
+            "Set execution_path: script in ferry.config.yaml (or remove the ferry:claude-code" \
+            "label on the ticket) to use the bundled-script path."
+          exit 1
+
   emit-audit:
     name: Emit audit line
-    needs: [run-agent]
-    if: needs.run-agent.result != 'skipped'
+    needs: [run-agent, run-agent-claude-code]
+    if: always() && (needs.run-agent.result == 'success' || needs.run-agent-claude-code.result == 'success')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -97,7 +142,7 @@ jobs:
           phase: refine
           run_id: ${{ github.event.client_payload.event_id }}
           model: ${{ vars.FERRY_REFINER_MODEL || 'claude-sonnet-4-6' }}
-          outcome: ${{ needs.run-agent.result }}
+          outcome: ${{ needs.run-agent.result == 'success' && needs.run-agent.result || needs.run-agent-claude-code.result }}
           start_ms: ${{ github.run_id }}
           audit_issue: ${{ vars.FERRY_AUDIT_ISSUE }}
           github_token: ${{ secrets.GITHUB_TOKEN }}

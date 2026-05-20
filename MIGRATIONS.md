@@ -53,6 +53,13 @@ If there are no consumer-visible changes, omit the section (or note `(none — i
 
 ---
 
+## v0.12.x → v0.13.0
+
+- **(action)** **New `ferry-route` job** introduced ahead of every agent run in the four consumer workflows (`ferry-refine.yml`, `ferry-dev.yml`, `ferry-review.yml`, `ferry-iterate.yml`). It calls `big-emotion/ferry/.github/actions/ferry-route` and exposes a `path` output (`script` | `claude-code`) consumed by an `if:` on the agent jobs. Consumers using the bundled `examples/consumer-setup/workflows/` stubs pick this up automatically via `ferry-update` once `src/cli/init/templates.ts` is mirrored (tracked in the follow-up PR for the templates). Until then, copy the four workflow stubs from `examples/consumer-setup/workflows/` by hand if you want the routing decision wired. The routing-only PR is safe to ignore — without the four workflows updated, every run stays on the script path (the existing behaviour).
+- **(info)** A `run-agent-claude-code` placeholder job is added alongside `run-agent` in each workflow. It is gated by `if: needs.route.outputs.path == 'claude-code'` and **fails loudly** with a clear error if reached. The actual `anthropics/claude-code-action@v1` invocation lands in a follow-up PR. If you want to opt into the claude-code path before that PR ships, leave `execution_path` unset in `ferry.config.yaml` and remove any `ferry:claude-code` labels — Ferry stays on the script path by default for mixed-provider configs.
+
+---
+
 ## v0.10.x → v0.11.0
 
 - **(info)** **GitLab support added behind an `FERRY_FORGE=gitlab` flag — experimental.** GitHub users are not affected; the default forge remains GitHub Actions. The GitLab adapter is shipped under [#210](https://github.com/big-emotion/ferry/issues/210) with templates in `examples/consumer-setup-gitlab/`. The experimental flag is expected to drop once a real consumer has run a full Refiner→Developer→Reviewer→Iterator cycle in production for two weeks. Until then, the bundled artifact may break across minor releases. See the promotion checklist on #210.
