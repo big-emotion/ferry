@@ -1,0 +1,92 @@
+name: Ferry — Apply CC Output
+description: >
+  Deterministic post-step for the claude-code execution path (ADR-0006 §2).
+  Reads the .ferry/cc-output.json artifact written by claude-code-action,
+  validates it fail-closed, and applies the Jira-side audit + transition
+  writes that the bundled script path performs in-process today.
+  Self-contained; no .ferry/ needed in the consumer workspace.
+inputs:
+  payload:
+    description: JSON-encoded event envelope payload
+    required: true
+  role:
+    description: Agent role (refiner | developer | reviewer | iterator)
+    required: true
+  jira_base_url:
+    description: Jira base URL
+    required: true
+  jira_email:
+    description: Jira account email
+    required: true
+  jira_api_token:
+    description: Jira API token
+    required: true
+  idempotency_marker:
+    description: Idempotency marker produced by cc-prepare (e.g. [ferry:dev:abc1234])
+    required: true
+  ferry_review_transition_id:
+    description: Jira transition ID to move ticket to In Review (developer FR18 / iterator FR28)
+    required: false
+    default: ''
+  ferry_iter_transition_id:
+    description: Jira transition ID to move ticket to Dev Iteration (reviewer FR24 changes)
+    required: false
+    default: ''
+  ferry_approve_transition_id:
+    description: Jira transition ID to move ticket to Ready (reviewer FR24 approve)
+    required: false
+    default: ''
+  ferry_pr_number:
+    description: PR number for the current cycle (required for reviewer and iterator roles)
+    required: false
+    default: ''
+  ferry_subtask_count:
+    description: Sub-task count for the refiner noop message
+    required: false
+    default: '0'
+  github_token:
+    description: GitHub token (reserved for future use and consistency with ferry-run-* actions)
+    required: false
+    default: ''
+outputs:
+  outcome:
+    description: Result of the apply step — success | skipped | blocked
+    value: ${{ steps.cc-apply.outputs.outcome }}
+  input_tokens:
+    description: Number of LLM input tokens consumed (0 on subscription path)
+    value: ${{ steps.cc-apply.outputs.input_tokens }}
+  output_tokens:
+    description: Number of LLM output tokens consumed (0 on subscription path)
+    value: ${{ steps.cc-apply.outputs.output_tokens }}
+  cost_eur:
+    description: Cost in EUR for this agent run (0 on subscription path)
+    value: ${{ steps.cc-apply.outputs.cost_eur }}
+runs:
+  using: composite
+  steps:
+    - name: Set up Node.js
+      uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+      with:
+        node-version: '20'
+    - name: Install Ferry action dependencies
+      shell: bash
+      run: npm ci --prefer-offline
+      working-directory: ${{ github.action_path }}
+    - name: Apply CC output
+      id: cc-apply
+      shell: bash
+      run: node ${{ github.action_path }}/cc-apply-action.js
+      env:
+        FERRY_ENVELOPE_PAYLOAD: ${{ inputs.payload }}
+        FERRY_AGENT_ROLE: ${{ inputs.role }}
+        FERRY_IDEMPOTENCY_MARKER: ${{ inputs.idempotency_marker }}
+        FERRY_JIRA_BASE_URL: ${{ inputs.jira_base_url }}
+        FERRY_JIRA_EMAIL: ${{ inputs.jira_email }}
+        FERRY_JIRA_API_TOKEN: ${{ inputs.jira_api_token }}
+        FERRY_REVIEW_TRANSITION_ID: ${{ inputs.ferry_review_transition_id }}
+        FERRY_ITER_TRANSITION_ID: ${{ inputs.ferry_iter_transition_id }}
+        FERRY_APPROVE_TRANSITION_ID: ${{ inputs.ferry_approve_transition_id }}
+        FERRY_PR_NUMBER: ${{ inputs.ferry_pr_number }}
+        FERRY_SUBTASK_COUNT: ${{ inputs.ferry_subtask_count }}
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+        GH_TOKEN: ${{ inputs.github_token }}
