@@ -19,7 +19,7 @@ function assertValidWorkflowYaml(content: string, filename: string): void {
   expect(openCount, `${filename}: unmatched \${{ expressions`).toBeGreaterThan(0);
   expect(closeCount, `${filename}: unmatched }} closers`).toBeGreaterThan(0);
   // Allow for }} used in jinja-style contexts; just ensure we have at least as many closes
-  expect(closeCount, `${filename}: more opens than closes`).toBeGreaterThanOrEqual(openCount);
+  expect(closeCount, `${filename}: open and close counts must match`).toBe(openCount);
 
   // No bare TypeScript-style ${...} (single-brace) that would indicate escaping mistakes
   // GitHub Actions uses ${{ }}, never ${ }. Negative lookahead reads as "dollar-brace not
@@ -259,58 +259,24 @@ describe('workflowTemplates — supply-chain action pinning', () => {
   });
 });
 
-describe('workflowTemplates — cc-path role-coverage guard', () => {
-  // ferry-cc-prepare's composite entrypoint currently only handles role 'refiner'
-  // end-to-end. The dev / review / iterate templates ship a fail-loud guard step
-  // at the top of run-agent-claude-code so consumers see a clear actionable error
-  // instead of a late-stage throw from cc-prepare. Refiner has NO such guard —
-  // its cc-path is wired and meant to run.
-  const NON_REFINER_ROLES: ReadonlyArray<{ filename: string; role: string }> = [
-    { filename: 'ferry-dev.yml', role: 'developer' },
-    { filename: 'ferry-review.yml', role: 'reviewer' },
-    { filename: 'ferry-iterate.yml', role: 'iterator' },
-  ];
-
-  for (const { filename, role } of NON_REFINER_ROLES) {
-    it(`${filename}: ships a fail-loud guard for role '${role}' cc-path`, () => {
-      const tmpl = workflowTemplates('v1').find((t) => t.filename === filename);
-      expect(tmpl, `${filename}: template not found`).toBeDefined();
-      expect(tmpl!.content, `${filename}: missing guard step name`).toContain(
-        `Guard — cc-path not yet wired for ${role}`,
-      );
-      expect(tmpl!.content, `${filename}: missing role-specific error message`).toContain(
-        `::error::Ferry: the claude-code execution path is not yet wired for role '${role}'.`,
-      );
-      expect(tmpl!.content, `${filename}: guard does not exit 1`).toMatch(
-        /Guard — cc-path not yet wired[\s\S]*?exit 1/,
-      );
-    });
-  }
-
-  it("ferry-refine.yml has NO 'cc-path not yet wired' guard (refiner cc-path is live)", () => {
-    const refine = workflowTemplates('v1').find((t) => t.filename === 'ferry-refine.yml');
-    expect(refine, 'ferry-refine.yml not found').toBeDefined();
-    expect(
-      refine!.content,
-      'ferry-refine.yml unexpectedly contains the cc-path guard step',
-    ).not.toContain('Guard — cc-path not yet wired');
+describe('workflowTemplates — cc-path role coverage is complete', () => {
+  // All four roles now run end-to-end on the claude-code path (#350), so no
+  // template should carry a "not yet wired" guard step.
+  it('no template contains the legacy "cc-path not yet wired" guard', () => {
+    for (const tmpl of workflowTemplates('v1')) {
+      expect(
+        tmpl.content,
+        `${tmpl.filename} still contains a legacy "cc-path not yet wired" guard`,
+      ).not.toContain('Guard — cc-path not yet wired');
+    }
   });
 
-  it('guard runs before cc-prepare in every non-refiner template', () => {
-    for (const { filename } of NON_REFINER_ROLES) {
-      const tmpl = workflowTemplates('v1').find((t) => t.filename === filename);
-      const guardIdx = tmpl!.content.indexOf('Guard — cc-path not yet wired');
-      // Anchor on the step NAME (unique in the cc-path job) rather than the
-      // bare 'ferry-cc-prepare' substring, which also appears earlier in the
-      // guard's own explanatory comment.
-      const prepareStepIdx = tmpl!.content.indexOf('Prepare claude-code job');
-      expect(guardIdx, `${filename}: guard missing`).toBeGreaterThan(-1);
-      expect(prepareStepIdx, `${filename}: cc-prepare step missing`).toBeGreaterThan(-1);
-      expect(
-        guardIdx,
-        `${filename}: guard must precede cc-prepare to fail fast before any composite work`,
-      ).toBeLessThan(prepareStepIdx);
-    }
+  it('ferry-review.yml wires ferry_pr_number from cc-prepare into cc-apply', () => {
+    // The reviewer contract calls `requireCtx(ctx.prNumber, …)` strictly —
+    // without this wiring the reviewer cc-path hard-fails at the last step.
+    const review = workflowTemplates('v1').find((t) => t.filename === 'ferry-review.yml');
+    expect(review, 'ferry-review.yml not found').toBeDefined();
+    expect(review!.content).toContain('ferry_pr_number: ${{ steps.cc-prepare.outputs.pr_number }}');
   });
 });
 

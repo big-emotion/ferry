@@ -42,6 +42,32 @@ vi.mock('../io/jira-rest.js', () => {
   return { JiraRestClient };
 });
 
+// Mutable mock seam for `createRunnerFromEnv`. Tests assign a partial CIRunner
+// stub into `runnerStub`; the factory mock returns it (cast to CIRunner).
+// Tests that don't set it leave `runnerStub = undefined`, and the factory
+// returns a runner that throws on any method call — which lets the existing
+// section-5 "no GITHUB_TOKEN" assertions stay green (they never reach the
+// factory because `requireEnv('GITHUB_TOKEN')` throws first).
+const runnerMocks = vi.hoisted(() => ({
+  runnerStub: undefined as undefined | Record<string, unknown>,
+}));
+vi.mock('./runner/factory.js', () => ({
+  createRunnerFromEnv: (): unknown =>
+    runnerMocks.runnerStub ??
+    new Proxy(
+      {},
+      {
+        get(_t, prop): unknown {
+          return () => {
+            throw new Error(
+              `cc-prepare-action.test: runner.${String(prop)} called but no runnerStub was set`,
+            );
+          };
+        },
+      },
+    ),
+}));
+
 import {
   type CcPrepareOutputs,
   type RoleSpecificInput,
@@ -300,6 +326,9 @@ describe('runCcPrepareAction — auth + provider gates', () => {
       FERRY_JIRA_EMAIL: 'bot@acme.com',
       FERRY_JIRA_API_TOKEN: 'token',
       GITHUB_REPO: 'big-emotion/ferry',
+      // Satisfy the new CLAUDE_CODE_OAUTH_TOKEN presence check (#351 item 2) by
+      // default. Tests that exercise the missing-token path can override.
+      CLAUDE_CODE_OAUTH_TOKEN: 'oat-test-stub',
       ...extra,
     };
   }
@@ -427,10 +456,16 @@ describe('prepareCcJob — anthropicOnly invariant', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────────
-// 5. runCcPrepareAction — not-yet-wired roles refuse with #333 hint
+// 5. runCcPrepareAction — non-refiner roles reach the role-specific resolver
 // ──────────────────────────────────────────────────────────────────────────
 
-describe('runCcPrepareAction — not-yet-wired roles refuse with #333 hint', () => {
+describe('runCcPrepareAction — non-refiner roles are wired into the entrypoint (#350)', () => {
+  // Before #350 the composite refused with a #333 hint for any non-refiner
+  // role. Now developer / reviewer / iterator all advance past the role
+  // dispatch and require GITHUB_TOKEN for the runner — proving the role
+  // branches are in place. We do NOT mock GitHub here; the assertion is on
+  // the error message, which must mention GITHUB_TOKEN (and must NOT mention
+  // the old #333 hint).
   let originalCwd: string;
   let tmp: { cwd: string; outputFile: string; cleanup: () => void };
 
@@ -461,6 +496,8 @@ describe('runCcPrepareAction — not-yet-wired roles refuse with #333 hint', () 
       FERRY_JIRA_EMAIL: 'bot@acme.com',
       FERRY_JIRA_API_TOKEN: 'token',
       GITHUB_REPO: 'big-emotion/ferry',
+      // Satisfy the new CLAUDE_CODE_OAUTH_TOKEN presence check (#351 item 2).
+      CLAUDE_CODE_OAUTH_TOKEN: 'oat-test-stub',
       ...extra,
     };
   }
@@ -473,9 +510,11 @@ describe('runCcPrepareAction — not-yet-wired roles refuse with #333 hint', () 
   }
 
   for (const role of ['developer', 'reviewer', 'iterator'] as const) {
-    it(`refuses with a #333 hint when FERRY_AGENT_ROLE=${role}`, async () => {
+    it(`role=${role}: dispatches into the role branch (no #333 refusal)`, async () => {
       tmp = withTempRepo('');
       process.chdir(tmp.cwd);
+      // GITHUB_TOKEN intentionally omitted — the role branch demands it via
+      // `resolveRoleRuntimeContext`, which proves we reached the new code path.
       for (const [k, v] of Object.entries(
         baseEnv({ GITHUB_OUTPUT: tmp.outputFile, FERRY_AGENT_ROLE: role }),
       )) {
@@ -483,12 +522,13 @@ describe('runCcPrepareAction — not-yet-wired roles refuse with #333 hint', () 
       }
       stubJiraGetIssue();
 
-      await expect(runCcPrepareAction()).rejects.toThrow(/#333/);
+      const promise = runCcPrepareAction();
+      await expect(promise).rejects.toThrow(/GITHUB_TOKEN/);
+      await expect(promise).rejects.not.toThrow(/#333/);
     });
   }
 });
 
-// ──────────────────────────────────────────────────────────────────────────
 // 6. Hardening invariants (ADR-0002 §accepted-divergences points 3 & 4, #303)
 // ──────────────────────────────────────────────────────────────────────────
 
@@ -590,5 +630,113 @@ describe('secret-scan-gate integration — gatedPush is the sole push mechanism 
     });
     await gatedPush({ repoRoot: '/repo', scan, push });
     expect(calls).toEqual(['scan', 'push']);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// 8. runCcPrepareAction — pr_number is always written to $GITHUB_OUTPUT (#350)
+// ──────────────────────────────────────────────────────────────────────────
+
+describe('runCcPrepareAction — pr_number output (#350)', () => {
+  let originalCwd: string;
+  let tmp: { cwd: string; outputFile: string; cleanup: () => void };
+
+  beforeEach(() => {
+    originalCwd = process.cwd();
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    if (tmp) tmp.cleanup();
+  });
+
+  it('reviewer: writes pr_number=42 when an open PR exists for the branch (#351)', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ferry-cc-prepare-test-'));
+    writeFileSync(join(cwd, 'ferry.config.yaml'), '', 'utf8');
+    const outputFile = join(cwd, 'gh-output');
+    writeFileSync(outputFile, '', 'utf8');
+    tmp = { cwd, outputFile, cleanup: () => rmSync(cwd, { recursive: true, force: true }) };
+    process.chdir(cwd);
+
+    // Mock runner — only the methods reviewer cc-prepare actually invokes need
+    // to be defined. `getRepoDefaultBranch` is consulted because the default
+    // ferry config has `base_branch: null`.
+    const pr = {
+      number: 42,
+      title: 'feat: signup',
+      baseRef: 'main',
+      headRef: 'ferry/PROJ-400',
+      headSha: 'deadbeef1234567890abcdef1234567890abcdef',
+      mergeable: true,
+    };
+    runnerMocks.runnerStub = {
+      getRepoDefaultBranch: () => Promise.resolve('main'),
+      listPRsForBranch: () => Promise.resolve([pr]),
+      getPR: () => Promise.resolve(pr),
+      listPRFiles: () => Promise.resolve([]),
+      listPRCommits: () => Promise.resolve([]),
+    };
+
+    const env: Record<string, string> = {
+      FERRY_ENVELOPE_PAYLOAD: JSON.stringify(envelope),
+      FERRY_AGENT_ROLE: 'reviewer',
+      FERRY_JIRA_BASE_URL: 'https://acme.atlassian.net',
+      FERRY_JIRA_EMAIL: 'bot@acme.com',
+      FERRY_JIRA_API_TOKEN: 'token',
+      GITHUB_REPO: 'big-emotion/ferry',
+      GITHUB_TOKEN: 'gh-token-stub',
+      GITHUB_OUTPUT: outputFile,
+      CLAUDE_CODE_OAUTH_TOKEN: 'oat-test-stub',
+      // Point to the repo's real prompts/ dir — buildSystem() reads it.
+      FERRY_PROMPTS_DIR: join(originalCwd, 'prompts'),
+    };
+    for (const [k, v] of Object.entries(env)) {
+      vi.stubEnv(k, v);
+    }
+    vi.spyOn(JiraTracker.prototype, 'getIssue').mockResolvedValue(issue);
+
+    try {
+      await runCcPrepareAction();
+
+      const written = readFileSync(outputFile, 'utf8');
+      expect(written).toMatch(/^pr_number=42$/m);
+    } finally {
+      runnerMocks.runnerStub = undefined;
+    }
+  });
+
+  it('refiner: writes an empty pr_number= line (refiner has no PR)', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ferry-cc-prepare-test-'));
+    writeFileSync(join(cwd, 'ferry.config.yaml'), '', 'utf8');
+    const outputFile = join(cwd, 'gh-output');
+    writeFileSync(outputFile, '', 'utf8');
+    tmp = { cwd, outputFile, cleanup: () => rmSync(cwd, { recursive: true, force: true }) };
+    process.chdir(cwd);
+
+    const env: Record<string, string> = {
+      FERRY_ENVELOPE_PAYLOAD: JSON.stringify(envelope),
+      FERRY_AGENT_ROLE: 'refiner',
+      FERRY_JIRA_BASE_URL: 'https://acme.atlassian.net',
+      FERRY_JIRA_EMAIL: 'bot@acme.com',
+      FERRY_JIRA_API_TOKEN: 'token',
+      GITHUB_REPO: 'big-emotion/ferry',
+      GITHUB_OUTPUT: outputFile,
+      // Satisfy the new CLAUDE_CODE_OAUTH_TOKEN presence check (#351 item 2).
+      CLAUDE_CODE_OAUTH_TOKEN: 'oat-test-stub',
+      // Point to the repo's real prompts/ dir — buildSystem() reads it.
+      FERRY_PROMPTS_DIR: join(originalCwd, 'prompts'),
+    };
+    for (const [k, v] of Object.entries(env)) {
+      vi.stubEnv(k, v);
+    }
+    vi.spyOn(JiraTracker.prototype, 'getIssue').mockResolvedValue(issue);
+
+    await runCcPrepareAction();
+
+    const written = readFileSync(outputFile, 'utf8');
+    expect(written).toMatch(/^pr_number=$/m);
   });
 });
