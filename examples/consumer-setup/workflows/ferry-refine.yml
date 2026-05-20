@@ -16,6 +16,9 @@
 # Action inputs:      pre_agent_command (optional) — shell command to run before the agent (e.g. npm ci)
 #                     pre_agent_timeout_minutes (optional, default: 3)
 #                     post_agent_command (optional) — shell command to run after the agent (always runs)
+# Observability:      Session log uploaded as artifact ferry-refiner-<ticket>-session (7-day retention).
+#                     Add the Jira label ferry:verbose to emit the full session transcript inline in the
+#                     Actions log (⚠️ may expose secrets — use only on trusted private repos).
 
 name: Ferry — Refine
 
@@ -133,11 +136,22 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
       - name: Run claude-code-action
+        id: cc-run
         uses: anthropics/claude-code-action@1dc994ee7a008f0ecc866d9ac23ef036b7229f84 # v1.0.127
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: ${{ steps.cc-prepare.outputs.prompt }}
           claude_args: ${{ steps.cc-prepare.outputs.claude_args }}
+          # ⚠️ show_full_output may expose secrets to the live Actions log — label-gated for safety
+          show_full_output: ${{ contains(github.event.client_payload.labels, 'ferry:verbose') && 'true' || 'false' }}
+
+      - name: Upload claude-code session log
+        if: always() && steps.cc-run.outputs.execution_file != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: ferry-refiner-${{ github.event.client_payload.ticket_key }}-session
+          path: ${{ steps.cc-run.outputs.execution_file }}
+          retention-days: 7
 
       - name: Apply claude-code output
         id: cc-apply
