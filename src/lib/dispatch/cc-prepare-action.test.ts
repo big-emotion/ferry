@@ -515,10 +515,8 @@ describe('runCcPrepareAction — non-refiner roles are wired into the entrypoint
       process.chdir(tmp.cwd);
       // GITHUB_TOKEN intentionally absent — the role branch demands it via
       // `resolveRoleRuntimeContext`, which proves we reached the new code path.
-      // Explicitly clear GITHUB_TOKEN because the CI environment sets it, which
-      // would otherwise cause requireEnv('GITHUB_TOKEN') to succeed and reach
-      // runner.getRepoDefaultBranch before the expected throw.
-      vi.stubEnv('GITHUB_TOKEN', '');
+      // Must be explicitly stubbed to '' because GitHub Actions sets it in the
+      // process environment and vi.stubEnv only overrides what we list.
       for (const [k, v] of Object.entries(
         baseEnv({ GITHUB_OUTPUT: tmp.outputFile, FERRY_AGENT_ROLE: role }),
       )) {
