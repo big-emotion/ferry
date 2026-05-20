@@ -55,8 +55,11 @@ If there are no consumer-visible changes, omit the section (or note `(none — i
 
 ## v0.12.x → v0.13.0
 
+requires-secrets: CLAUDE_CODE_OAUTH_TOKEN
+
 - **(action)** **New `ferry-route` job** introduced ahead of every agent run in the four consumer workflows (`ferry-refine.yml`, `ferry-dev.yml`, `ferry-review.yml`, `ferry-iterate.yml`). It calls `big-emotion/ferry/.github/actions/ferry-route` and exposes a `path` output (`script` | `claude-code`) consumed by an `if:` on the agent jobs. Consumers using the bundled `examples/consumer-setup/workflows/` stubs pick this up automatically via `ferry-update` once `src/cli/init/templates.ts` is mirrored (tracked in the follow-up PR for the templates). Until then, copy the four workflow stubs from `examples/consumer-setup/workflows/` by hand if you want the routing decision wired. The routing-only PR is safe to ignore — without the four workflows updated, every run stays on the script path (the existing behaviour).
 - **(info)** A `run-agent-claude-code` placeholder job is added alongside `run-agent` in each workflow. It is gated by `if: needs.route.outputs.path == 'claude-code'` and **fails loudly** with a clear error if reached. The actual `anthropics/claude-code-action@v1` invocation lands in a follow-up PR. If you want to opt into the claude-code path before that PR ships, leave `execution_path` unset in `ferry.config.yaml` and remove any `ferry:claude-code` labels — Ferry stays on the script path by default for mixed-provider configs.
+- **(action)** **`CLAUDE_CODE_OAUTH_TOKEN` secret required for the claude-code execution path.** `ferry-update` checks whether the secret is already set (`gh secret list`). In an interactive run (TTY, without `--yes`), you are prompted to enter your Claude Code OAuth token — Ferry sets the secret on the repo and writes `execution_path: claude-code` to `ferry.config.json` automatically. In a non-interactive or `--dry-run` run, Ferry stays on the bundled script path (no breakage) and prints a mandatory follow-up asking you to re-run `ferry-update` interactively when ready to provision the secret. To permanently opt out of the claude-code path, set `execution_path: script` in `ferry.config.json` — the credential gate skips silently in that case.
 
 ---
 
