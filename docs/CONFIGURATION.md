@@ -124,7 +124,7 @@ The pre-agent step runs in `GITHUB_WORKSPACE` (your checked-out repo root), afte
 ```yaml
 - name: Run Developer agent
   id: run-developer
-  uses: big-emotion/ferry/.github/actions/ferry-run-developer@v0.11.0
+  uses: big-emotion/ferry/.github/actions/ferry-run-developer@v0.12.0
   with:
     payload: ${{ toJson(github.event.client_payload) }}
     # ... required inputs ...
@@ -147,7 +147,7 @@ steps:
       key: ${{ runner.os }}-node-${{ hashFiles('package-lock.json') }}
 
   - name: Run Developer agent
-    uses: big-emotion/ferry/.github/actions/ferry-run-developer@v0.11.0
+    uses: big-emotion/ferry/.github/actions/ferry-run-developer@v0.12.0
     with:
       payload: ${{ toJson(github.event.client_payload) }}
       # ... required inputs ...
@@ -560,10 +560,10 @@ Which execution path an agent run takes is decided by a deterministic resolver (
 
 The resolved path **and the reason** (`label` / `heuristic` / `default`) are recorded in the audit comment so the Reconciler observes which path ran and why.
 
-| Config key                                  | Default     | Effect                                                                                                  |
-| ------------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------- |
-| `execution_path`                            | _(unset)_   | `"script"` (hard lock) or `"claude-code"` (explicit). Unset → conditional default applies.               |
-| `routing.claude_code_round_trip_threshold`  | `2`         | Positive integer N for the developer/iterator escalation heuristic.                                      |
+| Config key                                 | Default   | Effect                                                                                     |
+| ------------------------------------------ | --------- | ------------------------------------------------------------------------------------------ |
+| `execution_path`                           | _(unset)_ | `"script"` (hard lock) or `"claude-code"` (explicit). Unset → conditional default applies. |
+| `routing.claude_code_round_trip_threshold` | `2`       | Positive integer N for the developer/iterator escalation heuristic.                        |
 
 `ferry:claude-code` only _selects_ the path — it does not provision the `CLAUDE_CODE_OAUTH_TOKEN` the path needs. The hard invariants (cost-governance auto-pause, no-auto-merge) apply regardless of how the path was chosen.
 
@@ -790,10 +790,10 @@ Secrets (`ANTHROPIC_API_KEY`, `FERRY_OPENAI_KEY`, `FERRY_GOOGLE_AI_KEY`) are cre
 
 Ferry's four agents (Refiner, Developer, Reviewer, Iterator) run via one of two execution paths behind the same `repository_dispatch` boundary:
 
-| Path                  | Reasoning core                          | Providers            | Per-run EUR cap | Auth                                   |
-| --------------------- | --------------------------------------- | -------------------- | --------------- | -------------------------------------- |
-| **Bundled script**    | Ferry's deterministic agent loop        | Anthropic / OpenAI / Google | Enforced  | `ANTHROPIC_API_KEY` / provider keys    |
-| **`claude-code-action`** | `anthropics/claude-code-action@v1` loop | Anthropic only       | **Not enforced** | `CLAUDE_CODE_OAUTH_TOKEN` (subscription) |
+| Path                     | Reasoning core                          | Providers                   | Per-run EUR cap  | Auth                                     |
+| ------------------------ | --------------------------------------- | --------------------------- | ---------------- | ---------------------------------------- |
+| **Bundled script**       | Ferry's deterministic agent loop        | Anthropic / OpenAI / Google | Enforced         | `ANTHROPIC_API_KEY` / provider keys      |
+| **`claude-code-action`** | `anthropics/claude-code-action@v1` loop | Anthropic only              | **Not enforced** | `CLAUDE_CODE_OAUTH_TOKEN` (subscription) |
 
 The Ferry **contract** is identical on both paths — envelope validation, structured-output schema, fingerprinted audit comments ([ADR-0004](./adr/0004-idempotency-via-comment-markers.md)), the FR18/FR24/FR28 transitions, idempotency markers, prompts (`buildSystem(<role>)` + `prompts/<agent>.extra.md`), and **every operational edge case** (`ferry:dry-run`, `ferry:read-only`, `ferry:skip/*`, `blocked`, `already_satisfied`, iteration cap, merge conflicts, no-PR / race guard, `LabelConflictError`, CI red/pending, resume branch, prompt-injection fences) behave identically, because they live in deterministic workflow steps that bracket the LLM, never in the LLM itself. The full reuse/parity classification is in [decisions/0002](./decisions/0002-claude-code-path-parity-analysis.md) (§B–§D).
 

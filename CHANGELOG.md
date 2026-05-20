@@ -11,6 +11,26 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.12.0] — 2026-05-20
+
+### Added
+
+- **Claude Code execution path for Ferry agents** (closes #300, #302, #303) — agents can now run inside `anthropics/claude-code-action@v1` instead of (or alongside) the standalone TypeScript loop. A deterministic execution-path resolver (#315) chooses between the two paths from a single `FERRY_EXECUTION_PATH` input per role with explicit fallbacks; the Claude Code action job ships with prompt reuse and per-agent tool/MCP allow-list mapping (#314); no-auto-merge hardening primitives (#312) prevent the Claude Code path from approving or merging on the consumer's behalf even when the action's default permissions would allow it.
+- **CLI support for the Claude Code execution path** — `ferry-init` adds an install-time execution-path choice and wires `CLAUDE_CODE_OAUTH_TOKEN` into the generated stubs; `ferry-doctor` and `ferry-uninstall` understand the new path and validate / clean it up correctly (closes #317); `ferry-update` adds a `requires-secrets` credential gate so MIGRATIONS entries that need a new secret block the upgrade until the consumer rotates it (closes #316).
+- **MCP server catalog — GitHub, Atlassian, Prismic** (#326, Phase 1 of #319) — `docs/MCP.md` now documents three production-ready servers (`github` HTTP with fine-grained PAT, `atlassian` HTTP with Rovo API token, `prismic` stdio via `@prismicio/mcp-server`). The README Quick-install end-to-end example is swapped from Figma to Atlassian to match what is actually runnable headlessly today.
+
+### Fixed
+
+- **CI**: allowlist `npm audit` advisory 1119378 for `protobufjs` (#318) — transitive-only, no fixed version upstream yet.
+
+### Changed
+
+- **Docs**: document the accepted-divergence invariants for the Claude Code execution path — both the contract decision (#301, #313) and the per-role notes — so the two execution paths can drift in non-essential surface (logging shape, retry knobs) without breaking Ferry's behavioural contract.
+- **Docs (#326)**: remove the misleading Figma entry from `docs/MCP.md` — the `mcp.figma.com/mcp` endpoint rejects PATs and the required `mcp:connect` OAuth scope is whitelist-only, so headless use from GitHub Actions is not viable today. Tracked in #325 with a re-open trigger.
+- **Deps**: bump `@anthropic-ai/sdk` 0.95.2 → 0.97.0 (#296), `@google/genai` 2.0.1 → 2.4.0 (#295), `openai` 6.37.0 → 6.38.0 (#298), the `typescript-toolchain` group (5 updates, #294), and `lint-staged` 17.0.4 → 17.0.5 (#297).
+
+---
+
 ## [0.11.0] — 2026-05-19
 
 ### Added
@@ -365,7 +385,8 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
-[Unreleased]: https://github.com/big-emotion/ferry/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/big-emotion/ferry/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/big-emotion/ferry/releases/tag/v0.12.0
 [0.11.0]: https://github.com/big-emotion/ferry/releases/tag/v0.11.0
 [0.10.1]: https://github.com/big-emotion/ferry/releases/tag/v0.10.1
 [0.10.0]: https://github.com/big-emotion/ferry/releases/tag/v0.10.0
