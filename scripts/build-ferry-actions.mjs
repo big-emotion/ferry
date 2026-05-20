@@ -63,6 +63,11 @@ await Promise.all([
     entryPoints: ['src/lib/dispatch/cc-apply-action.ts'],
     outfile: '.ferry/cc-apply-action.js',
   }),
+  build({
+    ...shared,
+    entryPoints: ['src/lib/dispatch/cc-prepare-action.ts'],
+    outfile: '.ferry/cc-prepare-action.js',
+  }),
 ]);
 
 // The schema is loaded at runtime via createRequire(import.meta.url).
@@ -98,6 +103,18 @@ for (const f of [
     '"./schemas/agent-output.v1.schema.json"',
   );
   writeFileSync(p, src);
+}
+// cc-prepare-action bundles the event schema only (it loads the envelope; the
+// agent-output schema belongs to cc-apply).
+{
+  const p = '.ferry/cc-prepare-action.js';
+  writeFileSync(
+    p,
+    readFileSync(p, 'utf8').replaceAll(
+      '"../../schemas/event.v1.schema.json"',
+      '"./schemas/event.v1.schema.json"',
+    ),
+  );
 }
 
 // Minimal package.json — LLM SDKs are now external (not bundled) so they must
@@ -215,6 +232,35 @@ writeFileSync(
   ) + '\n',
 );
 execSync('npm install --prefer-offline', { cwd: ccApplyActionDir, stdio: 'inherit' });
+
+// ferry-cc-prepare composite (issue #331) — bundles only the event schema; it
+// has no agent-output dependency (that schema is for cc-apply's artifact).
+const ccPrepareActionDir = '.github/actions/ferry-cc-prepare';
+mkdirSync(`${ccPrepareActionDir}/schemas`, { recursive: true });
+copyFileSync('.ferry/cc-prepare-action.js', `${ccPrepareActionDir}/cc-prepare-action.js`);
+copyFileSync(
+  'src/schemas/event.v1.schema.json',
+  `${ccPrepareActionDir}/schemas/event.v1.schema.json`,
+);
+writeFileSync(
+  `${ccPrepareActionDir}/package.json`,
+  JSON.stringify(
+    {
+      name: 'ferry-cc-prepare-action',
+      version: '0.0.0',
+      private: true,
+      type: 'module',
+      dependencies: {
+        ajv: rootDeps['ajv'],
+        'ajv-formats': rootDeps['ajv-formats'],
+        yaml: '^2.6.0',
+      },
+    },
+    null,
+    2,
+  ) + '\n',
+);
+execSync('npm install --prefer-offline', { cwd: ccPrepareActionDir, stdio: 'inherit' });
 
 const emitAuditActionDir = '.github/actions/ferry-emit-audit';
 copyFileSync('.ferry/emit-audit-action.js', `${emitAuditActionDir}/emit-audit-action.js`);

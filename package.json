@@ -65,7 +65,7 @@
     "smoke:bundle": "bash scripts/smoke-bundle.sh",
     "check:fr-drift": "bash scripts/check-fr-drift.sh",
     "prepare": "husky",
-    "version": "npm run build:ferry && git add -f .ferry/ && git add .github/actions/ferry-envelope-validate/ .github/actions/ferry-emit-audit/ .github/actions/ferry-route/ .github/actions/ferry-run-refiner/ .github/actions/ferry-run-developer/ .github/actions/ferry-run-reviewer/ .github/actions/ferry-run-iterator/"
+    "version": "npm run build:ferry && git add -f .ferry/ && git add .github/actions/ferry-envelope-validate/ .github/actions/ferry-emit-audit/ .github/actions/ferry-route/ .github/actions/ferry-cc-apply/ .github/actions/ferry-cc-prepare/ .github/actions/ferry-run-refiner/ .github/actions/ferry-run-developer/ .github/actions/ferry-run-reviewer/ .github/actions/ferry-run-iterator/"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",

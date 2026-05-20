@@ -83,7 +83,17 @@ function formatExistingSubtasks(subtasks: TrackerSubtask[]): string {
   return subtasks.map((s) => `- [${s.key}] ${s.title} (status: ${s.status})`).join('\n');
 }
 
-function buildPrompt(input: RefinerInput): string {
+/**
+ * Builds the refiner's single-shot LLM prompt. Exported so the cc-prepare
+ * composite (issue #331) can feed `buildClaudeCodeJob` the *same* initial
+ * prompt the script path sends to the LLM — preserving the ADR-0006 §2
+ * "prompts reused verbatim" promise across both execution paths.
+ *
+ * The script path uses this as the only prompt (no separate system prompt:
+ * the refiner runs JSON-mode), so on the claude-code path this is the
+ * `initialPrompt` while `buildSystem('refiner')` is the system prompt.
+ */
+export function buildRefinerPrompt(input: RefinerInput): string {
   const ticketBlock = [
     `TICKET ${input.ticket.key}`,
     `TITLE: ${input.ticket.title}`,
@@ -156,7 +166,7 @@ function ensureSchemaValid(plan: unknown, rawText: string): asserts plan is Refi
 }
 
 export async function runRefiner(input: RefinerInput): Promise<RefinerResult> {
-  const prompt = buildPrompt(input);
+  const prompt = buildRefinerPrompt(input);
   const llm = await input.callLlm(prompt);
   const parsed = parseJsonOrThrow(llm.text);
   ensureSchemaValid(parsed, llm.text);

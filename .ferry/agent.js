@@ -7103,7 +7103,7 @@ function formatExistingSubtasks(subtasks) {
   if (subtasks.length === 0) return "(none)";
   return subtasks.map((s) => `- [${s.key}] ${s.title} (status: ${s.status})`).join("\n");
 }
-function buildPrompt(input) {
+function buildRefinerPrompt(input) {
   const ticketBlock = [
     `TICKET ${input.ticket.key}`,
     `TITLE: ${input.ticket.title}`,
@@ -7167,7 +7167,7 @@ function ensureSchemaValid(plan, rawText) {
   }
 }
 async function runRefiner(input) {
-  const prompt = buildPrompt(input);
+  const prompt = buildRefinerPrompt(input);
   const llm = await input.callLlm(prompt);
   const parsed = parseJsonOrThrow(llm.text);
   ensureSchemaValid(parsed, llm.text);
