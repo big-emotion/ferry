@@ -309,19 +309,6 @@ jobs:
       output_tokens: \${{ steps.cc-apply.outputs.output_tokens }}
       cost_eur: \${{ steps.cc-apply.outputs.cost_eur }}
     steps:
-      # Fail-loud guard: ferry-cc-prepare's composite entrypoint currently only handles
-      # role 'refiner' end-to-end. Runtime support for developer/reviewer/iterator lands
-      # in a follow-up to #333. Until then, this job must hard-fail before cc-prepare so
-      # consumers get a clear actionable error instead of a late-stage throw.
-      - name: Guard — cc-path not yet wired for developer
-        shell: bash
-        run: |
-          echo "::error::Ferry: the claude-code execution path is not yet wired for role 'developer'."
-          echo "::error::ferry-cc-prepare's composite entrypoint currently only handles role 'refiner' end-to-end."
-          echo "::error::Runtime support for developer / reviewer / iterator arrives in a follow-up to #333."
-          echo "::error::Workaround: route this ticket via the script path (do not set FERRY_EXECUTION_PATH=claude-code)."
-          exit 1
-
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
@@ -506,19 +493,6 @@ jobs:
       output_tokens: \${{ steps.cc-apply.outputs.output_tokens }}
       cost_eur: \${{ steps.cc-apply.outputs.cost_eur }}
     steps:
-      # Fail-loud guard: ferry-cc-prepare's composite entrypoint currently only handles
-      # role 'refiner' end-to-end. Runtime support for developer/reviewer/iterator lands
-      # in a follow-up to #333. Until then, this job must hard-fail before cc-prepare so
-      # consumers get a clear actionable error instead of a late-stage throw.
-      - name: Guard — cc-path not yet wired for reviewer
-        shell: bash
-        run: |
-          echo "::error::Ferry: the claude-code execution path is not yet wired for role 'reviewer'."
-          echo "::error::ferry-cc-prepare's composite entrypoint currently only handles role 'refiner' end-to-end."
-          echo "::error::Runtime support for developer / reviewer / iterator arrives in a follow-up to #333."
-          echo "::error::Workaround: route this ticket via the script path (do not set FERRY_EXECUTION_PATH=claude-code)."
-          exit 1
-
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
@@ -552,6 +526,7 @@ jobs:
           jira_email: \${{ secrets.FERRY_JIRA_EMAIL }}
           jira_api_token: \${{ secrets.FERRY_JIRA_API_TOKEN }}
           idempotency_marker: \${{ steps.cc-prepare.outputs.idempotency_marker }}
+          ferry_pr_number: \${{ steps.cc-prepare.outputs.pr_number }}
           ferry_iter_transition_id: \${{ secrets.FERRY_ITER_TRANSITION_ID }}
           ferry_approve_transition_id: \${{ secrets.FERRY_APPROVE_TRANSITION_ID }}
           github_token: \${{ github.token }}
@@ -706,19 +681,6 @@ jobs:
       output_tokens: \${{ steps.cc-apply.outputs.output_tokens }}
       cost_eur: \${{ steps.cc-apply.outputs.cost_eur }}
     steps:
-      # Fail-loud guard: ferry-cc-prepare's composite entrypoint currently only handles
-      # role 'refiner' end-to-end. Runtime support for developer/reviewer/iterator lands
-      # in a follow-up to #333. Until then, this job must hard-fail before cc-prepare so
-      # consumers get a clear actionable error instead of a late-stage throw.
-      - name: Guard — cc-path not yet wired for iterator
-        shell: bash
-        run: |
-          echo "::error::Ferry: the claude-code execution path is not yet wired for role 'iterator'."
-          echo "::error::ferry-cc-prepare's composite entrypoint currently only handles role 'refiner' end-to-end."
-          echo "::error::Runtime support for developer / reviewer / iterator arrives in a follow-up to #333."
-          echo "::error::Workaround: route this ticket via the script path (do not set FERRY_EXECUTION_PATH=claude-code)."
-          exit 1
-
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:

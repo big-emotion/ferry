@@ -89,6 +89,14 @@ outputs:
       hand-coding scope grants. Rendered by `renderPermissionsYaml` from
       `src/lib/claude-code/job-permissions.ts`.
     value: ${{ steps.cc-prepare.outputs.permissions_yaml }}
+  pr_number:
+    description: >
+      PR number for the current cycle. Empty for refiner. Always populated for
+      reviewer and iterator (they hard-fail above if no open PR is found).
+      For developer it is best-effort — populated only when an open PR already
+      exists for the working branch; otherwise empty. Consumed by cc-apply for
+      roles whose contract requires `prNumber` (reviewer is strict).
+    value: ${{ steps.cc-prepare.outputs.pr_number }}
 runs:
   using: composite
   steps:

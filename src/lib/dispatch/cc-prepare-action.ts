@@ -26,12 +26,16 @@
  *   - `output_artifact_path`   → fixed `.ferry/cc-output.json`
  *   - `mcp_config`             → JSON-encoded `{ mcpServers: {...} }` for `--mcp-config`
  *   - `idempotency_marker`     → `[ferry:<role>:<key>]` for `ferry-cc-apply` to consume
+ *   - `pr_number`              → PR number for the current cycle (empty for refiner;
+ *                                 populated for reviewer/iterator and best-effort for
+ *                                 developer when an open PR already exists)
  *
  * Inputs (env):
  *   FERRY_ENVELOPE_PAYLOAD      JSON envelope from repository_dispatch
  *   FERRY_AGENT_ROLE            refiner | developer | reviewer | iterator
  *   FERRY_JIRA_BASE_URL / EMAIL / API_TOKEN
  *   GITHUB_REPO                 owner/repo (e.g. acme/my-repo)
+ *   GITHUB_TOKEN                (developer / reviewer / iterator) required for runner API calls
  *   GITHUB_RUN_ID               (refiner only) used for the run link
  *   GITHUB_OUTPUT               GitHub Actions output file
  *   ANTHROPIC_API_KEY           NOT permitted alongside CLAUDE_CODE_OAUTH_TOKEN
@@ -39,6 +43,7 @@
  */
 import { appendFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 
 import { validateEnvelope } from '../envelope/validate.js';
 import { loadFerryConfig, type FerryConfig } from '../config.js';
@@ -65,6 +70,22 @@ import { prepareRefiner, type RefinerPreparedContext } from '../agent-runtime/re
 import { InMemoryTracker } from '../io/tracker/in-memory.js';
 import { buildSystem } from '../agent-runtime/prompt.js';
 import { buildRefinerPrompt } from '../../agents/refiner/refine.js';
+import { resolveBranchPrefix, resolveGitConfig } from '../agent-runtime/resolve-git-config.js';
+import { loadFerryConfigFromBaseBranch } from '../agent-runtime/config-reload.js';
+import { loadMcpServers } from '../agent-runtime/env.js';
+import { resolveCapabilities } from '../labels/capabilities.js';
+import {
+  configureFerryGitUser,
+  checkoutExistingBranch,
+  fetchAndMergeBase,
+} from '../agent-runtime/git.js';
+import {
+  detectTestRunner,
+  packageJsonPath,
+  detectPackageManager,
+  repoTree,
+} from '../../agents/developer/workspace.js';
+import { createRunnerFromEnv } from './runner/factory.js';
 import {
   buildClaudeCodeJob,
   CLAUDE_CODE_AUTH_INPUT,
@@ -505,20 +526,18 @@ export async function runCcPrepareAction(): Promise<CcPrepareOutputs> {
   // change the model route. The gate must still hold.
   enforceProviderGate(effectiveCfg);
 
-  // The composite is run from inside a GitHub Actions workflow. For the
-  // developer/reviewer/iterator roles, the rest of the upstream state (PRs,
-  // files, commits, branch ops) is fetched inside the runtime hookup workflow
-  // (#333) and supplied via additional env vars. cc-prepare provides only the
-  // role-invariant primitives here; the path stays inert until #333 wires the
-  // remaining inputs.
+  // Resolve the per-role upstream state and call prepareCcJob. The developer,
+  // reviewer and iterator branches mirror the data each script-path action
+  // gathers before invoking its prepare function — they fetch the runtime
+  // state (branch / PR / files / commits / merge state) via the same `CIRunner`
+  // and git helpers, then thread it into prepareCcJob unchanged.
   //
-  // For now the entrypoint only supports the refiner role end-to-end — the
-  // refiner is the simplest role (no PR/branch state) and exercises the full
-  // pipeline (envelope → config → Jira → prepare → buildClaudeCodeJob →
-  // outputs). The other three roles fail loudly with a precise hint pointing
-  // the operator at #333. This preserves the "fail-loud placeholder" property
-  // the routing PR (#327) established.
+  // `prNumber` is surfaced as a composite output so downstream cc-apply can
+  // wire it into contracts that strictly require it (the reviewer role
+  // calls `requireCtx(ctx.prNumber, …)` in the cc-wrapper contract, which
+  // would otherwise fail at the last step with no actionable hint).
   let outputs: CcPrepareOutputs;
+  let prNumber: number | undefined;
   switch (role) {
     case 'refiner': {
       // The refiner prepare function returns the runLink + idempotency marker
@@ -528,10 +547,18 @@ export async function runCcPrepareAction(): Promise<CcPrepareOutputs> {
       // We already fetched the issue; reuse it via a tiny adapter so we don't
       // hit Jira twice. (prepareRefiner.getIssue is the only call it makes.)
       innerTracker.seed(issue);
-      // Strict proxy: only `seed` and `getIssue` invocations are permitted.
-      // Any other tracker method called by prepareRefiner would silently
-      // bypass the Jira-dedup contract — fail loud instead.
-      const allowedRefinerTrackerMethods: ReadonlySet<string> = new Set(['seed', 'getIssue']);
+      // Strict proxy: only the in-memory read methods prepareRefiner needs
+      // are permitted. Any other tracker method would silently bypass the
+      // Jira-dedup contract (we already fetched the issue once) — fail loud
+      // instead. `getSubtaskDetails` is included because prepareRefiner reads
+      // existing sub-tasks; the InMemoryTracker returns an empty list when
+      // none have been seeded, which matches the Jira-side "no sub-tasks"
+      // signal we want on the cc-path.
+      const allowedRefinerTrackerMethods: ReadonlySet<string> = new Set([
+        'seed',
+        'getIssue',
+        'getSubtaskDetails',
+      ]);
       const trackerForRefiner: IssueTracker = new Proxy(innerTracker, {
         get(target, prop, receiver) {
           const value: unknown = Reflect.get(target, prop, receiver);
@@ -571,11 +598,168 @@ export async function runCcPrepareAction(): Promise<CcPrepareOutputs> {
       });
       break;
     }
-    default:
-      throw new Error(
-        `cc-prepare: role '${role}' not yet wired into the composite entrypoint. ` +
-          'The remaining upstream state (PR / branch / files / commits) lands via #333.',
-      );
+    case 'developer': {
+      const {
+        runner,
+        owner,
+        repo,
+        baseBranch,
+        effectiveCfg: roleCfg,
+        roleOverrides,
+      } = await resolveRoleRuntimeContext({ ferryCfg, issue, repoRoot, logger });
+      const branchName = `${resolveBranchPrefix(roleCfg.git.working_branch_prefix, issue)}${envelope.ticket_key}`;
+      // Best-effort PR probe: surfaced as `pr_number` for cc-apply; mirrors
+      // the same lookup `prepareDeveloper` performs internally for prompt
+      // injection. We probe here too so the output is populated when an open
+      // PR exists, without coupling to prepareDeveloper's return shape.
+      const openPrs = await runner.listPRsForBranch(owner, repo, branchName).catch(() => []);
+      prNumber = openPrs[0]?.number;
+
+      const subtasks = await tracker.getSubtasks(envelope.ticket_key);
+      const testRunner = detectTestRunner(packageJsonPath(repoRoot));
+      const pkgManagerHint = detectPackageManager(repoRoot);
+      const tree = repoTree(repoRoot);
+      const mcpPool = loadMcpServers();
+
+      outputs = await prepareCcJob({
+        envelope,
+        issue,
+        role: 'developer',
+        input: {
+          role: 'developer',
+          effectiveCfg: roleCfg,
+          subtasks,
+          testRunner,
+          pkgManagerHint,
+          tree,
+          typeOverride: roleOverrides.typeOverride,
+          owner,
+          repo,
+          baseBranch,
+          mcpPool,
+          repoRoot,
+          dryRun: roleOverrides.dryRun === true,
+          _runner: runner,
+        },
+      });
+      break;
+    }
+    case 'reviewer': {
+      const {
+        runner,
+        owner,
+        repo,
+        effectiveCfg: roleCfg,
+        roleOverrides,
+      } = await resolveRoleRuntimeContext({ ferryCfg, issue, repoRoot, logger });
+      const branchName = `${resolveBranchPrefix(roleCfg.git.working_branch_prefix, issue)}${envelope.ticket_key}`;
+      const prs = await runner.listPRsForBranch(owner, repo, branchName);
+      if (prs.length === 0) {
+        throw new Error(
+          `cc-prepare: no open PR found for branch '${branchName}' — reviewer cannot run.`,
+        );
+      }
+      const pr = await runner.getPR({ owner, repo, prNumber: prs[0].number });
+      const files = await runner.listPRFiles({ owner, repo, prNumber: pr.number });
+      const commits = await runner.listPRCommits({ owner, repo, prNumber: pr.number });
+      prNumber = pr.number;
+
+      const capabilities = resolveCapabilities(issue.labels, roleCfg.labels, logger);
+
+      outputs = await prepareCcJob({
+        envelope,
+        issue,
+        role: 'reviewer',
+        input: {
+          role: 'reviewer',
+          effectiveCfg: roleCfg,
+          pr,
+          files,
+          commits,
+          branchName,
+          typeOverride: roleOverrides.typeOverride,
+          reviewRubric: roleOverrides.reviewRubric,
+          capabilities,
+          repoRoot,
+        },
+      });
+      break;
+    }
+    case 'iterator': {
+      const {
+        runner,
+        owner,
+        repo,
+        baseBranch,
+        effectiveCfg: roleCfg,
+        roleOverrides,
+      } = await resolveRoleRuntimeContext({ ferryCfg, issue, repoRoot, logger });
+      const branchName = `${resolveBranchPrefix(roleCfg.git.working_branch_prefix, issue)}${envelope.ticket_key}`;
+      const prs = await runner.listPRsForBranch(owner, repo, branchName);
+      if (prs.length === 0) {
+        throw new Error(
+          `cc-prepare: no open PR found for branch '${branchName}' — iterator cannot run.`,
+        );
+      }
+      const pr = await runner.getPR({ owner, repo, prNumber: prs[0].number });
+      prNumber = pr.number;
+      const headSha = pr.headSha;
+
+      // Find the latest reviewer findings comment on the PR — mirrors the
+      // script-path iterator's lookup (iterate-action.ts). Fail loud if absent;
+      // the LLM has nothing to iterate against without it.
+      const recentComments = await runner.listPRComments({ owner, repo, prNumber: pr.number }, 30);
+      const reviewComments = recentComments.filter((c) => c.body.includes('[ferry:reviewer:'));
+      if (reviewComments.length === 0) {
+        throw new Error(
+          `cc-prepare: no reviewer comment found on PR#${pr.number} — iterator cannot run.`,
+        );
+      }
+      const reviewComment = reviewComments[0].body;
+
+      // Branch checkout + merge-base sync — same side-effecting setup the
+      // script-path iterator performs before the agent loop, so the workspace
+      // claude-code-action consumes is in the expected pre-iteration state.
+      configureFerryGitUser(repoRoot);
+      if (checkoutExistingBranch(branchName, repoRoot) === 'not-found') {
+        throw new Error(
+          `cc-prepare: branch '${branchName}' not found on origin — iterator cannot run.`,
+        );
+      }
+      const mergeConflicts = fetchAndMergeBase(baseBranch, repoRoot);
+      const existingLog = execFileSync('git', ['log', `origin/${baseBranch}..HEAD`, '--oneline'], {
+        cwd: repoRoot,
+        encoding: 'utf8',
+      }).trim();
+
+      const capabilities = resolveCapabilities(issue.labels, roleCfg.labels, logger);
+      const mcpPool = loadMcpServers();
+
+      outputs = await prepareCcJob({
+        envelope,
+        issue,
+        role: 'iterator',
+        input: {
+          role: 'iterator',
+          effectiveCfg: roleCfg,
+          headSha,
+          reviewComment,
+          mergeConflicts,
+          existingLog,
+          mcpPool,
+          configLabels: roleCfg.labels,
+          capabilities,
+          typeOverride: roleOverrides.typeOverride,
+          repoRoot,
+        },
+      });
+      break;
+    }
+    default: {
+      // Exhaustiveness — parseRole already narrowed `role` to FerryRole.
+      const _exhaustive: never = role;
+      throw new Error(`cc-prepare: unknown ferry role: ${String(_exhaustive)}`);
+    }
   }
 
   // Write outputs. Multi-line values use the heredoc form so embedded newlines
@@ -587,8 +771,60 @@ export async function runCcPrepareAction(): Promise<CcPrepareOutputs> {
   writeOutput('mcp_config', JSON.stringify(outputs.mcpConfig));
   writeOutput('idempotency_marker', outputs.idempotencyMarker);
   writeOutput('permissions_yaml', outputs.permissionsYaml);
+  // `pr_number` is empty for refiner (and any role with no associated PR);
+  // reviewer/iterator always populate it (or throw above).
+  writeOutput('pr_number', prNumber !== undefined ? String(prNumber) : '');
 
   return outputs;
+}
+
+/**
+ * Resolve the per-role runtime context shared by developer / reviewer /
+ * iterator: build a `CIRunner`, reload the ferry config from the base branch
+ * (so a workspace checked out at the repo default branch picks up the
+ * branch-pinned ferry.config), and re-apply ticket-label overrides on top.
+ *
+ * Mirrors the head of each script-path action — see `dev-action.ts`,
+ * `review-action.ts`, `iterate-action.ts`. Extracted so the three role
+ * branches in `runCcPrepareAction` share a single source of truth.
+ */
+async function resolveRoleRuntimeContext(args: {
+  ferryCfg: FerryConfig;
+  issue: TrackerIssue;
+  repoRoot: string;
+  logger: Logger;
+}): Promise<{
+  runner: CIRunner;
+  owner: string;
+  repo: string;
+  baseBranch: string;
+  effectiveCfg: FerryConfig;
+  roleOverrides: ReturnType<typeof resolveTicketOverrides>;
+}> {
+  const { ferryCfg, issue, repoRoot, logger } = args;
+  const githubToken = requireEnv('GITHUB_TOKEN');
+  const githubRepo = requireEnv('GITHUB_REPO');
+  const [owner, repo] = githubRepo.split('/');
+  if (!owner || !repo) {
+    throw new Error(
+      `cc-prepare: GITHUB_REPO is malformed (expected owner/repo, got: ${githubRepo})`,
+    );
+  }
+  const runner = createRunnerFromEnv(githubToken, owner, repo);
+  // resolveGitConfig may consult `runner.getRepoDefaultBranch` when
+  // `git.base_branch` is unset, matching the script-path behaviour.
+  const { baseBranch } = await resolveGitConfig(ferryCfg, runner, owner, repo);
+  // Reload ferry config from the base branch — the workspace may have a stale
+  // copy on the repo default branch. This is the same primitive each
+  // script-path action uses post-`resolveGitConfig`.
+  const cfgFromBase = loadFerryConfigFromBaseBranch(baseBranch, repoRoot, ferryCfg);
+  const roleOverrides = resolveTicketOverrides(issue.labels, logger, {
+    allowSkipReview: cfgFromBase.safety?.allow_skip_review === true,
+  });
+  const effectiveCfg = applyTicketOverrides(cfgFromBase, roleOverrides);
+  // Defense-in-depth: re-check the provider gate after override application.
+  enforceProviderGate(effectiveCfg);
+  return { runner, owner, repo, baseBranch, effectiveCfg, roleOverrides };
 }
 
 // Auto-invoke when this module is the process entrypoint.

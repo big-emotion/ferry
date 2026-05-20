@@ -427,10 +427,16 @@ describe('prepareCcJob — anthropicOnly invariant', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────────
-// 5. runCcPrepareAction — not-yet-wired roles refuse with #333 hint
+// 5. runCcPrepareAction — non-refiner roles reach the role-specific resolver
 // ──────────────────────────────────────────────────────────────────────────
 
-describe('runCcPrepareAction — not-yet-wired roles refuse with #333 hint', () => {
+describe('runCcPrepareAction — non-refiner roles are wired into the entrypoint (#350)', () => {
+  // Before #350 the composite refused with a #333 hint for any non-refiner
+  // role. Now developer / reviewer / iterator all advance past the role
+  // dispatch and require GITHUB_TOKEN for the runner — proving the role
+  // branches are in place. We do NOT mock GitHub here; the assertion is on
+  // the error message, which must mention GITHUB_TOKEN (and must NOT mention
+  // the old #333 hint).
   let originalCwd: string;
   let tmp: { cwd: string; outputFile: string; cleanup: () => void };
 
@@ -473,9 +479,11 @@ describe('runCcPrepareAction — not-yet-wired roles refuse with #333 hint', () 
   }
 
   for (const role of ['developer', 'reviewer', 'iterator'] as const) {
-    it(`refuses with a #333 hint when FERRY_AGENT_ROLE=${role}`, async () => {
+    it(`role=${role}: dispatches into the role branch (no #333 refusal)`, async () => {
       tmp = withTempRepo('');
       process.chdir(tmp.cwd);
+      // GITHUB_TOKEN intentionally omitted — the role branch demands it via
+      // `resolveRoleRuntimeContext`, which proves we reached the new code path.
       for (const [k, v] of Object.entries(
         baseEnv({ GITHUB_OUTPUT: tmp.outputFile, FERRY_AGENT_ROLE: role }),
       )) {
@@ -483,12 +491,13 @@ describe('runCcPrepareAction — not-yet-wired roles refuse with #333 hint', () 
       }
       stubJiraGetIssue();
 
-      await expect(runCcPrepareAction()).rejects.toThrow(/#333/);
+      const promise = runCcPrepareAction();
+      await expect(promise).rejects.toThrow(/GITHUB_TOKEN/);
+      await expect(promise).rejects.not.toThrow(/#333/);
     });
   }
 });
 
-// ──────────────────────────────────────────────────────────────────────────
 // 6. Hardening invariants (ADR-0002 §accepted-divergences points 3 & 4, #303)
 // ──────────────────────────────────────────────────────────────────────────
 
@@ -590,5 +599,56 @@ describe('secret-scan-gate integration — gatedPush is the sole push mechanism 
     });
     await gatedPush({ repoRoot: '/repo', scan, push });
     expect(calls).toEqual(['scan', 'push']);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// 8. runCcPrepareAction — pr_number is always written to $GITHUB_OUTPUT (#350)
+// ──────────────────────────────────────────────────────────────────────────
+
+describe('runCcPrepareAction — pr_number output (#350)', () => {
+  let originalCwd: string;
+  let tmp: { cwd: string; outputFile: string; cleanup: () => void };
+
+  beforeEach(() => {
+    originalCwd = process.cwd();
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    if (tmp) tmp.cleanup();
+  });
+
+  it('refiner: writes an empty pr_number= line (refiner has no PR)', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ferry-cc-prepare-test-'));
+    writeFileSync(join(cwd, 'ferry.config.yaml'), '', 'utf8');
+    const outputFile = join(cwd, 'gh-output');
+    writeFileSync(outputFile, '', 'utf8');
+    tmp = { cwd, outputFile, cleanup: () => rmSync(cwd, { recursive: true, force: true }) };
+    process.chdir(cwd);
+
+    const env: Record<string, string> = {
+      FERRY_ENVELOPE_PAYLOAD: JSON.stringify(envelope),
+      FERRY_AGENT_ROLE: 'refiner',
+      FERRY_JIRA_BASE_URL: 'https://acme.atlassian.net',
+      FERRY_JIRA_EMAIL: 'bot@acme.com',
+      FERRY_JIRA_API_TOKEN: 'token',
+      GITHUB_REPO: 'big-emotion/ferry',
+      GITHUB_OUTPUT: outputFile,
+      // Point to the repo's real prompts/ dir — buildSystem() reads it.
+      FERRY_PROMPTS_DIR: join(originalCwd, 'prompts'),
+    };
+    for (const [k, v] of Object.entries(env)) {
+      vi.stubEnv(k, v);
+    }
+    vi.spyOn(JiraTracker.prototype, 'getIssue').mockResolvedValue(issue);
+
+    await runCcPrepareAction();
+
+    const written = readFileSync(outputFile, 'utf8');
+    expect(written).toMatch(/^pr_number=$/m);
   });
 });
