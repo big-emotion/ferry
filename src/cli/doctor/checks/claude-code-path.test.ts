@@ -126,4 +126,29 @@ describe('checkClaudeCodePath', () => {
     await checkClaudeCodePath({ repoRoot: root, repo: 'owner/repo' });
     expect(mockExecSync).not.toHaveBeenCalled();
   });
+
+  it('is yellow when execution_path is claude-code but a model uses a non-Anthropic provider (issue #329)', async () => {
+    writeConfig(root, {
+      execution_path: 'claude-code',
+      models: {
+        refiner: { provider: 'anthropic', model: 'claude-sonnet-4-5' },
+        dev: { provider: 'openai', model: 'gpt-5' },
+        review: { provider: 'anthropic', model: 'claude-sonnet-4-5' },
+        iterate: { provider: 'anthropic', model: 'claude-sonnet-4-5' },
+      },
+    });
+    const res = await checkClaudeCodePath({ repoRoot: root, repo: 'owner/repo' });
+    expect(res.status).toBe('yellow');
+    expect(res.detail.toLowerCase()).toContain('provider');
+    expect(res.detail).toContain('provider-gate');
+  });
+
+  it('does not warn about providers when execution_path is script (mixed-provider is valid for script)', async () => {
+    writeConfig(root, {
+      execution_path: 'script',
+      models: { dev: { provider: 'openai', model: 'gpt-5' } },
+    });
+    const res = await checkClaudeCodePath({ repoRoot: root, repo: 'owner/repo' });
+    expect(res.status).toBe('skip');
+  });
 });

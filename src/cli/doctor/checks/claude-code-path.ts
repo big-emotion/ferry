@@ -49,6 +49,23 @@ export function resolveExecutionPath(repoRoot: string): ExecutionPath {
 }
 
 /**
+ * Returns true when the raw config has any model phase configured with a
+ * non-Anthropic provider. Used to warn when execution_path: claude-code is set
+ * alongside a mixed-provider config (ADR-0006 §1, issue #329).
+ */
+function hasMixedProviders(raw: Record<string, unknown>): boolean {
+  const models = raw['models'] as Record<string, unknown> | undefined;
+  if (!models) return false;
+  for (const phase of ['refiner', 'dev', 'review', 'iterate']) {
+    const phaseConf = models[phase] as Record<string, unknown> | undefined;
+    if (phaseConf?.['provider'] && phaseConf['provider'] !== 'anthropic') {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Validity heuristic: a `claude setup-token` OAuth token is not a normal
  * Anthropic API key. ADR-0006 §6 forbids `ANTHROPIC_API_KEY` on the
  * claude-code path, so a value shaped like `sk-ant-api…` is a misconfiguration.
@@ -72,6 +89,19 @@ export async function checkClaudeCodePath(opts: {
       label: LABEL,
       status: 'skip',
       detail: `execution_path = script — ${OAUTH_SECRET} not required for the bundled-script path`,
+    };
+  }
+
+  // Provider/path mismatch (ADR-0006 §1, issue #329): the claude-code path
+  // requires an Anthropic-only config. The runtime resolver will gate to
+  // 'script' (provider-gate) if any agent uses a non-Anthropic provider.
+  const raw = readConfigRaw(repoRoot);
+  if (raw && hasMixedProviders(raw)) {
+    return {
+      label: LABEL,
+      status: 'yellow',
+      detail: `execution_path = claude-code, but at least one agent provider is not Anthropic — the claude-code path requires an Anthropic-only config (ADR-0006 §1). The resolver will gate to 'script' at runtime (reason: provider-gate).`,
+      remedy: `Set all agent providers to 'anthropic' in ferry.config, or change execution_path to 'script'.`,
     };
   }
 

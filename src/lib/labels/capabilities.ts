@@ -192,6 +192,13 @@ export interface TicketOverrides {
    * Consumed by `resolveExecutionPath` (src/lib/cc-wrappers/routing.ts): it
    * takes precedence over the heuristic and the conditional default, but an
    * explicit `execution_path: script` in ferry.config still wins.
+   *
+   * **Provider gate (issue #329):** the `ferry:claude-code` override is
+   * honoured **only when `anthropicOnly === true`**. When any agent's configured
+   * provider is not Anthropic, the resolver returns
+   * `{ path: 'script', reason: 'provider-gate' }` and the label is a logged
+   * no-op — the caller emits a warn. This ensures the claude-code path is never
+   * activated without the Anthropic token infrastructure (ADR-0006 §6).
    */
   claudeCodePath?: 'claude-code' | 'script';
 }

@@ -25,7 +25,7 @@ outputs:
     description: Resolved execution path — `script` or `claude-code`
     value: ${{ steps.route.outputs.path }}
   reason:
-    description: Reason for the decision — `default`, `label`, or `heuristic`
+    description: Reason for the decision — `default`, `label`, `heuristic`, or `provider-gate`
     value: ${{ steps.route.outputs.reason }}
 runs:
   using: composite
