@@ -124,6 +124,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      id-token: write # required for claude-code-action OIDC auth
     outputs:
       input_tokens: \${{ steps.cc-apply.outputs.input_tokens }}
       output_tokens: \${{ steps.cc-apply.outputs.output_tokens }}
@@ -304,6 +305,7 @@ jobs:
       contents: write
       pull-requests: write
       issues: write
+      id-token: write # required for claude-code-action OIDC auth
     outputs:
       input_tokens: \${{ steps.cc-apply.outputs.input_tokens }}
       output_tokens: \${{ steps.cc-apply.outputs.output_tokens }}
@@ -488,6 +490,7 @@ jobs:
       pull-requests: write
       issues: write
       checks: read
+      id-token: write # required for claude-code-action OIDC auth
     outputs:
       input_tokens: \${{ steps.cc-apply.outputs.input_tokens }}
       output_tokens: \${{ steps.cc-apply.outputs.output_tokens }}
@@ -676,6 +679,7 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
+      id-token: write # required for claude-code-action OIDC auth
     outputs:
       input_tokens: \${{ steps.cc-apply.outputs.input_tokens }}
       output_tokens: \${{ steps.cc-apply.outputs.output_tokens }}
