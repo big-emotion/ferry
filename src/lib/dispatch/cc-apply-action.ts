@@ -114,6 +114,14 @@ export async function applyCcArtifact(params: ApplyCcArtifactParams): Promise<Ap
   // Validate against the v1 schema — fail-closed with AJV paths only (NFR-S1).
   const output: AgentOutputV1 = validateAgentOutput(rawArtifact);
 
+  // Cross-validate the env-supplied role against the artifact's role. A mismatch
+  // would produce a marker-shape contract violation (e.g. reviewer marker on a
+  // developer message), breaking the Reconciler invariant and the byte-for-byte
+  // script-path parity claim. NFR-S1: never leak raw values in the error.
+  if (output.role !== params.role) {
+    throw new FerryError('state-invariant', { reason: 'role-mismatch' });
+  }
+
   const ctx: ContractContext = {
     marker,
     gates,

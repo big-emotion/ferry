@@ -1702,6 +1702,9 @@ async function applyCcArtifact(params) {
     getEnv
   } = params;
   const output = validateAgentOutput(rawArtifact);
+  if (output.role !== params.role) {
+    throw new FerryError("state-invariant", { reason: "role-mismatch" });
+  }
   const ctx = {
     marker,
     gates,

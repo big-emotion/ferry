@@ -340,6 +340,37 @@ describe('refiner role', () => {
     expect(tracker.postedComments[0].body).toContain('actions/runs/99');
   });
 
+  it('runLink contains owner/repo (not "unknown") when GITHUB_REPO is set', async () => {
+    // Regression: composite action must forward GITHUB_REPO so the refiner
+    // runLink resolves to https://github.com/<owner>/<repo>/actions/runs/<id>
+    // instead of https://github.com/unknown/actions/runs/<id>.
+    const artifact = {
+      version: 'v1',
+      role: 'refiner',
+      result: 'refined',
+      summary: 'Sub-tasks updated.',
+      created: 1,
+      kept: 0,
+      staled: 0,
+    };
+    const tracker = makeTracker();
+    await applyCcArtifact({
+      rawArtifact: artifact,
+      role: 'refiner',
+      marker: MARKER_REFINER,
+      existingComments: [],
+      gates: {},
+      runLink: 'https://github.com/big-emotion/ferry/actions/runs/42',
+      subtaskCount: 1,
+      tracker,
+      ticketKey: TICKET,
+      getEnv,
+    });
+    const body = tracker.postedComments[0].body;
+    expect(body).toContain('https://github.com/big-emotion/ferry/actions/runs/42');
+    expect(body).not.toContain('github.com/unknown/');
+  });
+
   it('noop: posts audit comment with subtaskCount', async () => {
     const artifact = {
       version: 'v1',
@@ -538,5 +569,41 @@ describe('fail-closed validation', () => {
         getEnv,
       }),
     ).rejects.toBeInstanceOf(FerryError);
+  });
+
+  it('throws state-invariant when env role mismatches artifact role (no raw values leaked)', async () => {
+    // Valid reviewer artifact, but env role says 'developer' — must fail closed.
+    const tracker = makeTracker();
+    try {
+      await applyCcArtifact({
+        rawArtifact: {
+          version: 'v1',
+          role: 'reviewer',
+          verdict: 'approved',
+          review_comment: 'LGTM',
+          summary: 'Ready.',
+        },
+        role: 'developer',
+        marker: MARKER_DEV,
+        existingComments: [],
+        gates: {},
+        tracker,
+        ticketKey: TICKET,
+        getEnv,
+      });
+      throw new Error('expected throw');
+    } catch (err) {
+      expect(err).toBeInstanceOf(FerryError);
+      const ferr = err as FerryError;
+      expect(ferr.code).toBe('state-invariant');
+      expect(ferr.context?.reason).toBe('role-mismatch');
+      // NFR-S1: no raw artifact field values leaked.
+      expect(ferr.message).not.toContain('reviewer');
+      expect(ferr.message).not.toContain('developer');
+      expect(ferr.message).not.toContain('LGTM');
+    }
+    expect(tracker.postedComments).toEqual([]);
+    expect(tracker.postedTransitions).toEqual([]);
+    expect(tracker.addedLabels).toEqual([]);
   });
 });

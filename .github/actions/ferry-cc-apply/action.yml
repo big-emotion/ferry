@@ -48,9 +48,16 @@ inputs:
     description: GitHub token (reserved for future use and consistency with ferry-run-* actions)
     required: false
     default: ''
+  github_repo:
+    description: The owner/repo path (e.g. big-emotion/ferry).
+    required: true
 outputs:
   outcome:
-    description: Result of the apply step — success | skipped | blocked
+    description: >-
+      Outcome of cc-apply: 'success' (artifact applied, transitions emitted),
+      'skipped' (label/dry-run gated, no writes), or 'blocked' (cost cap or
+      other gate fired — step exits non-zero, so downstream steps must declare
+      `if: always()` to read this value).
     value: ${{ steps.cc-apply.outputs.outcome }}
   input_tokens:
     description: Number of LLM input tokens consumed (0 on subscription path)
@@ -90,3 +97,4 @@ runs:
         FERRY_SUBTASK_COUNT: ${{ inputs.ferry_subtask_count }}
         GITHUB_TOKEN: ${{ inputs.github_token }}
         GH_TOKEN: ${{ inputs.github_token }}
+        GITHUB_REPO: ${{ inputs.github_repo }}
