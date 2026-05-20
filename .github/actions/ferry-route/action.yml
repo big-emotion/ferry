@@ -1,0 +1,50 @@
+name: Ferry — Resolve Execution Path
+description: >
+  Decides whether the agent run takes the bundled-script path or the
+  `claude-code-action` path (ADR-0006 §3, issue #300). Exposes the decision
+  to the wrapping workflow via the `path` and `reason` outputs. Self-contained;
+  no `.ferry/` needed in the consumer workspace.
+inputs:
+  payload:
+    description: JSON-encoded event envelope payload
+    required: true
+  role:
+    description: Agent role (refiner | developer | reviewer | iterator)
+    required: true
+  jira_base_url:
+    description: Jira base URL
+    required: true
+  jira_email:
+    description: Jira account email
+    required: true
+  jira_api_token:
+    description: Jira API token
+    required: true
+outputs:
+  path:
+    description: Resolved execution path — `script` or `claude-code`
+    value: ${{ steps.route.outputs.path }}
+  reason:
+    description: Reason for the decision — `default`, `label`, or `heuristic`
+    value: ${{ steps.route.outputs.reason }}
+runs:
+  using: composite
+  steps:
+    - name: Set up Node.js
+      uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+      with:
+        node-version: '20'
+    - name: Install Ferry action dependencies
+      shell: bash
+      run: npm ci --prefer-offline
+      working-directory: ${{ github.action_path }}
+    - name: Resolve execution path
+      id: route
+      shell: bash
+      run: node ${{ github.action_path }}/route-action.js
+      env:
+        FERRY_ENVELOPE_PAYLOAD: ${{ inputs.payload }}
+        FERRY_AGENT_ROLE: ${{ inputs.role }}
+        FERRY_JIRA_BASE_URL: ${{ inputs.jira_base_url }}
+        FERRY_JIRA_EMAIL: ${{ inputs.jira_email }}
+        FERRY_JIRA_API_TOKEN: ${{ inputs.jira_api_token }}
