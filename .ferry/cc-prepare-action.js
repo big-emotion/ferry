@@ -6872,11 +6872,12 @@ function buildClaudeCodeJob(input) {
 }
 
 // src/lib/claude-code/job-permissions.ts
-var REQUIRED_WRITE_SCOPES = ["contents", "pull-requests", "issues"];
+var REQUIRED_WRITE_SCOPES = ["contents", "pull-requests", "issues", "id-token"];
 var CLAUDE_CODE_JOB_PERMISSIONS = {
   contents: "write",
   "pull-requests": "write",
-  issues: "write"
+  issues: "write",
+  "id-token": "write"
 };
 function assertLeastPrivilege(permissions) {
   const fail2 = (reason) => {

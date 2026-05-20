@@ -280,6 +280,31 @@ describe('workflowTemplates — cc-path role coverage is complete', () => {
   });
 });
 
+describe('workflowTemplates — run-agent-claude-code permissions include id-token: write (#353)', () => {
+  // anthropics/claude-code-action@v1 unconditionally calls core.getIDToken() during
+  // setupGitHubToken. When a job has an explicit permissions: block that omits
+  // id-token, GitHub Actions denies the OIDC fetch and every consumer dispatch fails
+  // with "Could not fetch an OIDC token". This regression guard ensures the missing
+  // scope cannot be reintroduced by a future template edit.
+  const roles = [
+    { filename: 'ferry-refine.yml', role: 'refiner' },
+    { filename: 'ferry-dev.yml', role: 'developer' },
+    { filename: 'ferry-review.yml', role: 'reviewer' },
+    { filename: 'ferry-iterate.yml', role: 'iterator' },
+  ] as const;
+
+  for (const { filename, role } of roles) {
+    it(`${filename} (${role}): run-agent-claude-code permissions block contains id-token: write`, () => {
+      const tmpl = workflowTemplates('v1').find((t) => t.filename === filename);
+      expect(tmpl, `${filename} not found`).toBeDefined();
+      expect(
+        tmpl!.content,
+        `${filename}: run-agent-claude-code job is missing id-token: write (fixes #353)`,
+      ).toContain('id-token: write');
+    });
+  }
+});
+
 describe('workflowTemplates — execution path variants', () => {
   it('script path is byte-identical whether implicit or explicit', () => {
     expect(workflowTemplates('v1', 'script')).toEqual(workflowTemplates('v1'));

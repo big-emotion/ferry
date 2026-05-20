@@ -7,16 +7,20 @@ import {
 } from './job-permissions.js';
 
 describe('CLAUDE_CODE_JOB_PERMISSIONS', () => {
-  it('grants exactly the three scopes the agents need, all write', () => {
+  it('grants exactly the four scopes the agents need, all write', () => {
     expect(CLAUDE_CODE_JOB_PERMISSIONS).toEqual({
       contents: 'write',
       'pull-requests': 'write',
       issues: 'write',
+      'id-token': 'write',
     });
   });
 
-  it('never grants id-token / actions / packages / workflows', () => {
-    expect(CLAUDE_CODE_JOB_PERMISSIONS).not.toHaveProperty('id-token');
+  it('grants id-token: write (required by claude-code-action@v1 OIDC auth)', () => {
+    expect(CLAUDE_CODE_JOB_PERMISSIONS).toHaveProperty('id-token', 'write');
+  });
+
+  it('never grants actions / packages / workflows', () => {
     expect(CLAUDE_CODE_JOB_PERMISSIONS).not.toHaveProperty('actions');
     expect(CLAUDE_CODE_JOB_PERMISSIONS).not.toHaveProperty('packages');
     expect(CLAUDE_CODE_JOB_PERMISSIONS).not.toHaveProperty('workflows');
@@ -44,13 +48,13 @@ describe('assertLeastPrivilege', () => {
     ).toThrow(/least-privilege/i);
   });
 
-  it('throws on id-token: write (OIDC escalation)', () => {
+  it('passes when id-token: write is present (required by claude-code-action@v1 OIDC)', () => {
     expect(() =>
       assertLeastPrivilege({
         ...CLAUDE_CODE_JOB_PERMISSIONS,
         'id-token': 'write',
       }),
-    ).toThrow(/least-privilege/i);
+    ).not.toThrow();
   });
 
   it('throws on any extra write scope (actions:write)', () => {
@@ -79,6 +83,7 @@ describe('renderPermissionsYaml', () => {
     expect(yaml).toContain('  contents: write');
     expect(yaml).toContain('  pull-requests: write');
     expect(yaml).toContain('  issues: write');
+    expect(yaml).toContain('  id-token: write');
   });
 
   it('omits scopes explicitly set to none', () => {

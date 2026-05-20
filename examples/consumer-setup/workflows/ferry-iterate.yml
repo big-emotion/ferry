@@ -133,6 +133,7 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
+      id-token: write # required by anthropics/claude-code-action@v1 OIDC auth
     outputs:
       input_tokens: ${{ steps.cc-apply.outputs.input_tokens }}
       output_tokens: ${{ steps.cc-apply.outputs.output_tokens }}

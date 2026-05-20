@@ -53,6 +53,12 @@ If there are no consumer-visible changes, omit the section (or note `(none — i
 
 ---
 
+## v0.13.x → v0.14.0
+
+- **(action)** Add `id-token: write` to the `run-agent-claude-code` job's `permissions:` block in each of your four agent workflows (`ferry-refine.yml`, `ferry-dev.yml`, `ferry-review.yml`, `ferry-iterate.yml`). `anthropics/claude-code-action@v1` unconditionally calls `core.getIDToken()` during `setupGitHubToken`; when a job has an explicit `permissions:` block that omits `id-token`, GitHub Actions denies the OIDC fetch and every consumer dispatch fails with "Could not fetch an OIDC token" (#353). Run `npx -p @big-emotion/ferry@v0.14.0 ferry-update` to apply the updated stubs automatically, or add the line by hand alongside the existing permission entries.
+
+---
+
 ## v0.12.x → v0.13.0
 
 requires-secrets: CLAUDE_CODE_OAUTH_TOKEN
