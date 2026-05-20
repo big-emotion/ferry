@@ -1,5 +1,6 @@
 // src/lib/dispatch/cc-prepare-action.ts
 import { appendFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 
 // src/lib/envelope/validate.ts
 import { createRequire } from "module";
@@ -2662,10 +2663,25 @@ function requireEnv(name) {
 function writeOutput(name, value) {
   const outputFile = process.env.GITHUB_OUTPUT;
   const useHeredoc = value.includes("\n");
-  const line = useHeredoc ? `${name}<<__FERRY_EOF__
+  if (useHeredoc) {
+    const delimiter = `__FERRY_EOF_${randomBytes(6).toString("hex")}__`;
+    if (value.split("\n").includes(delimiter)) {
+      throw new Error(
+        `cc-prepare: output value contains heredoc delimiter collision for '${name}' \u2014 refusing to write to $GITHUB_OUTPUT`
+      );
+    }
+    const line2 = `${name}<<${delimiter}
 ${value}
-__FERRY_EOF__
-` : `${name}=${value}
+${delimiter}
+`;
+    if (!outputFile) {
+      process.stdout.write(line2);
+      return;
+    }
+    appendFileSync(outputFile, line2);
+    return;
+  }
+  const line = `${name}=${value}
 `;
   if (!outputFile) {
     process.stdout.write(line);
@@ -2718,8 +2734,26 @@ async function runCcPrepareAction() {
   let outputs;
   switch (role) {
     case "refiner": {
-      const trackerForRefiner = new InMemoryTracker();
-      trackerForRefiner.seed(issue);
+      const innerTracker = new InMemoryTracker();
+      innerTracker.seed(issue);
+      const allowedRefinerTrackerMethods = /* @__PURE__ */ new Set(["seed", "getIssue"]);
+      const trackerForRefiner = new Proxy(innerTracker, {
+        get(target, prop, receiver) {
+          const value = Reflect.get(target, prop, receiver);
+          if (typeof value !== "function") {
+            return value;
+          }
+          const propName = typeof prop === "string" ? prop : String(prop);
+          if (allowedRefinerTrackerMethods.has(propName)) {
+            return value.bind(target);
+          }
+          return () => {
+            throw new Error(
+              `cc-prepare: refiner tracker stub only permits 'getIssue' \u2014 '${propName}' was invoked. If prepareRefiner now calls additional tracker methods, the Jira-dedup adapter must be rebuilt to either hit Jira or stub the new method.`
+            );
+          };
+        }
+      });
       const refinerPrepared = await prepareRefiner({
         envelope,
         tracker: trackerForRefiner

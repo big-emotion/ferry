@@ -22,12 +22,33 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+// Mock JiraTracker so runCcPrepareAction tests that need to reach the role
+// switch can resolve `tracker.getIssue(...)` without hitting the network.
+// Tests that fail earlier (auth invariant, provider gate) never reach this
+// code path and are unaffected.
+vi.mock('../io/tracker/jira/tracker.js', () => {
+  class JiraTracker {
+    async getIssue(): Promise<unknown> {
+      throw new Error('JiraTracker.getIssue not stubbed in test');
+    }
+  }
+  return { JiraTracker };
+});
+
+vi.mock('../io/jira-rest.js', () => {
+  class JiraRestClient {
+    constructor() {}
+  }
+  return { JiraRestClient };
+});
+
 import {
   type CcPrepareOutputs,
   type RoleSpecificInput,
   prepareCcJob,
   runCcPrepareAction,
 } from './cc-prepare-action.js';
+import { JiraTracker } from '../io/tracker/jira/tracker.js';
 import { CC_OUTPUT_ARTIFACT_PATH } from '../claude-code/output-artifact.js';
 import { DEFAULT_FERRY_CONFIG, type FerryConfig } from '../config.js';
 import type { TrackerIssue } from '../io/tracker/types.js';
@@ -323,6 +344,7 @@ describe('runCcPrepareAction — CLAUDE_CODE_OAUTH_TOKEN is never logged', () =>
     const originalCwd = process.cwd();
     process.chdir(cwd);
     const OAUTH = 'oat-SECRET-DO-NOT-LOG-12345';
+    const API_KEY = 'sk-anthropic-XYZ';
     const env: Record<string, string> = {
       FERRY_ENVELOPE_PAYLOAD: JSON.stringify(envelope),
       FERRY_AGENT_ROLE: 'developer',
@@ -331,7 +353,7 @@ describe('runCcPrepareAction — CLAUDE_CODE_OAUTH_TOKEN is never logged', () =>
       FERRY_JIRA_API_TOKEN: 'token',
       GITHUB_REPO: 'big-emotion/ferry',
       GITHUB_OUTPUT: outputFile,
-      ANTHROPIC_API_KEY: 'sk-anthropic-XYZ',
+      ANTHROPIC_API_KEY: API_KEY,
       CLAUDE_CODE_OAUTH_TOKEN: OAUTH,
     };
     for (const [k, v] of Object.entries(env)) {
@@ -355,6 +377,8 @@ describe('runCcPrepareAction — CLAUDE_CODE_OAUTH_TOKEN is never logged', () =>
       vi.unstubAllEnvs();
       rmSync(cwd, { recursive: true, force: true });
 
+      expect(allWrites).not.toContain(API_KEY);
+      expect(outputFileContents).not.toContain(API_KEY);
       expect(allWrites).not.toContain(OAUTH);
       expect(outputFileContents).not.toContain(OAUTH);
     }
@@ -383,4 +407,66 @@ describe('prepareCcJob — anthropicOnly invariant', () => {
       }),
     ).rejects.toThrow(/anthropic-only|provider/i);
   });
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// 5. runCcPrepareAction — not-yet-wired roles refuse with #333 hint
+// ──────────────────────────────────────────────────────────────────────────
+
+describe('runCcPrepareAction — not-yet-wired roles refuse with #333 hint', () => {
+  let originalCwd: string;
+  let tmp: { cwd: string; outputFile: string; cleanup: () => void };
+
+  beforeEach(() => {
+    originalCwd = process.cwd();
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    if (tmp) tmp.cleanup();
+  });
+
+  function withTempRepo(configYaml: string): typeof tmp {
+    const cwd = mkdtempSync(join(tmpdir(), 'ferry-cc-prepare-test-'));
+    writeFileSync(join(cwd, 'ferry.config.yaml'), configYaml, 'utf8');
+    const outputFile = join(cwd, 'gh-output');
+    writeFileSync(outputFile, '', 'utf8');
+    return { cwd, outputFile, cleanup: () => rmSync(cwd, { recursive: true, force: true }) };
+  }
+
+  function baseEnv(extra: Record<string, string> = {}): Record<string, string> {
+    return {
+      FERRY_ENVELOPE_PAYLOAD: JSON.stringify(envelope),
+      FERRY_JIRA_BASE_URL: 'https://acme.atlassian.net',
+      FERRY_JIRA_EMAIL: 'bot@acme.com',
+      FERRY_JIRA_API_TOKEN: 'token',
+      GITHUB_REPO: 'big-emotion/ferry',
+      ...extra,
+    };
+  }
+
+  function stubJiraGetIssue(): void {
+    // Each instance of JiraTracker (mocked above) is constructed inside
+    // runCcPrepareAction. Hook the prototype `getIssue` so any instance
+    // resolves to the test fixture without network IO.
+    vi.spyOn(JiraTracker.prototype, 'getIssue').mockResolvedValue(issue);
+  }
+
+  for (const role of ['developer', 'reviewer', 'iterator'] as const) {
+    it(`refuses with a #333 hint when FERRY_AGENT_ROLE=${role}`, async () => {
+      tmp = withTempRepo('');
+      process.chdir(tmp.cwd);
+      for (const [k, v] of Object.entries(
+        baseEnv({ GITHUB_OUTPUT: tmp.outputFile, FERRY_AGENT_ROLE: role }),
+      )) {
+        vi.stubEnv(k, v);
+      }
+      stubJiraGetIssue();
+
+      await expect(runCcPrepareAction()).rejects.toThrow(/#333/);
+    });
+  }
 });

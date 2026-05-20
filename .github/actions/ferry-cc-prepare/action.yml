@@ -43,10 +43,10 @@ inputs:
     required: true
   claude_code_oauth_token:
     description: >
-      OAuth token for `anthropics/claude-code-action@v1`. Forwarded as
-      `CLAUDE_CODE_OAUTH_TOKEN` for downstream visibility — NEVER logged and
-      NEVER emitted as an output (ADR-0006 §6). Mutually exclusive with
-      `ANTHROPIC_API_KEY`.
+      OAuth token for `anthropics/claude-code-action@v1`. Read by this step
+      only, used to enforce the ADR-0006 §6 mutex with `ANTHROPIC_API_KEY`.
+      Never re-emitted to outputs or logs; consumers must wire the token
+      separately to `anthropics/claude-code-action@v1`.
     required: false
     default: ''
 outputs:

@@ -38,6 +38,7 @@
  *   CLAUDE_CODE_OAUTH_TOKEN     forwarded by the composite, never logged
  */
 import { appendFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 
 import { validateEnvelope } from '../envelope/validate.js';
 import { loadFerryConfig, type FerryConfig } from '../config.js';
@@ -391,9 +392,25 @@ function writeOutput(name: string, value: string): void {
   const outputFile = process.env.GITHUB_OUTPUT;
   // Multi-line scalars MUST use the heredoc form so embedded newlines survive.
   const useHeredoc = value.includes('\n');
-  const line = useHeredoc
-    ? `${name}<<__FERRY_EOF__\n${value}\n__FERRY_EOF__\n`
-    : `${name}=${value}\n`;
+  if (useHeredoc) {
+    // Generate a per-call random delimiter so a value that happens to contain
+    // a fixed sentinel cannot smuggle out of the heredoc block and inject
+    // additional `$GITHUB_OUTPUT` entries.
+    const delimiter = `__FERRY_EOF_${randomBytes(6).toString('hex')}__`;
+    if (value.split('\n').includes(delimiter)) {
+      throw new Error(
+        `cc-prepare: output value contains heredoc delimiter collision for '${name}' — refusing to write to $GITHUB_OUTPUT`,
+      );
+    }
+    const line = `${name}<<${delimiter}\n${value}\n${delimiter}\n`;
+    if (!outputFile) {
+      process.stdout.write(line);
+      return;
+    }
+    appendFileSync(outputFile, line);
+    return;
+  }
+  const line = `${name}=${value}\n`;
   if (!outputFile) {
     process.stdout.write(line);
     return;
@@ -493,10 +510,34 @@ export async function runCcPrepareAction(): Promise<CcPrepareOutputs> {
       // The refiner prepare function returns the runLink + idempotency marker
       // we'd otherwise have to recompute. We call it for its side-effect-free
       // outputs and pass them into prepareCcJob.
-      const trackerForRefiner: IssueTracker = new InMemoryTracker();
+      const innerTracker = new InMemoryTracker();
       // We already fetched the issue; reuse it via a tiny adapter so we don't
       // hit Jira twice. (prepareRefiner.getIssue is the only call it makes.)
-      (trackerForRefiner as InMemoryTracker).seed(issue);
+      innerTracker.seed(issue);
+      // Strict proxy: only `seed` and `getIssue` invocations are permitted.
+      // Any other tracker method called by prepareRefiner would silently
+      // bypass the Jira-dedup contract — fail loud instead.
+      const allowedRefinerTrackerMethods: ReadonlySet<string> = new Set(['seed', 'getIssue']);
+      const trackerForRefiner: IssueTracker = new Proxy(innerTracker, {
+        get(target, prop, receiver) {
+          const value: unknown = Reflect.get(target, prop, receiver);
+          if (typeof value !== 'function') {
+            // Non-callable internals (e.g. seeded state) are returned as-is.
+            return value;
+          }
+          const propName = typeof prop === 'string' ? prop : String(prop);
+          if (allowedRefinerTrackerMethods.has(propName)) {
+            return value.bind(target);
+          }
+          return (): never => {
+            throw new Error(
+              `cc-prepare: refiner tracker stub only permits 'getIssue' — '${propName}' was invoked. ` +
+                'If prepareRefiner now calls additional tracker methods, the Jira-dedup adapter ' +
+                'must be rebuilt to either hit Jira or stub the new method.',
+            );
+          };
+        },
+      }) as unknown as IssueTracker;
       const refinerPrepared = await prepareRefiner({
         envelope,
         tracker: trackerForRefiner,
