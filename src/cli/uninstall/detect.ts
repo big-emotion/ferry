@@ -26,9 +26,15 @@ export const ANTHROPIC_SECRET = 'ANTHROPIC_API_KEY';
 /**
  * Ferry-provisioned subscription OAuth token for the claude-code execution
  * path (ADR-0006 §6). Removal requires interactive confirmation — never
- * auto-removed in --yes mode because revoking an OAuth subscription is
- * irreversible. Use detectOAuthSecret / removeSecrets([CLAUDE_CODE_OAUTH_SECRET])
- * after explicit user consent.
+ * auto-removed in --yes mode.
+ *
+ * Note: deleting this secret only removes the value stored in the GitHub repo;
+ * it does **not** revoke the underlying Anthropic OAuth token, which remains
+ * valid and can be re-added with `claude setup-token` + `gh secret set`. To
+ * fully revoke, follow up at https://console.anthropic.com after deletion.
+ *
+ * Use detectOAuthSecret / removeSecrets([CLAUDE_CODE_OAUTH_SECRET]) after
+ * explicit user consent.
  */
 export const CLAUDE_CODE_OAUTH_SECRET = 'CLAUDE_CODE_OAUTH_TOKEN';
 

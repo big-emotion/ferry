@@ -103,10 +103,31 @@ else is reused.
 
 ## F. Destruction (`ferry-uninstall`)
 
-| Element                                            | Class | Notes                                                                                               |
-| -------------------------------------------------- | ----- | --------------------------------------------------------------------------------------------------- |
-| Remove `workflows/ferry-*.yml`, secrets, variables | ✅    | Mechanism reused.                                                                                   |
-| Remove `CLAUDE_CODE_OAUTH_TOKEN`                   | ➕    | Add the new secret to the uninstall removal list, otherwise a stale subscription token is orphaned. |
+| Element                                            | Class | Notes                                                                                                                                                                                                                                                                                                                        |
+| -------------------------------------------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Remove `workflows/ferry-*.yml`, secrets, variables | ✅    | Mechanism reused.                                                                                                                                                                                                                                                                                                            |
+| Remove `CLAUDE_CODE_OAUTH_TOKEN`                   | ➕    | Interactive-only, never under `--yes`. The bulk-removal list intentionally **excludes** this secret; it is gated behind a dedicated second confirmation prompt (see [Amendment (PR #343)](#amendment-pr-343)). Deleting the secret removes the GitHub repo value only — the underlying Anthropic OAuth token is not revoked. |
+
+### Amendment (PR #343)
+
+The original row above said "Add the new secret to the uninstall removal list".
+This was superseded by [#337](https://github.com/big-emotion/ferry/issues/337) /
+[PR #343](https://github.com/big-emotion/ferry/pull/343) to the following
+contract:
+
+- **Interactive-only, never under `--yes`.** `ferry-uninstall --yes` never
+  deletes `CLAUDE_CODE_OAUTH_TOKEN`, even if the secret is present. In
+  interactive mode, the user must explicitly confirm a dedicated second prompt
+  (the main "Proceed with removal?" prompt is not sufficient).
+- **Tradeoff: orphaned token possible.** If a consumer runs the uninstall
+  non-interactively (CI / `--yes`), the secret stays. This is preferred to the
+  reverse failure mode (silently losing a credential the consumer may still
+  intend to use elsewhere).
+- **Manual cleanup path.** After uninstall, the consumer can:
+  - Re-issue: `claude setup-token` → `gh secret set CLAUDE_CODE_OAUTH_TOKEN`
+  - Or remove it themselves: `gh secret delete CLAUDE_CODE_OAUTH_TOKEN --repo <owner>/<repo>`
+  - And, to fully revoke the underlying OAuth token (not just the GitHub repo
+    secret value), follow up at <https://console.anthropic.com>.
 
 ## G. Existing consumers (migration via `ferry-update`)
 

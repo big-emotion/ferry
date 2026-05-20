@@ -36,6 +36,7 @@ import {
 } from './execute.js';
 import { resolveForgeFromArgv } from '../lib/forge.js';
 import { runGitlabUninstall } from './gitlab/run.js';
+import { shouldRemoveOAuth } from './oauth-gate.js';
 import type { UninstallOptions } from './types.js';
 
 const TOTAL_STEPS = 4;
@@ -276,14 +277,19 @@ Exit code: 0 on success, 1 on any error.
     }
   }
 
-  let removeOAuthSecretFlag = false;
+  let confirmed = false;
   if (!opts.yes && oauthSecretPresent) {
     print('');
-    removeOAuthSecretFlag = await confirm(
-      `Also remove ${CLAUDE_CODE_OAUTH_SECRET}? (OAuth subscription token — revocation is irreversible)`,
+    confirmed = await confirm(
+      `Also remove ${CLAUDE_CODE_OAUTH_SECRET}? (Deletes the GitHub repo secret only — does not revoke the underlying Anthropic OAuth token. To fully revoke, follow up at https://console.anthropic.com.)`,
       false,
     );
   }
+  const removeOAuthSecretFlag = shouldRemoveOAuth({
+    yes: opts.yes,
+    oauthSecretPresent,
+    confirmed,
+  });
 
   closePrompt();
 

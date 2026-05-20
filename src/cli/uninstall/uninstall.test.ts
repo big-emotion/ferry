@@ -31,6 +31,7 @@ import {
   handleAuditIssue,
   type ExecOptions,
 } from './execute.js';
+import { shouldRemoveOAuth } from './oauth-gate.js';
 
 function makeOpts(overrides?: Partial<ExecOptions>): ExecOptions & {
   actions: string[];
@@ -323,19 +324,6 @@ describe('removeCompositeActions', () => {
 
     cleanup(dir);
   });
-
-  it('removes CLAUDE_CODE_OAUTH_SECRET when explicitly passed to removeSecrets', () => {
-    mockSpawnSync.mockReturnValue(spawnOk());
-    const opts = makeOpts();
-    removeSecrets('owner/repo', [CLAUDE_CODE_OAUTH_SECRET], opts);
-
-    expect(mockSpawnSync).toHaveBeenCalledWith(
-      'gh',
-      ['secret', 'delete', CLAUDE_CODE_OAUTH_SECRET, '--repo', 'owner/repo'],
-      expect.any(Object),
-    );
-    expect(opts.actions).toContain(`Deleted secret ${CLAUDE_CODE_OAUTH_SECRET}`);
-  });
 });
 
 // ── removeWorkflows ───────────────────────────────────────────────────────────
@@ -559,6 +547,19 @@ describe('removeSecrets', () => {
       expect.any(Object),
     );
   });
+
+  it('removes CLAUDE_CODE_OAUTH_SECRET when explicitly passed to removeSecrets', () => {
+    mockSpawnSync.mockReturnValue(spawnOk());
+    const opts = makeOpts();
+    removeSecrets('owner/repo', [CLAUDE_CODE_OAUTH_SECRET], opts);
+
+    expect(mockSpawnSync).toHaveBeenCalledWith(
+      'gh',
+      ['secret', 'delete', CLAUDE_CODE_OAUTH_SECRET, '--repo', 'owner/repo'],
+      expect.any(Object),
+    );
+    expect(opts.actions).toContain(`Deleted secret ${CLAUDE_CODE_OAUTH_SECRET}`);
+  });
 });
 
 // ── removeVariable ────────────────────────────────────────────────────────────
@@ -655,5 +656,49 @@ describe('handleAuditIssue', () => {
     handleAuditIssue('owner/repo', { number: 42, hasLabel: true }, false, opts);
 
     expect(opts.errors.some((e) => e.includes('#42'))).toBe(true);
+  });
+});
+
+// ── shouldRemoveOAuth (headline safety invariant for CLAUDE_CODE_OAUTH_TOKEN) ──
+
+describe('shouldRemoveOAuth', () => {
+  // Headline guarantee: --yes mode must NEVER remove the OAuth token,
+  // regardless of presence or any spurious "confirmed" flag.
+  it('never removes the OAuth token under --yes when present and confirmed=true', () => {
+    expect(shouldRemoveOAuth({ yes: true, oauthSecretPresent: true, confirmed: true })).toBe(false);
+  });
+
+  it('never removes the OAuth token under --yes when present and confirmed=false', () => {
+    expect(shouldRemoveOAuth({ yes: true, oauthSecretPresent: true, confirmed: false })).toBe(
+      false,
+    );
+  });
+
+  it('never removes the OAuth token under --yes when absent', () => {
+    expect(shouldRemoveOAuth({ yes: true, oauthSecretPresent: false, confirmed: true })).toBe(
+      false,
+    );
+    expect(shouldRemoveOAuth({ yes: true, oauthSecretPresent: false, confirmed: false })).toBe(
+      false,
+    );
+  });
+
+  it('removes the OAuth token in interactive mode only when present and explicitly confirmed', () => {
+    expect(shouldRemoveOAuth({ yes: false, oauthSecretPresent: true, confirmed: true })).toBe(true);
+  });
+
+  it('does not remove the OAuth token in interactive mode when the user declines', () => {
+    expect(shouldRemoveOAuth({ yes: false, oauthSecretPresent: true, confirmed: false })).toBe(
+      false,
+    );
+  });
+
+  it('does not remove the OAuth token in interactive mode when the secret is not present', () => {
+    expect(shouldRemoveOAuth({ yes: false, oauthSecretPresent: false, confirmed: true })).toBe(
+      false,
+    );
+    expect(shouldRemoveOAuth({ yes: false, oauthSecretPresent: false, confirmed: false })).toBe(
+      false,
+    );
   });
 });
