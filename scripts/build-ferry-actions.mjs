@@ -58,12 +58,18 @@ await Promise.all([
     entryPoints: ['src/cli/agent/run.ts'],
     outfile: '.ferry/agent.js',
   }),
+  build({
+    ...shared,
+    entryPoints: ['src/lib/dispatch/cc-apply-action.ts'],
+    outfile: '.ferry/cc-apply-action.js',
+  }),
 ]);
 
 // The schema is loaded at runtime via createRequire(import.meta.url).
 // Copy it alongside the bundle and fix the relative path so the bundle
 // resolves it from .ferry/schemas/ instead of the source tree.
 copyFileSync('src/schemas/event.v1.schema.json', '.ferry/schemas/event.v1.schema.json');
+copyFileSync('src/schemas/agent-output.v1.schema.json', '.ferry/schemas/agent-output.v1.schema.json');
 for (const f of [
   'validate-action.js',
   'skip-task-type-action.js',
@@ -78,6 +84,20 @@ for (const f of [
       '"./schemas/event.v1.schema.json"',
     ),
   );
+}
+// cc-apply-action bundles both the event schema and the agent-output schema.
+{
+  const p = '.ferry/cc-apply-action.js';
+  let src = readFileSync(p, 'utf8');
+  src = src.replaceAll(
+    '"../../schemas/event.v1.schema.json"',
+    '"./schemas/event.v1.schema.json"',
+  );
+  src = src.replaceAll(
+    '"../../schemas/agent-output.v1.schema.json"',
+    '"./schemas/agent-output.v1.schema.json"',
+  );
+  writeFileSync(p, src);
 }
 
 // Minimal package.json — LLM SDKs are now external (not bundled) so they must
@@ -164,6 +184,37 @@ writeFileSync(
   ) + '\n',
 );
 execSync('npm install --prefer-offline', { cwd: routeActionDir, stdio: 'inherit' });
+
+const ccApplyActionDir = '.github/actions/ferry-cc-apply';
+mkdirSync(`${ccApplyActionDir}/schemas`, { recursive: true });
+copyFileSync('.ferry/cc-apply-action.js', `${ccApplyActionDir}/cc-apply-action.js`);
+copyFileSync(
+  'src/schemas/event.v1.schema.json',
+  `${ccApplyActionDir}/schemas/event.v1.schema.json`,
+);
+copyFileSync(
+  'src/schemas/agent-output.v1.schema.json',
+  `${ccApplyActionDir}/schemas/agent-output.v1.schema.json`,
+);
+writeFileSync(
+  `${ccApplyActionDir}/package.json`,
+  JSON.stringify(
+    {
+      name: 'ferry-cc-apply-action',
+      version: '0.0.0',
+      private: true,
+      type: 'module',
+      dependencies: {
+        ajv: rootDeps['ajv'],
+        'ajv-formats': rootDeps['ajv-formats'],
+        yaml: '^2.6.0',
+      },
+    },
+    null,
+    2,
+  ) + '\n',
+);
+execSync('npm install --prefer-offline', { cwd: ccApplyActionDir, stdio: 'inherit' });
 
 const emitAuditActionDir = '.github/actions/ferry-emit-audit';
 copyFileSync('.ferry/emit-audit-action.js', `${emitAuditActionDir}/emit-audit-action.js`);
