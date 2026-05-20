@@ -124,3 +124,6 @@ runs:
         # Forwarded so the auth-invariant check in the entrypoint can fire.
         # NEVER logged and NEVER emitted as an output.
         CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.claude_code_oauth_token }}
+        # Points the prompt resolver at the prompts shipped with this action so
+        # consumers don't need .ferry/ or prompts/ in their workspace (issue #352).
+        FERRY_BUNDLED_PROMPTS_DIR: ${{ github.action_path }}/prompts

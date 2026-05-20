@@ -237,7 +237,14 @@ execSync('npm install --prefer-offline', { cwd: ccApplyActionDir, stdio: 'inheri
 // has no agent-output dependency (that schema is for cc-apply's artifact).
 const ccPrepareActionDir = '.github/actions/ferry-cc-prepare';
 mkdirSync(`${ccPrepareActionDir}/schemas`, { recursive: true });
+mkdirSync(`${ccPrepareActionDir}/prompts`, { recursive: true });
 copyFileSync('.ferry/cc-prepare-action.js', `${ccPrepareActionDir}/cc-prepare-action.js`);
+
+// Copy bundled prompts — FERRY_BUNDLED_PROMPTS_DIR in action.yml points here
+// (fixes issue #352: prompts were missing from the self-contained action package).
+for (const name of ['refiner', 'dev', 'review', 'review-comment', 'iterate']) {
+  copyFileSync(`prompts/${name}.md`, `${ccPrepareActionDir}/prompts/${name}.md`);
+}
 copyFileSync(
   'src/schemas/event.v1.schema.json',
   `${ccPrepareActionDir}/schemas/event.v1.schema.json`,
