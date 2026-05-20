@@ -259,6 +259,61 @@ describe('workflowTemplates — supply-chain action pinning', () => {
   });
 });
 
+describe('workflowTemplates — cc-path role-coverage guard', () => {
+  // ferry-cc-prepare's composite entrypoint currently only handles role 'refiner'
+  // end-to-end. The dev / review / iterate templates ship a fail-loud guard step
+  // at the top of run-agent-claude-code so consumers see a clear actionable error
+  // instead of a late-stage throw from cc-prepare. Refiner has NO such guard —
+  // its cc-path is wired and meant to run.
+  const NON_REFINER_ROLES: ReadonlyArray<{ filename: string; role: string }> = [
+    { filename: 'ferry-dev.yml', role: 'developer' },
+    { filename: 'ferry-review.yml', role: 'reviewer' },
+    { filename: 'ferry-iterate.yml', role: 'iterator' },
+  ];
+
+  for (const { filename, role } of NON_REFINER_ROLES) {
+    it(`${filename}: ships a fail-loud guard for role '${role}' cc-path`, () => {
+      const tmpl = workflowTemplates('v1').find((t) => t.filename === filename);
+      expect(tmpl, `${filename}: template not found`).toBeDefined();
+      expect(tmpl!.content, `${filename}: missing guard step name`).toContain(
+        `Guard — cc-path not yet wired for ${role}`,
+      );
+      expect(tmpl!.content, `${filename}: missing role-specific error message`).toContain(
+        `::error::Ferry: the claude-code execution path is not yet wired for role '${role}'.`,
+      );
+      expect(tmpl!.content, `${filename}: guard does not exit 1`).toMatch(
+        /Guard — cc-path not yet wired[\s\S]*?exit 1/,
+      );
+    });
+  }
+
+  it("ferry-refine.yml has NO 'cc-path not yet wired' guard (refiner cc-path is live)", () => {
+    const refine = workflowTemplates('v1').find((t) => t.filename === 'ferry-refine.yml');
+    expect(refine, 'ferry-refine.yml not found').toBeDefined();
+    expect(
+      refine!.content,
+      'ferry-refine.yml unexpectedly contains the cc-path guard step',
+    ).not.toContain('Guard — cc-path not yet wired');
+  });
+
+  it('guard runs before cc-prepare in every non-refiner template', () => {
+    for (const { filename } of NON_REFINER_ROLES) {
+      const tmpl = workflowTemplates('v1').find((t) => t.filename === filename);
+      const guardIdx = tmpl!.content.indexOf('Guard — cc-path not yet wired');
+      // Anchor on the step NAME (unique in the cc-path job) rather than the
+      // bare 'ferry-cc-prepare' substring, which also appears earlier in the
+      // guard's own explanatory comment.
+      const prepareStepIdx = tmpl!.content.indexOf('Prepare claude-code job');
+      expect(guardIdx, `${filename}: guard missing`).toBeGreaterThan(-1);
+      expect(prepareStepIdx, `${filename}: cc-prepare step missing`).toBeGreaterThan(-1);
+      expect(
+        guardIdx,
+        `${filename}: guard must precede cc-prepare to fail fast before any composite work`,
+      ).toBeLessThan(prepareStepIdx);
+    }
+  });
+});
+
 describe('workflowTemplates — execution path variants', () => {
   it('script path is byte-identical whether implicit or explicit', () => {
     expect(workflowTemplates('v1', 'script')).toEqual(workflowTemplates('v1'));
