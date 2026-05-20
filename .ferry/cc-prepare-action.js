@@ -7166,6 +7166,11 @@ function enforceProviderGate(cfg) {
 }
 async function runCcPrepareAction() {
   enforceAuthInvariant();
+  if (!process.env.CLAUDE_CODE_OAUTH_TOKEN) {
+    throw new Error(
+      "cc-prepare: CLAUDE_CODE_OAUTH_TOKEN is not set. Run `claude setup-token` and add the resulting token to repo secrets as CLAUDE_CODE_OAUTH_TOKEN (ADR-0006 \xA76)."
+    );
+  }
   const raw = requireEnv("FERRY_ENVELOPE_PAYLOAD");
   let parsed;
   try {
@@ -7247,7 +7252,13 @@ async function runCcPrepareAction() {
         roleOverrides
       } = await resolveRoleRuntimeContext({ ferryCfg, issue, repoRoot, logger });
       const branchName = `${resolveBranchPrefix(roleCfg.git.working_branch_prefix, issue)}${envelope.ticket_key}`;
-      const openPrs = await runner.listPRsForBranch(owner, repo, branchName).catch(() => []);
+      const openPrs = await runner.listPRsForBranch(owner, repo, branchName).catch((err) => {
+        logger.warn(
+          "cc-prepare: listPRsForBranch failed for developer pr_number probe \u2014 leaving pr_number empty",
+          { err: err instanceof Error ? err.message : String(err) }
+        );
+        return [];
+      });
       prNumber = openPrs[0]?.number;
       const subtasks = await tracker.getSubtasks(envelope.ticket_key);
       const testRunner = detectTestRunner(packageJsonPath(repoRoot));
@@ -7343,6 +7354,11 @@ async function runCcPrepareAction() {
         );
       }
       const reviewComment = reviewComments[0].body;
+      if (/\*\*Verdict\*\*:\s*Approved\b/.test(reviewComment)) {
+        throw new Error(
+          `cc-prepare: PR#${pr.number} latest reviewer comment shows Approved verdict \u2014 iterator should not have been dispatched.`
+        );
+      }
       configureFerryGitUser(repoRoot);
       if (checkoutExistingBranch(branchName, repoRoot) === "not-found") {
         throw new Error(

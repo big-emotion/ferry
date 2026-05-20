@@ -19,7 +19,7 @@ function assertValidWorkflowYaml(content: string, filename: string): void {
   expect(openCount, `${filename}: unmatched \${{ expressions`).toBeGreaterThan(0);
   expect(closeCount, `${filename}: unmatched }} closers`).toBeGreaterThan(0);
   // Allow for }} used in jinja-style contexts; just ensure we have at least as many closes
-  expect(closeCount, `${filename}: more opens than closes`).toBeGreaterThanOrEqual(openCount);
+  expect(closeCount, `${filename}: open and close counts must match`).toBe(openCount);
 
   // No bare TypeScript-style ${...} (single-brace) that would indicate escaping mistakes
   // GitHub Actions uses ${{ }}, never ${ }. Negative lookahead reads as "dollar-brace not

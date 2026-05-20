@@ -492,6 +492,16 @@ function enforceProviderGate(cfg: FerryConfig): void {
 export async function runCcPrepareAction(): Promise<CcPrepareOutputs> {
   enforceAuthInvariant();
 
+  // ADR-0006 §6 — the claude-code path authenticates exclusively via
+  // CLAUDE_CODE_OAUTH_TOKEN. Fail fast with an actionable hint if the secret is
+  // missing/empty (a composite-action `required: true` cannot catch empty
+  // `${{ secrets.FOO }}` references — the input is "provided", just empty).
+  if (!process.env.CLAUDE_CODE_OAUTH_TOKEN) {
+    throw new Error(
+      'cc-prepare: CLAUDE_CODE_OAUTH_TOKEN is not set. Run `claude setup-token` and add the resulting token to repo secrets as CLAUDE_CODE_OAUTH_TOKEN (ADR-0006 §6).',
+    );
+  }
+
   const raw = requireEnv('FERRY_ENVELOPE_PAYLOAD');
   let parsed: unknown;
   try {
@@ -612,7 +622,17 @@ export async function runCcPrepareAction(): Promise<CcPrepareOutputs> {
       // the same lookup `prepareDeveloper` performs internally for prompt
       // injection. We probe here too so the output is populated when an open
       // PR exists, without coupling to prepareDeveloper's return shape.
-      const openPrs = await runner.listPRsForBranch(owner, repo, branchName).catch(() => []);
+      const openPrs = await runner
+        .listPRsForBranch(owner, repo, branchName)
+        .catch((err: unknown) => {
+          // Distinguish "no PR" (empty array is the success path) from "API error"
+          // (would otherwise be silently swallowed, masking auth/5xx misconfig).
+          logger.warn(
+            'cc-prepare: listPRsForBranch failed for developer pr_number probe — leaving pr_number empty',
+            { err: err instanceof Error ? err.message : String(err) },
+          );
+          return [];
+        });
       prNumber = openPrs[0]?.number;
 
       const subtasks = await tracker.getSubtasks(envelope.ticket_key);
@@ -715,7 +735,17 @@ export async function runCcPrepareAction(): Promise<CcPrepareOutputs> {
           `cc-prepare: no reviewer comment found on PR#${pr.number} — iterator cannot run.`,
         );
       }
+      // Newest-first ordering by `listPRComments` contract (see runner/types.ts).
       const reviewComment = reviewComments[0].body;
+      // Defense-in-depth: mirror script-path iterator's Approved-verdict short-circuit
+      // (iterate-action.ts:228). Ferry only dispatches iterator on FR24
+      // Changes-Requested, so this fires only on a race / repeat dispatch / manual
+      // mis-trigger — fail loud rather than waste an LLM call.
+      if (/\*\*Verdict\*\*:\s*Approved\b/.test(reviewComment)) {
+        throw new Error(
+          `cc-prepare: PR#${pr.number} latest reviewer comment shows Approved verdict — iterator should not have been dispatched.`,
+        );
+      }
 
       // Branch checkout + merge-base sync — same side-effecting setup the
       // script-path iterator performs before the agent loop, so the workspace
