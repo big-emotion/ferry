@@ -50,11 +50,16 @@ import {
 } from './cc-prepare-action.js';
 import { JiraTracker } from '../io/tracker/jira/tracker.js';
 import { CC_OUTPUT_ARTIFACT_PATH } from '../claude-code/output-artifact.js';
+import { CLAUDE_CODE_JOB_PERMISSIONS } from '../claude-code/job-permissions.js';
+import { gatedPush } from '../claude-code/secret-scan-gate.js';
+import { FerryError } from '../errors/index.js';
+import { NO_AUTO_MERGE_DENY } from '../claude-code/tool-policy.js';
 import { DEFAULT_FERRY_CONFIG, type FerryConfig } from '../config.js';
 import type { TrackerIssue } from '../io/tracker/types.js';
 import type { EventEnvelopeV1 } from '../envelope/types.js';
 import type { PR, PRFile } from './runner/types.js';
 import type { ResolvedCapabilities } from '../labels/capabilities.js';
+import type { ScanResult } from '../safety/scan.js';
 
 // ──────────────────────────────────────────────────────────────────────────
 // Shared fixtures
@@ -245,6 +250,18 @@ function expectCommonInvariants(out: CcPrepareOutputs): void {
   for (const tok of out.claudeArgs) {
     expect(typeof tok).toBe('string');
   }
+  // Structural push-blocking invariant: claude_args MUST carry --disallowedTools
+  // with git push and gh pr merge denied. This is the #303 / ADR-0002 §D gate.
+  const disallowedIdx = out.claudeArgs.indexOf('--disallowedTools');
+  expect(disallowedIdx).toBeGreaterThanOrEqual(0);
+  const disallowed = out.claudeArgs[disallowedIdx + 1] ?? '';
+  expect(disallowed).toContain('Bash(git push:*)');
+  expect(disallowed).toContain('Bash(gh pr merge:*)');
+  // Least-privilege permissions block must be present.
+  expect(out.permissionsYaml).toContain('permissions:');
+  expect(out.permissionsYaml).toContain('contents: write');
+  expect(out.permissionsYaml).toContain('pull-requests: write');
+  expect(out.permissionsYaml).toContain('issues: write');
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -469,4 +486,109 @@ describe('runCcPrepareAction — not-yet-wired roles refuse with #333 hint', () 
       await expect(runCcPrepareAction()).rejects.toThrow(/#333/);
     });
   }
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// 6. Hardening invariants (ADR-0002 §accepted-divergences points 3 & 4, #303)
+// ──────────────────────────────────────────────────────────────────────────
+
+describe('prepareCcJob — tool-policy and job-permissions hardening (#303)', () => {
+  it('claude_args always contains --disallowedTools for every role', async () => {
+    const roles = [
+      { role: 'developer' as const, input: devInput() },
+      { role: 'reviewer' as const, input: reviewerInput() },
+      { role: 'iterator' as const, input: iteratorInput() },
+      { role: 'refiner' as const, input: refinerInput() },
+    ];
+    for (const { role, input } of roles) {
+      const out = await prepareCcJob({ envelope, issue, role, input });
+      expect(out.claudeArgs).toContain('--disallowedTools');
+      const idx = out.claudeArgs.indexOf('--disallowedTools');
+      const disallowed = out.claudeArgs[idx + 1] ?? '';
+      for (const rule of NO_AUTO_MERGE_DENY) {
+        expect(disallowed).toContain(rule);
+      }
+    }
+  });
+
+  it('permissionsYaml is the canonical least-privilege block for all roles', async () => {
+    const roles = [
+      { role: 'developer' as const, input: devInput() },
+      { role: 'refiner' as const, input: refinerInput() },
+    ];
+    for (const { role, input } of roles) {
+      const out = await prepareCcJob({ envelope, issue, role, input });
+      expect(out.permissionsYaml).toContain('permissions:');
+      for (const [scope, level] of Object.entries(CLAUDE_CODE_JOB_PERMISSIONS)) {
+        expect(out.permissionsYaml).toContain(`${scope}: ${level}`);
+      }
+      // Must not grant dangerous extra scopes.
+      expect(out.permissionsYaml).not.toContain('id-token');
+      expect(out.permissionsYaml).not.toContain('actions: write');
+    }
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// 7. Integration: secret-scan-gate — push is structurally gated (#303,
+//    ADR-0002 §accepted-divergences point 4)
+//
+//    The LLM is denied git push by the tool policy (verified above). The ONLY
+//    sanctioned push is through `gatedPush`. These tests verify that invariant
+//    end-to-end: a push carrying a planted secret is always aborted; a clean
+//    push succeeds.
+// ──────────────────────────────────────────────────────────────────────────
+
+describe('secret-scan-gate integration — gatedPush is the sole push mechanism (#303)', () => {
+  const CLEAN: ScanResult = { leaksFound: false, findings: [] };
+  const DIRTY: ScanResult = {
+    leaksFound: true,
+    findings: [
+      {
+        ruleId: 'aws-access-key',
+        description: 'AWS access key',
+        file: 'src/config.ts',
+        startLine: 5,
+        endLine: 5,
+      },
+    ],
+  };
+
+  it('gatedPush aborts and never invokes push when a planted secret is found', async () => {
+    const scan = vi.fn().mockResolvedValue(DIRTY);
+    const push = vi.fn();
+    await expect(gatedPush({ repoRoot: '/repo', scan, push })).rejects.toBeInstanceOf(FerryError);
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it('gatedPush error carries only the finding count, never the secret content', async () => {
+    const scan = vi.fn().mockResolvedValue(DIRTY);
+    const push = vi.fn();
+    const err = await gatedPush({ repoRoot: '/repo', scan, push }).catch((e) => e);
+    expect(err).toBeInstanceOf(FerryError);
+    expect((err as FerryError).code).toBe('state-invariant');
+    // Only the count is surfaced — never the finding body or secret value.
+    expect(JSON.stringify((err as FerryError).context)).not.toContain('AWS access key');
+    expect((err as FerryError).context).toMatchObject({ reason: 'secret-scan-hit', findings: 1 });
+  });
+
+  it('gatedPush proceeds and invokes push exactly once on a clean tree', async () => {
+    const scan = vi.fn().mockResolvedValue(CLEAN);
+    const push = vi.fn().mockResolvedValue(undefined);
+    await expect(gatedPush({ repoRoot: '/repo', scan, push })).resolves.toBe('pushed');
+    expect(push).toHaveBeenCalledTimes(1);
+  });
+
+  it('scan runs strictly before push — structural ordering invariant', async () => {
+    const calls: string[] = [];
+    const scan = vi.fn().mockImplementation(async () => {
+      calls.push('scan');
+      return CLEAN;
+    });
+    const push = vi.fn().mockImplementation(async () => {
+      calls.push('push');
+    });
+    await gatedPush({ repoRoot: '/repo', scan, push });
+    expect(calls).toEqual(['scan', 'push']);
+  });
 });

@@ -2245,15 +2245,45 @@ function mcpToolAllowlist(servers) {
   return allow;
 }
 
+// src/lib/claude-code/tool-policy.ts
+var NO_AUTO_MERGE_DENY = [
+  "Bash(gh pr merge)",
+  "Bash(gh pr merge:*)",
+  "Bash(gh merge:*)",
+  "Bash(gh pr close)",
+  "Bash(gh pr close:*)",
+  "Bash(git push)",
+  "Bash(git push:*)"
+];
+function assertToolPolicyEnforcesNoAutoMerge(policy) {
+  const denySet = new Set(policy.disallowedTools);
+  const missing = NO_AUTO_MERGE_DENY.filter((rule) => !denySet.has(rule));
+  if (missing.length > 0) {
+    throw new Error(`no-auto-merge invariant violated: deny set is missing ${missing.join(", ")}`);
+  }
+  const regranted = policy.allowedTools.filter((rule) => denySet.has(rule));
+  if (regranted.length > 0) {
+    throw new Error(
+      `no-auto-merge invariant violated: allowed tools re-grant denied rule(s) ${regranted.join(
+        ", "
+      )}`
+    );
+  }
+}
+
 // src/lib/claude-code/claude-args.ts
 function buildClaudeArgs(input) {
   const servers = input.mcpServers ?? [];
   const allowedTools = [...nativeToolsForRole(input.role), ...mcpToolAllowlist(servers)];
+  const disallowedTools = [...NO_AUTO_MERGE_DENY];
+  assertToolPolicyEnforcesNoAutoMerge({ allowedTools, disallowedTools });
   const args = [
     "--append-system-prompt",
     input.system,
     "--allowedTools",
-    allowedTools.join(",")
+    allowedTools.join(","),
+    "--disallowedTools",
+    disallowedTools.join(",")
   ];
   if (servers.length > 0) {
     args.push("--mcp-config", JSON.stringify(toClaudeCodeMcpConfig(servers)));
@@ -2450,6 +2480,45 @@ function buildClaudeCodeJob(input) {
   };
 }
 
+// src/lib/claude-code/job-permissions.ts
+var REQUIRED_WRITE_SCOPES = ["contents", "pull-requests", "issues"];
+var CLAUDE_CODE_JOB_PERMISSIONS = {
+  contents: "write",
+  "pull-requests": "write",
+  issues: "write"
+};
+function assertLeastPrivilege(permissions) {
+  const fail2 = (reason) => {
+    throw new Error(`least-privilege violation: ${reason}`);
+  };
+  if ("write-all" in permissions || "read-all" in permissions) {
+    fail2("blanket grant (write-all / read-all) is forbidden for the claude-code job");
+  }
+  for (const scope of REQUIRED_WRITE_SCOPES) {
+    if (permissions[scope] !== "write") {
+      fail2(`required scope "${scope}" must be "write" (got "${permissions[scope] ?? "missing"}")`);
+    }
+  }
+  for (const [scope, level] of Object.entries(permissions)) {
+    if (REQUIRED_WRITE_SCOPES.includes(scope)) continue;
+    if (level !== "none") {
+      fail2(
+        `scope "${scope}: ${level}" exceeds least privilege (only contents / pull-requests / issues may be granted)`
+      );
+    }
+  }
+}
+function renderPermissionsYaml(permissions) {
+  const granted = Object.entries(permissions).filter(([, level]) => level !== "none");
+  const ordered = [
+    ...REQUIRED_WRITE_SCOPES.filter((s) => granted.some(([k]) => k === s)).map(
+      (s) => [s, permissions[s]]
+    ),
+    ...granted.filter(([k]) => !REQUIRED_WRITE_SCOPES.includes(k)).sort(([a], [b]) => a.localeCompare(b))
+  ];
+  return ["permissions:", ...ordered.map(([scope, level]) => `  ${scope}: ${level}`)].join("\n");
+}
+
 // src/lib/logger/index.ts
 function isDebugEnabled() {
   return process.env.LOG_VERBOSITY === "debug";
@@ -2506,6 +2575,7 @@ async function prepareCcJob(input) {
       "cc-prepare: refusing to build a claude-code job \u2014 ferry.config is not anthropic-only (every agent provider must be `anthropic`; see ADR-0006 \xA71, issue #329)."
     );
   }
+  assertLeastPrivilege(CLAUDE_CODE_JOB_PERMISSIONS);
   let system;
   let initialPrompt;
   let mcpServers;
@@ -2628,7 +2698,9 @@ async function prepareCcJob(input) {
     // structured object as a top-level output so workflow authors can read it
     // without re-parsing the args list.
     mcpConfig: toClaudeCodeMcpConfig(mcpServers ?? []),
-    idempotencyMarker
+    idempotencyMarker,
+    // Canonical least-privilege permissions block for the calling workflow job.
+    permissionsYaml: renderPermissionsYaml(CLAUDE_CODE_JOB_PERMISSIONS)
   };
 }
 function pickPrepared(ctx) {
@@ -2784,6 +2856,7 @@ async function runCcPrepareAction() {
   writeOutput("output_artifact_path", outputs.outputArtifactPath);
   writeOutput("mcp_config", JSON.stringify(outputs.mcpConfig));
   writeOutput("idempotency_marker", outputs.idempotencyMarker);
+  writeOutput("permissions_yaml", outputs.permissionsYaml);
   return outputs;
 }
 var invokedDirectly = typeof process !== "undefined" && process.argv[1]?.endsWith("cc-prepare-action.js");

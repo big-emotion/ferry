@@ -81,6 +81,14 @@ outputs:
       `[ferry:<role>:<key>]` audit marker computed once here; `ferry-cc-apply`
       consumes this verbatim for the post-run Jira write.
     value: ${{ steps.cc-prepare.outputs.idempotency_marker }}
+  permissions_yaml:
+    description: >
+      Canonical least-privilege `permissions:` block for the claude-code job
+      (ADR-0006 §5 / ADR-0002 §accepted-divergences point 3, #303). Consumers
+      embed this verbatim as the workflow job's `permissions:` block instead of
+      hand-coding scope grants. Rendered by `renderPermissionsYaml` from
+      `src/lib/claude-code/job-permissions.ts`.
+    value: ${{ steps.cc-prepare.outputs.permissions_yaml }}
 runs:
   using: composite
   steps:

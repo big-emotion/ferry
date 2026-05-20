@@ -71,6 +71,11 @@ import {
   FORBIDDEN_AUTH_INPUT,
 } from '../claude-code/job.js';
 import { toClaudeCodeMcpConfig, type ClaudeCodeMcpConfig } from '../claude-code/mcp-config.js';
+import {
+  CLAUDE_CODE_JOB_PERMISSIONS,
+  assertLeastPrivilege,
+  renderPermissionsYaml,
+} from '../claude-code/job-permissions.js';
 import { byPrHeadSha, byEventId } from '../agent-runtime/idempotency.js';
 import { createLogger, type Logger } from '../logger/index.js';
 import type { EventEnvelopeV1 } from '../envelope/types.js';
@@ -92,6 +97,8 @@ export interface CcPrepareOutputs {
   outputArtifactPath: string;
   mcpConfig: ClaudeCodeMcpConfig;
   idempotencyMarker: string;
+  /** Canonical least-privilege `permissions:` YAML block (ADR-0006 §5, #303). */
+  permissionsYaml: string;
 }
 
 /**
@@ -200,6 +207,11 @@ export async function prepareCcJob(input: PrepareCcJobInput): Promise<CcPrepareO
         '(every agent provider must be `anthropic`; see ADR-0006 §1, issue #329).',
     );
   }
+
+  // Structural invariant: assert the canonical job-permissions are least-privilege
+  // before building any job output (ADR-0006 §5 / ADR-0002 §accepted-divergences
+  // point 3, #303). Throws if the constant is ever misconfigured.
+  assertLeastPrivilege(CLAUDE_CODE_JOB_PERMISSIONS);
 
   // Build the per-role system + initialPrompt + mcpServers + idempotency marker.
   let system: string;
@@ -337,6 +349,8 @@ export async function prepareCcJob(input: PrepareCcJobInput): Promise<CcPrepareO
     // without re-parsing the args list.
     mcpConfig: toClaudeCodeMcpConfig(mcpServers ?? []),
     idempotencyMarker,
+    // Canonical least-privilege permissions block for the calling workflow job.
+    permissionsYaml: renderPermissionsYaml(CLAUDE_CODE_JOB_PERMISSIONS),
   };
 }
 
@@ -564,14 +578,15 @@ export async function runCcPrepareAction(): Promise<CcPrepareOutputs> {
       );
   }
 
-  // Write outputs. Multi-line `prompt` uses the heredoc form so embedded
-  // newlines survive in `$GITHUB_OUTPUT`. JSON-encoded values stay single-line.
+  // Write outputs. Multi-line values use the heredoc form so embedded newlines
+  // survive in `$GITHUB_OUTPUT`. JSON-encoded values stay single-line.
   writeOutput('prompt', outputs.prompt);
   writeOutput('claude_args', JSON.stringify(outputs.claudeArgs));
   writeOutput('allowed_native_tools', JSON.stringify(outputs.allowedNativeTools));
   writeOutput('output_artifact_path', outputs.outputArtifactPath);
   writeOutput('mcp_config', JSON.stringify(outputs.mcpConfig));
   writeOutput('idempotency_marker', outputs.idempotencyMarker);
+  writeOutput('permissions_yaml', outputs.permissionsYaml);
 
   return outputs;
 }
