@@ -1356,6 +1356,9 @@ function resolveExecutionPath(input) {
   if (input.configuredPath === "script") {
     return { path: "script", reason: "default" };
   }
+  if (!input.anthropicOnly) {
+    return { path: "script", reason: "provider-gate" };
+  }
   if (input.labelOverride !== void 0) {
     return { path: input.labelOverride, reason: "label" };
   }

@@ -44,9 +44,9 @@ describe('resolveExecutionPath — explicit script lock (acceptance: never overr
 });
 
 describe('resolveExecutionPath — Jira label override (precedence over heuristic + default)', () => {
-  it('ferry:claude-code label → claude-code (reason label)', () => {
+  it('ferry:claude-code label → claude-code (reason label) for Anthropic-only consumer', () => {
     expect(
-      resolveExecutionPath(input({ labelOverride: 'claude-code', anthropicOnly: false })),
+      resolveExecutionPath(input({ labelOverride: 'claude-code', anthropicOnly: true })),
     ).toEqual({ path: 'claude-code', reason: 'label' });
   });
 
@@ -81,8 +81,42 @@ describe('resolveExecutionPath — Jira label override (precedence over heuristi
   });
 });
 
+describe('resolveExecutionPath — provider gate (anthropicOnly === false, issue #329)', () => {
+  it('mixed-provider config + ferry:claude-code label → script (reason provider-gate)', () => {
+    // Acceptance criterion: label override is a no-op when anthropicOnly is false.
+    expect(
+      resolveExecutionPath(input({ anthropicOnly: false, labelOverride: 'claude-code' })),
+    ).toEqual({ path: 'script', reason: 'provider-gate' });
+  });
+
+  it('explicit claude-code config + non-Anthropic provider → script (reason provider-gate)', () => {
+    expect(
+      resolveExecutionPath(input({ anthropicOnly: false, configuredPath: 'claude-code' })),
+    ).toEqual({ path: 'script', reason: 'provider-gate' });
+  });
+
+  it('provider gate fires before the label override (label is a no-op)', () => {
+    // Both ferry:claude-code and ferry:no-claude-code: gate wins either way.
+    expect(resolveExecutionPath(input({ anthropicOnly: false, labelOverride: 'script' }))).toEqual({
+      path: 'script',
+      reason: 'provider-gate',
+    });
+  });
+
+  it('provider gate does NOT fire for Anthropic-only consumers', () => {
+    // Anthropic-only: label override is honoured normally.
+    expect(
+      resolveExecutionPath(input({ anthropicOnly: true, labelOverride: 'claude-code' })),
+    ).toEqual({ path: 'claude-code', reason: 'label' });
+  });
+});
+
 describe('resolveExecutionPath — automatic heuristic (role + round-trips ≥ N)', () => {
-  it('developer at threshold escalates to claude-code (reason heuristic)', () => {
+  // NOTE: the provider gate (step 2) intercepts all non-Anthropic consumers before
+  // reaching the heuristic. The heuristic is currently dead code for anthropicOnly:false
+  // inputs (provider-gate fires first). These tests verify the gate takes precedence.
+
+  it('non-Anthropic developer at threshold → provider-gate (not heuristic)', () => {
     expect(
       resolveExecutionPath(
         input({
@@ -92,10 +126,10 @@ describe('resolveExecutionPath — automatic heuristic (role + round-trips ≥ N
           roundTripThreshold: 2,
         }),
       ),
-    ).toEqual({ path: 'claude-code', reason: 'heuristic' });
+    ).toEqual({ path: 'script', reason: 'provider-gate' });
   });
 
-  it('iterator above threshold escalates to claude-code', () => {
+  it('non-Anthropic iterator above threshold → provider-gate (not heuristic)', () => {
     expect(
       resolveExecutionPath(
         input({
@@ -105,10 +139,10 @@ describe('resolveExecutionPath — automatic heuristic (role + round-trips ≥ N
           roundTripThreshold: 2,
         }),
       ),
-    ).toEqual({ path: 'claude-code', reason: 'heuristic' });
+    ).toEqual({ path: 'script', reason: 'provider-gate' });
   });
 
-  it('below threshold does not escalate (non-Anthropic → script default)', () => {
+  it('non-Anthropic developer below threshold → provider-gate', () => {
     expect(
       resolveExecutionPath(
         input({
@@ -118,10 +152,10 @@ describe('resolveExecutionPath — automatic heuristic (role + round-trips ≥ N
           roundTripThreshold: 2,
         }),
       ),
-    ).toEqual({ path: 'script', reason: 'default' });
+    ).toEqual({ path: 'script', reason: 'provider-gate' });
   });
 
-  it('refiner never escalates via the heuristic', () => {
+  it('non-Anthropic refiner → provider-gate', () => {
     expect(
       resolveExecutionPath(
         input({
@@ -131,10 +165,10 @@ describe('resolveExecutionPath — automatic heuristic (role + round-trips ≥ N
           roundTripThreshold: 2,
         }),
       ),
-    ).toEqual({ path: 'script', reason: 'default' });
+    ).toEqual({ path: 'script', reason: 'provider-gate' });
   });
 
-  it('reviewer never escalates via the heuristic', () => {
+  it('non-Anthropic reviewer → provider-gate', () => {
     expect(
       resolveExecutionPath(
         input({
@@ -144,10 +178,10 @@ describe('resolveExecutionPath — automatic heuristic (role + round-trips ≥ N
           roundTripThreshold: 2,
         }),
       ),
-    ).toEqual({ path: 'script', reason: 'default' });
+    ).toEqual({ path: 'script', reason: 'provider-gate' });
   });
 
-  it('a non-positive threshold disables the heuristic', () => {
+  it('non-Anthropic non-positive threshold → provider-gate', () => {
     expect(
       resolveExecutionPath(
         input({
@@ -157,7 +191,7 @@ describe('resolveExecutionPath — automatic heuristic (role + round-trips ≥ N
           roundTripThreshold: 0,
         }),
       ),
-    ).toEqual({ path: 'script', reason: 'default' });
+    ).toEqual({ path: 'script', reason: 'provider-gate' });
   });
 
   it('the heuristic never downgrades an already-claude-code default', () => {
@@ -178,17 +212,17 @@ describe('resolveExecutionPath — conditional default', () => {
     });
   });
 
-  it('non-Anthropic consumer (unset config) → script', () => {
+  it('non-Anthropic consumer (unset config) → script (reason provider-gate)', () => {
     expect(resolveExecutionPath(input({ anthropicOnly: false, role: 'reviewer' }))).toEqual({
       path: 'script',
-      reason: 'default',
+      reason: 'provider-gate',
     });
   });
 
-  it('explicit claude-code config → claude-code (reason default)', () => {
+  it('explicit claude-code config with non-Anthropic provider → script (reason provider-gate)', () => {
     expect(
       resolveExecutionPath(input({ configuredPath: 'claude-code', anthropicOnly: false })),
-    ).toEqual({ path: 'claude-code', reason: 'default' });
+    ).toEqual({ path: 'script', reason: 'provider-gate' });
   });
 });
 

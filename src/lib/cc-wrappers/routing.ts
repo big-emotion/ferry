@@ -11,24 +11,32 @@
  * Resolution order (highest precedence first), per ADR-0006 §3:
  *   1. Explicit `execution_path: script` in ferry.config — a **hard lock**;
  *      never overridden by the label or the heuristic.
- *   2. Per-ticket Jira label (`ferry:claude-code` / `ferry:no-claude-code`).
+ *   2. Provider gate — when `anthropicOnly === false`, returns `script` with
+ *      reason `'provider-gate'`; the per-ticket label override is ignored (the
+ *      caller is responsible for emitting a warn). Invariant: the claude-code
+ *      path is unavailable when any agent provider is not Anthropic (ADR-0006
+ *      §1, §6, issue #329).
+ *   3. Per-ticket Jira label (`ferry:claude-code` / `ferry:no-claude-code`).
  *      Conflicting labels are already collapsed to the safe `script` path by
  *      `resolveTicketOverrides` (no `LabelConflictError`).
- *   3. Automatic heuristic — escalates an *otherwise-script* default to
+ *   4. Automatic heuristic — escalates an *otherwise-script* default to
  *      claude-code when `role ∈ {developer, iterator}` AND
- *      `priorRoundTrips >= N`.
- *   4. Conditional default — explicit `claude-code`, else `claude-code` for
+ *      `priorRoundTrips >= N`. NOTE: with step 2 in place this branch is only
+ *      reachable when `anthropicOnly === true`, which already yields a
+ *      `claude-code` conditional default — the heuristic is currently dead code.
+ *      Retained for forward compatibility if the provider gate is ever relaxed.
+ *   5. Conditional default — explicit `claude-code`, else `claude-code` for
  *      an Anthropic-only consumer, else `script`.
  *
- * The recorded reason (`label` / `heuristic` / `default`) is emitted into the
- * audit comment marker by `formatExecutionPathAudit` so the Reconciler
- * (ADR-0004) observes which path ran and why.
+ * The recorded reason (`label` / `heuristic` / `default` / `provider-gate`) is
+ * emitted into the audit comment marker by `formatExecutionPathAudit` so the
+ * Reconciler (ADR-0004) observes which path ran and why.
  */
 import type { ExecutionPath, FerryConfig } from '../config.js';
 import type { AgentOutputRole } from './agent-output.js';
 import { markerRoleToken } from './contract.js';
 
-export type ExecutionPathReason = 'label' | 'heuristic' | 'default';
+export type ExecutionPathReason = 'label' | 'heuristic' | 'default' | 'provider-gate';
 
 export interface ExecutionPathDecision {
   path: ExecutionPath;
@@ -83,12 +91,21 @@ export function resolveExecutionPath(input: ExecutionPathInput): ExecutionPathDe
     return { path: 'script', reason: 'default' };
   }
 
-  // 2. Per-ticket Jira label (conflicting pair already collapsed to 'script').
+  // 2. Provider gate (ADR-0006 §1, §6, issue #329): the claude-code path is
+  //    unavailable when any configured agent provider is not Anthropic, regardless
+  //    of the per-ticket label or the configured path. When a ferry:claude-code
+  //    label is present and silently ignored, the caller is responsible for
+  //    emitting a warn (the resolver stays pure — it returns the decision only).
+  if (!input.anthropicOnly) {
+    return { path: 'script', reason: 'provider-gate' };
+  }
+
+  // 3. Per-ticket Jira label (conflicting pair already collapsed to 'script').
   if (input.labelOverride !== undefined) {
     return { path: input.labelOverride, reason: 'label' };
   }
 
-  // 3/4. Conditional default, then heuristic escalation of a script default.
+  // 4/5. Conditional default, then heuristic escalation of a script default.
   const defaultPath: ExecutionPath =
     input.configuredPath === 'claude-code' || input.anthropicOnly ? 'claude-code' : 'script';
 
@@ -110,6 +127,14 @@ export function resolveExecutionPath(input: ExecutionPathInput): ExecutionPathDe
  * uses the `dev` marker token for script parity). Consumed by the contract
  * apply step on the claude-code path so the resolved route + reason land in
  * the audit log.
+ *
+ * Recorded `reason` values:
+ *   - `default`       — config-explicit or Anthropic-only conditional default.
+ *   - `label`         — per-ticket `ferry:claude-code` / `ferry:no-claude-code`.
+ *   - `heuristic`     — automatic round-trip escalation.
+ *   - `provider-gate` — blocked because at least one agent provider is not
+ *                       Anthropic; the claude-code path requires an
+ *                       Anthropic-only config (ADR-0006 §1, §6, issue #329).
  */
 export function formatExecutionPathAudit(
   role: AgentOutputRole,

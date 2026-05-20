@@ -16,7 +16,7 @@
  *
  * Outputs (written to GITHUB_OUTPUT):
  *   - path     'script' | 'claude-code'
- *   - reason   'default' | 'label' | 'heuristic'
+ *   - reason   'default' | 'label' | 'heuristic' | 'provider-gate'
  *
  * Heuristic-driven escalation is intentionally **disabled in this version**
  * (`priorRoundTrips` is stubbed to 0): label + config-driven routing land first
