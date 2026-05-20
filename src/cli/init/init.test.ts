@@ -204,33 +204,33 @@ describe('workflowTemplates', () => {
     expect(workflowTemplates('v1', 'script')).toEqual(workflowTemplates('v1'));
   });
 
-  it('script path contains no claude-code guard or header', () => {
+  it('script path contains no claude-code header', () => {
     for (const tmpl of workflowTemplates('v1')) {
-      expect(tmpl.content).not.toContain('CLAUDE_CODE_OAUTH_TOKEN');
       expect(tmpl.content).not.toContain('Execution path: claude-code');
     }
   });
 
-  it('claude-code path materializes a fail-fast CLAUDE_CODE_OAUTH_TOKEN guard in every agent workflow', () => {
+  it('claude-code path wires the four-step chain in every agent workflow', () => {
     for (const tmpl of workflowTemplates('v1', 'claude-code')) {
       expect(tmpl.content).toContain('# Execution path: claude-code');
-      expect(tmpl.content).toContain('Require CLAUDE_CODE_OAUTH_TOKEN');
+      expect(tmpl.content).toContain('ferry-cc-prepare');
+      expect(tmpl.content).toContain('anthropics/claude-code-action@v1');
+      expect(tmpl.content).toContain('ferry-cc-apply');
       expect(tmpl.content).toContain(
-        'CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}',
+        'claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}',
       );
-      expect(tmpl.content).toContain('exit 1');
-      // The guard goes in the agent job only — exactly one occurrence per file.
-      const occurrences = tmpl.content.split('Require CLAUDE_CODE_OAUTH_TOKEN').length - 1;
-      expect(occurrences).toBe(1);
     }
   });
 
-  it('claude-code guard runs before the agent action', () => {
+  it('claude-code path runs cc-prepare before claude-code-action before cc-apply', () => {
     const dev = workflowTemplates('v1', 'claude-code').find((t) => t.filename === 'ferry-dev.yml');
-    const guardIdx = dev?.content.indexOf('Require CLAUDE_CODE_OAUTH_TOKEN') ?? -1;
-    const agentIdx = dev?.content.indexOf('ferry-run-developer') ?? -1;
-    expect(guardIdx).toBeGreaterThan(-1);
-    expect(agentIdx).toBeGreaterThan(-1);
-    expect(guardIdx).toBeLessThan(agentIdx);
+    const prepareIdx = dev?.content.indexOf('ferry-cc-prepare') ?? -1;
+    const actionIdx = dev?.content.indexOf('anthropics/claude-code-action@v1') ?? -1;
+    const applyIdx = dev?.content.indexOf('ferry-cc-apply') ?? -1;
+    expect(prepareIdx).toBeGreaterThan(-1);
+    expect(actionIdx).toBeGreaterThan(-1);
+    expect(applyIdx).toBeGreaterThan(-1);
+    expect(prepareIdx).toBeLessThan(actionIdx);
+    expect(actionIdx).toBeLessThan(applyIdx);
   });
 });

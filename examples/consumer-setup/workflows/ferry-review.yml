@@ -129,16 +129,47 @@ jobs:
       pull-requests: write
       issues: write
       checks: read
+    outputs:
+      input_tokens: ${{ steps.cc-apply.outputs.input_tokens }}
+      output_tokens: ${{ steps.cc-apply.outputs.output_tokens }}
+      cost_eur: ${{ steps.cc-apply.outputs.cost_eur }}
     steps:
-      # Placeholder: the claude-code-action wiring lands in a follow-up PR.
-      - name: claude-code execution path not yet wired
-        shell: bash
-        run: |
-          echo "::error::Ferry routing resolved this run to the claude-code-action path," \
-            "but the claude-code execution branch is not yet wired in this Ferry release." \
-            "Set execution_path: script in ferry.config.yaml (or remove the ferry:claude-code" \
-            "label on the ticket) to use the bundled-script path."
-          exit 1
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Prepare claude-code job
+        id: cc-prepare
+        uses: big-emotion/ferry/.github/actions/ferry-cc-prepare@v0.12.0
+        with:
+          payload: ${{ toJson(github.event.client_payload) }}
+          role: reviewer
+          jira_base_url: ${{ secrets.FERRY_JIRA_BASE_URL }}
+          jira_email: ${{ secrets.FERRY_JIRA_EMAIL }}
+          jira_api_token: ${{ secrets.FERRY_JIRA_API_TOKEN }}
+          github_token: ${{ github.token }}
+          github_repo: ${{ github.repository }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+      - name: Run claude-code-action
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: ${{ steps.cc-prepare.outputs.prompt }}
+          claude_args: ${{ steps.cc-prepare.outputs.claude_args }}
+
+      - name: Apply claude-code output
+        id: cc-apply
+        uses: big-emotion/ferry/.github/actions/ferry-cc-apply@v0.12.0
+        with:
+          payload: ${{ toJson(github.event.client_payload) }}
+          role: reviewer
+          jira_base_url: ${{ secrets.FERRY_JIRA_BASE_URL }}
+          jira_email: ${{ secrets.FERRY_JIRA_EMAIL }}
+          jira_api_token: ${{ secrets.FERRY_JIRA_API_TOKEN }}
+          idempotency_marker: ${{ steps.cc-prepare.outputs.idempotency_marker }}
+          ferry_iter_transition_id: ${{ secrets.FERRY_ITER_TRANSITION_ID }}
+          github_token: ${{ github.token }}
+          github_repo: ${{ github.repository }}
 
   emit-audit:
     name: Emit audit line
@@ -159,9 +190,9 @@ jobs:
           run_id: ${{ github.event.client_payload.event_id }}
           model: ${{ needs.run-agent.outputs.model || 'claude-sonnet-4-6' }}
           outcome: ${{ needs.run-agent.result == 'success' && needs.run-agent.result || needs.run-agent-claude-code.result }}
-          input_tokens: ${{ needs.run-agent.outputs.input_tokens || '0' }}
-          output_tokens: ${{ needs.run-agent.outputs.output_tokens || '0' }}
-          cost_eur: ${{ needs.run-agent.outputs.cost_eur || '0' }}
+          input_tokens: ${{ needs.run-agent.outputs.input_tokens || needs.run-agent-claude-code.outputs.input_tokens || '0' }}
+          output_tokens: ${{ needs.run-agent.outputs.output_tokens || needs.run-agent-claude-code.outputs.output_tokens || '0' }}
+          cost_eur: ${{ needs.run-agent.outputs.cost_eur || needs.run-agent-claude-code.outputs.cost_eur || '0' }}
           start_ms: ${{ github.run_id }}
           audit_issue: ${{ vars.FERRY_AUDIT_ISSUE }}
           github_token: ${{ github.token }}
