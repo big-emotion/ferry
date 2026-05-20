@@ -130,26 +130,65 @@ jobs:
       contents: write
       pull-requests: write
       issues: write
+    outputs:
+      input_tokens: ${{ steps.cc-apply.outputs.input_tokens }}
+      output_tokens: ${{ steps.cc-apply.outputs.output_tokens }}
+      cost_eur: ${{ steps.cc-apply.outputs.cost_eur }}
     steps:
-      # Placeholder: the claude-code-action wiring lands in a follow-up PR. The
-      # routing decision is fully implemented (this branch will be selected for
-      # `ferry:claude-code` / `execution_path: claude-code`), but the action
-      # invocation itself + the front-half loader (envelope/config/Jira/MCP)
-      # are out of scope for this change. Failing loud avoids silent skips.
-      - name: claude-code execution path not yet wired
+      # Fail-loud guard: ferry-cc-prepare's composite entrypoint currently only handles
+      # role 'refiner' end-to-end. Runtime support for developer/reviewer/iterator lands
+      # in a follow-up to #333. Until then, this job must hard-fail before cc-prepare so
+      # consumers get a clear actionable error instead of a late-stage throw.
+      - name: Guard — cc-path not yet wired for developer
         shell: bash
         run: |
-          echo "::error::Ferry routing resolved this run to the claude-code-action path," \
-            "but the claude-code execution branch is not yet wired in this Ferry release." \
-            "Set execution_path: script in ferry.config.yaml (or remove the ferry:claude-code" \
-            "label on the ticket) to use the bundled-script path. Tracked as a follow-up to" \
-            "the routing-only PR."
+          echo "::error::Ferry: the claude-code execution path is not yet wired for role 'developer'."
+          echo "::error::ferry-cc-prepare's composite entrypoint currently only handles role 'refiner' end-to-end."
+          echo "::error::Runtime support for developer / reviewer / iterator arrives in a follow-up to #333."
+          echo "::error::Workaround: route this ticket via the script path (do not set FERRY_EXECUTION_PATH=claude-code)."
           exit 1
+
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Prepare claude-code job
+        id: cc-prepare
+        uses: big-emotion/ferry/.github/actions/ferry-cc-prepare@v0.12.0
+        with:
+          payload: ${{ toJson(github.event.client_payload) }}
+          role: developer
+          jira_base_url: ${{ secrets.FERRY_JIRA_BASE_URL }}
+          jira_email: ${{ secrets.FERRY_JIRA_EMAIL }}
+          jira_api_token: ${{ secrets.FERRY_JIRA_API_TOKEN }}
+          github_token: ${{ github.token }}
+          github_repo: ${{ github.repository }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+      - name: Run claude-code-action
+        uses: anthropics/claude-code-action@1dc994ee7a008f0ecc866d9ac23ef036b7229f84 # v1.0.127
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: ${{ steps.cc-prepare.outputs.prompt }}
+          claude_args: ${{ steps.cc-prepare.outputs.claude_args }}
+
+      - name: Apply claude-code output
+        id: cc-apply
+        uses: big-emotion/ferry/.github/actions/ferry-cc-apply@v0.12.0
+        with:
+          payload: ${{ toJson(github.event.client_payload) }}
+          role: developer
+          jira_base_url: ${{ secrets.FERRY_JIRA_BASE_URL }}
+          jira_email: ${{ secrets.FERRY_JIRA_EMAIL }}
+          jira_api_token: ${{ secrets.FERRY_JIRA_API_TOKEN }}
+          idempotency_marker: ${{ steps.cc-prepare.outputs.idempotency_marker }}
+          ferry_review_transition_id: ${{ secrets.FERRY_REVIEW_TRANSITION_ID }}
+          github_token: ${{ github.token }}
+          github_repo: ${{ github.repository }}
 
   emit-audit:
     name: Emit audit line
     needs: [run-agent, run-agent-claude-code]
-    if: always() && (needs.run-agent.result == 'success' || needs.run-agent-claude-code.result == 'success')
+    if: always() && (needs.run-agent.result != 'skipped' || needs.run-agent-claude-code.result != 'skipped')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -164,10 +203,10 @@ jobs:
           phase: dev
           run_id: ${{ github.event.client_payload.event_id }}
           model: ${{ vars.FERRY_DEV_MODEL || 'claude-sonnet-4-6' }}
-          outcome: ${{ needs.run-agent.result == 'success' && needs.run-agent.result || needs.run-agent-claude-code.result }}
-          input_tokens: ${{ needs.run-agent.outputs.input_tokens || '0' }}
-          output_tokens: ${{ needs.run-agent.outputs.output_tokens || '0' }}
-          cost_eur: ${{ needs.run-agent.outputs.cost_eur || '0' }}
+          outcome: ${{ needs.run-agent.result != 'skipped' && needs.run-agent.result || needs.run-agent-claude-code.result }}
+          input_tokens: ${{ needs.run-agent.outputs.input_tokens || needs.run-agent-claude-code.outputs.input_tokens || '0' }}
+          output_tokens: ${{ needs.run-agent.outputs.output_tokens || needs.run-agent-claude-code.outputs.output_tokens || '0' }}
+          cost_eur: ${{ needs.run-agent.outputs.cost_eur || needs.run-agent-claude-code.outputs.cost_eur || '0' }}
           start_ms: ${{ github.run_id }}
           audit_issue: ${{ vars.FERRY_AUDIT_ISSUE }}
           github_token: ${{ github.token }}
