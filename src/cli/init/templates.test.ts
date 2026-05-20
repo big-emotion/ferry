@@ -67,8 +67,8 @@ describe('workflowTemplates — YAML validity', () => {
   });
 
   it('embeds the ferry version tag in each agent workflow', () => {
-    for (const tmpl of workflowTemplates('v0.13.0')) {
-      expect(tmpl.content).toContain('@v0.13.0');
+    for (const tmpl of workflowTemplates('v0.13.1')) {
+      expect(tmpl.content).toContain('@v0.13.1');
     }
   });
 });

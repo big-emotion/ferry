@@ -1,5 +1,5 @@
 # Copy this file to .github/workflows/ferry-review.yml in your repository.
-# Replace @v0.13.0 with the Ferry release tag you want to pin.
+# Replace @v0.13.1 with the Ferry release tag you want to pin.
 # Required secrets: FERRY_JIRA_BASE_URL, FERRY_JIRA_EMAIL, FERRY_JIRA_API_TOKEN,
 #                   FERRY_ITER_TRANSITION_ID
 #                   ANTHROPIC_API_KEY    — required when FERRY_REVIEW_PROVIDER=anthropic (default)
@@ -43,7 +43,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Validate event envelope
-        uses: big-emotion/ferry/.github/actions/ferry-envelope-validate@v0.13.0
+        uses: big-emotion/ferry/.github/actions/ferry-envelope-validate@v0.13.1
         with:
           payload: ${{ toJson(github.event.client_payload) }}
 
@@ -61,7 +61,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Resolve execution path
         id: route
-        uses: big-emotion/ferry/.github/actions/ferry-route@v0.13.0
+        uses: big-emotion/ferry/.github/actions/ferry-route@v0.13.1
         with:
           payload: ${{ toJson(github.event.client_payload) }}
           role: reviewer
@@ -96,7 +96,7 @@ jobs:
 
       - name: Run Reviewer agent
         id: run-reviewer
-        uses: big-emotion/ferry/.github/actions/ferry-run-reviewer@v0.13.0
+        uses: big-emotion/ferry/.github/actions/ferry-run-reviewer@v0.13.1
         with:
           payload: ${{ toJson(github.event.client_payload) }}
           jira_base_url: ${{ secrets.FERRY_JIRA_BASE_URL }}
@@ -140,7 +140,7 @@ jobs:
 
       - name: Prepare claude-code job
         id: cc-prepare
-        uses: big-emotion/ferry/.github/actions/ferry-cc-prepare@v0.13.0
+        uses: big-emotion/ferry/.github/actions/ferry-cc-prepare@v0.13.1
         with:
           payload: ${{ toJson(github.event.client_payload) }}
           role: reviewer
@@ -160,7 +160,7 @@ jobs:
 
       - name: Apply claude-code output
         id: cc-apply
-        uses: big-emotion/ferry/.github/actions/ferry-cc-apply@v0.13.0
+        uses: big-emotion/ferry/.github/actions/ferry-cc-apply@v0.13.1
         with:
           payload: ${{ toJson(github.event.client_payload) }}
           role: reviewer
@@ -186,7 +186,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Emit audit line
-        uses: big-emotion/ferry/.github/actions/ferry-emit-audit@v0.13.0
+        uses: big-emotion/ferry/.github/actions/ferry-emit-audit@v0.13.1
         with:
           ticket: ${{ github.event.client_payload.ticket_key }}
           phase: review
