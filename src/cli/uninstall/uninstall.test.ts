@@ -11,9 +11,12 @@ vi.mock('node:child_process', () => ({
 
 import {
   detectWorkflows,
+  detectCompositeActions,
   detectCodeownersBlock,
   detectSecrets,
+  detectOAuthSecret,
   FERRY_WORKFLOW_FILES,
+  FERRY_COMPOSITE_DIRS,
   FERRY_SECRETS,
   ANTHROPIC_SECRET,
   CLAUDE_CODE_OAUTH_SECRET,
@@ -21,12 +24,14 @@ import {
 } from './detect.js';
 import {
   removeWorkflows,
+  removeCompositeActions,
   removeCodeownersBlock,
   removeSecrets,
   removeVariable,
   handleAuditIssue,
   type ExecOptions,
 } from './execute.js';
+import { shouldRemoveOAuth } from './oauth-gate.js';
 
 function makeOpts(overrides?: Partial<ExecOptions>): ExecOptions & {
   actions: string[];
@@ -51,6 +56,7 @@ function makeOpts(overrides?: Partial<ExecOptions>): ExecOptions & {
 function makeTempRepo(): string {
   const dir = mkdtempSync(join(tmpdir(), 'ferry-uninstall-test-'));
   mkdirSync(join(dir, '.github', 'workflows'), { recursive: true });
+  mkdirSync(join(dir, '.github', 'actions'), { recursive: true });
   return dir;
 }
 
@@ -171,24 +177,18 @@ describe('detectSecrets', () => {
     expect(detectSecrets('owner/repo', false)).toEqual(['FERRY_APP_ID', 'FERRY_PRIVATE_KEY']);
   });
 
-  it('removes CLAUDE_CODE_OAUTH_SECRET by default (claude-code path token, not orphaned)', () => {
+  it('does NOT include CLAUDE_CODE_OAUTH_SECRET — handled separately with interactive confirmation', () => {
     mockSpawnSync.mockReturnValue(
       spawnOk(
         JSON.stringify([...FERRY_SECRETS, CLAUDE_CODE_OAUTH_SECRET].map((name) => ({ name }))),
       ),
     );
     const secrets = detectSecrets('owner/repo', false);
-    expect(secrets).toContain(CLAUDE_CODE_OAUTH_SECRET);
-  });
-
-  it('does not include CLAUDE_CODE_OAUTH_SECRET when it is not set in the repo', () => {
-    mockSpawnSync.mockReturnValue(spawnOk(JSON.stringify(FERRY_SECRETS.map((name) => ({ name })))));
-    const secrets = detectSecrets('owner/repo', false);
     expect(secrets).not.toContain(CLAUDE_CODE_OAUTH_SECRET);
-    expect(secrets).toEqual([...FERRY_SECRETS]);
+    expect(secrets).toHaveLength(FERRY_SECRETS.length);
   });
 
-  it('removes both CLAUDE_CODE_OAUTH_SECRET and ANTHROPIC_SECRET when includeAnthropic is true', () => {
+  it('does not include CLAUDE_CODE_OAUTH_SECRET even when includeAnthropic is true', () => {
     mockSpawnSync.mockReturnValue(
       spawnOk(
         JSON.stringify(
@@ -197,9 +197,132 @@ describe('detectSecrets', () => {
       ),
     );
     const secrets = detectSecrets('owner/repo', true);
-    expect(secrets).toContain(CLAUDE_CODE_OAUTH_SECRET);
+    expect(secrets).not.toContain(CLAUDE_CODE_OAUTH_SECRET);
     expect(secrets).toContain(ANTHROPIC_SECRET);
-    expect(secrets).toHaveLength(FERRY_SECRETS.length + 2);
+    expect(secrets).toHaveLength(FERRY_SECRETS.length + 1);
+  });
+});
+
+// ── detectOAuthSecret ─────────────────────────────────────────────────────────
+
+describe('detectOAuthSecret', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it('returns true when CLAUDE_CODE_OAUTH_TOKEN is present', () => {
+    mockSpawnSync.mockReturnValue(spawnOk(JSON.stringify([{ name: CLAUDE_CODE_OAUTH_SECRET }])));
+    expect(detectOAuthSecret('owner/repo')).toBe(true);
+  });
+
+  it('returns false when CLAUDE_CODE_OAUTH_TOKEN is absent', () => {
+    mockSpawnSync.mockReturnValue(spawnOk(JSON.stringify(FERRY_SECRETS.map((name) => ({ name })))));
+    expect(detectOAuthSecret('owner/repo')).toBe(false);
+  });
+
+  it('returns false when gh CLI fails', () => {
+    mockSpawnSync.mockReturnValue(spawnFail('gh: not found'));
+    expect(detectOAuthSecret('owner/repo')).toBe(false);
+  });
+});
+
+// ── detectCompositeActions ────────────────────────────────────────────────────
+
+describe('detectCompositeActions', () => {
+  it('marks all composites as not present in an empty actions dir', () => {
+    const dir = makeTempRepo();
+    const result = detectCompositeActions(dir);
+    expect(result).toHaveLength(FERRY_COMPOSITE_DIRS.length);
+    for (const item of result) {
+      expect(item.present).toBe(false);
+    }
+    cleanup(dir);
+  });
+
+  it('detects present composite action directories', () => {
+    const dir = makeTempRepo();
+    mkdirSync(join(dir, '.github', 'actions', 'ferry-route'), { recursive: true });
+    mkdirSync(join(dir, '.github', 'actions', 'ferry-cc-prepare'), { recursive: true });
+
+    const result = detectCompositeActions(dir);
+    expect(result.find((a) => a.dirname === 'ferry-route')?.present).toBe(true);
+    expect(result.find((a) => a.dirname === 'ferry-cc-prepare')?.present).toBe(true);
+    expect(result.find((a) => a.dirname === 'ferry-cc-apply')?.present).toBe(false);
+
+    cleanup(dir);
+  });
+
+  it('returns all 3 ferry composite dir names', () => {
+    const dir = makeTempRepo();
+    const names = detectCompositeActions(dir).map((a) => a.dirname);
+    expect(names).toContain('ferry-route');
+    expect(names).toContain('ferry-cc-prepare');
+    expect(names).toContain('ferry-cc-apply');
+    cleanup(dir);
+  });
+});
+
+// ── removeCompositeActions ────────────────────────────────────────────────────
+
+describe('removeCompositeActions', () => {
+  it('deletes present composite action directories', () => {
+    const dir = makeTempRepo();
+    const actionsDir = join(dir, '.github', 'actions');
+    mkdirSync(join(actionsDir, 'ferry-route'), { recursive: true });
+    writeFileSync(join(actionsDir, 'ferry-route', 'action.yml'), 'name: test', 'utf8');
+    mkdirSync(join(actionsDir, 'ferry-cc-prepare'), { recursive: true });
+
+    const opts = makeOpts();
+    removeCompositeActions(dir, detectCompositeActions(dir), opts);
+
+    expect(existsSync(join(actionsDir, 'ferry-route'))).toBe(false);
+    expect(existsSync(join(actionsDir, 'ferry-cc-prepare'))).toBe(false);
+    expect(opts.actions).toContain('Deleted .github/actions/ferry-route/');
+    expect(opts.actions).toContain('Deleted .github/actions/ferry-cc-prepare/');
+
+    cleanup(dir);
+  });
+
+  it('skips composite dirs that are not present', () => {
+    const dir = makeTempRepo();
+    const opts = makeOpts();
+    removeCompositeActions(dir, detectCompositeActions(dir), opts);
+
+    expect(opts.actions).toHaveLength(0);
+    expect(opts.skips.length).toBe(FERRY_COMPOSITE_DIRS.length);
+
+    cleanup(dir);
+  });
+
+  it('dry-run does not delete composite dirs', () => {
+    const dir = makeTempRepo();
+    const actionsDir = join(dir, '.github', 'actions');
+    mkdirSync(join(actionsDir, 'ferry-cc-apply'), { recursive: true });
+
+    const opts = makeOpts({ dryRun: true });
+    removeCompositeActions(dir, detectCompositeActions(dir), opts);
+
+    expect(existsSync(join(actionsDir, 'ferry-cc-apply'))).toBe(true);
+    expect(opts.actions.some((a) => a.includes('[dry-run]'))).toBe(true);
+
+    cleanup(dir);
+  });
+
+  it('handles partial install — deletes present, skips missing', () => {
+    const dir = makeTempRepo();
+    const actionsDir = join(dir, '.github', 'actions');
+    mkdirSync(join(actionsDir, 'ferry-route'), { recursive: true });
+
+    const opts = makeOpts();
+    removeCompositeActions(dir, detectCompositeActions(dir), opts);
+
+    expect(existsSync(join(actionsDir, 'ferry-route'))).toBe(false);
+    expect(opts.actions.filter((a) => a.startsWith('Deleted'))).toHaveLength(1);
+    expect(opts.skips.filter((s) => s.includes('not present'))).toHaveLength(
+      FERRY_COMPOSITE_DIRS.length - 1,
+    );
+
+    cleanup(dir);
   });
 });
 
@@ -424,6 +547,19 @@ describe('removeSecrets', () => {
       expect.any(Object),
     );
   });
+
+  it('removes CLAUDE_CODE_OAUTH_SECRET when explicitly passed to removeSecrets', () => {
+    mockSpawnSync.mockReturnValue(spawnOk());
+    const opts = makeOpts();
+    removeSecrets('owner/repo', [CLAUDE_CODE_OAUTH_SECRET], opts);
+
+    expect(mockSpawnSync).toHaveBeenCalledWith(
+      'gh',
+      ['secret', 'delete', CLAUDE_CODE_OAUTH_SECRET, '--repo', 'owner/repo'],
+      expect.any(Object),
+    );
+    expect(opts.actions).toContain(`Deleted secret ${CLAUDE_CODE_OAUTH_SECRET}`);
+  });
 });
 
 // ── removeVariable ────────────────────────────────────────────────────────────
@@ -520,5 +656,49 @@ describe('handleAuditIssue', () => {
     handleAuditIssue('owner/repo', { number: 42, hasLabel: true }, false, opts);
 
     expect(opts.errors.some((e) => e.includes('#42'))).toBe(true);
+  });
+});
+
+// ── shouldRemoveOAuth (headline safety invariant for CLAUDE_CODE_OAUTH_TOKEN) ──
+
+describe('shouldRemoveOAuth', () => {
+  // Headline guarantee: --yes mode must NEVER remove the OAuth token,
+  // regardless of presence or any spurious "confirmed" flag.
+  it('never removes the OAuth token under --yes when present and confirmed=true', () => {
+    expect(shouldRemoveOAuth({ yes: true, oauthSecretPresent: true, confirmed: true })).toBe(false);
+  });
+
+  it('never removes the OAuth token under --yes when present and confirmed=false', () => {
+    expect(shouldRemoveOAuth({ yes: true, oauthSecretPresent: true, confirmed: false })).toBe(
+      false,
+    );
+  });
+
+  it('never removes the OAuth token under --yes when absent', () => {
+    expect(shouldRemoveOAuth({ yes: true, oauthSecretPresent: false, confirmed: true })).toBe(
+      false,
+    );
+    expect(shouldRemoveOAuth({ yes: true, oauthSecretPresent: false, confirmed: false })).toBe(
+      false,
+    );
+  });
+
+  it('removes the OAuth token in interactive mode only when present and explicitly confirmed', () => {
+    expect(shouldRemoveOAuth({ yes: false, oauthSecretPresent: true, confirmed: true })).toBe(true);
+  });
+
+  it('does not remove the OAuth token in interactive mode when the user declines', () => {
+    expect(shouldRemoveOAuth({ yes: false, oauthSecretPresent: true, confirmed: false })).toBe(
+      false,
+    );
+  });
+
+  it('does not remove the OAuth token in interactive mode when the secret is not present', () => {
+    expect(shouldRemoveOAuth({ yes: false, oauthSecretPresent: false, confirmed: true })).toBe(
+      false,
+    );
+    expect(shouldRemoveOAuth({ yes: false, oauthSecretPresent: false, confirmed: false })).toBe(
+      false,
+    );
   });
 });
