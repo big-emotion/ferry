@@ -567,8 +567,9 @@ describe('prepareCcJob — tool-policy and job-permissions hardening (#303)', ()
       for (const [scope, level] of Object.entries(CLAUDE_CODE_JOB_PERMISSIONS)) {
         expect(out.permissionsYaml).toContain(`${scope}: ${level}`);
       }
-      // Must not grant dangerous extra scopes.
-      expect(out.permissionsYaml).not.toContain('id-token');
+      // id-token: write is required for claude-code-action@v1 OIDC auth (#353).
+      expect(out.permissionsYaml).toContain('id-token: write');
+      // Must not grant dangerous extra scopes beyond the canonical set.
       expect(out.permissionsYaml).not.toContain('actions: write');
     }
   });

@@ -9,9 +9,12 @@
  * merge` and a feature-branch push both ride on `contents: write`. The deny is
  * therefore enforced by the tool policy; this module's job is narrower but
  * still load-bearing: guarantee the action token is scoped to *exactly* the
- * three permissions the agents need and nothing that would broaden blast radius
- * (no `id-token` OIDC, no `actions`/`workflows`/`packages` write, no
- * `write-all`).
+ * permissions the agents need and nothing that would broaden blast radius
+ * (no `actions`/`workflows`/`packages` write, no `write-all`).
+ *
+ * Note: `id-token: write` is required because `anthropics/claude-code-action@v1`
+ * unconditionally calls `core.getIDToken()` during `setupGitHubToken`; omitting
+ * it causes every dispatch to fail at OIDC fetch (issue #353).
  *
  * `#302` generates the claude-code workflow; it consumes `renderPermissionsYaml`
  * and must `assertLeastPrivilege` before emitting the job.
@@ -22,19 +25,20 @@ export type PermissionScope = 'read' | 'write' | 'none';
 export type JobPermissions = Record<string, PermissionScope>;
 
 /** The only scopes the four agents need on the claude-code path. */
-const REQUIRED_WRITE_SCOPES = ['contents', 'pull-requests', 'issues'] as const;
+const REQUIRED_WRITE_SCOPES = ['contents', 'pull-requests', 'issues', 'id-token'] as const;
 
 /** Canonical least-privilege descriptor for the claude-code-action job. */
 export const CLAUDE_CODE_JOB_PERMISSIONS: JobPermissions = {
   contents: 'write',
   'pull-requests': 'write',
   issues: 'write',
+  'id-token': 'write',
 };
 
 /**
  * Fail-closed check that a permissions map is least-privilege for this path:
  *
- * - the three required scopes are present and set to `write`;
+ * - the four required scopes are present and set to `write`;
  * - no other scope is granted `read` or `write` (only an explicit `none` is
  *   tolerated — it is equivalent to omission and keeps generated workflows
  *   self-documenting);
