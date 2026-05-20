@@ -518,9 +518,11 @@ describe('runCcPrepareAction — non-refiner roles are wired into the entrypoint
       // Explicitly clear GITHUB_TOKEN because the CI environment sets it, which
       // would otherwise cause requireEnv('GITHUB_TOKEN') to succeed and reach
       // runner.getRepoDefaultBranch before the expected throw.
+      // We must stub it to '' rather than omitting it because GHA always injects
+      // GITHUB_TOKEN, so relying on absence isn't portable across environments.
       vi.stubEnv('GITHUB_TOKEN', '');
       for (const [k, v] of Object.entries(
-        baseEnv({ GITHUB_OUTPUT: tmp.outputFile, FERRY_AGENT_ROLE: role }),
+        baseEnv({ GITHUB_OUTPUT: tmp.outputFile, FERRY_AGENT_ROLE: role, GITHUB_TOKEN: '' }),
       )) {
         vi.stubEnv(k, v);
       }
