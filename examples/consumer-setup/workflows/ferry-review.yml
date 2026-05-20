@@ -168,13 +168,14 @@ jobs:
           jira_api_token: ${{ secrets.FERRY_JIRA_API_TOKEN }}
           idempotency_marker: ${{ steps.cc-prepare.outputs.idempotency_marker }}
           ferry_iter_transition_id: ${{ secrets.FERRY_ITER_TRANSITION_ID }}
+          ferry_approve_transition_id: ${{ secrets.FERRY_APPROVE_TRANSITION_ID }}
           github_token: ${{ github.token }}
           github_repo: ${{ github.repository }}
 
   emit-audit:
     name: Emit audit line
     needs: [run-agent, run-agent-claude-code]
-    if: always() && (needs.run-agent.result == 'success' || needs.run-agent-claude-code.result == 'success')
+    if: always() && (needs.run-agent.result != 'skipped' || needs.run-agent-claude-code.result != 'skipped')
     runs-on: ubuntu-latest
     permissions:
       contents: read

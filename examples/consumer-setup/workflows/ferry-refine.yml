@@ -155,7 +155,7 @@ jobs:
   emit-audit:
     name: Emit audit line
     needs: [run-agent, run-agent-claude-code]
-    if: always() && (needs.run-agent.result == 'success' || needs.run-agent-claude-code.result == 'success')
+    if: always() && (needs.run-agent.result != 'skipped' || needs.run-agent-claude-code.result != 'skipped')
     runs-on: ubuntu-latest
     permissions:
       contents: read

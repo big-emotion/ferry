@@ -176,10 +176,17 @@ describe('workflowTemplates — role-specific wiring', () => {
     );
   });
 
-  it('ferry-review.yml wires FERRY_ITER_TRANSITION_ID into cc-apply (FR24)', () => {
+  it('ferry-review.yml wires FERRY_ITER_TRANSITION_ID into cc-apply (FR24 changes)', () => {
     const review = workflowTemplates('v1').find((t) => t.filename === 'ferry-review.yml');
     expect(review?.content).toContain(
       'ferry_iter_transition_id: ${{ secrets.FERRY_ITER_TRANSITION_ID }}',
+    );
+  });
+
+  it('ferry-review.yml wires FERRY_APPROVE_TRANSITION_ID into cc-apply (FR24 approve)', () => {
+    const review = workflowTemplates('v1').find((t) => t.filename === 'ferry-review.yml');
+    expect(review?.content).toContain(
+      'ferry_approve_transition_id: ${{ secrets.FERRY_APPROVE_TRANSITION_ID }}',
     );
   });
 
