@@ -379,8 +379,8 @@ Set the `AGENT_MCP_SERVERS` environment variable (repository variable or secret)
   },
   {
     "name": "github",
-    "url": "https://api.githubcopilot.com/mcp",
-    "authorization_token": "<your-token>",
+    "url": "https://api.githubcopilot.com/mcp/",
+    "authorization_token": "<github-fine-grained-pat>",
     "allowed_tools": ["search_code", "get_file_contents"]
   }
 ]
@@ -445,46 +445,47 @@ Each stdio entry accepts:
 
 [context7](https://github.com/upstash/context7) serves up-to-date library documentation as an MCP tool. It is **enabled by default** — see [Default MCP servers](#default-mcp-servers) above. No configuration is needed unless you want to opt out or point to a custom proxy.
 
-**End-to-end example — Figma for UI refactors**
+**End-to-end example — Atlassian for context-rich tickets**
 
-This walkthrough shows how to wire Figma's MCP server so the Developer consults the linked design frame before editing UI code.
+This walkthrough shows how to wire Atlassian's remote MCP server so the Developer loads Confluence pages and linked Jira issues referenced in the ticket before editing code.
 
 **Step 1 — Declare the server in the pool** (`AGENT_MCP_SERVERS` repo variable):
 
 ```json
 [
   {
-    "name": "figma",
-    "url": "https://mcp.figma.com/mcp",
-    "authorization_token": "<your-figma-pat>",
-    "allowed_tools": ["get_node", "get_file"]
+    "name": "atlassian",
+    "url": "https://mcp.atlassian.com/v1/mcp",
+    "authorization_token": "<atlassian-rovo-api-token>",
+    "allowed_tools": ["search_confluence", "get_confluence_page", "get_jira_issue"]
   }
 ]
 ```
+
+Generate the API token from <https://id.atlassian.com/manage-profile/security/api-tokens>. Use an account with read access to the Confluence spaces and Jira projects you want Ferry to read.
 
 **Step 2 — Map a `ferry:*` label** in `ferry.config.yaml`:
 
 ```yaml
 labels:
-  ferry:mcp/figma:
-    mcp_servers: [figma]
+  ferry:mcp/atlassian:
+    mcp_servers: [atlassian]
 ```
 
 **Step 3 — Tell the agent to use it** in `prompts/dev.extra.md`:
 
 ```markdown
-## Figma design reference
+## Atlassian context
 
-When the ticket description or a comment references a Figma frame URL or node ID,
-call `figma.get_node` with that node ID **before** editing any UI component.
-Use the returned layout and style properties to guide your implementation.
-
-If no Figma link is present, skip the tool call entirely.
+When the ticket description links to a Confluence page or another Jira ticket,
+call `atlassian.get_confluence_page` or `atlassian.get_jira_issue` to load
+the linked context before planning the change. Skip the tool call when no
+such link is present.
 ```
 
-**Step 4 — Label the Jira ticket** with `ferry:mcp/figma` before moving it to _In Development_.
+**Step 4 — Label the Jira ticket** with `ferry:mcp/atlassian` before moving it to _In Development_.
 
-**Failure mode to avoid.** If `prompts/dev.extra.md` does not explicitly instruct the agent to call `figma.get_node`, the Developer may refactor the UI component without ever consulting the Figma frame — even though the tool is available. MCP tools are passive; the agent must be told when to invoke them.
+**Failure mode to avoid.** If `prompts/dev.extra.md` does not explicitly instruct the agent to call `atlassian.get_confluence_page` or `atlassian.get_jira_issue`, the Developer may plan the change without ever consulting the linked context — even though the tool is available. MCP tools are passive; the agent must be told when to invoke them.
 
 **Audit logs**
 
@@ -515,7 +516,7 @@ Then add the matching label to your Jira ticket (e.g. `ferry:mcp/context7`). Fer
 
 **Backward compatibility.** If the `labels:` section is absent from `ferry.config`, all servers in `AGENT_MCP_SERVERS` are passed through unchanged — existing behaviour is preserved.
 
-See **[docs/MCP.md](docs/MCP.md)** for the full reference: server registry, config schema, per-ticket label scoping, end-to-end Figma example, and audit log format.
+See **[docs/MCP.md](docs/MCP.md)** for the full reference: server registry, config schema, per-ticket label scoping, end-to-end Atlassian example, and audit log format.
 
 ---
 
