@@ -46,3 +46,23 @@ export {
   buildConflictComment,
   applyDryRunMarker,
 } from '../labels/overrides.js';
+
+// Per-role pre-loop setup (issue #330). Each agent's *-action.ts delegates the
+// stateful, side-effect-light setup chunk (system + initialPrompt + MCP filter
+// + idempotency marker + branch/PR probe) to these prepare functions, so the
+// future cc-prepare composite can feed `buildClaudeCodeJob` from the same
+// source. The shared base type lives in ./prepare.
+export type { RolePreparedContextBase } from './prepare.js';
+export { prepareRefiner } from './refiner-prepare.js';
+export type { PrepareRefinerInput, RefinerPreparedContext } from './refiner-prepare.js';
+export { prepareDeveloper, checkoutOrCreateBranchDefault } from './developer-prepare.js';
+export type {
+  PrepareDeveloperInput,
+  DeveloperPreparedContext,
+  BranchCheckoutResult,
+  CheckoutOrCreateBranchFn,
+} from './developer-prepare.js';
+export { prepareReviewer } from './reviewer-prepare.js';
+export type { PrepareReviewerInput, ReviewerPreparedContext } from './reviewer-prepare.js';
+export { prepareIterator } from './iterator-prepare.js';
+export type { PrepareIteratorInput, IteratorPreparedContext } from './iterator-prepare.js';

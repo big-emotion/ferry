@@ -6442,6 +6442,426 @@ function buildConflictComment(role, runId, err) {
   ].join("\n");
 }
 
+// src/lib/agent-runtime/refiner-prepare.ts
+var PRIOR_RUN_MARKER = /\[ferry:refiner:[^\]]+\]/;
+async function prepareRefiner(input) {
+  const { envelope, tracker } = input;
+  const { ticket_key: ticketKey, event_id: eventId } = envelope;
+  const issue = await tracker.getIssue(ticketKey);
+  const existingSubtasks = await tracker.getSubtaskDetails(ticketKey);
+  const priorRefinerRuns = issue.comments.filter((c) => PRIOR_RUN_MARKER.test(c));
+  const runLink = `https://github.com/${process.env.GITHUB_REPO ?? "unknown"}/actions/runs/${process.env.GITHUB_RUN_ID ?? "0"}`;
+  const idempotencyMarker = byEventId("refiner", eventId);
+  return {
+    issue,
+    existingSubtasks,
+    priorRefinerRuns,
+    runLink,
+    idempotencyMarker
+  };
+}
+
+// src/lib/agent-runtime/developer-prepare.ts
+import { execFileSync as execFileSync3 } from "node:child_process";
+
+// src/lib/llm/delimit-untrusted.ts
+var OPEN = "<<<UNTRUSTED>>>";
+var CLOSE = "<<<END UNTRUSTED>>>";
+var OPEN_ESCAPE = "<<<UNTRUSTED-LITERAL>>>";
+var CLOSE_ESCAPE = "<<<END UNTRUSTED-LITERAL>>>";
+function delimitUntrusted(value) {
+  const escaped = value.split(OPEN).join(OPEN_ESCAPE).split(CLOSE).join(CLOSE_ESCAPE);
+  return `${OPEN}
+${escaped}
+${CLOSE}`;
+}
+
+// src/lib/agent-runtime/developer-prepare.ts
+var checkoutOrCreateBranchDefault = (branchName, baseBranch, repoRoot, logger) => {
+  try {
+    execFileSync3("git", ["ls-remote", "--exit-code", "--heads", "origin", branchName], {
+      cwd: repoRoot,
+      stdio: "pipe"
+    });
+    execFileSync3("git", ["fetch", "origin", branchName], { cwd: repoRoot });
+    execFileSync3("git", ["checkout", branchName], { cwd: repoRoot });
+    const existingLog = execFileSync3("git", ["log", `origin/${baseBranch}..HEAD`, "--oneline"], {
+      cwd: repoRoot,
+      encoding: "utf8"
+    }).trim();
+    if (existingLog) {
+      logger.info("resuming branch", {
+        branch: branchName,
+        prior_commits: existingLog.split("\n").length
+      });
+    }
+    const branchHeadSha = execFileSync3("git", ["rev-parse", "HEAD"], {
+      cwd: repoRoot,
+      encoding: "utf8"
+    }).trim();
+    return { branchHeadSha, existingLog };
+  } catch {
+    execFileSync3("git", ["checkout", "-B", branchName], { cwd: repoRoot });
+    logger.info("created branch", { branch: branchName });
+    return { branchHeadSha: "", existingLog: "" };
+  }
+};
+async function prepareDeveloper(input) {
+  const {
+    envelope,
+    issue,
+    effectiveCfg,
+    subtasks,
+    testRunner,
+    pkgManagerHint,
+    tree,
+    typeOverride,
+    owner,
+    repo,
+    baseBranch,
+    runner,
+    mcpPool,
+    repoRoot,
+    dryRun,
+    logger
+  } = input;
+  const buildSystem2 = input._buildSystem ?? buildSystem;
+  const checkoutOrCreateBranch = input._checkoutOrCreateBranch ?? checkoutOrCreateBranchDefault;
+  const configureGitUser = input._configureGitUser ?? configureFerryGitUser;
+  const ticketKey = envelope.ticket_key;
+  const eventId = envelope.event_id;
+  const labels = issue.labels.join(", ");
+  const comments = issue.comments.map((c) => `Comment: ${c}`).join("\n");
+  const ticketBlock = buildTicketBlock(ticketKey, issue, {
+    labels,
+    comments,
+    typeOverride
+  });
+  const system = buildSystem2("dev", repoRoot, {
+    extraParts: pkgManagerHint ? [`## Detected package manager
+
+${pkgManagerHint}`] : []
+  });
+  const branchName = `${resolveBranchPrefix(effectiveCfg.git.working_branch_prefix, issue)}${ticketKey}`;
+  configureGitUser(repoRoot);
+  const { branchHeadSha, existingLog } = checkoutOrCreateBranch(
+    branchName,
+    baseBranch,
+    repoRoot,
+    logger
+  );
+  const resumeContext = existingLog ? `
+EXISTING WORK ON BRANCH (already committed \u2014 skip these, only do what remains):
+${existingLog}` : "";
+  let existingPrUrl = "";
+  let existingPrContext = "";
+  if (branchHeadSha && !dryRun) {
+    try {
+      const openPrs = await runner.listPRsForBranch(owner, repo, branchName);
+      if (openPrs.length > 0) {
+        const pr = openPrs[0];
+        existingPrUrl = `https://github.com/${owner}/${repo}/pull/${pr.number}`;
+        const prRef = { owner, repo, prNumber: pr.number };
+        const prFiles = await runner.listPRFiles(prRef);
+        const fileList = prFiles.map((f) => `${f.status}: ${f.filename}`).join("\n");
+        existingPrContext = [
+          `
+EXISTING_IMPLEMENTATION:`,
+          `Open PR: ${existingPrUrl} (head: ${branchHeadSha.slice(0, 7)})`,
+          `Changed files:
+${fileList}`,
+          `If the spec is already fully satisfied by the existing code, call \`done\` with outcome="already_satisfied".`
+        ].join("\n");
+        logger.info("existing PR found", { pr: existingPrUrl, files: prFiles.length });
+      }
+    } catch {
+    }
+  }
+  const idempotencyMarker = branchHeadSha ? byPrHeadSha("dev", branchHeadSha) : byEventId("dev", eventId);
+  const baseInitialPrompt = [
+    delimitUntrusted(ticketBlock),
+    "",
+    subtasks.length > 0 ? `SUBTASKS:
+${subtasks.join("\n")}` : "SUBTASKS: (none)",
+    "",
+    `TEST_RUNNER: ${testRunner}`,
+    "",
+    `REPO TREE (depth 2):
+${tree}`,
+    "",
+    "When you have finished implementing, call the `done` tool."
+  ].join("\n");
+  const initialPrompt = baseInitialPrompt + resumeContext + existingPrContext;
+  const capabilities = resolveCapabilities(issue.labels, effectiveCfg.labels);
+  const hasLabelsConfig = effectiveCfg.labels !== void 0;
+  const mcpServers = filterMcpServers(mcpPool, capabilities, hasLabelsConfig);
+  return {
+    system,
+    initialPrompt,
+    baseInitialPrompt,
+    mcpServers,
+    idempotencyMarker,
+    ticketBlock,
+    subtasks,
+    capabilities,
+    branchName,
+    branchHeadSha,
+    existingPrUrl
+  };
+}
+
+// src/agents/reviewer/rubric.ts
+var STRICT_DIRECTIVE = [
+  "## Rubric override \u2014 strict",
+  "",
+  "For this review, apply a STRICTER bar than usual:",
+  "",
+  "- Block on any missing test coverage for new/changed behaviour.",
+  "- Block on missing edge-case handling, error paths, or input validation.",
+  "- Block on weak naming, dead code, or unreachable branches.",
+  "- Block on incomplete documentation when public APIs change.",
+  "- Approve only when every acceptance criterion is fully satisfied with concrete evidence."
+].join("\n");
+var LENIENT_DIRECTIVE = [
+  "## Rubric override \u2014 lenient",
+  "",
+  "For this review, apply a MORE PERMISSIVE bar than usual:",
+  "",
+  "- Approve when the acceptance criteria are met, even if minor polish is missing.",
+  "- Treat naming nits, non-blocking style issues, and stylistic preferences as comments \u2014 not blockers.",
+  "- Block only on: failing tests, unimplemented ACs, merge conflicts, committed build artefacts, or security regressions.",
+  '- Prefer "approve with comments" over "request changes" when issues are non-blocking.'
+].join("\n");
+function applyRubricToPrompt(basePrompt, rubric) {
+  if (rubric === void 0) return basePrompt;
+  const directive = rubric === "strict" ? STRICT_DIRECTIVE : LENIENT_DIRECTIVE;
+  return `${basePrompt}
+
+---
+
+${directive}`;
+}
+
+// src/agents/reviewer/review-loop.ts
+var MAX_PATCH_CHARS = 2e4;
+var MAX_CONTENT_CHARS = 4e4;
+var MAX_ITERATIONS = 40;
+var REVIEW_TOOL_DEFS = [
+  {
+    name: "get_file_patch",
+    description: "Get the unified diff patch for a specific file in this PR. Use this to inspect what changed in a file before making a finding.",
+    input_schema: {
+      type: "object",
+      properties: {
+        filename: { type: "string", description: "Exact file path as listed in the PR file list." }
+      },
+      required: ["filename"]
+    }
+  },
+  {
+    name: "get_file_content",
+    description: "Get the full content of a file from the PR head branch. Use when the patch is truncated or you need context outside the changed lines.",
+    input_schema: {
+      type: "object",
+      properties: {
+        filename: { type: "string", description: "Exact file path." }
+      },
+      required: ["filename"]
+    }
+  },
+  {
+    name: "finish_review",
+    description: "Post the review verdict and end the review loop. Call once you have inspected all relevant files.",
+    input_schema: {
+      type: "object",
+      properties: {
+        approved: {
+          type: "boolean",
+          description: "true = ready to merge, false = changes required."
+        },
+        comment: {
+          type: "string",
+          description: "Full review comment in Markdown. Follow the required format from the system prompt."
+        }
+      },
+      required: ["approved", "comment"]
+    }
+  }
+];
+function detectMergeConflicts(files) {
+  const conflicted = [];
+  for (const f of files) {
+    if (f.patch && /^[+].*<{7}|^[+].*={7}|^[+].*>{7}/m.test(f.patch)) {
+      conflicted.push(f.filename);
+    }
+  }
+  return conflicted;
+}
+function buildFileList(files) {
+  return files.map((f) => `${f.status.padEnd(8)} +${f.additions} -${f.deletions}  ${f.filename}`).join("\n");
+}
+async function runReviewLoop(opts) {
+  const { loop, system, initialPrompt, fileMap, runner, owner, repo, headSha } = opts;
+  const logger = opts.logger ?? createLogger("", "ferry:review-loop");
+  const maxIterations = opts.maxIterations ?? (parseInt(process.env.FERRY_REVIEWER_MAX_ITERATIONS ?? "", 10) || MAX_ITERATIONS);
+  const maxTokens = opts.maxTokens ?? (parseInt(process.env.FERRY_REVIEWER_MAX_TOKENS ?? "", 10) || 16384);
+  const {
+    done: result,
+    usage,
+    iterations,
+    toolCounts,
+    toolCallRecords
+  } = await loop.run({
+    system,
+    initialPrompt,
+    tools: REVIEW_TOOL_DEFS,
+    finishTool: "finish_review",
+    extractDone: (input) => ({
+      approved: input.approved,
+      comment: input.comment
+    }),
+    handlers: {
+      get_file_patch: (input) => {
+        const filename = input.filename;
+        logger.info("tool", { tool: "get_file_patch", file: filename });
+        const patch = fileMap.get(filename);
+        if (patch === void 0) return `(file not found in PR: ${filename})`;
+        if (!patch) return "(no patch \u2014 binary, empty, or content unchanged)";
+        const patchLimit = parseInt(process.env.FERRY_REVIEW_PATCH_TRUNCATE_CHARS ?? "", 10) || MAX_PATCH_CHARS;
+        return patch.length > patchLimit ? patch.slice(0, patchLimit) + "\n... (truncated)" : patch;
+      },
+      get_file_content: async (input) => {
+        const filename = input.filename;
+        logger.info("tool", { tool: "get_file_content", file: filename });
+        const fileLimit = parseInt(process.env.FERRY_REVIEW_FILE_TRUNCATE_CHARS ?? "", 10) || MAX_CONTENT_CHARS;
+        const rawContent = await runner.getFileContent(owner, repo, filename, headSha);
+        return rawContent.length > fileLimit ? rawContent.slice(0, fileLimit) + "\n... (truncated)" : rawContent;
+      }
+    },
+    maxIterations,
+    maxTokens,
+    logger
+  });
+  return {
+    result,
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
+    iterations,
+    toolCounts,
+    toolCallRecords
+  };
+}
+
+// src/lib/agent-runtime/reviewer-prepare.ts
+function prepareReviewer(input) {
+  const {
+    ticketKey,
+    issue,
+    pr,
+    files,
+    commits,
+    branchName,
+    typeOverride,
+    reviewRubric,
+    configLabels,
+    repoRoot,
+    logger
+  } = input;
+  const buildSystem2 = input._buildSystem ?? buildSystem;
+  const loadOptionalPrompt2 = input._loadOptionalPrompt ?? loadOptionalPrompt;
+  const headSha = pr.headSha;
+  const prNumber = pr.number;
+  const fileMap = new Map(files.map((f) => [f.filename, f.patch]));
+  const conflictedFiles = detectMergeConflicts(files);
+  const hasMergeConflicts = pr.mergeable === false || conflictedFiles.length > 0;
+  const commitLog = commits.map((c) => `${c.sha.slice(0, 7)} ${c.message.split("\n")[0]}`).join("\n");
+  const ticketBlock = buildTicketBlock(ticketKey, issue, { typeOverride });
+  const mergeConflictWarning = hasMergeConflicts ? `
+\u26A0\uFE0F  MERGE CONFLICTS DETECTED \u2014 mergeable=${String(pr.mergeable)}${conflictedFiles.length > 0 ? `, conflicted files: ${conflictedFiles.join(", ")}` : ""}` : "";
+  const initialPrompt = [
+    "## Jira Ticket",
+    delimitUntrusted(ticketBlock),
+    "",
+    "## PR Metadata",
+    `PR #${prNumber}: ${pr.title}`,
+    `Base: ${pr.baseRef} \u2190 Head: ${branchName} (${headSha.slice(0, 7)})`,
+    `Files changed: ${files.length}  Commits: ${commits.length}`,
+    mergeConflictWarning,
+    "",
+    "## Commits",
+    commitLog,
+    "",
+    "## Changed files (status  +additions  -deletions  path)",
+    buildFileList(files),
+    "",
+    "Use get_file_patch to inspect individual file diffs, get_file_content for full file contents.",
+    "When you have enough information, call finish_review."
+  ].filter((l) => l !== null).join("\n");
+  const baseSystem = buildSystem2("review", repoRoot, {
+    extraParts: [loadOptionalPrompt2("review-comment", repoRoot)],
+    separator: "\n\n---\n\n"
+  });
+  const system = applyRubricToPrompt(baseSystem, reviewRubric);
+  const capabilities = resolveCapabilities(issue.labels, configLabels, logger);
+  const mcpServers = [];
+  const idempotencyMarker = byPrHeadSha("reviewer", headSha);
+  return {
+    system,
+    initialPrompt,
+    mcpServers,
+    idempotencyMarker,
+    ticketBlock,
+    capabilities,
+    fileMap
+  };
+}
+
+// src/lib/agent-runtime/iterator-prepare.ts
+function prepareIterator(input) {
+  const {
+    ticketKey,
+    issue,
+    headSha,
+    reviewComment,
+    mergeConflicts,
+    existingLog,
+    mcpPool,
+    configLabels,
+    typeOverride,
+    repoRoot,
+    logger
+  } = input;
+  const buildSystem2 = input._buildSystem ?? buildSystem;
+  const system = buildSystem2("iterate", repoRoot);
+  const ticketBlock = buildTicketBlock(ticketKey, issue, { typeOverride });
+  const initialPrompt = [
+    "## Jira Ticket",
+    delimitUntrusted(ticketBlock),
+    "",
+    "## Review Findings (fix only what is listed here)",
+    delimitUntrusted(reviewComment),
+    "",
+    mergeConflicts.length > 0 ? `## Merge Conflicts (resolve these first, before fixing review findings)
+${mergeConflicts.map((f) => `- ${f}`).join("\n")}` : "",
+    existingLog ? `## Existing commits on branch
+${existingLog}` : "",
+    "",
+    "When you have fixed all findings, call the `done` tool."
+  ].filter(Boolean).join("\n");
+  const capabilities = resolveCapabilities(issue.labels, configLabels, logger);
+  const hasLabelsConfig = configLabels !== void 0;
+  const mcpServers = filterMcpServers(mcpPool, capabilities, hasLabelsConfig);
+  const idempotencyMarker = byPrHeadSha("iterator", headSha);
+  return {
+    system,
+    initialPrompt,
+    mcpServers,
+    idempotencyMarker,
+    ticketBlock,
+    capabilities
+  };
+}
+
 // src/lib/dry-run.ts
 function isDryRun() {
   return process.env.FERRY_DRY_RUN === "1" || process.env.FERRY_DRY_RUN === "true";
@@ -6640,18 +7060,6 @@ function createLlmCall(route) {
 
 // src/agents/refiner/refine.ts
 import { createRequire as createRequire3 } from "module";
-
-// src/lib/llm/delimit-untrusted.ts
-var OPEN = "<<<UNTRUSTED>>>";
-var CLOSE = "<<<END UNTRUSTED>>>";
-var OPEN_ESCAPE = "<<<UNTRUSTED-LITERAL>>>";
-var CLOSE_ESCAPE = "<<<END UNTRUSTED-LITERAL>>>";
-function delimitUntrusted(value) {
-  const escaped = value.split(OPEN).join(OPEN_ESCAPE).split(CLOSE).join(CLOSE_ESCAPE);
-  return `${OPEN}
-${escaped}
-${CLOSE}`;
-}
 
 // src/agents/refiner/parse.ts
 function extractFirstJsonObject(text) {
@@ -7028,15 +7436,12 @@ function estimateTicketCost(_plan, baseline) {
 
 // src/agents/refiner/refiner-action.ts
 var REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
-var PRIOR_RUN_MARKER = /\[ferry:refiner:[^\]]+\]/;
 async function run(envelope, deps) {
   const { ticket_key: ticketKey, event_id: eventId } = envelope;
   const logger = deps.logger ?? createLogger(eventId, "ferry:refiner-action");
   const dryRun = isDryRun() || deps.dryRun === true;
-  const issue = await deps.tracker.getIssue(ticketKey);
-  const runLink = `https://github.com/${process.env.GITHUB_REPO ?? "unknown"}/actions/runs/${process.env.GITHUB_RUN_ID ?? "0"}`;
-  const existingSubtasks = await deps.tracker.getSubtaskDetails(ticketKey);
-  const priorRefinerRuns = issue.comments.filter((c) => PRIOR_RUN_MARKER.test(c));
+  const prepared = await prepareRefiner({ envelope, tracker: deps.tracker });
+  const { issue, existingSubtasks, priorRefinerRuns, runLink, idempotencyMarker } = prepared;
   const { plan, auditSummary } = await runRefiner({
     ticket: {
       key: issue.key,
@@ -7111,7 +7516,6 @@ async function run(envelope, deps) {
     existingSubtasks,
     tracker: deps.tracker
   });
-  const idempotencyMarker = `[ferry:refiner:${eventId}]`;
   if (result.noop) {
     logger.info("noop \u2014 existing sub-tasks still valid", { ticket: ticketKey });
     await deps.tracker.postComment(
@@ -7199,7 +7603,7 @@ async function main(envelope, logger) {
 }
 
 // src/agents/developer/dev-action.ts
-import { execFileSync as execFileSync5 } from "node:child_process";
+import { execFileSync as execFileSync6 } from "node:child_process";
 import * as fsp2 from "node:fs/promises";
 import * as path6 from "node:path";
 
@@ -9093,7 +9497,7 @@ function createAgentLoop(opts) {
 
 // src/agents/developer/workspace.ts
 import { readFileSync as readFileSync5, existsSync as existsSync4 } from "node:fs";
-import { execFileSync as execFileSync3 } from "node:child_process";
+import { execFileSync as execFileSync4 } from "node:child_process";
 import * as path5 from "node:path";
 function detectTestRunner(packageJsonPath2) {
   try {
@@ -9112,7 +9516,7 @@ function detectTestRunner(packageJsonPath2) {
 }
 function repoTree(repoRoot) {
   try {
-    return execFileSync3(
+    return execFileSync4(
       "find",
       [
         repoRoot,
@@ -9204,7 +9608,7 @@ function assertDevOutputContract(outcome, outputs) {
 }
 
 // src/agents/developer/wip-finalizer.ts
-import { execFileSync as execFileSync4 } from "node:child_process";
+import { execFileSync as execFileSync5 } from "node:child_process";
 function classifyError(err) {
   if (err instanceof FerryError) {
     const reason = err.context?.reason ?? "unknown";
@@ -9243,8 +9647,8 @@ async function runWipFinalizer(opts) {
   logger.info("wip_finalizer", { code, detail, branch: branchName });
   let committed = false;
   try {
-    execFileSync4("git", ["add", "-A"], { cwd: repoRoot });
-    const status = execFileSync4("git", ["status", "--porcelain"], {
+    execFileSync5("git", ["add", "-A"], { cwd: repoRoot });
+    const status = execFileSync5("git", ["status", "--porcelain"], {
       cwd: repoRoot,
       encoding: "utf8"
     });
@@ -9253,7 +9657,7 @@ async function runWipFinalizer(opts) {
       const wipMsg = `wip(${ticketKey}): interrupted \u2014 ${code}
 
 [ferry:dev:${eventId}]`;
-      execFileSync4("git", ["commit", "-m", wipMsg], { cwd: repoRoot });
+      execFileSync5("git", ["commit", "-m", wipMsg], { cwd: repoRoot });
       committed = true;
       logger.info("wip_committed", { branch: branchName });
     } else {
@@ -9265,14 +9669,14 @@ async function runWipFinalizer(opts) {
   let pushed = false;
   if (!dryRun) {
     try {
-      execFileSync4("git", ["push", "origin", branchName, "--force-with-lease"], {
+      execFileSync5("git", ["push", "origin", branchName, "--force-with-lease"], {
         cwd: repoRoot,
         stdio: "pipe"
       });
       pushed = true;
     } catch {
       try {
-        execFileSync4("git", ["push", "origin", branchName], { cwd: repoRoot, stdio: "pipe" });
+        execFileSync5("git", ["push", "origin", branchName], { cwd: repoRoot, stdio: "pipe" });
         pushed = true;
       } catch (pushErr) {
         logger.error("wip_push_failed", { error: pushErr.message });
@@ -9398,102 +9802,36 @@ async function main2(envelope, logger) {
   const reviewTransitionId = !shouldAutoTransition ? "" : requireEnv("FERRY_REVIEW_TRANSITION_ID");
   const jiraBaseUrl = requireEnv("FERRY_JIRA_BASE_URL");
   const { provider: devProvider } = effectiveCfg.models.dev;
-  const labels = issue.labels.join(", ");
-  const comments = issue.comments.map((c) => `Comment: ${c}`).join("\n");
-  const ticketBlock = buildTicketBlock(ticketKey, issue, {
-    labels,
-    comments,
-    typeOverride
-  });
+  const model = effectiveCfg.models.dev.model;
   const subtasks = await tracker.getSubtasks(ticketKey);
   const testRunner = detectTestRunner(packageJsonPath(REPO_ROOT2));
   const pkgManagerHint = detectPackageManager(REPO_ROOT2);
   const tree = repoTree(REPO_ROOT2);
-  const system = buildSystem("dev", REPO_ROOT2, {
-    extraParts: pkgManagerHint ? [`## Detected package manager
-
-${pkgManagerHint}`] : []
-  });
-  const model = effectiveCfg.models.dev.model;
-  const branchName = `${resolveBranchPrefix(effectiveCfg.git.working_branch_prefix, issue)}${ticketKey}`;
-  configureFerryGitUser(REPO_ROOT2);
-  let resumeContext = "";
-  let branchHeadSha = "";
-  try {
-    execFileSync5("git", ["ls-remote", "--exit-code", "--heads", "origin", branchName], {
-      cwd: REPO_ROOT2,
-      stdio: "pipe"
-    });
-    execFileSync5("git", ["fetch", "origin", branchName], { cwd: REPO_ROOT2 });
-    execFileSync5("git", ["checkout", branchName], { cwd: REPO_ROOT2 });
-    const existingLog = execFileSync5("git", ["log", `origin/${baseBranch}..HEAD`, "--oneline"], {
-      cwd: REPO_ROOT2,
-      encoding: "utf8"
-    }).trim();
-    if (existingLog) {
-      resumeContext = `
-EXISTING WORK ON BRANCH (already committed \u2014 skip these, only do what remains):
-${existingLog}`;
-      logger.info("resuming branch", {
-        branch: branchName,
-        prior_commits: existingLog.split("\n").length
-      });
-    }
-    branchHeadSha = execFileSync5("git", ["rev-parse", "HEAD"], {
-      cwd: REPO_ROOT2,
-      encoding: "utf8"
-    }).trim();
-  } catch {
-    execFileSync5("git", ["checkout", "-B", branchName], { cwd: REPO_ROOT2 });
-    logger.info("created branch", { branch: branchName });
-  }
-  let existingPrUrl = "";
-  let existingPrContext = "";
-  if (branchHeadSha && !dryRun) {
-    try {
-      const openPrs = await runner.listPRsForBranch(owner, repo, branchName);
-      if (openPrs.length > 0) {
-        const pr = openPrs[0];
-        existingPrUrl = `https://github.com/${owner}/${repo}/pull/${pr.number}`;
-        const prRef = { owner, repo, prNumber: pr.number };
-        const prFiles = await runner.listPRFiles(prRef);
-        const fileList = prFiles.map((f) => `${f.status}: ${f.filename}`).join("\n");
-        existingPrContext = [
-          `
-EXISTING_IMPLEMENTATION:`,
-          `Open PR: ${existingPrUrl} (head: ${branchHeadSha.slice(0, 7)})`,
-          `Changed files:
-${fileList}`,
-          `If the spec is already fully satisfied by the existing code, call \`done\` with outcome="already_satisfied".`
-        ].join("\n");
-        logger.info("existing PR found", { pr: existingPrUrl, files: prFiles.length });
-      }
-    } catch {
-    }
-  }
-  const idempotencyMarker = branchHeadSha ? `[ferry:dev:${branchHeadSha.slice(0, 7)}]` : `[ferry:dev:${eventId}]`;
-  const initialPrompt = [
-    delimitUntrusted(ticketBlock),
-    "",
-    subtasks.length > 0 ? `SUBTASKS:
-${subtasks.join("\n")}` : "SUBTASKS: (none)",
-    "",
-    `TEST_RUNNER: ${testRunner}`,
-    "",
-    `REPO TREE (depth 2):
-${tree}`,
-    "",
-    "When you have finished implementing, call the `done` tool."
-  ].join("\n");
-  const secretScan = makeSecretScan(REPO_ROOT2);
   const mcpPool = loadMcpServers();
-  const capabilities = resolveCapabilities(issue.labels, effectiveCfg.labels);
-  const hasLabelsConfig = effectiveCfg.labels !== void 0;
-  const mcpServers = filterMcpServers(mcpPool, capabilities, hasLabelsConfig);
+  const prepared = await prepareDeveloper({
+    envelope,
+    issue,
+    effectiveCfg,
+    subtasks,
+    testRunner,
+    pkgManagerHint,
+    tree,
+    typeOverride,
+    owner,
+    repo,
+    baseBranch,
+    runner,
+    mcpPool,
+    repoRoot: REPO_ROOT2,
+    dryRun,
+    logger
+  });
+  const { system, initialPrompt, mcpServers, idempotencyMarker, branchName, capabilities } = prepared;
   logCapabilities(logger, capabilities);
   if (mcpServers.length > 0) {
     logger.info("MCP servers", { servers: mcpServers.map((s) => s.name) });
   }
+  const secretScan = makeSecretScan(REPO_ROOT2);
   const allToolSchemas = [...TOOL_SCHEMAS, COMMIT_PROGRESS_SCHEMA, SPAWN_SUBAGENT_SCHEMA];
   let loop;
   loop = createAgentLoop({
@@ -9521,7 +9859,9 @@ ${tree}`,
   try {
     loopResult = await loop.run({
       system,
-      initialPrompt: initialPrompt + resumeContext + existingPrContext,
+      // `initialPrompt` already includes the resume + existing-PR context
+      // (concatenated inside `prepareDeveloper`).
+      initialPrompt,
       tools: allToolSchemas,
       repoRoot: REPO_ROOT2,
       branchName,
@@ -9618,20 +9958,20 @@ ${tree}`,
       await fsp2.writeFile(verificationPath, verificationContent, "utf8");
       verificationNoteWritten = true;
     }
-    execFileSync5("git", ["add", "-A"], { cwd: REPO_ROOT2 });
-    const finalStatus = execFileSync5("git", ["status", "--porcelain"], {
+    execFileSync6("git", ["add", "-A"], { cwd: REPO_ROOT2 });
+    const finalStatus = execFileSync6("git", ["status", "--porcelain"], {
       cwd: REPO_ROOT2,
       encoding: "utf8"
     });
     if (finalStatus.trim()) {
       await secretScan();
       const msg = resolvedOutcome === "already_satisfied" ? `chore(${ticketKey}): add verification note \u2014 spec already satisfied` : done.commit_message ?? commitMessage;
-      execFileSync5("git", ["commit", "-m", msg], { cwd: REPO_ROOT2 });
+      execFileSync6("git", ["commit", "-m", msg], { cwd: REPO_ROOT2 });
     }
     if (dryRun) {
       let diffOutput = "(no local changes)";
       try {
-        diffOutput = execFileSync5(
+        diffOutput = execFileSync6(
           "sh",
           [
             "-c",
@@ -9660,11 +10000,11 @@ ${tree}`,
       appendOutput({ ...usage, model, provider: devProvider });
       process.exit(0);
     }
-    execFileSync5("git", ["push", "origin", branchName, "--force-with-lease"], { cwd: REPO_ROOT2 });
+    execFileSync6("git", ["push", "origin", branchName, "--force-with-lease"], { cwd: REPO_ROOT2 });
     const branchPushed = true;
     summaryBranchPushed = branchName;
     try {
-      const diff = execFileSync5("git", ["diff", "--name-only", `origin/${baseBranch}...HEAD`], {
+      const diff = execFileSync6("git", ["diff", "--name-only", `origin/${baseBranch}...HEAD`], {
         cwd: REPO_ROOT2,
         encoding: "utf8"
       });
@@ -10231,148 +10571,6 @@ function gateCi(input) {
   };
 }
 
-// src/agents/reviewer/review-loop.ts
-var MAX_PATCH_CHARS = 2e4;
-var MAX_CONTENT_CHARS = 4e4;
-var MAX_ITERATIONS = 40;
-var REVIEW_TOOL_DEFS = [
-  {
-    name: "get_file_patch",
-    description: "Get the unified diff patch for a specific file in this PR. Use this to inspect what changed in a file before making a finding.",
-    input_schema: {
-      type: "object",
-      properties: {
-        filename: { type: "string", description: "Exact file path as listed in the PR file list." }
-      },
-      required: ["filename"]
-    }
-  },
-  {
-    name: "get_file_content",
-    description: "Get the full content of a file from the PR head branch. Use when the patch is truncated or you need context outside the changed lines.",
-    input_schema: {
-      type: "object",
-      properties: {
-        filename: { type: "string", description: "Exact file path." }
-      },
-      required: ["filename"]
-    }
-  },
-  {
-    name: "finish_review",
-    description: "Post the review verdict and end the review loop. Call once you have inspected all relevant files.",
-    input_schema: {
-      type: "object",
-      properties: {
-        approved: {
-          type: "boolean",
-          description: "true = ready to merge, false = changes required."
-        },
-        comment: {
-          type: "string",
-          description: "Full review comment in Markdown. Follow the required format from the system prompt."
-        }
-      },
-      required: ["approved", "comment"]
-    }
-  }
-];
-function detectMergeConflicts(files) {
-  const conflicted = [];
-  for (const f of files) {
-    if (f.patch && /^[+].*<{7}|^[+].*={7}|^[+].*>{7}/m.test(f.patch)) {
-      conflicted.push(f.filename);
-    }
-  }
-  return conflicted;
-}
-function buildFileList(files) {
-  return files.map((f) => `${f.status.padEnd(8)} +${f.additions} -${f.deletions}  ${f.filename}`).join("\n");
-}
-async function runReviewLoop(opts) {
-  const { loop, system, initialPrompt, fileMap, runner, owner, repo, headSha } = opts;
-  const logger = opts.logger ?? createLogger("", "ferry:review-loop");
-  const maxIterations = opts.maxIterations ?? (parseInt(process.env.FERRY_REVIEWER_MAX_ITERATIONS ?? "", 10) || MAX_ITERATIONS);
-  const maxTokens = opts.maxTokens ?? (parseInt(process.env.FERRY_REVIEWER_MAX_TOKENS ?? "", 10) || 16384);
-  const {
-    done: result,
-    usage,
-    iterations,
-    toolCounts,
-    toolCallRecords
-  } = await loop.run({
-    system,
-    initialPrompt,
-    tools: REVIEW_TOOL_DEFS,
-    finishTool: "finish_review",
-    extractDone: (input) => ({
-      approved: input.approved,
-      comment: input.comment
-    }),
-    handlers: {
-      get_file_patch: (input) => {
-        const filename = input.filename;
-        logger.info("tool", { tool: "get_file_patch", file: filename });
-        const patch = fileMap.get(filename);
-        if (patch === void 0) return `(file not found in PR: ${filename})`;
-        if (!patch) return "(no patch \u2014 binary, empty, or content unchanged)";
-        const patchLimit = parseInt(process.env.FERRY_REVIEW_PATCH_TRUNCATE_CHARS ?? "", 10) || MAX_PATCH_CHARS;
-        return patch.length > patchLimit ? patch.slice(0, patchLimit) + "\n... (truncated)" : patch;
-      },
-      get_file_content: async (input) => {
-        const filename = input.filename;
-        logger.info("tool", { tool: "get_file_content", file: filename });
-        const fileLimit = parseInt(process.env.FERRY_REVIEW_FILE_TRUNCATE_CHARS ?? "", 10) || MAX_CONTENT_CHARS;
-        const rawContent = await runner.getFileContent(owner, repo, filename, headSha);
-        return rawContent.length > fileLimit ? rawContent.slice(0, fileLimit) + "\n... (truncated)" : rawContent;
-      }
-    },
-    maxIterations,
-    maxTokens,
-    logger
-  });
-  return {
-    result,
-    inputTokens: usage.inputTokens,
-    outputTokens: usage.outputTokens,
-    iterations,
-    toolCounts,
-    toolCallRecords
-  };
-}
-
-// src/agents/reviewer/rubric.ts
-var STRICT_DIRECTIVE = [
-  "## Rubric override \u2014 strict",
-  "",
-  "For this review, apply a STRICTER bar than usual:",
-  "",
-  "- Block on any missing test coverage for new/changed behaviour.",
-  "- Block on missing edge-case handling, error paths, or input validation.",
-  "- Block on weak naming, dead code, or unreachable branches.",
-  "- Block on incomplete documentation when public APIs change.",
-  "- Approve only when every acceptance criterion is fully satisfied with concrete evidence."
-].join("\n");
-var LENIENT_DIRECTIVE = [
-  "## Rubric override \u2014 lenient",
-  "",
-  "For this review, apply a MORE PERMISSIVE bar than usual:",
-  "",
-  "- Approve when the acceptance criteria are met, even if minor polish is missing.",
-  "- Treat naming nits, non-blocking style issues, and stylistic preferences as comments \u2014 not blockers.",
-  "- Block only on: failing tests, unimplemented ACs, merge conflicts, committed build artefacts, or security regressions.",
-  '- Prefer "approve with comments" over "request changes" when issues are non-blocking.'
-].join("\n");
-function applyRubricToPrompt(basePrompt, rubric) {
-  if (rubric === void 0) return basePrompt;
-  const directive = rubric === "strict" ? STRICT_DIRECTIVE : LENIENT_DIRECTIVE;
-  return `${basePrompt}
-
----
-
-${directive}`;
-}
-
 // src/agents/reviewer/changes-guard.ts
 function countPriorIterations(existingComments) {
   return existingComments.filter(
@@ -10459,7 +10657,6 @@ async function main3(envelope, logger) {
   const prNumber = prs[0].number;
   const pr = await runner.getPR({ owner, repo, prNumber });
   const headSha = pr.headSha;
-  const mergeable = pr.mergeable;
   const idempotencyMarker = byPrHeadSha("reviewer", headSha);
   const { skipped } = checkIdempotencyMarker(idempotencyMarker, existingComments);
   if (skipped) {
@@ -10526,40 +10723,21 @@ async function main3(envelope, logger) {
     return;
   }
   const files = await runner.listPRFiles({ owner, repo, prNumber });
-  const fileMap = new Map(files.map((f) => [f.filename, f.patch]));
-  const conflictedFiles = detectMergeConflicts(files);
-  const hasMergeConflicts = mergeable === false || conflictedFiles.length > 0;
   const commits = await runner.listPRCommits({ owner, repo, prNumber });
-  const commitLog = commits.map((c) => `${c.sha.slice(0, 7)} ${c.message.split("\n")[0]}`).join("\n");
-  const ticketBlock = buildTicketBlock(ticketKey, issue, {
-    typeOverride
+  const prepared = prepareReviewer({
+    ticketKey,
+    issue,
+    pr,
+    files,
+    commits,
+    branchName,
+    typeOverride,
+    reviewRubric: reviewRubricOverride,
+    configLabels: effectiveCfg.labels,
+    repoRoot: REPO_ROOT3,
+    logger
   });
-  const mergeConflictWarning = hasMergeConflicts ? `
-\u26A0\uFE0F  MERGE CONFLICTS DETECTED \u2014 mergeable=${String(mergeable)}${conflictedFiles.length > 0 ? `, conflicted files: ${conflictedFiles.join(", ")}` : ""}` : "";
-  const initialPrompt = [
-    "## Jira Ticket",
-    delimitUntrusted(ticketBlock),
-    "",
-    "## PR Metadata",
-    `PR #${prNumber}: ${pr.title}`,
-    `Base: ${pr.baseRef} \u2190 Head: ${branchName} (${headSha.slice(0, 7)})`,
-    `Files changed: ${files.length}  Commits: ${commits.length}`,
-    mergeConflictWarning,
-    "",
-    "## Commits",
-    commitLog,
-    "",
-    "## Changed files (status  +additions  -deletions  path)",
-    buildFileList(files),
-    "",
-    "Use get_file_patch to inspect individual file diffs, get_file_content for full file contents.",
-    "When you have enough information, call finish_review."
-  ].filter((l) => l !== null).join("\n");
-  const baseSystem = buildSystem("review", REPO_ROOT3, {
-    extraParts: [loadOptionalPrompt("review-comment", REPO_ROOT3)],
-    separator: "\n\n---\n\n"
-  });
-  const system = applyRubricToPrompt(baseSystem, reviewRubricOverride);
+  const { system, initialPrompt, fileMap } = prepared;
   const loop = createToolCallLoop({ provider, model, thinking: thinkingOverride, logger });
   const {
     result: review,
@@ -10651,7 +10829,7 @@ async function main3(envelope, logger) {
 }
 
 // src/agents/iterator/iterate-action.ts
-import { execFileSync as execFileSync6 } from "node:child_process";
+import { execFileSync as execFileSync7 } from "node:child_process";
 
 // src/agents/iterator/outcome-guard.ts
 function assertIterOutputContract(outcome, outputs) {
@@ -10782,10 +10960,6 @@ async function main4(envelope, logger) {
   const reviewTransitionId = shouldAutoTransition ? requireEnv("FERRY_REVIEW_TRANSITION_ID") : "";
   const { provider: iterProvider, model } = effectiveCfg.models.iterate;
   const mcpPool = loadMcpServers();
-  const capabilities = resolveCapabilities(issue.labels, effectiveCfg.labels);
-  const hasLabelsConfig = effectiveCfg.labels !== void 0;
-  const mcpServers = filterMcpServers(mcpPool, capabilities, hasLabelsConfig);
-  logCapabilities(logger, capabilities);
   const priorIterations = existingComments.filter(
     (c) => c.includes("[ferry:iterator:") && c.includes("complete. Pushed fixes to PR#")
   ).length;
@@ -10855,7 +11029,6 @@ async function main4(envelope, logger) {
     appendOutput({ input_tokens: 0, output_tokens: 0, model, provider: iterProvider });
     return;
   }
-  const system = buildSystem("iterate", REPO_ROOT4);
   configureFerryGitUser(REPO_ROOT4);
   if (checkoutExistingBranch(branchName, REPO_ROOT4) === "not-found") {
     await tracker.postComment(
@@ -10866,27 +11039,25 @@ async function main4(envelope, logger) {
     return;
   }
   const mergeConflicts = fetchAndMergeBase(baseBranch, REPO_ROOT4);
-  const existingLog = execFileSync6("git", ["log", `origin/${baseBranch}..HEAD`, "--oneline"], {
+  const existingLog = execFileSync7("git", ["log", `origin/${baseBranch}..HEAD`, "--oneline"], {
     cwd: REPO_ROOT4,
     encoding: "utf8"
   }).trim();
-  const ticketBlock = buildTicketBlock(ticketKey, issue, {
-    typeOverride
+  const prepared = prepareIterator({
+    ticketKey,
+    issue,
+    headSha,
+    reviewComment,
+    mergeConflicts,
+    existingLog,
+    mcpPool,
+    configLabels: effectiveCfg.labels,
+    typeOverride,
+    repoRoot: REPO_ROOT4,
+    logger
   });
-  const initialPrompt = [
-    "## Jira Ticket",
-    delimitUntrusted(ticketBlock),
-    "",
-    "## Review Findings (fix only what is listed here)",
-    delimitUntrusted(reviewComment),
-    "",
-    mergeConflicts.length > 0 ? `## Merge Conflicts (resolve these first, before fixing review findings)
-${mergeConflicts.map((f) => `- ${f}`).join("\n")}` : "",
-    existingLog ? `## Existing commits on branch
-${existingLog}` : "",
-    "",
-    "When you have fixed all findings, call the `done` tool."
-  ].filter(Boolean).join("\n");
+  const { system, initialPrompt, mcpServers, capabilities } = prepared;
+  logCapabilities(logger, capabilities);
   const secretScan = makeSecretScan(REPO_ROOT4);
   const loop = createAgentLoop({
     provider: iterProvider,
@@ -10972,24 +11143,24 @@ ${existingLog}` : "",
     rule_ids: [],
     run_id: eventId
   });
-  execFileSync6("git", ["add", "-A"], { cwd: REPO_ROOT4 });
-  const finalStatus = execFileSync6("git", ["status", "--porcelain"], {
+  execFileSync7("git", ["add", "-A"], { cwd: REPO_ROOT4 });
+  const finalStatus = execFileSync7("git", ["status", "--porcelain"], {
     cwd: REPO_ROOT4,
     encoding: "utf8"
   }).trim();
   if (finalStatus) {
     await secretScan();
-    execFileSync6("git", ["commit", "-m", commitMessage], { cwd: REPO_ROOT4 });
+    execFileSync7("git", ["commit", "-m", commitMessage], { cwd: REPO_ROOT4 });
   }
   if (!dryRun) {
-    execFileSync6("git", ["push", "origin", branchName, "--force-with-lease"], { cwd: REPO_ROOT4 });
+    execFileSync7("git", ["push", "origin", branchName, "--force-with-lease"], { cwd: REPO_ROOT4 });
   } else {
     logger.info("DRY_RUN \u2014 skipped: git push origin branch");
   }
   const branchPushed = !dryRun;
   let iterFilesTouched = [];
   try {
-    const diff = execFileSync6("git", ["diff", "--name-only", `origin/${baseBranch}...HEAD`], {
+    const diff = execFileSync7("git", ["diff", "--name-only", `origin/${baseBranch}...HEAD`], {
       cwd: REPO_ROOT4,
       encoding: "utf8"
     });

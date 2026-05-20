@@ -1,23 +1,19 @@
 import { execFileSync } from 'node:child_process';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
-import { delimitUntrusted } from '../../lib/llm/delimit-untrusted.js';
 import {
   requireEnv,
   loadMcpServers,
-  buildSystem,
-  buildTicketBlock,
   appendOutput,
   writeStepSummary,
-  configureFerryGitUser,
   makeCommitProgress,
   makeSecretScan,
   logCapabilities,
   logTicketOverrides,
   createGitHubContext,
   resolveGitConfig,
-  resolveBranchPrefix,
   loadFerryConfigFromBaseBranch,
+  prepareDeveloper,
 } from '../../lib/agent-runtime/index.js';
 import type { EventEnvelopeV1 } from '../../lib/envelope/types.js';
 import type { Logger } from '../../lib/agent-runtime/index.js';
@@ -34,8 +30,6 @@ import {
 import { createAgentLoop } from '../../lib/llm/agent-loop/index.js';
 import type { AgentLoop } from '../../lib/llm/agent-loop/types.js';
 import {
-  resolveCapabilities,
-  filterMcpServers,
   resolveTicketOverrides,
   applyTicketOverrides,
   hasNonDefaultOverrides,
@@ -172,110 +166,46 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
   const jiraBaseUrl = requireEnv('FERRY_JIRA_BASE_URL');
 
   const { provider: devProvider } = effectiveCfg.models.dev;
-  const labels = issue.labels.join(', ');
-  const comments = issue.comments.map((c) => `Comment: ${c}`).join('\n');
-  const ticketBlock = buildTicketBlock(ticketKey, issue, {
-    labels,
-    comments,
-    typeOverride,
-  });
+  const model = effectiveCfg.models.dev.model;
 
   const subtasks = await tracker.getSubtasks(ticketKey);
   const testRunner = detectTestRunner(packageJsonPath(REPO_ROOT));
   const pkgManagerHint = detectPackageManager(REPO_ROOT);
   const tree = repoTree(REPO_ROOT);
-
-  const system = buildSystem('dev', REPO_ROOT, {
-    extraParts: pkgManagerHint ? [`## Detected package manager\n\n${pkgManagerHint}`] : [],
-  });
-  const model = effectiveCfg.models.dev.model;
-
-  // Branch is determined upfront from the ticket key so restarts resume the same branch.
-  const branchName = `${resolveBranchPrefix(effectiveCfg.git.working_branch_prefix, issue)}${ticketKey}`;
-
-  configureFerryGitUser(REPO_ROOT);
-
-  let resumeContext = '';
-  let branchHeadSha = '';
-  try {
-    execFileSync('git', ['ls-remote', '--exit-code', '--heads', 'origin', branchName], {
-      cwd: REPO_ROOT,
-      stdio: 'pipe',
-    });
-    execFileSync('git', ['fetch', 'origin', branchName], { cwd: REPO_ROOT });
-    execFileSync('git', ['checkout', branchName], { cwd: REPO_ROOT });
-    const existingLog = execFileSync('git', ['log', `origin/${baseBranch}..HEAD`, '--oneline'], {
-      cwd: REPO_ROOT,
-      encoding: 'utf8',
-    }).trim();
-    if (existingLog) {
-      resumeContext = `\nEXISTING WORK ON BRANCH (already committed — skip these, only do what remains):\n${existingLog}`;
-      logger.info('resuming branch', {
-        branch: branchName,
-        prior_commits: existingLog.split('\n').length,
-      });
-    }
-    branchHeadSha = execFileSync('git', ['rev-parse', 'HEAD'], {
-      cwd: REPO_ROOT,
-      encoding: 'utf8',
-    }).trim();
-  } catch {
-    execFileSync('git', ['checkout', '-B', branchName], { cwd: REPO_ROOT });
-    logger.info('created branch', { branch: branchName });
-  }
-
-  // Pre-flight: check for an open Ferry PR on this branch and inject context.
-  let existingPrUrl = '';
-  let existingPrContext = '';
-  if (branchHeadSha && !dryRun) {
-    try {
-      const openPrs = await runner.listPRsForBranch(owner, repo, branchName);
-      if (openPrs.length > 0) {
-        const pr = openPrs[0];
-        existingPrUrl = `https://github.com/${owner}/${repo}/pull/${pr.number}`;
-        const prRef = { owner, repo, prNumber: pr.number };
-        const prFiles = await runner.listPRFiles(prRef);
-        const fileList = prFiles.map((f) => `${f.status}: ${f.filename}`).join('\n');
-        existingPrContext = [
-          `\nEXISTING_IMPLEMENTATION:`,
-          `Open PR: ${existingPrUrl} (head: ${branchHeadSha.slice(0, 7)})`,
-          `Changed files:\n${fileList}`,
-          `If the spec is already fully satisfied by the existing code, call \`done\` with outcome="already_satisfied".`,
-        ].join('\n');
-        logger.info('existing PR found', { pr: existingPrUrl, files: prFiles.length });
-      }
-    } catch {
-      // best-effort: if PR check fails, proceed without context
-    }
-  }
-
-  // Idempotency marker: keyed on branch head SHA so re-runs on the same state collapse.
-  const idempotencyMarker = branchHeadSha
-    ? `[ferry:dev:${branchHeadSha.slice(0, 7)}]`
-    : `[ferry:dev:${eventId}]`;
-
-  const initialPrompt = [
-    delimitUntrusted(ticketBlock),
-    '',
-    subtasks.length > 0 ? `SUBTASKS:\n${subtasks.join('\n')}` : 'SUBTASKS: (none)',
-    '',
-    `TEST_RUNNER: ${testRunner}`,
-    '',
-    `REPO TREE (depth 2):\n${tree}`,
-    '',
-    'When you have finished implementing, call the `done` tool.',
-  ].join('\n');
-
-  const secretScan = makeSecretScan(REPO_ROOT);
   const mcpPool = loadMcpServers();
-  const capabilities = resolveCapabilities(issue.labels, effectiveCfg.labels);
-  const hasLabelsConfig = effectiveCfg.labels !== undefined;
-  const mcpServers = filterMcpServers(mcpPool, capabilities, hasLabelsConfig);
+
+  // Pre-loop setup: builds system prompt, ticket block, initial prompt (with
+  // resume + existing-PR context), capability-filtered MCP pool, idempotency
+  // marker, and the branch name. Performs the branch checkout + best-effort
+  // PR-existence probe. Extracted into a reusable prepare function (#330) so
+  // the future cc-prepare composite (#331) consumes the same source.
+  const prepared = await prepareDeveloper({
+    envelope,
+    issue,
+    effectiveCfg,
+    subtasks,
+    testRunner,
+    pkgManagerHint,
+    tree,
+    typeOverride,
+    owner,
+    repo,
+    baseBranch,
+    runner,
+    mcpPool,
+    repoRoot: REPO_ROOT,
+    dryRun,
+    logger,
+  });
+  const { system, initialPrompt, mcpServers, idempotencyMarker, branchName, capabilities } =
+    prepared;
 
   logCapabilities(logger, capabilities);
   if (mcpServers.length > 0) {
     logger.info('MCP servers', { servers: mcpServers.map((s) => s.name) });
   }
+
+  const secretScan = makeSecretScan(REPO_ROOT);
 
   const allToolSchemas = [...TOOL_SCHEMAS, COMMIT_PROGRESS_SCHEMA, SPAWN_SUBAGENT_SCHEMA];
 
@@ -307,7 +237,9 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
   try {
     loopResult = await loop.run({
       system,
-      initialPrompt: initialPrompt + resumeContext + existingPrContext,
+      // `initialPrompt` already includes the resume + existing-PR context
+      // (concatenated inside `prepareDeveloper`).
+      initialPrompt,
       tools: allToolSchemas,
       repoRoot: REPO_ROOT,
       branchName,
