@@ -9,9 +9,27 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+---
+
+## [0.13.0] — 2026-05-20
+
 ### Added
 
-- **Routing decision wired into consumer workflows** (first half of the claude-code path activation, ADR-0006 §3, follow-up to #300/#302). The four agent workflows in `examples/consumer-setup/workflows/` now run a `route` job before the agent: it calls a new `big-emotion/ferry/.github/actions/ferry-route` composite (entry point `src/lib/dispatch/route-action.ts`), which wraps the existing pure `resolveExecutionPath` resolver, fetches the ticket's Jira labels, loads `ferry.config`, and exposes a `path` output (`script` | `claude-code`) + a `reason` output. Each agent job is now split into `run-agent` (gated `if: path == 'script'`) and a `run-agent-claude-code` placeholder (gated `if: path == 'claude-code'`) that fails loudly with a clear error — actual `anthropics/claude-code-action@v1` invocation lands in a follow-up PR. Heuristic-driven escalation (`priorRoundTrips`) is intentionally stubbed to 0 in this version; label + config-driven routing land first. `src/cli/init/templates.ts` is **not** mirrored in this change (follow-up): consumers using `ferry-init`-generated workflows still get the pre-route shape until that lands.
+- **Claude Code execution path wired end-to-end** (ADR-0006 §2/§3, closes #280, #328, #330, #331, #350, refs #302, #303, #333). Three new composite actions ship the missing primitives on top of the resolver introduced in 0.12.0:
+  - `ferry-route` (#302, entry point `src/lib/dispatch/route-action.ts`) — wraps the pure `resolveExecutionPath` resolver, fetches the ticket's Jira labels, loads `ferry.config`, and exposes `path` (`script` | `claude-code`) + `reason` outputs. Heuristic-driven escalation (`priorRoundTrips`) is intentionally stubbed to 0; label + config-driven routing land first.
+  - `ferry-cc-prepare` (#347, #351, entry point `src/lib/dispatch/cc-prepare-action.ts`) — renders the per-role system prompt, tool allow-list, MCP servers, and `direct_prompt` for `anthropics/claude-code-action@v1`, with full coverage for refiner / developer / reviewer / iterator. Surfaces `pr_number` as a structured output for contracts that require it (e.g. reviewer's `requireCtx(ctx.prNumber, …)`).
+  - `ferry-cc-apply` (#330) — handles the claude-code-action exit and propagates outputs back into the workflow.
+- **Consumer workflow stubs now route at job level** — the four templates in `examples/consumer-setup/workflows/` and `src/cli/init/templates.ts` run a `route` job, then dispatch to `run-agent` (`if: path == 'script'`) or `run-agent-claude-code` (`if: path == 'claude-code'`). The refiner branch is exercisable end-to-end (#348); the dev / review / iterate branches are now live for the cc-path too — the fail-loud "cc-path not yet wired" guard step has been removed.
+- **Hardening primitives on the cc-path** (#349, refs #303) — `secret-scan-gate`, `tool-policy` enforcement, and minimal per-job `permissions` are wired into the Claude Code branch so the action cannot approve or merge on the consumer's behalf even when its default permissions would allow it.
+- **`anthropicOnly` is now a hard gate** in `resolveExecutionPath` (closes #280) — the resolver refuses to route to `claude-code` unless the configured LLM provider is Anthropic, surfacing misconfigurations at install time instead of mid-run.
+- **`ferry-doctor` claude-code path checks** — token-exclusivity (`CLAUDE_CODE_OAUTH_TOKEN` ↔ `ANTHROPIC_API_KEY`) and provider routing alignment are validated when the consumer has opted into the cc-path.
+- **`ferry-update` `requires-secrets` migration gate** — `MIGRATIONS.md` entries can now declare required secrets; upgrades are blocked until the consumer has rotated them. The 0.12.0 entry declares `CLAUDE_CODE_OAUTH_TOKEN`.
+
+### Changed
+
+- **Agent runtime**: per-role pre-loop setup extracted into a shared `prepare` step in `src/lib/agent-runtime/`, reducing duplication across the four agent entrypoints and making the cc-path / script-path split surgical.
+- **`ferry-uninstall`**: now cleans up the new composite-action directories and handles the interactive OAuth token-removal flow.
+- **Docs**: `README.md` trimmed to 79 lines (closes #328); long-form content moved into `docs/` so the README stays scannable.
 
 ---
 
@@ -389,7 +407,8 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
-[Unreleased]: https://github.com/big-emotion/ferry/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/big-emotion/ferry/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/big-emotion/ferry/releases/tag/v0.13.0
 [0.12.0]: https://github.com/big-emotion/ferry/releases/tag/v0.12.0
 [0.11.0]: https://github.com/big-emotion/ferry/releases/tag/v0.11.0
 [0.10.1]: https://github.com/big-emotion/ferry/releases/tag/v0.10.1

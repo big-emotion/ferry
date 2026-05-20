@@ -49,10 +49,10 @@ describe('Phase 3 — consumer workflow stubs (install-guide §3.1)', () => {
   }
 
   for (const stub of coreStubs) {
-    it(`${stub}.yml references @v0.12.0 (not @main)`, async () => {
+    it(`${stub}.yml references @v0.13.0 (not @main)`, async () => {
       const content = await readFile(`examples/consumer-setup/workflows/${stub}.yml`);
-      expect(content, `${stub}.yml must pin to @v0.12.0 — @main is mutable and insecure`).toMatch(
-        /@v0\.12\.0\b/,
+      expect(content, `${stub}.yml must pin to @v0.13.0 — @main is mutable and insecure`).toMatch(
+        /@v0\.13\.0\b/,
       );
       expect(content, `${stub}.yml must not use @main (use a release tag or a SHA)`).not.toMatch(
         /@main/,
@@ -341,7 +341,7 @@ describe('Quick install — audit issue creation (INSTALL.md §Step 1)', () => {
 describe('Quick install — no @main in workflow refs (INSTALL.md)', () => {
   it('INSTALL.md does not tell users to use @main workflow refs', async () => {
     const doc = await readFile('docs/INSTALL.md');
-    // The doc must not say stubs use @main (they use @v0.12.0)
+    // The doc must not say stubs use @main (they use @v0.13.0)
     expect(doc).not.toMatch(/uses.*@main/);
     expect(doc).not.toContain('always use the latest version automatically');
   });

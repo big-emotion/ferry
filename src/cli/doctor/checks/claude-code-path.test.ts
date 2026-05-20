@@ -72,7 +72,7 @@ jobs:
     name: Resolve execution path
   run-agent:
     steps:
-      - uses: big-emotion/ferry/.github/actions/ferry-run-refiner@v0.12.0
+      - uses: big-emotion/ferry/.github/actions/ferry-run-refiner@v0.13.0
 `;
 
 const ALL_ANTHROPIC_CONFIG = {
