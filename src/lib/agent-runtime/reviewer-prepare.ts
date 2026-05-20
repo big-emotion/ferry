@@ -13,23 +13,15 @@
  */
 
 import { delimitUntrusted } from '../llm/delimit-untrusted.js';
-import { byPrHeadSha } from './idempotency.js';
 import {
   buildSystem as defaultBuildSystem,
   buildTicketBlock,
   loadOptionalPrompt as defaultLoadOptionalPrompt,
 } from './prompt.js';
-import {
-  resolveCapabilities,
-  type ResolvedCapabilities,
-  type TicketOverrides,
-} from '../labels/capabilities.js';
-import { applyRubricToPrompt } from '../../agents/reviewer/rubric.js';
-import { detectMergeConflicts, buildFileList } from '../../agents/reviewer/review-loop.js';
-import type { LabelCapability } from '../config.js';
+import { type ResolvedCapabilities, type TicketOverrides } from '../labels/capabilities.js';
+import { applyRubricToPrompt, detectMergeConflicts, buildFileList } from './reviewer-helpers.js';
 import type { TrackerIssue } from '../io/tracker/types.js';
 import type { PR, PRFile } from '../dispatch/runner/types.js';
-import type { Logger } from '../logger/index.js';
 import type { McpServerConfig } from '../llm/agent-loop/types.js';
 import type { RolePreparedContextBase } from './prepare.js';
 
@@ -42,9 +34,20 @@ export interface PrepareReviewerInput {
   branchName: string;
   typeOverride: string | undefined;
   reviewRubric: TicketOverrides['reviewRubric'];
-  configLabels: Record<string, LabelCapability> | undefined;
+  /**
+   * Resolved capabilities — computed once by the caller before any early-return
+   * gate so capability telemetry is emitted on every invocation. The single
+   * source of `capabilities` lives in the action.
+   */
+  capabilities: ResolvedCapabilities;
+  /**
+   * `[ferry:reviewer:<sha7>]` marker computed once by the caller (it must be
+   * computed BEFORE the action's idempotency-skip gate; we just thread the
+   * same value into prepare to keep a single source of truth — per
+   * `RolePreparedContextBase`).
+   */
+  idempotencyMarker: string;
   repoRoot: string;
-  logger?: Logger;
   /** Test seam — defaults to the real `buildSystem`. */
   _buildSystem?: typeof defaultBuildSystem;
   /** Test seam — defaults to the real `loadOptionalPrompt`. */
@@ -52,7 +55,6 @@ export interface PrepareReviewerInput {
 }
 
 export interface ReviewerPreparedContext extends RolePreparedContextBase {
-  capabilities: ResolvedCapabilities;
   /** filename → patch map consumed by the review loop's `get_file_patch` handler. */
   fileMap: Map<string, string | undefined>;
 }
@@ -67,9 +69,9 @@ export function prepareReviewer(input: PrepareReviewerInput): ReviewerPreparedCo
     branchName,
     typeOverride,
     reviewRubric,
-    configLabels,
+    capabilities,
+    idempotencyMarker,
     repoRoot,
-    logger,
   } = input;
   const buildSystem = input._buildSystem ?? defaultBuildSystem;
   const loadOptionalPrompt = input._loadOptionalPrompt ?? defaultLoadOptionalPrompt;
@@ -120,12 +122,9 @@ export function prepareReviewer(input: PrepareReviewerInput): ReviewerPreparedCo
   });
   const system = applyRubricToPrompt(baseSystem, reviewRubric);
 
-  const capabilities = resolveCapabilities(issue.labels, configLabels, logger);
   // The reviewer agent has never used MCP servers; we expose an empty list to
   // satisfy the shared `RolePreparedContextBase` shape.
   const mcpServers: McpServerConfig[] = [];
-
-  const idempotencyMarker = byPrHeadSha('reviewer', headSha);
 
   return {
     system,

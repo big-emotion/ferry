@@ -261,6 +261,48 @@ describe('prepareDeveloper', () => {
     expect(ctx.initialPrompt).not.toContain('EXISTING_IMPLEMENTATION:');
   });
 
+  it('filters the MCP pool down to capability-triggered servers when labels config is provided', async () => {
+    const cfgWithLabels = {
+      ...effectiveCfg,
+      labels: {
+        'ferry:docs': { mcp_servers: ['context7'] },
+      },
+    } as unknown as FerryConfig;
+    const issueWithLabel: TrackerIssue = {
+      ...issue,
+      labels: ['ferry:docs'],
+    };
+    const richMcpPool: McpServerConfig[] = [
+      { name: 'context7', url: 'https://example.com/c7' },
+      { name: 'jira', url: 'https://example.com/jira' },
+    ];
+
+    const ctx = await prepareDeveloper({
+      envelope,
+      issue: issueWithLabel,
+      effectiveCfg: cfgWithLabels,
+      subtasks: [],
+      testRunner: 'vitest',
+      pkgManagerHint: undefined,
+      tree: '',
+      typeOverride: undefined,
+      owner: 'o',
+      repo: 'r',
+      baseBranch: 'main',
+      runner: makeRunner(),
+      mcpPool: richMcpPool,
+      repoRoot: REPO_ROOT,
+      dryRun: false,
+      logger: createLogger('evt', 'test'),
+      _buildSystem: buildSystemStub,
+      _checkoutOrCreateBranch: () => ({ branchHeadSha: '', existingLog: '' }),
+      _configureGitUser: () => {},
+    });
+
+    // Only context7 should remain — jira is not enabled by the ferry:docs label.
+    expect(ctx.mcpServers.map((s) => s.name)).toEqual(['context7']);
+  });
+
   it('invokes _configureGitUser exactly once', async () => {
     const configureSpy = vi.fn();
     await prepareDeveloper({

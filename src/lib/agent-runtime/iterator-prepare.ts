@@ -14,23 +14,17 @@
  */
 
 import { delimitUntrusted } from '../llm/delimit-untrusted.js';
-import { byPrHeadSha } from './idempotency.js';
 import { buildSystem as defaultBuildSystem, buildTicketBlock } from './prompt.js';
-import {
-  resolveCapabilities,
-  filterMcpServers,
-  type ResolvedCapabilities,
-} from '../labels/capabilities.js';
+import { filterMcpServers, type ResolvedCapabilities } from '../labels/capabilities.js';
 import type { LabelCapability } from '../config.js';
 import type { McpServerConfig } from '../llm/agent-loop/types.js';
 import type { TrackerIssue } from '../io/tracker/types.js';
-import type { Logger } from '../logger/index.js';
 import type { RolePreparedContextBase } from './prepare.js';
 
 export interface PrepareIteratorInput {
   ticketKey: string;
   issue: TrackerIssue;
-  /** Full PR head SHA — first 7 chars become the idempotency anchor. */
+  /** Full PR head SHA — first 7 chars are the idempotency anchor. */
   headSha: string;
   /** Latest reviewer findings body (already verified non-empty, non-approved by the caller). */
   reviewComment: string;
@@ -40,30 +34,40 @@ export interface PrepareIteratorInput {
   existingLog: string;
   mcpPool: McpServerConfig[];
   configLabels: Record<string, LabelCapability> | undefined;
+  /**
+   * Resolved capabilities — computed once by the caller before any early-return
+   * gate so capability telemetry is emitted on every invocation, not only when
+   * we reach the loop. The single source of `capabilities` lives in the action.
+   */
+  capabilities: ResolvedCapabilities;
+  /**
+   * `[ferry:iterator:<sha7>]` marker computed once by the caller (it must be
+   * computed BEFORE the action's idempotency-skip gate, so we just thread the
+   * same value into prepare to keep a single source of truth — per
+   * `RolePreparedContextBase`).
+   */
+  idempotencyMarker: string;
   typeOverride: string | undefined;
   repoRoot: string;
-  logger?: Logger;
   /** Test seam — defaults to the real `buildSystem`. */
   _buildSystem?: typeof defaultBuildSystem;
 }
 
-export interface IteratorPreparedContext extends RolePreparedContextBase {
-  capabilities: ResolvedCapabilities;
-}
+export type IteratorPreparedContext = RolePreparedContextBase;
 
 export function prepareIterator(input: PrepareIteratorInput): IteratorPreparedContext {
   const {
     ticketKey,
     issue,
-    headSha,
     reviewComment,
     mergeConflicts,
     existingLog,
     mcpPool,
     configLabels,
+    capabilities,
+    idempotencyMarker,
     typeOverride,
     repoRoot,
-    logger,
   } = input;
   const buildSystem = input._buildSystem ?? defaultBuildSystem;
 
@@ -88,11 +92,8 @@ export function prepareIterator(input: PrepareIteratorInput): IteratorPreparedCo
     .filter(Boolean)
     .join('\n');
 
-  const capabilities = resolveCapabilities(issue.labels, configLabels, logger);
   const hasLabelsConfig = configLabels !== undefined;
   const mcpServers = filterMcpServers(mcpPool, capabilities, hasLabelsConfig);
-
-  const idempotencyMarker = byPrHeadSha('iterator', headSha);
 
   return {
     system,

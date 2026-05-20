@@ -2,6 +2,8 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { prepareIterator } from './iterator-prepare.js';
 import type { TrackerIssue } from '../io/tracker/types.js';
 import type { McpServerConfig } from '../llm/agent-loop/types.js';
+import type { ResolvedCapabilities } from '../labels/capabilities.js';
+import type { LabelCapability } from '../config.js';
 
 const REPO_ROOT = '/workspace/repo';
 
@@ -20,6 +22,13 @@ const mcpPool: McpServerConfig[] = [
   { name: 'jira', url: 'https://example.com/jira' },
 ];
 
+const emptyCapabilities: ResolvedCapabilities = {
+  mcpServerNames: [],
+  serverAllowedTools: {},
+  triggeredLabels: [],
+  unknownFerryLabels: [],
+};
+
 const buildSystemStub = (name: string) => `SYSTEM(${name})`;
 
 afterEach(() => {
@@ -27,7 +36,7 @@ afterEach(() => {
 });
 
 describe('prepareIterator', () => {
-  it('builds the iterator system prompt, ticket block, initial prompt and idempotency marker', () => {
+  it('builds the iterator system prompt, ticket block, initial prompt and threads the idempotency marker', () => {
     const ctx = prepareIterator({
       ticketKey: 'PROJ-200',
       issue,
@@ -37,6 +46,8 @@ describe('prepareIterator', () => {
       existingLog: 'a1b2c3d feat: initial work',
       mcpPool,
       configLabels: undefined,
+      capabilities: emptyCapabilities,
+      idempotencyMarker: '[ferry:iterator:abcdef1]',
       typeOverride: undefined,
       repoRoot: REPO_ROOT,
       _buildSystem: buildSystemStub,
@@ -67,6 +78,8 @@ describe('prepareIterator', () => {
       existingLog: '',
       mcpPool,
       configLabels: undefined,
+      capabilities: emptyCapabilities,
+      idempotencyMarker: '[ferry:iterator:1234567]',
       typeOverride: undefined,
       repoRoot: REPO_ROOT,
       _buildSystem: buildSystemStub,
@@ -78,7 +91,7 @@ describe('prepareIterator', () => {
     expect(ctx.initialPrompt).not.toContain('## Existing commits on branch');
   });
 
-  it('keeps the empty MCP pool when no labels config is provided (capabilities are empty)', () => {
+  it('keeps the full MCP pool when no labels config is provided (filter is a no-op)', () => {
     const ctx = prepareIterator({
       ticketKey: 'PROJ-200',
       issue,
@@ -88,6 +101,8 @@ describe('prepareIterator', () => {
       existingLog: '',
       mcpPool,
       configLabels: undefined,
+      capabilities: emptyCapabilities,
+      idempotencyMarker: '[ferry:iterator:abcdef1]',
       typeOverride: undefined,
       repoRoot: REPO_ROOT,
       _buildSystem: buildSystemStub,
@@ -96,6 +111,37 @@ describe('prepareIterator', () => {
     // No labels config → hasLabelsConfig=false → filterMcpServers returns the pool unfiltered
     expect(ctx.mcpServers).toEqual(mcpPool);
     expect(ctx.capabilities.mcpServerNames).toEqual([]);
+  });
+
+  it('filters the MCP pool down to capability-triggered servers when labels config is provided', () => {
+    const configLabels: Record<string, LabelCapability> = {
+      'ferry:docs': { mcp_servers: ['context7'] },
+    };
+    const triggeredCapabilities: ResolvedCapabilities = {
+      mcpServerNames: ['context7'],
+      serverAllowedTools: { context7: [] },
+      triggeredLabels: ['ferry:docs'],
+      unknownFerryLabels: [],
+    };
+
+    const ctx = prepareIterator({
+      ticketKey: 'PROJ-200',
+      issue: { ...issue, labels: ['ferry:docs'] },
+      headSha: 'abcdef1',
+      reviewComment: '',
+      mergeConflicts: [],
+      existingLog: '',
+      mcpPool,
+      configLabels,
+      capabilities: triggeredCapabilities,
+      idempotencyMarker: '[ferry:iterator:abcdef1]',
+      typeOverride: undefined,
+      repoRoot: REPO_ROOT,
+      _buildSystem: buildSystemStub,
+    });
+
+    // Only context7 should remain — the unfiltered pool also has 'jira'.
+    expect(ctx.mcpServers.map((s) => s.name)).toEqual(['context7']);
   });
 
   it('forwards the typeOverride into the ticket block', () => {
@@ -108,6 +154,8 @@ describe('prepareIterator', () => {
       existingLog: '',
       mcpPool,
       configLabels: undefined,
+      capabilities: emptyCapabilities,
+      idempotencyMarker: '[ferry:iterator:abcdef1]',
       typeOverride: 'Spike',
       repoRoot: REPO_ROOT,
       _buildSystem: buildSystemStub,

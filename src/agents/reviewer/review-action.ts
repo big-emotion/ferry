@@ -213,7 +213,8 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
   // overlay + rubric override), the initial prompt, the filename→patch map,
   // and the capability-filtered MCP pool. Extracted into a reusable prepare
   // function (#330) so the future cc-prepare composite (#331) consumes the
-  // same source.
+  // same source. `capabilities` and `idempotencyMarker` are threaded in
+  // from the action (single source of truth — see `RolePreparedContextBase`).
   const prepared = prepareReviewer({
     ticketKey,
     issue,
@@ -223,9 +224,9 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
     branchName,
     typeOverride,
     reviewRubric: reviewRubricOverride,
-    configLabels: effectiveCfg.labels,
+    capabilities,
+    idempotencyMarker,
     repoRoot: REPO_ROOT,
-    logger,
   });
   const { system, initialPrompt, fileMap } = prepared;
 

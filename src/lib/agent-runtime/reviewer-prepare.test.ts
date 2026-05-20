@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { prepareReviewer } from './reviewer-prepare.js';
 import type { TrackerIssue } from '../io/tracker/types.js';
 import type { PR, PRFile } from '../dispatch/runner/types.js';
+import type { ResolvedCapabilities } from '../labels/capabilities.js';
 
 const REPO_ROOT = '/workspace/repo';
 
@@ -34,6 +35,13 @@ const commits = [
   { sha: 'def5678baadf00d', message: 'fix: b' },
 ];
 
+const emptyCapabilities: ResolvedCapabilities = {
+  mcpServerNames: [],
+  serverAllowedTools: {},
+  triggeredLabels: [],
+  unknownFerryLabels: [],
+};
+
 const buildSystemStub = (name: string, _root: string, opts?: { extraParts?: unknown[] }) =>
   `SYSTEM(${name}, parts=${(opts?.extraParts ?? []).length})`;
 
@@ -50,7 +58,8 @@ describe('prepareReviewer', () => {
       branchName: 'ferry/feat/PROJ-300',
       typeOverride: undefined,
       reviewRubric: undefined,
-      configLabels: undefined,
+      capabilities: emptyCapabilities,
+      idempotencyMarker: '[ferry:reviewer:feedbee]',
       repoRoot: REPO_ROOT,
       _buildSystem: buildSystemStub,
       _loadOptionalPrompt: loadOptionalPromptStub,
@@ -71,7 +80,8 @@ describe('prepareReviewer', () => {
       branchName: 'ferry/feat/PROJ-300',
       typeOverride: undefined,
       reviewRubric: 'strict',
-      configLabels: undefined,
+      capabilities: emptyCapabilities,
+      idempotencyMarker: '[ferry:reviewer:feedbee]',
       repoRoot: REPO_ROOT,
       _buildSystem: buildSystemStub,
       _loadOptionalPrompt: loadOptionalPromptStub,
@@ -90,7 +100,8 @@ describe('prepareReviewer', () => {
       branchName: 'ferry/feat/PROJ-300',
       typeOverride: undefined,
       reviewRubric: 'lenient',
-      configLabels: undefined,
+      capabilities: emptyCapabilities,
+      idempotencyMarker: '[ferry:reviewer:feedbee]',
       repoRoot: REPO_ROOT,
       _buildSystem: buildSystemStub,
       _loadOptionalPrompt: loadOptionalPromptStub,
@@ -109,7 +120,8 @@ describe('prepareReviewer', () => {
       branchName: 'ferry/feat/PROJ-300',
       typeOverride: undefined,
       reviewRubric: undefined,
-      configLabels: undefined,
+      capabilities: emptyCapabilities,
+      idempotencyMarker: '[ferry:reviewer:feedbee]',
       repoRoot: REPO_ROOT,
       _buildSystem: buildSystemStub,
       _loadOptionalPrompt: loadOptionalPromptStub,
@@ -149,7 +161,8 @@ describe('prepareReviewer', () => {
       branchName: 'ferry/feat/PROJ-300',
       typeOverride: undefined,
       reviewRubric: undefined,
-      configLabels: undefined,
+      capabilities: emptyCapabilities,
+      idempotencyMarker: '[ferry:reviewer:feedbee]',
       repoRoot: REPO_ROOT,
       _buildSystem: buildSystemStub,
       _loadOptionalPrompt: loadOptionalPromptStub,
@@ -160,7 +173,7 @@ describe('prepareReviewer', () => {
     expect(ctx.initialPrompt).toContain('conflicted files: src/c.ts');
   });
 
-  it('uses the PR head SHA to anchor the idempotency marker', () => {
+  it('threads the idempotency marker through unchanged', () => {
     const ctx = prepareReviewer({
       ticketKey: 'PROJ-300',
       issue,
@@ -170,7 +183,8 @@ describe('prepareReviewer', () => {
       branchName: 'ferry/feat/PROJ-300',
       typeOverride: undefined,
       reviewRubric: undefined,
-      configLabels: undefined,
+      capabilities: emptyCapabilities,
+      idempotencyMarker: '[ferry:reviewer:feedbee]',
       repoRoot: REPO_ROOT,
       _buildSystem: buildSystemStub,
       _loadOptionalPrompt: loadOptionalPromptStub,
@@ -189,7 +203,8 @@ describe('prepareReviewer', () => {
       branchName: 'ferry/feat/PROJ-300',
       typeOverride: undefined,
       reviewRubric: undefined,
-      configLabels: undefined,
+      capabilities: emptyCapabilities,
+      idempotencyMarker: '[ferry:reviewer:feedbee]',
       repoRoot: REPO_ROOT,
       _buildSystem: buildSystemStub,
       _loadOptionalPrompt: loadOptionalPromptStub,

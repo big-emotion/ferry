@@ -64,21 +64,12 @@ export interface ReviewResult {
   comment: string;
 }
 
-export function detectMergeConflicts(files: PRFile[]): string[] {
-  const conflicted: string[] = [];
-  for (const f of files) {
-    if (f.patch && /^[+].*<{7}|^[+].*={7}|^[+].*>{7}/m.test(f.patch)) {
-      conflicted.push(f.filename);
-    }
-  }
-  return conflicted;
-}
-
-export function buildFileList(files: PRFile[]): string {
-  return files
-    .map((f) => `${f.status.padEnd(8)} +${f.additions} -${f.deletions}  ${f.filename}`)
-    .join('\n');
-}
+// The implementations of detectMergeConflicts and buildFileList live in
+// `src/lib/agent-runtime/reviewer-helpers.ts` so the lib layer's
+// reviewer-prepare can depend on them without inverting the
+// agents/** → lib/** layering. Re-exported here so existing import paths
+// under src/agents/reviewer/** stay valid.
+export { detectMergeConflicts, buildFileList } from '../../lib/agent-runtime/reviewer-helpers.js';
 
 export async function runReviewLoop(opts: {
   loop: ToolCallLoop;

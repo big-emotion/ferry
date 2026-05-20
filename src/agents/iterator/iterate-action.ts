@@ -7,6 +7,7 @@ import { checkIterationCap } from './cap.js';
 import { decideIteratorTransition } from './transition.js';
 import { formatCommitMessage } from './prompt.js';
 import {
+  resolveCapabilities,
   resolveTicketOverrides,
   applyTicketOverrides,
   hasNonDefaultOverrides,
@@ -143,6 +144,13 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
   const { provider: iterProvider, model } = effectiveCfg.models.iterate;
   const mcpPool = loadMcpServers();
 
+  // Resolve capabilities once, BEFORE every early-return gate below, so the
+  // capability telemetry is emitted on every invocation — not only when we
+  // reach the loop. The resolved value is threaded into `prepareIterator`
+  // (single source of truth per `RolePreparedContextBase`).
+  const capabilities = resolveCapabilities(issue.labels, effectiveCfg.labels, logger);
+  logCapabilities(logger, capabilities);
+
   const priorIterations = existingComments.filter(
     (c) => c.includes('[ferry:iterator:') && c.includes('complete. Pushed fixes to PR#'),
   ).length;
@@ -247,7 +255,8 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
   // Pre-loop setup: builds system prompt, ticket block, initial prompt, and
   // the capability-filtered MCP pool. Extracted into a reusable prepare
   // function (#330) so the future cc-prepare composite (#331) consumes the
-  // same source.
+  // same source. `capabilities` and `idempotencyMarker` are threaded in
+  // from the action (single source of truth — see `RolePreparedContextBase`).
   const prepared = prepareIterator({
     ticketKey,
     issue,
@@ -257,13 +266,12 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
     existingLog,
     mcpPool,
     configLabels: effectiveCfg.labels,
+    capabilities,
+    idempotencyMarker,
     typeOverride,
     repoRoot: REPO_ROOT,
-    logger,
   });
-  const { system, initialPrompt, mcpServers, capabilities } = prepared;
-
-  logCapabilities(logger, capabilities);
+  const { system, initialPrompt, mcpServers } = prepared;
 
   const secretScan = makeSecretScan(REPO_ROOT);
 
