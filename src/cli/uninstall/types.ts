@@ -14,6 +14,11 @@ export interface WorkflowItem {
   present: boolean;
 }
 
+export interface CompositeActionItem {
+  dirname: string;
+  present: boolean;
+}
+
 export interface AuditIssueState {
   number: number;
   hasLabel: boolean;

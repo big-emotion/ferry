@@ -13,17 +13,21 @@ import {
 } from '../init/prompt.js';
 import {
   detectWorkflows,
+  detectCompositeActions,
   detectCodeownersBlock,
   detectSecrets,
+  detectOAuthSecret,
   detectVariables,
   detectAuditIssueNumber,
   detectAuditIssue,
   ANTHROPIC_SECRET,
+  CLAUDE_CODE_OAUTH_SECRET,
   FERRY_VARIABLE,
   AUDIT_LABEL,
 } from './detect.js';
 import {
   removeWorkflows,
+  removeCompositeActions,
   removeCodeownersBlock,
   removeSecrets,
   removeVariable,
@@ -124,13 +128,16 @@ Options:
 
 What is removed by default:
   • .github/workflows/ferry-*.yml (6 workflow files)
+  • .github/actions/ferry-route/, ferry-cc-prepare/, ferry-cc-apply/ (composite actions)
   • Ferry entries in .github/CODEOWNERS (file kept; only Ferry lines removed)
   • Repo secrets: FERRY_APP_ID, FERRY_PRIVATE_KEY, FERRY_JIRA_BASE_URL,
                   FERRY_JIRA_EMAIL, FERRY_JIRA_API_TOKEN,
-                  FERRY_REVIEW_TRANSITION_ID, FERRY_ITER_TRANSITION_ID,
-                  CLAUDE_CODE_OAUTH_TOKEN (claude-code path; if present)
+                  FERRY_REVIEW_TRANSITION_ID, FERRY_ITER_TRANSITION_ID
   • Repo variable: ${FERRY_VARIABLE}
   • Label '${AUDIT_LABEL}' removed from audit-log issue (issue NOT closed)
+
+What requires interactive confirmation (never removed in --yes mode):
+  • CLAUDE_CODE_OAUTH_TOKEN — OAuth subscription token; prompted individually
 
 What is NOT touched:
   • ${ANTHROPIC_SECRET} (use --include-anthropic to also remove)
@@ -174,18 +181,26 @@ Exit code: 0 on success, 1 on any error.
   print('');
 
   const workflows = detectWorkflows(opts.repoRoot);
+  const compositeActions = detectCompositeActions(opts.repoRoot);
   const codeownersHasFerry = detectCodeownersBlock(opts.repoRoot);
   const secrets = opts.keepSecrets ? [] : detectSecrets(opts.repo, opts.includeAnthropic);
+  const oauthSecretPresent = opts.keepSecrets ? false : detectOAuthSecret(opts.repo);
   const variables = opts.keepSecrets ? [] : detectVariables(opts.repo);
   const auditIssueNumber = detectAuditIssueNumber(opts.repo);
   const auditIssue =
     auditIssueNumber !== null ? detectAuditIssue(opts.repo, auditIssueNumber) : null;
 
   const presentWorkflows = workflows.filter((w) => w.present);
+  const presentComposites = compositeActions.filter((a) => a.present);
   const hasWorkflowChanges =
-    !opts.keepWorkflows && (presentWorkflows.length > 0 || codeownersHasFerry);
+    !opts.keepWorkflows &&
+    (presentWorkflows.length > 0 || presentComposites.length > 0 || codeownersHasFerry);
   const hasAnything =
-    hasWorkflowChanges || secrets.length > 0 || variables.length > 0 || auditIssue !== null;
+    hasWorkflowChanges ||
+    secrets.length > 0 ||
+    oauthSecretPresent ||
+    variables.length > 0 ||
+    auditIssue !== null;
 
   if (!hasAnything) {
     print('Nothing to remove — Ferry does not appear to be installed.');
@@ -199,6 +214,9 @@ Exit code: 0 on success, 1 on any error.
     for (const wf of presentWorkflows) {
       print(`  ✓ .github/workflows/${wf.filename}`);
     }
+    for (const ca of presentComposites) {
+      print(`  ✓ .github/actions/${ca.dirname}/`);
+    }
     if (codeownersHasFerry) {
       print('  ✓ Ferry block in .github/CODEOWNERS  (file kept; only Ferry lines removed)');
     }
@@ -207,6 +225,16 @@ Exit code: 0 on success, 1 on any error.
   if (secrets.length > 0) {
     const formatted = secrets.join(', ');
     print(`  ✓ Repo secrets: ${formatted}`);
+  }
+
+  if (oauthSecretPresent) {
+    if (opts.yes) {
+      print(
+        `  • ${CLAUDE_CODE_OAUTH_SECRET} — skipped in --yes mode (requires interactive consent)`,
+      );
+    } else {
+      print(`  ✓ ${CLAUDE_CODE_OAUTH_SECRET} (will confirm interactively)`);
+    }
   }
 
   if (variables.length > 0) {
@@ -248,6 +276,15 @@ Exit code: 0 on success, 1 on any error.
     }
   }
 
+  let removeOAuthSecretFlag = false;
+  if (!opts.yes && oauthSecretPresent) {
+    print('');
+    removeOAuthSecretFlag = await confirm(
+      `Also remove ${CLAUDE_CODE_OAUTH_SECRET}? (OAuth subscription token — revocation is irreversible)`,
+      false,
+    );
+  }
+
   closePrompt();
 
   const errors: string[] = [];
@@ -261,12 +298,15 @@ Exit code: 0 on success, 1 on any error.
     },
   };
 
-  // ── Step 1: Workflows ─────────────────────────────────────────────────────
-  printStep(1, TOTAL_STEPS, 'Removing workflow files');
+  // ── Step 1: Workflows & composite actions ────────────────────────────────
+  printStep(1, TOTAL_STEPS, 'Removing workflow files and composite actions');
   if (opts.keepWorkflows) {
-    printSkip('--keep-workflows: leaving workflow files and CODEOWNERS in place');
+    printSkip(
+      '--keep-workflows: leaving workflow files, composite actions, and CODEOWNERS in place',
+    );
   } else {
     removeWorkflows(opts.repoRoot, workflows, execOpts);
+    removeCompositeActions(opts.repoRoot, compositeActions, execOpts);
     removeCodeownersBlock(opts.repoRoot, execOpts);
   }
 
@@ -276,6 +316,11 @@ Exit code: 0 on success, 1 on any error.
     printSkip('--keep-secrets: leaving all secrets in place');
   } else {
     removeSecrets(opts.repo, secrets, execOpts);
+    if (removeOAuthSecretFlag) {
+      removeSecrets(opts.repo, [CLAUDE_CODE_OAUTH_SECRET], execOpts);
+    } else if (oauthSecretPresent) {
+      printSkip(`${CLAUDE_CODE_OAUTH_SECRET}: not removed (requires explicit interactive consent)`);
+    }
   }
 
   // ── Step 3: Variables ─────────────────────────────────────────────────────
@@ -304,15 +349,32 @@ Exit code: 0 on success, 1 on any error.
   print('  Uninstall complete!');
   print('════════════════════════════════════════');
   print('');
+  print('What was removed:');
+  if (!opts.keepWorkflows) {
+    const removedWf = presentWorkflows.length;
+    const removedCa = presentComposites.length;
+    if (removedWf > 0) print(`  ✓ ${removedWf} workflow file(s) from .github/workflows/`);
+    if (removedCa > 0) print(`  ✓ ${removedCa} composite action(s) from .github/actions/`);
+    if (codeownersHasFerry) print('  ✓ Ferry entries from .github/CODEOWNERS');
+  }
+  if (secrets.length > 0) print(`  ✓ Secrets: ${secrets.join(', ')}`);
+  if (removeOAuthSecretFlag) print(`  ✓ Secret: ${CLAUDE_CODE_OAUTH_SECRET}`);
+  if (variables.length > 0) print(`  ✓ Variable: ${variables.join(', ')}`);
+  print('');
   print('Remaining manual steps:');
+  let step = 1;
+  if (oauthSecretPresent && !removeOAuthSecretFlag) {
+    print(`  ${step++}. Remove ${CLAUDE_CODE_OAUTH_SECRET} if desired:`);
+    print(`     gh secret delete ${CLAUDE_CODE_OAUTH_SECRET} --repo ${opts.repo}`);
+  }
   if (!opts.includeAnthropic) {
-    print(`  1. Decide whether to delete the ${ANTHROPIC_SECRET} secret`);
+    print(`  ${step++}. Decide whether to delete the ${ANTHROPIC_SECRET} secret`);
     print(`     (gh secret delete ${ANTHROPIC_SECRET} --repo ${opts.repo})`);
   }
-  print('  2. Disable or delete the 4 Jira Automation rules in the Jira UI');
+  print(`  ${step++}. Disable or delete the 4 Jira Automation rules in the Jira UI`);
   print('     (Project settings → Automation)');
-  print('  3. Uninstall the GitHub App at https://github.com/settings/installations');
-  print('  4. Review repo-level workflow permissions if desired');
+  print(`  ${step++}. Uninstall the GitHub App at https://github.com/settings/installations`);
+  print(`  ${step}. Review repo-level workflow permissions if desired`);
   print('');
 
   if (errors.length > 0) {

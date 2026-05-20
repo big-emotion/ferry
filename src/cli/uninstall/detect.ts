@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { WorkflowItem, AuditIssueState } from './types.js';
+import type { WorkflowItem, CompositeActionItem, AuditIssueState } from './types.js';
 
 export const FERRY_WORKFLOW_FILES = [
   'ferry-refine.yml',
@@ -25,13 +25,15 @@ export const FERRY_SECRETS = [
 export const ANTHROPIC_SECRET = 'ANTHROPIC_API_KEY';
 /**
  * Ferry-provisioned subscription OAuth token for the claude-code execution
- * path (ADR-0006 §6). Created via `claude setup-token` specifically for Ferry,
- * so it is removed by default — leaving it would orphan a stale subscription
- * token (decisions/0002 §F). This is unlike ANTHROPIC_API_KEY, which may be a
- * consumer's general-purpose key and is therefore gated behind
- * --include-anthropic.
+ * path (ADR-0006 §6). Removal requires interactive confirmation — never
+ * auto-removed in --yes mode because revoking an OAuth subscription is
+ * irreversible. Use detectOAuthSecret / removeSecrets([CLAUDE_CODE_OAUTH_SECRET])
+ * after explicit user consent.
  */
 export const CLAUDE_CODE_OAUTH_SECRET = 'CLAUDE_CODE_OAUTH_TOKEN';
+
+/** Composite action directories added by ferry-init in v0.13.0 (ADR-0006). */
+export const FERRY_COMPOSITE_DIRS = ['ferry-route', 'ferry-cc-prepare', 'ferry-cc-apply'];
 export const FERRY_VARIABLE = 'FERRY_AUDIT_ISSUE';
 export const AUDIT_LABEL = 'ferry:audit-log:active';
 
@@ -40,6 +42,14 @@ export function detectWorkflows(repoRoot: string): WorkflowItem[] {
   return FERRY_WORKFLOW_FILES.map((filename) => ({
     filename,
     present: existsSync(join(workflowDir, filename)),
+  }));
+}
+
+export function detectCompositeActions(repoRoot: string): CompositeActionItem[] {
+  const actionsDir = join(repoRoot, '.github', 'actions');
+  return FERRY_COMPOSITE_DIRS.map((dirname) => ({
+    dirname,
+    present: existsSync(join(actionsDir, dirname)),
   }));
 }
 
@@ -66,12 +76,13 @@ function listSecrets(repo: string): string[] {
 
 export function detectSecrets(repo: string, includeAnthropic: boolean): string[] {
   const all = listSecrets(repo);
-  const targets = [
-    ...FERRY_SECRETS,
-    CLAUDE_CODE_OAUTH_SECRET,
-    ...(includeAnthropic ? [ANTHROPIC_SECRET] : []),
-  ];
+  const targets = [...FERRY_SECRETS, ...(includeAnthropic ? [ANTHROPIC_SECRET] : [])];
   return targets.filter((s) => all.includes(s));
+}
+
+/** Returns true if CLAUDE_CODE_OAUTH_TOKEN exists in the repo's secrets. */
+export function detectOAuthSecret(repo: string): boolean {
+  return listSecrets(repo).includes(CLAUDE_CODE_OAUTH_SECRET);
 }
 
 function listVariables(repo: string): Array<{ name: string; value: string }> {

@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
-import { unlinkSync, readFileSync, writeFileSync } from 'node:fs';
+import { unlinkSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { WorkflowItem, AuditIssueState } from './types.js';
+import type { WorkflowItem, CompositeActionItem, AuditIssueState } from './types.js';
 import { AUDIT_LABEL } from './detect.js';
 
 export interface ExecOptions {
@@ -33,6 +33,32 @@ export function removeWorkflows(
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       opts.onError(`Failed to delete ${wf.filename}: ${msg}`);
+    }
+  }
+}
+
+export function removeCompositeActions(
+  repoRoot: string,
+  actions: CompositeActionItem[],
+  opts: ExecOptions,
+): void {
+  const actionsDir = join(repoRoot, '.github', 'actions');
+  for (const action of actions) {
+    if (!action.present) {
+      opts.onSkip(`.github/actions/${action.dirname}/ not present — skipping`);
+      continue;
+    }
+    if (opts.dryRun) {
+      opts.onAction(`[dry-run] Would delete .github/actions/${action.dirname}/`);
+      continue;
+    }
+    const dest = join(actionsDir, action.dirname);
+    try {
+      rmSync(dest, { recursive: true });
+      opts.onAction(`Deleted .github/actions/${action.dirname}/`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      opts.onError(`Failed to delete .github/actions/${action.dirname}/: ${msg}`);
     }
   }
 }
