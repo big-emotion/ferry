@@ -6658,35 +6658,6 @@ function assertToolPolicyEnforcesNoAutoMerge(policy) {
   }
 }
 
-// src/lib/claude-code/claude-args.ts
-function buildClaudeArgs(input) {
-  const servers = input.mcpServers ?? [];
-  const allowedTools = [...nativeToolsForRole(input.role), ...mcpToolAllowlist(servers)];
-  const disallowedTools = [...NO_AUTO_MERGE_DENY];
-  assertToolPolicyEnforcesNoAutoMerge({ allowedTools, disallowedTools });
-  const args = [
-    "--append-system-prompt",
-    input.system,
-    "--allowedTools",
-    allowedTools.join(","),
-    "--disallowedTools",
-    disallowedTools.join(",")
-  ];
-  if (servers.length > 0) {
-    args.push("--mcp-config", JSON.stringify(toClaudeCodeMcpConfig(servers)));
-  }
-  if (input.maxTurns !== void 0) {
-    if (!Number.isInteger(input.maxTurns) || input.maxTurns <= 0) {
-      throw new Error(`max-turns must be a positive integer, got ${input.maxTurns}`);
-    }
-    args.push("--max-turns", String(input.maxTurns));
-  }
-  if (input.model !== void 0 && input.model.trim().length > 0) {
-    args.push("--model", input.model);
-  }
-  return args;
-}
-
 // src/lib/claude-code/output-artifact.ts
 var CC_OUTPUT_ARTIFACT_PATH = ".ferry/cc-output.json";
 var DONE_OUTCOMES = ["implemented", "already_satisfied", "blocked"];
@@ -6842,6 +6813,39 @@ FINAL OUTPUT (claude-code path): the \`done\`/\`finish_review\` tools are not av
   }
   const access = ROLE_ACCESS[role];
   return `${header} Commit and push your work with \`git\` first (there is no \`commit_progress\` tool on this path; access=${access}). Then write: ${DEV_ITER_SHAPE}`;
+}
+
+// src/lib/claude-code/claude-args.ts
+function buildClaudeArgs(input) {
+  const servers = input.mcpServers ?? [];
+  const allowedTools = [
+    ...nativeToolsForRole(input.role),
+    `Write(${CC_OUTPUT_ARTIFACT_PATH})`,
+    ...mcpToolAllowlist(servers)
+  ];
+  const disallowedTools = [...NO_AUTO_MERGE_DENY];
+  assertToolPolicyEnforcesNoAutoMerge({ allowedTools, disallowedTools });
+  const args = [
+    "--append-system-prompt",
+    input.system,
+    "--allowedTools",
+    allowedTools.join(","),
+    "--disallowedTools",
+    disallowedTools.join(",")
+  ];
+  if (servers.length > 0) {
+    args.push("--mcp-config", JSON.stringify(toClaudeCodeMcpConfig(servers)));
+  }
+  if (input.maxTurns !== void 0) {
+    if (!Number.isInteger(input.maxTurns) || input.maxTurns <= 0) {
+      throw new Error(`max-turns must be a positive integer, got ${input.maxTurns}`);
+    }
+    args.push("--max-turns", String(input.maxTurns));
+  }
+  if (input.model !== void 0 && input.model.trim().length > 0) {
+    args.push("--model", input.model);
+  }
+  return args;
 }
 
 // src/lib/claude-code/job.ts

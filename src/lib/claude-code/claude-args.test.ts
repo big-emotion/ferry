@@ -18,14 +18,24 @@ describe('buildClaudeArgs', () => {
 
   it('builds --allowedTools from the role native set (read-write for developer)', () => {
     const args = buildClaudeArgs({ role: 'developer', system: 's' });
-    expect(flagValue(args, '--allowedTools')).toBe('Bash,Read,Write,Edit,Glob,Grep');
+    expect(flagValue(args, '--allowedTools')).toBe(
+      'Bash,Read,Write,Edit,Glob,Grep,Write(.ferry/cc-output.json)',
+    );
   });
 
-  it('builds the read-only native set for reviewer and refiner', () => {
+  it('builds the read-only native set for reviewer and refiner with narrow artifact Write grant', () => {
     for (const role of ['reviewer', 'refiner'] as const) {
       expect(flagValue(buildClaudeArgs({ role, system: 's' }), '--allowedTools')).toBe(
-        'Read,Glob,Grep',
+        'Read,Glob,Grep,Write(.ferry/cc-output.json)',
       );
+    }
+  });
+
+  it('narrow Write(.ferry/cc-output.json) grant is present for every role', () => {
+    const ROLES: FerryRole[] = ['refiner', 'developer', 'reviewer', 'iterator'];
+    for (const role of ROLES) {
+      const allowed = flagValue(buildClaudeArgs({ role, system: 's' }), '--allowedTools') ?? '';
+      expect(allowed).toContain('Write(.ferry/cc-output.json)');
     }
   });
 
@@ -36,7 +46,7 @@ describe('buildClaudeArgs', () => {
     ];
     const args = buildClaudeArgs({ role: 'reviewer', system: 's', mcpServers: servers });
     expect(flagValue(args, '--allowedTools')).toBe(
-      'Read,Glob,Grep,mcp__jira__get_issue,mcp__context7',
+      'Read,Glob,Grep,Write(.ferry/cc-output.json),mcp__jira__get_issue,mcp__context7',
     );
   });
 

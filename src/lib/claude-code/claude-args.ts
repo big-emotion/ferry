@@ -18,6 +18,7 @@ import type { FerryRole } from './tool-profiles.js';
 import { nativeToolsForRole } from './tool-profiles.js';
 import { toClaudeCodeMcpConfig, mcpToolAllowlist } from './mcp-config.js';
 import { assertToolPolicyEnforcesNoAutoMerge, NO_AUTO_MERGE_DENY } from './tool-policy.js';
+import { CC_OUTPUT_ARTIFACT_PATH } from './output-artifact.js';
 
 export interface BuildClaudeArgsInput {
   role: FerryRole;
@@ -32,7 +33,14 @@ export interface BuildClaudeArgsInput {
 
 export function buildClaudeArgs(input: BuildClaudeArgsInput): string[] {
   const servers = input.mcpServers ?? [];
-  const allowedTools = [...nativeToolsForRole(input.role), ...mcpToolAllowlist(servers)];
+  // All roles need a narrow Write grant for the output artifact (.ferry/cc-output.json).
+  // Read-only roles (refiner/reviewer) have no broad Write in their native tool set,
+  // so without this grant the agent cannot write its result and cc-apply fails with ENOENT.
+  const allowedTools = [
+    ...nativeToolsForRole(input.role),
+    `Write(${CC_OUTPUT_ARTIFACT_PATH})`,
+    ...mcpToolAllowlist(servers),
+  ];
 
   // Fail-closed: assert the no-auto-merge invariant before emitting args.
   // Throws if the allow set re-grants a denied rule (ADR-0002 §D, #303).
