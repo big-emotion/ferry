@@ -16,7 +16,12 @@ import { checkWorkflowColumns } from './checks/workflow-columns.js';
 import { checkEnvVarSanity } from './checks/env-vars.js';
 import { checkAuditIssue } from './checks/audit-issue.js';
 import { checkAuditLog } from './checks/audit-log.js';
-import { checkClaudeCodePath } from './checks/claude-code-path.js';
+import {
+  checkClaudeCodePath,
+  checkTokenExclusivity,
+  checkProviderGate,
+  checkWorkflowShape,
+} from './checks/claude-code-path.js';
 import { renderTable } from './table.js';
 import { parseGitLabConfig, runGitLabDoctor } from './gitlab/index.js';
 import type { DoctorConfig } from './types.js';
@@ -155,6 +160,9 @@ Checks run in order:
   13. Audit issue            — FERRY_AUDIT_ISSUE variable set and referenced issue is open
   14. Audit log file         — ferry-audit.jsonl present and non-empty
   15. Claude-code path       — when execution_path = claude-code, CLAUDE_CODE_OAUTH_TOKEN present/valid
+  16. CC path: token exclusivity — ANTHROPIC_API_KEY must not be set alongside CLAUDE_CODE_OAUTH_TOKEN (ADR-0006 §6)
+  17. CC path: provider gate — all four agent providers must be anthropic when execution_path = claude-code
+  18. CC path: workflow shape — workflows must include ferry-cc-prepare + claude-code-action + ferry-cc-apply
 
 Exit code: 0 if all checks green/yellow, 1 if any check red.
 `);
@@ -213,6 +221,12 @@ Exit code: 0 if all checks green/yellow, 1 if any check red.
       repo: config.repo,
       claudeCodeOauthToken: config.claudeCodeOauthToken,
     }),
+    checkTokenExclusivity({
+      repoRoot: config.repoRoot,
+      repo: config.repo,
+    }),
+    checkProviderGate({ repoRoot: config.repoRoot }),
+    checkWorkflowShape({ repoRoot: config.repoRoot }),
   ]);
 
   process.stdout.write(renderTable(results));
