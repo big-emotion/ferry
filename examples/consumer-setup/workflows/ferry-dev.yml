@@ -152,7 +152,7 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
       - name: Run claude-code-action
-        uses: anthropics/claude-code-action@v1
+        uses: anthropics/claude-code-action@1dc994ee7a008f0ecc866d9ac23ef036b7229f84 # v1.0.127
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: ${{ steps.cc-prepare.outputs.prompt }}
@@ -190,7 +190,7 @@ jobs:
           phase: dev
           run_id: ${{ github.event.client_payload.event_id }}
           model: ${{ vars.FERRY_DEV_MODEL || 'claude-sonnet-4-6' }}
-          outcome: ${{ needs.run-agent.result == 'success' && needs.run-agent.result || needs.run-agent-claude-code.result }}
+          outcome: ${{ needs.run-agent.result != 'skipped' && needs.run-agent.result || needs.run-agent-claude-code.result }}
           input_tokens: ${{ needs.run-agent.outputs.input_tokens || needs.run-agent-claude-code.outputs.input_tokens || '0' }}
           output_tokens: ${{ needs.run-agent.outputs.output_tokens || needs.run-agent-claude-code.outputs.output_tokens || '0' }}
           cost_eur: ${{ needs.run-agent.outputs.cost_eur || needs.run-agent-claude-code.outputs.cost_eur || '0' }}

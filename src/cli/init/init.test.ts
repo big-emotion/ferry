@@ -214,7 +214,10 @@ describe('workflowTemplates', () => {
     for (const tmpl of workflowTemplates('v1', 'claude-code')) {
       expect(tmpl.content).toContain('# Execution path: claude-code');
       expect(tmpl.content).toContain('ferry-cc-prepare');
-      expect(tmpl.content).toContain('anthropics/claude-code-action@v1');
+      // Match by action ref only (not the version pin) so SHA-pinning the action
+      // doesn't require touching this presence check. The pin shape itself is
+      // asserted in templates.test.ts.
+      expect(tmpl.content).toContain('anthropics/claude-code-action@');
       expect(tmpl.content).toContain('ferry-cc-apply');
       expect(tmpl.content).toContain(
         'claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}',
@@ -225,7 +228,7 @@ describe('workflowTemplates', () => {
   it('claude-code path runs cc-prepare before claude-code-action before cc-apply', () => {
     const dev = workflowTemplates('v1', 'claude-code').find((t) => t.filename === 'ferry-dev.yml');
     const prepareIdx = dev?.content.indexOf('ferry-cc-prepare') ?? -1;
-    const actionIdx = dev?.content.indexOf('anthropics/claude-code-action@v1') ?? -1;
+    const actionIdx = dev?.content.indexOf('anthropics/claude-code-action@') ?? -1;
     const applyIdx = dev?.content.indexOf('ferry-cc-apply') ?? -1;
     expect(prepareIdx).toBeGreaterThan(-1);
     expect(actionIdx).toBeGreaterThan(-1);

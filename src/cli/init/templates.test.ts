@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { parse as parseYaml } from 'yaml';
 import { workflowTemplates } from './templates.js';
 
 const AGENT_FILES = ['ferry-refine.yml', 'ferry-dev.yml', 'ferry-review.yml', 'ferry-iterate.yml'];
@@ -21,15 +22,22 @@ function assertValidWorkflowYaml(content: string, filename: string): void {
   expect(closeCount, `${filename}: more opens than closes`).toBeGreaterThanOrEqual(openCount);
 
   // No bare TypeScript-style ${...} (single-brace) that would indicate escaping mistakes
-  // GitHub Actions uses ${{ }}, never ${ }
+  // GitHub Actions uses ${{ }}, never ${ }. Negative lookahead reads as "dollar-brace not
+  // followed by another brace" — same intent as the previous /\$\{[^{]/ but no false-positive
+  // on a literal `${ }` that could appear inside a comment.
   expect(content, `${filename}: bare single-brace \${...} found — escaping error`).not.toMatch(
-    /\$\{[^{]/,
+    /\$\{(?!\{)/,
   );
 
   // Required GitHub Actions YAML top-level keys must be unindented
   expect(content, `${filename}: missing top-level 'name:'`).toMatch(/^name:/m);
   expect(content, `${filename}: missing top-level 'on:'`).toMatch(/^on:/m);
   expect(content, `${filename}: missing top-level 'jobs:'`).toMatch(/^jobs:/m);
+
+  // The string-shape checks above catch the common escaping bugs, but they miss
+  // indentation mistakes that a regex can't see (e.g. a step block indented one level
+  // too deep). A real YAML parse round-trip catches those for free.
+  expect(() => parseYaml(content), `${filename}: yaml.parse threw`).not.toThrow();
 }
 
 describe('workflowTemplates — count and filenames', () => {
@@ -109,11 +117,15 @@ describe('workflowTemplates — claude-code path four-step chain', () => {
     for (const tmpl of workflowTemplates('v1')) {
       const content = tmpl.content;
       const prepareIdx = content.indexOf('ferry-cc-prepare');
-      const actionIdx = content.indexOf('anthropics/claude-code-action@v1');
+      // Match by action ref (not the version pin) so SHA-pinning the action doesn't
+      // require touching this ordering test.
+      const actionIdx = content.indexOf('anthropics/claude-code-action@');
       const applyIdx = content.indexOf('ferry-cc-apply');
 
       expect(prepareIdx, `${tmpl.filename}: missing ferry-cc-prepare`).toBeGreaterThan(-1);
-      expect(actionIdx, `${tmpl.filename}: missing claude-code-action@v1`).toBeGreaterThan(-1);
+      expect(actionIdx, `${tmpl.filename}: missing anthropics/claude-code-action`).toBeGreaterThan(
+        -1,
+      );
       expect(applyIdx, `${tmpl.filename}: missing ferry-cc-apply`).toBeGreaterThan(-1);
       expect(
         prepareIdx,
@@ -207,6 +219,43 @@ describe('workflowTemplates — role-specific wiring', () => {
     const review = workflowTemplates('v1').find((t) => t.filename === 'ferry-review.yml');
     const checksCount = (review?.content.match(/checks: read/g) ?? []).length;
     expect(checksCount).toBe(2);
+  });
+});
+
+describe('workflowTemplates — emit-audit outcome shape', () => {
+  // Locks in the `!= 'skipped'` shape of the outcome ternary. The earlier shape
+  // (`== 'success' && ...`) silently reported `skipped` for genuine script-path
+  // failures once the audit gate was widened to `!= 'skipped'`. Regressing this
+  // would poison cost-governance's view of failed runs.
+  it("outcome ternary uses != 'skipped' (script path branch), not == 'success'", () => {
+    for (const tmpl of workflowTemplates('v1')) {
+      expect(
+        tmpl.content,
+        `${tmpl.filename}: outcome ternary still uses the regressed == 'success' shape`,
+      ).not.toContain("needs.run-agent.result == 'success' && needs.run-agent.result");
+      expect(
+        tmpl.content,
+        `${tmpl.filename}: outcome ternary missing != 'skipped' shape`,
+      ).toContain(
+        "outcome: ${{ needs.run-agent.result != 'skipped' && needs.run-agent.result || needs.run-agent-claude-code.result }}",
+      );
+    }
+  });
+});
+
+describe('workflowTemplates — supply-chain action pinning', () => {
+  // anthropics/claude-code-action is a token-scoped action — tag refs like @v1 are
+  // mutable, so we require a 40-char commit SHA with a trailing version comment.
+  it('claude-code-action is SHA-pinned (not tag-pinned)', () => {
+    const SHA_PIN = /anthropics\/claude-code-action@[0-9a-f]{40}\s*#\s*v\d+/;
+    const TAG_PIN = /anthropics\/claude-code-action@v\d+\s*$/m;
+    for (const tmpl of workflowTemplates('v1')) {
+      expect(tmpl.content, `${tmpl.filename}: claude-code-action not SHA-pinned`).toMatch(SHA_PIN);
+      expect(
+        tmpl.content,
+        `${tmpl.filename}: claude-code-action still uses a mutable tag`,
+      ).not.toMatch(TAG_PIN);
+    }
   });
 });
 
