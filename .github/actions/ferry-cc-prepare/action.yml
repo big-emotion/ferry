@@ -1,0 +1,110 @@
+name: Ferry — Prepare CC Job
+description: >
+  Front-half loader for the claude-code execution path (ADR-0006 §2, issue #331).
+  Reads the envelope, ferry config, and Jira issue, runs the per-role prepare
+  function, and calls `buildClaudeCodeJob` to emit the deterministic inputs the
+  downstream `anthropics/claude-code-action@v1` step consumes (`prompt`,
+  `claude_args`, `allowed_native_tools`, `mcp_config`, `output_artifact_path`,
+  `idempotency_marker`). Self-contained; no `.ferry/` needed in the consumer
+  workspace.
+
+  Auth invariant (ADR-0006 §6): `ANTHROPIC_API_KEY` is forbidden alongside
+  `CLAUDE_CODE_OAUTH_TOKEN`; this composite refuses to run if both are present.
+
+  Provider gate (issue #329 / ADR-0006 §1, defense-in-depth): refuses to run if
+  any configured agent provider is not `anthropic`, even if the routing
+  resolver mistakenly emitted `path == 'claude-code'`.
+
+  The `claude_code_oauth_token` input is forwarded via `env:` for downstream
+  visibility only; its value is NEVER written to stdout, stderr, or
+  `$GITHUB_OUTPUT`.
+inputs:
+  payload:
+    description: JSON-encoded event envelope payload
+    required: true
+  role:
+    description: Agent role (refiner | developer | reviewer | iterator)
+    required: true
+  jira_base_url:
+    description: Jira base URL
+    required: true
+  jira_email:
+    description: Jira account email
+    required: true
+  jira_api_token:
+    description: Jira API token
+    required: true
+  github_token:
+    description: GitHub token (reserved for future use and consistency with ferry-run-* actions)
+    required: false
+    default: ''
+  github_repo:
+    description: The owner/repo path (e.g. big-emotion/ferry).
+    required: true
+  claude_code_oauth_token:
+    description: >
+      OAuth token for `anthropics/claude-code-action@v1`. Read by this step
+      only, used to enforce the ADR-0006 §6 mutex with `ANTHROPIC_API_KEY`.
+      Never re-emitted to outputs or logs; consumers must wire the token
+      separately to `anthropics/claude-code-action@v1`.
+    required: false
+    default: ''
+outputs:
+  prompt:
+    description: >
+      Verbatim agent initial prompt + transport suffix; consumed by the
+      `prompt:` input of `anthropics/claude-code-action@v1`.
+    value: ${{ steps.cc-prepare.outputs.prompt }}
+  claude_args:
+    description: >
+      JSON-encoded array of CLI tokens (e.g. `--append-system-prompt`,
+      `--allowedTools`, `--mcp-config`, …) for the `claude_args:` action input.
+    value: ${{ steps.cc-prepare.outputs.claude_args }}
+  allowed_native_tools:
+    description: >
+      JSON-encoded array of the native Claude Code tool names this role is
+      permitted to invoke (parity-table observable; ADR-0006 §2).
+    value: ${{ steps.cc-prepare.outputs.allowed_native_tools }}
+  output_artifact_path:
+    description: >
+      Repo-relative path where the LLM must write its final structured result
+      (fixed to `.ferry/cc-output.json`). Consumed by `ferry-cc-apply`.
+    value: ${{ steps.cc-prepare.outputs.output_artifact_path }}
+  mcp_config:
+    description: >
+      JSON-encoded `{ mcpServers: { ... } }` for the `--mcp-config` arg, also
+      exposed as a structured output so workflow authors can read it without
+      re-parsing `claude_args`.
+    value: ${{ steps.cc-prepare.outputs.mcp_config }}
+  idempotency_marker:
+    description: >
+      `[ferry:<role>:<key>]` audit marker computed once here; `ferry-cc-apply`
+      consumes this verbatim for the post-run Jira write.
+    value: ${{ steps.cc-prepare.outputs.idempotency_marker }}
+runs:
+  using: composite
+  steps:
+    - name: Set up Node.js
+      uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+      with:
+        node-version: '20'
+    - name: Install Ferry action dependencies
+      shell: bash
+      run: npm ci --prefer-offline
+      working-directory: ${{ github.action_path }}
+    - name: Prepare claude-code job
+      id: cc-prepare
+      shell: bash
+      run: node ${{ github.action_path }}/cc-prepare-action.js
+      env:
+        FERRY_ENVELOPE_PAYLOAD: ${{ inputs.payload }}
+        FERRY_AGENT_ROLE: ${{ inputs.role }}
+        FERRY_JIRA_BASE_URL: ${{ inputs.jira_base_url }}
+        FERRY_JIRA_EMAIL: ${{ inputs.jira_email }}
+        FERRY_JIRA_API_TOKEN: ${{ inputs.jira_api_token }}
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+        GH_TOKEN: ${{ inputs.github_token }}
+        GITHUB_REPO: ${{ inputs.github_repo }}
+        # Forwarded so the auth-invariant check in the entrypoint can fire.
+        # NEVER logged and NEVER emitted as an output.
+        CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.claude_code_oauth_token }}

@@ -82,4 +82,5 @@ export const LABELS_ALLOWLIST = [
   'ferry:review-loop',
   'ferry:tool-loop',
   'ferry:route',
+  'ferry:cc-prepare',
 ] as const;
