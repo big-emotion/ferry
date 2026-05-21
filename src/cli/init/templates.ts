@@ -173,7 +173,7 @@ jobs:
             - Keep the comment concise and in English (or match the ticket's language for the summary if it is clearly French).
           claude_args: >-
             --mcp-config '{"mcpServers":{"jira":{"command":"npx","args":["-y","-p","@big-emotion/ferry@${version}","ferry-jira-mcp"],"env":{"FERRY_JIRA_BASE_URL":"\${{ secrets.FERRY_JIRA_BASE_URL }}","FERRY_JIRA_EMAIL":"\${{ secrets.FERRY_JIRA_EMAIL }}","FERRY_JIRA_API_TOKEN":"\${{ secrets.FERRY_JIRA_API_TOKEN }}"}}}}'
-            --permission-mode acceptEdits
+            --permission-mode bypassPermissions
             --disallowedTools 'Bash(gh pr merge),Bash(gh pr merge:*),Bash(gh pr close:*)'
             --model \${{ vars.FERRY_REFINER_MODEL || 'claude-sonnet-4-6' }}
 
@@ -363,7 +363,7 @@ jobs:
             - If a true blocker prevents progress (contradictory spec, missing access), do not transition — post one \`[ferry:developer:\${{ github.event.client_payload.event_id }}]\` comment explaining the blocker so a human can intervene.
           claude_args: >-
             --mcp-config '{"mcpServers":{"jira":{"command":"npx","args":["-y","-p","@big-emotion/ferry@${version}","ferry-jira-mcp"],"env":{"FERRY_JIRA_BASE_URL":"\${{ secrets.FERRY_JIRA_BASE_URL }}","FERRY_JIRA_EMAIL":"\${{ secrets.FERRY_JIRA_EMAIL }}","FERRY_JIRA_API_TOKEN":"\${{ secrets.FERRY_JIRA_API_TOKEN }}"}}}}'
-            --permission-mode acceptEdits
+            --permission-mode bypassPermissions
             --disallowedTools 'Bash(gh pr merge),Bash(gh pr merge:*),Bash(gh pr close:*)'
             --model \${{ vars.FERRY_DEV_MODEL || 'claude-sonnet-4-6' }}
 
@@ -587,7 +587,7 @@ jobs:
             - Keep the review concise and in English.
           claude_args: >-
             --mcp-config '{"mcpServers":{"jira":{"command":"npx","args":["-y","-p","@big-emotion/ferry@${version}","ferry-jira-mcp"],"env":{"FERRY_JIRA_BASE_URL":"\${{ secrets.FERRY_JIRA_BASE_URL }}","FERRY_JIRA_EMAIL":"\${{ secrets.FERRY_JIRA_EMAIL }}","FERRY_JIRA_API_TOKEN":"\${{ secrets.FERRY_JIRA_API_TOKEN }}"}}}}'
-            --permission-mode acceptEdits
+            --permission-mode bypassPermissions
             --disallowedTools 'Bash(gh pr merge),Bash(gh pr merge:*),Bash(gh pr close:*)'
             --model \${{ vars.FERRY_REVIEW_MODEL || 'claude-sonnet-4-6' }}
 
@@ -782,7 +782,7 @@ jobs:
             - If a finding is genuinely not actionable (contradictory, missing access), do not transition — post one \`[ferry:iterator:\${{ github.event.client_payload.event_id }}]\` comment explaining why so a human can intervene.
           claude_args: >-
             --mcp-config '{"mcpServers":{"jira":{"command":"npx","args":["-y","-p","@big-emotion/ferry@${version}","ferry-jira-mcp"],"env":{"FERRY_JIRA_BASE_URL":"\${{ secrets.FERRY_JIRA_BASE_URL }}","FERRY_JIRA_EMAIL":"\${{ secrets.FERRY_JIRA_EMAIL }}","FERRY_JIRA_API_TOKEN":"\${{ secrets.FERRY_JIRA_API_TOKEN }}"}}}}'
-            --permission-mode acceptEdits
+            --permission-mode bypassPermissions
             --disallowedTools 'Bash(gh pr merge),Bash(gh pr merge:*),Bash(gh pr close:*)'
             --model \${{ vars.FERRY_ITER_MODEL || 'claude-sonnet-4-6' }}
 
