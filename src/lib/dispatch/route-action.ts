@@ -36,7 +36,7 @@ import {
   type ExecutionPathDecision,
 } from '../cc-wrappers/routing.js';
 import { createLogger } from '../logger/index.js';
-import type { AgentOutputRole } from '../cc-wrappers/agent-output.js';
+import type { AgentOutputRole } from '../cc-wrappers/routing.js';
 
 const VALID_ROLES = ['refiner', 'developer', 'reviewer', 'iterator'] as const;
 

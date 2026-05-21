@@ -1341,12 +1341,10 @@ function resolveTicketOverrides(labels, logger2, options) {
   };
 }
 
-// src/lib/cc-wrappers/contract.ts
+// src/lib/cc-wrappers/routing.ts
 function markerRoleToken(role) {
   return role === "developer" ? "dev" : role;
 }
-
-// src/lib/cc-wrappers/routing.ts
 var HEURISTIC_ROLES = /* @__PURE__ */ new Set(["developer", "iterator"]);
 function isAnthropicOnlyConfig(cfg) {
   const m = cfg.models;

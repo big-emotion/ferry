@@ -38,8 +38,8 @@ export const ANTHROPIC_SECRET = 'ANTHROPIC_API_KEY';
  */
 export const CLAUDE_CODE_OAUTH_SECRET = 'CLAUDE_CODE_OAUTH_TOKEN';
 
-/** Composite action directories added by ferry-init in v0.13.0 (ADR-0006). */
-export const FERRY_COMPOSITE_DIRS = ['ferry-route', 'ferry-cc-prepare', 'ferry-cc-apply'];
+/** Ferry composite action directories (execution-path routing + reviewer CI pre-gate). */
+export const FERRY_COMPOSITE_DIRS = ['ferry-route', 'ferry-ci-gate'];
 export const FERRY_VARIABLE = 'FERRY_AUDIT_ISSUE';
 export const AUDIT_LABEL = 'ferry:audit-log:active';
 

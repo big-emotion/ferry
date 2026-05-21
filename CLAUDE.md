@@ -51,7 +51,7 @@ Each agent is a separate implementation. Key patterns:
 
 - Agents define their own LLM schemas (e.g., `src/agents/refiner/schema.ts`, or inline tool-call schemas in `src/agents/reviewer/review-loop.ts`)
 - Agent code is linted to forbid direct Octokit/Jira imports
-- Reviewer agent has a CI gate (`src/agents/reviewer/ci-gate.ts`) that blocks reviews when CI is red
+- Reviewer agent has a CI gate (`src/agents/reviewer/ci-gate.ts`) that blocks reviews when CI is red; its pure `gateCi()` resolver is reused by the `ferry-ci-gate` composite on the claude-code path
 
 ### 4. **Scheduled Work** (`src/reconciler/`, `src/cost-governance/`)
 
@@ -64,7 +64,7 @@ The only workflow files in this repo are the agent dispatch workflows (`refine.y
 
 ### 5. **Composite Actions** (`.github/actions/`)
 
-Each agent has a composite action used by its workflow: `ferry-envelope-validate`, `ferry-emit-audit`, and `ferry-run-{refiner,developer,reviewer,iterator}`. Workflows are thin — most logic lives in `src/agents/**` and is invoked via these actions.
+The bundled composite actions are `ferry-envelope-validate`, `ferry-route`, `ferry-emit-audit`, `ferry-ci-gate` (the reviewer CI pre-gate on the claude-code path), and `ferry-run-{refiner,developer,reviewer,iterator}`. Workflows are thin — most logic lives in `src/agents/**` / `src/lib/dispatch/**` and is invoked via these actions. On the `claude-code` execution path each agent runs as a single direct `anthropics/claude-code-action` call (no Ferry composite) — see `docs/CONFIGURATION.md`.
 
 ### 6. **CLI Entrypoints** (`src/cli/`)
 
@@ -76,6 +76,8 @@ Four consumer-facing CLIs are exposed via `package.json` `bin`:
 - `ferry-uninstall` (`src/cli/uninstall/`) — removes Ferry workflows, secrets, and variables from a consumer repo
 
 Run locally with `npm run ferry-init` / `npm run ferry-doctor` / `npm run ferry-update` / `npm run ferry-uninstall` (uses `tsx`).
+
+A fifth bin, `ferry-jira-mcp` (`src/jira-mcp/`), is a stdio MCP server — not a CLI. It wraps the Jira IO layer (token-auth via the `FERRY_JIRA_*` env) and exposes the Jira tools the `claude-code`-path agents call (`get_issue`, `list_subtasks`, `create_subtask`, `get_transitions`, `transition_issue`, `post_comment`). Consumer claude-code workflows launch it via `npx -p @big-emotion/ferry ferry-jira-mcp`.
 
 ## Language & Module Rules
 

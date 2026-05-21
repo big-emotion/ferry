@@ -266,9 +266,10 @@ export function checkProviderGate(opts: { repoRoot: string }): CheckResult {
 
 /**
  * Check workflow shape: when `execution_path = claude-code`, the four consumer
- * workflows must include the v0.13.0 claude-code chain
- * (ferry-cc-prepare + anthropics/claude-code-action@v1 + ferry-cc-apply).
- * Workflows with the v0.12.x placeholder are stale and need `ferry-update`.
+ * workflows must use the simplified claude-code shape — a single
+ * `anthropics/claude-code-action@` step with NO `ferry-cc-prepare` /
+ * `ferry-cc-apply` wrapper steps. Workflows still containing the old
+ * prepare/apply wrapper chain are stale and need `ferry-update`.
  */
 export function checkWorkflowShape(opts: { repoRoot: string }): CheckResult {
   const { repoRoot } = opts;
@@ -284,7 +285,7 @@ export function checkWorkflowShape(opts: { repoRoot: string }): CheckResult {
 
   const workflowDir = join(repoRoot, '.github', 'workflows');
   const stale: string[] = [];
-  const missingChain: string[] = [];
+  const missingStep: string[] = [];
 
   for (const filename of WORKFLOW_FILES) {
     const filePath = join(workflowDir, filename);
@@ -294,18 +295,15 @@ export function checkWorkflowShape(opts: { repoRoot: string }): CheckResult {
     }
     const content = readFileSync(filePath, 'utf8');
 
-    if (/claude-code execution path not yet wired/.test(content)) {
+    // Stale: still carries the deleted prepare/apply wrapper chain.
+    if (/ferry-cc-prepare/.test(content) || /ferry-cc-apply/.test(content)) {
       stale.push(filename);
       continue;
     }
 
-    const hasCcChain =
-      /anthropics\/claude-code-action@/.test(content) &&
-      /ferry-cc-prepare/.test(content) &&
-      /ferry-cc-apply/.test(content);
-
-    if (!hasCcChain) {
-      missingChain.push(filename);
+    // Current shape: a single claude-code-action step.
+    if (!/claude-code-action@/.test(content)) {
+      missingStep.push(filename);
     }
   }
 
@@ -314,24 +312,24 @@ export function checkWorkflowShape(opts: { repoRoot: string }): CheckResult {
     return {
       label: WORKFLOW_SHAPE_LABEL,
       status: 'yellow',
-      detail: `${stale.length} workflow file(s) still contain the v0.12.x claude-code placeholder (not yet wired): ${fileList}`,
-      remedy: `Run \`npx -p @big-emotion/ferry ferry-update\` to upgrade to the v0.13.0 workflow shape (ferry-cc-prepare + claude-code-action + ferry-cc-apply) — see MIGRATIONS.md for details`,
+      detail: `${stale.length} workflow file(s) still contain the legacy ferry-cc-prepare/ferry-cc-apply wrapper chain — the claude-code path is now a single claude-code-action step: ${fileList}`,
+      remedy: `Run \`npx -p @big-emotion/ferry ferry-update\` to upgrade to the simplified claude-code workflow shape — see MIGRATIONS.md for details`,
     };
   }
 
-  if (missingChain.length > 0) {
-    const fileList = missingChain.join(', ');
+  if (missingStep.length > 0) {
+    const fileList = missingStep.join(', ');
     return {
       label: WORKFLOW_SHAPE_LABEL,
       status: 'yellow',
-      detail: `${missingChain.length} workflow file(s) are missing the v0.13.0 claude-code chain (ferry-cc-prepare + anthropics/claude-code-action@v1 + ferry-cc-apply): ${fileList}`,
-      remedy: `Run \`npx -p @big-emotion/ferry ferry-update\` to upgrade to the v0.13.0 workflow shape — see MIGRATIONS.md for details`,
+      detail: `${missingStep.length} workflow file(s) are missing the claude-code-action step: ${fileList}`,
+      remedy: `Run \`npx -p @big-emotion/ferry ferry-update\` to upgrade to the simplified claude-code workflow shape — see MIGRATIONS.md for details`,
     };
   }
 
   return {
     label: WORKFLOW_SHAPE_LABEL,
     status: 'green',
-    detail: `All four workflow files include the v0.13.0 claude-code chain (ferry-cc-prepare + claude-code-action + ferry-cc-apply)`,
+    detail: `All four workflow files use the simplified claude-code shape (a single claude-code-action step, no ferry-cc-prepare/ferry-cc-apply wrappers)`,
   };
 }

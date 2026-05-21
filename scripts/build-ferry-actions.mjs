@@ -55,18 +55,13 @@ await Promise.all([
   }),
   build({
     ...shared,
+    entryPoints: ['src/lib/dispatch/ci-gate-action.ts'],
+    outfile: '.ferry/ci-gate-action.js',
+  }),
+  build({
+    ...shared,
     entryPoints: ['src/cli/agent/run.ts'],
     outfile: '.ferry/agent.js',
-  }),
-  build({
-    ...shared,
-    entryPoints: ['src/lib/dispatch/cc-apply-action.ts'],
-    outfile: '.ferry/cc-apply-action.js',
-  }),
-  build({
-    ...shared,
-    entryPoints: ['src/lib/dispatch/cc-prepare-action.ts'],
-    outfile: '.ferry/cc-prepare-action.js',
   }),
 ]);
 
@@ -74,7 +69,6 @@ await Promise.all([
 // Copy it alongside the bundle and fix the relative path so the bundle
 // resolves it from .ferry/schemas/ instead of the source tree.
 copyFileSync('src/schemas/event.v1.schema.json', '.ferry/schemas/event.v1.schema.json');
-copyFileSync('src/schemas/agent-output.v1.schema.json', '.ferry/schemas/agent-output.v1.schema.json');
 for (const f of [
   'validate-action.js',
   'skip-task-type-action.js',
@@ -82,32 +76,6 @@ for (const f of [
   'agent.js',
 ]) {
   const p = `.ferry/${f}`;
-  writeFileSync(
-    p,
-    readFileSync(p, 'utf8').replaceAll(
-      '"../../schemas/event.v1.schema.json"',
-      '"./schemas/event.v1.schema.json"',
-    ),
-  );
-}
-// cc-apply-action bundles both the event schema and the agent-output schema.
-{
-  const p = '.ferry/cc-apply-action.js';
-  let src = readFileSync(p, 'utf8');
-  src = src.replaceAll(
-    '"../../schemas/event.v1.schema.json"',
-    '"./schemas/event.v1.schema.json"',
-  );
-  src = src.replaceAll(
-    '"../../schemas/agent-output.v1.schema.json"',
-    '"./schemas/agent-output.v1.schema.json"',
-  );
-  writeFileSync(p, src);
-}
-// cc-prepare-action bundles the event schema only (it loads the envelope; the
-// agent-output schema belongs to cc-apply).
-{
-  const p = '.ferry/cc-prepare-action.js';
   writeFileSync(
     p,
     readFileSync(p, 'utf8').replaceAll(
@@ -202,73 +170,6 @@ writeFileSync(
 );
 execSync('npm install --prefer-offline', { cwd: routeActionDir, stdio: 'inherit' });
 
-const ccApplyActionDir = '.github/actions/ferry-cc-apply';
-mkdirSync(`${ccApplyActionDir}/schemas`, { recursive: true });
-copyFileSync('.ferry/cc-apply-action.js', `${ccApplyActionDir}/cc-apply-action.js`);
-copyFileSync(
-  'src/schemas/event.v1.schema.json',
-  `${ccApplyActionDir}/schemas/event.v1.schema.json`,
-);
-copyFileSync(
-  'src/schemas/agent-output.v1.schema.json',
-  `${ccApplyActionDir}/schemas/agent-output.v1.schema.json`,
-);
-writeFileSync(
-  `${ccApplyActionDir}/package.json`,
-  JSON.stringify(
-    {
-      name: 'ferry-cc-apply-action',
-      version: '0.0.0',
-      private: true,
-      type: 'module',
-      dependencies: {
-        ajv: rootDeps['ajv'],
-        'ajv-formats': rootDeps['ajv-formats'],
-        yaml: '^2.6.0',
-      },
-    },
-    null,
-    2,
-  ) + '\n',
-);
-execSync('npm install --prefer-offline', { cwd: ccApplyActionDir, stdio: 'inherit' });
-
-// ferry-cc-prepare composite (issue #331) — bundles only the event schema; it
-// has no agent-output dependency (that schema is for cc-apply's artifact).
-const ccPrepareActionDir = '.github/actions/ferry-cc-prepare';
-mkdirSync(`${ccPrepareActionDir}/schemas`, { recursive: true });
-mkdirSync(`${ccPrepareActionDir}/prompts`, { recursive: true });
-copyFileSync('.ferry/cc-prepare-action.js', `${ccPrepareActionDir}/cc-prepare-action.js`);
-
-// Copy bundled prompts — FERRY_BUNDLED_PROMPTS_DIR in action.yml points here
-// (fixes issue #352: prompts were missing from the self-contained action package).
-for (const name of ['refiner', 'dev', 'review', 'review-comment', 'iterate']) {
-  copyFileSync(`prompts/${name}.md`, `${ccPrepareActionDir}/prompts/${name}.md`);
-}
-copyFileSync(
-  'src/schemas/event.v1.schema.json',
-  `${ccPrepareActionDir}/schemas/event.v1.schema.json`,
-);
-writeFileSync(
-  `${ccPrepareActionDir}/package.json`,
-  JSON.stringify(
-    {
-      name: 'ferry-cc-prepare-action',
-      version: '0.0.0',
-      private: true,
-      type: 'module',
-      dependencies: {
-        ajv: rootDeps['ajv'],
-        'ajv-formats': rootDeps['ajv-formats'],
-        yaml: '^2.6.0',
-      },
-    },
-    null,
-    2,
-  ) + '\n',
-);
-execSync('npm install --prefer-offline', { cwd: ccPrepareActionDir, stdio: 'inherit' });
-
 const emitAuditActionDir = '.github/actions/ferry-emit-audit';
 copyFileSync('.ferry/emit-audit-action.js', `${emitAuditActionDir}/emit-audit-action.js`);
 writeFileSync(
@@ -288,6 +189,28 @@ writeFileSync(
   ) + '\n',
 );
 execSync('npm install --prefer-offline', { cwd: emitAuditActionDir, stdio: 'inherit' });
+
+// ferry-ci-gate composite — the reviewer CI pre-gate. Reads PR check-runs via
+// the GitHub API, so it carries @octokit/rest like ferry-emit-audit.
+const ciGateActionDir = '.github/actions/ferry-ci-gate';
+copyFileSync('.ferry/ci-gate-action.js', `${ciGateActionDir}/ci-gate-action.js`);
+writeFileSync(
+  `${ciGateActionDir}/package.json`,
+  JSON.stringify(
+    {
+      name: 'ferry-ci-gate-action',
+      version: '0.0.0',
+      private: true,
+      type: 'module',
+      dependencies: {
+        '@octokit/rest': '^22.0.1',
+      },
+    },
+    null,
+    2,
+  ) + '\n',
+);
+execSync('npm install --prefer-offline', { cwd: ciGateActionDir, stdio: 'inherit' });
 
 // --- Agent runner composite action bundles ---
 // Each agent has a self-contained composite action under .github/actions/ferry-run-{role}/.
