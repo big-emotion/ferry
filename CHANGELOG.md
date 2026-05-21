@@ -11,6 +11,25 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.15.0] — 2026-05-21
+
+### Added
+
+- **`ferry-jira-mcp`: a Ferry-owned stdio MCP server** (PR #361) — `src/jira-mcp/` exposes `get_issue` / `list_subtasks` / `create_subtask` / `get_transitions` / `transition_issue` / `post_comment` and is published as a package `bin`. On the `ferry:claude-code` path each agent now does its own Jira work through this MCP server instead of the `ferry-cc-apply` reconcile step.
+- **`ferry-ci-gate` composite action** (PR #361) — a deterministic reviewer CI pre-gate that reuses `gateCi()` to skip the paid reviewer agent when CI is pending or red. A failed Jira transition stays non-fatal but now emits a workflow warning annotation and a job-summary line instead of being silently swallowed.
+- **Tool-driven `prompts/*.claude-code.md`** for the four roles, used by the single-step claude-code execution path.
+
+### Changed
+
+- **The `ferry:claude-code` path now runs each agent as one direct `anthropics/claude-code-action` call** (PR #361) — replacing the `ferry-cc-prepare → claude-code-action → ferry-cc-apply` wrapper chain. The agent does its own Jira work via `ferry-jira-mcp` and its own GitHub work via `claude-code-action`'s native git/gh tools. The four consumer workflow templates (`examples/consumer-setup/` and the `ferry-init` `templates.ts`) are rewritten to this single-step shape, with the `ferry-jira-mcp` package version-pinned to the workflow's pinned Ferry release. The per-agent `FERRY_*_MODEL` variable is now honoured on the claude-code path (default `claude-sonnet-4-6`) instead of a hardcoded `--model`.
+- On the claude-code path, idempotency, audit lines, and column-transition restraint are now prompt-enforced; the code-enforced invariant kept is never-merge (`--disallowedTools` plus the now-required consumer branch protection). The script execution path is unchanged.
+
+### Removed
+
+- **The `ferry-cc-prepare` and `ferry-cc-apply` composite actions, `src/lib/claude-code/`, the `cc-wrappers/{contract,apply,agent-output}` modules, the `cc-*-action.ts` entrypoints, and the agent-output schema** (PR #361) — roughly 2,500 lines deleted now that the claude-code path is a single direct action call.
+
+---
+
 ## [0.14.0] — 2026-05-21
 
 ### Added
@@ -438,7 +457,8 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
-[Unreleased]: https://github.com/big-emotion/ferry/compare/v0.14.0...HEAD
+[Unreleased]: https://github.com/big-emotion/ferry/compare/v0.15.0...HEAD
+[0.15.0]: https://github.com/big-emotion/ferry/releases/tag/v0.15.0
 [0.14.0]: https://github.com/big-emotion/ferry/releases/tag/v0.14.0
 [0.13.2]: https://github.com/big-emotion/ferry/releases/tag/v0.13.2
 [0.13.1]: https://github.com/big-emotion/ferry/releases/tag/v0.13.1
