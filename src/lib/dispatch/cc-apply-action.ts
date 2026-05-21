@@ -19,7 +19,6 @@
  *   FERRY_ITER_TRANSITION_ID    Jira transition ID for reviewer FR24 changes
  *   FERRY_APPROVE_TRANSITION_ID Jira transition ID for reviewer FR24 approve
  *   FERRY_PR_NUMBER             (reviewer) PR number for the current cycle
- *   FERRY_SUBTASK_COUNT         (refiner) sub-task count for noop message
  *   GITHUB_REPO                 owner/repo (e.g. acme/my-repo)
  *   GITHUB_RUN_ID               Current workflow run ID
  *   GITHUB_OUTPUT               GitHub Actions output file
@@ -46,7 +45,13 @@ import { loadFerryConfig } from '../config.js';
 import { resolveTicketOverrides } from '../labels/overrides.js';
 import { countPriorIterations } from '../../agents/reviewer/changes-guard.js';
 import { requireEnv } from '../agent-runtime/env.js';
-import { CC_OUTPUT_ARTIFACT_PATH } from '../claude-code/output-artifact.js';
+import {
+  CC_OUTPUT_ARTIFACT_PATH,
+  parseRefinerArtifact,
+  type RefinerArtifact,
+} from '../claude-code/output-artifact.js';
+import { checkIdempotencyMarker } from '../io/idempotency.js';
+import { applyActions } from '../../agents/refiner/reconcile.js';
 import type { IssueTracker } from '../io/tracker/types.js';
 import { FerryError } from '../errors/index.js';
 
@@ -81,8 +86,6 @@ export interface ApplyCcArtifactParams {
   prNumber?: number;
   priorIterations?: number;
   cap?: number;
-  runLink?: string;
-  subtaskCount?: number;
   tracker: Pick<IssueTracker, 'postComment' | 'postTransition' | 'addLabel'>;
   ticketKey: string;
   dryRun?: boolean;
@@ -103,8 +106,6 @@ export async function applyCcArtifact(params: ApplyCcArtifactParams): Promise<Ap
     prNumber,
     priorIterations,
     cap,
-    runLink,
-    subtaskCount,
     tracker,
     ticketKey,
     dryRun,
@@ -129,13 +130,85 @@ export async function applyCcArtifact(params: ApplyCcArtifactParams): Promise<Ap
     ...(prNumber !== undefined ? { prNumber } : {}),
     ...(priorIterations !== undefined ? { priorIterations } : {}),
     ...(cap !== undefined ? { cap } : {}),
-    ...(runLink !== undefined ? { runLink } : {}),
-    ...(subtaskCount !== undefined ? { subtaskCount } : {}),
   };
 
   const decision = decideContract(output, ctx);
 
   return applyContract({ tracker, ticketKey, marker, existingComments, decision, dryRun, getEnv });
+}
+
+export interface ApplyRefinerCcArtifactParams {
+  rawArtifact: unknown;
+  marker: string;
+  /** Existing Jira issue comments — scanned for the idempotency marker. */
+  existingComments: string[];
+  eventId: string;
+  ticketKey: string;
+  /** GitHub Actions run link embedded in the `Refined.` audit comment. */
+  runLink: string;
+  tracker: IssueTracker;
+  dryRun?: boolean;
+}
+
+/**
+ * Refiner-only apply core for the claude-code path.
+ *
+ * Unlike developer/iterator/reviewer — whose artifact is a terminal outcome
+ * transcribed by `decideContract` — the refiner artifact is a `RefinerOutput`
+ * *plan*. cc-apply runs the SAME `applyActions` reconcile the script path uses
+ * (`refiner-action.ts:131`) to create / keep / mark-stale Jira sub-tasks, then
+ * posts the byte-identical audit comment. The LLM never writes to Jira; the
+ * deterministic boundary (ADR-0006 §2) is preserved.
+ */
+export async function applyRefinerCcArtifact(
+  params: ApplyRefinerCcArtifactParams,
+): Promise<ApplyContractResult> {
+  const { rawArtifact, marker, existingComments, eventId, ticketKey, runLink, tracker, dryRun } =
+    params;
+
+  // Validate the RefinerOutput plan. `parseRefinerArtifact` throws a plain Error;
+  // re-throw as the FerryError shape `runCcApplyAction`'s catch block keys on.
+  // NFR-S1: its detail strings are structural — never raw artifact field values.
+  let plan: RefinerArtifact;
+  try {
+    plan = parseRefinerArtifact(rawArtifact);
+  } catch (err) {
+    throw new FerryError('state-invariant', {
+      reason: 'agent-output-invalid',
+      paths: [err instanceof Error ? err.message : String(err)],
+    });
+  }
+
+  // Idempotency pre-check. A prior cc run already created the sub-tasks and
+  // posted the audit comment; skipping both is correct and strictly cheaper.
+  // The script path does not pre-gate `applyActions`, but `filterExistingSubtasks`
+  // would dedup the creates and the marker-in-comment would suppress the comment
+  // anyway — so this is a safe, observable-equivalent optimisation.
+  if (checkIdempotencyMarker(marker, existingComments).skipped) {
+    return { skipped: true, emitted: false, exitCode: 0 };
+  }
+
+  // ferry:dry-run suppresses ALL external writes (decisions/0002 §D).
+  if (dryRun === true) {
+    return { skipped: false, emitted: false, exitCode: 0 };
+  }
+
+  const existingSubtasks = await tracker.getSubtaskDetails(ticketKey);
+  const result = await applyActions(plan.actions, {
+    ticketKey,
+    eventId,
+    existingSubtasks,
+    tracker,
+  });
+
+  // Audit comment — byte-identical to the script path
+  // (`refiner-action.ts:140-143` noop / `:164-167` refined).
+  const comment = result.noop
+    ? `${marker} No changes needed — existing ${existingSubtasks.length} sub-task(s) still valid. ${result.noopReason ?? ''}`.trimEnd()
+    : `${marker} Refined. Created ${result.createdCount}, kept ${result.keptCount}, staled ${result.staledCount} sub-task(s). See run: ${runLink}`;
+
+  await tracker.postComment(ticketKey, comment);
+  return { skipped: false, emitted: true, exitCode: 0 };
 }
 
 export async function runCcApplyAction(): Promise<void> {
@@ -211,11 +284,6 @@ export async function runCcApplyAction(): Promise<void> {
 
   const githubRepo = process.env.GITHUB_REPO ?? 'unknown';
   const githubRunId = process.env.GITHUB_RUN_ID ?? '0';
-  const runLink =
-    role === 'refiner' ? `https://github.com/${githubRepo}/actions/runs/${githubRunId}` : undefined;
-
-  const subtaskCount =
-    role === 'refiner' ? parseInt(process.env.FERRY_SUBTASK_COUNT ?? '0', 10) || 0 : undefined;
 
   const prNumber =
     role === 'reviewer' || role === 'iterator'
@@ -234,23 +302,35 @@ export async function runCcApplyAction(): Promise<void> {
   }
 
   // ── apply ─────────────────────────────────────────────────────────────────
+  // Refiner takes a dedicated path: its artifact is a `RefinerOutput` *plan*,
+  // applied via `applyActions`, not a terminal outcome for `decideContract`.
   let result: ApplyContractResult;
   try {
-    result = await applyCcArtifact({
-      rawArtifact,
-      role,
-      marker,
-      existingComments,
-      gates,
-      prNumber,
-      priorIterations,
-      cap,
-      runLink,
-      subtaskCount,
-      tracker,
-      ticketKey: envelope.ticket_key,
-      dryRun,
-    });
+    result =
+      role === 'refiner'
+        ? await applyRefinerCcArtifact({
+            rawArtifact,
+            marker,
+            existingComments,
+            eventId: envelope.event_id,
+            ticketKey: envelope.ticket_key,
+            runLink: `https://github.com/${githubRepo}/actions/runs/${githubRunId}`,
+            tracker,
+            dryRun,
+          })
+        : await applyCcArtifact({
+            rawArtifact,
+            role,
+            marker,
+            existingComments,
+            gates,
+            prNumber,
+            priorIterations,
+            cap,
+            tracker,
+            ticketKey: envelope.ticket_key,
+            dryRun,
+          });
   } catch (err) {
     if (err instanceof FerryError && err.context?.reason === 'agent-output-invalid') {
       const paths = Array.isArray(err.context.paths) ? (err.context.paths as string[]) : [];

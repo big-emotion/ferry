@@ -199,4 +199,33 @@ describe('outcomePromptSuffix', () => {
     expect(outcomePromptSuffix('reviewer')).toContain('approved');
     expect(outcomePromptSuffix('refiner')).toContain('actions');
   });
+
+  describe('refiner suffix (claude-code path override)', () => {
+    const s = outcomePromptSuffix('refiner');
+
+    it('forcefully overrides the bundled "reply with JSON only" instruction', () => {
+      // prompts/refiner.md says "Reply with JSON only. No prose before or after."
+      // twice; on this path the model must instead use the Write tool. The suffix
+      // must explicitly neutralise that instruction.
+      expect(s).toContain('OVERRIDE');
+      expect(s).toContain('Write');
+      expect(s.toLowerCase()).toContain('chat');
+    });
+
+    it('names the exact artifact path', () => {
+      expect(s).toContain(CC_OUTPUT_ARTIFACT_PATH);
+    });
+
+    it('spells out all four RefinerOutput action variants', () => {
+      for (const variant of ['create', 'keep', 'mark_stale', 'noop']) {
+        expect(s).toContain(variant);
+      }
+    });
+
+    it('names the remaining RefinerOutput top-level fields', () => {
+      for (const field of ['touch_paths', 'output_locale', 'audit_summary']) {
+        expect(s).toContain(field);
+      }
+    });
+  });
 });

@@ -188,28 +188,6 @@ function decideContract(output, ctx) {
         exitCode: 0
       };
     }
-    case "refiner": {
-      if (output.result === "noop") {
-        const subtaskCount = ctx.subtaskCount ?? 0;
-        const reason = output.noop_reason ?? "";
-        return {
-          comment: `${m} No changes needed \u2014 existing ${subtaskCount} sub-task(s) still valid. ${reason}`.trimEnd(),
-          labels: [],
-          transitions: [],
-          exitCode: 0
-        };
-      }
-      const runLink = requireCtx(ctx.runLink, "runLink", "refiner", output.result);
-      const created = output.created ?? 0;
-      const kept = output.kept ?? 0;
-      const staled = output.staled ?? 0;
-      return {
-        comment: `${m} Refined. Created ${created}, kept ${kept}, staled ${staled} sub-task(s). See run: ${runLink}`,
-        labels: [],
-        transitions: [],
-        exitCode: 0
-      };
-    }
   }
 }
 
@@ -1661,6 +1639,197 @@ function countPriorIterations(existingComments) {
 
 // src/lib/claude-code/output-artifact.ts
 var CC_OUTPUT_ARTIFACT_PATH = ".ferry/cc-output.json";
+function fail(detail) {
+  throw new Error(`Invalid ${CC_OUTPUT_ARTIFACT_PATH}: ${detail}`);
+}
+function asObject(raw) {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    fail("expected a JSON object");
+  }
+  return raw;
+}
+function nonEmptyString(v) {
+  return typeof v === "string" && v.trim().length > 0;
+}
+function isStringArray(v) {
+  return Array.isArray(v) && v.every((e) => typeof e === "string");
+}
+function parseRefinerAction(a, idx) {
+  const o = asObject(a);
+  switch (o.type) {
+    case "create":
+      if (!nonEmptyString(o.title) || !nonEmptyString(o.description)) {
+        fail(`actions[${idx}] create requires title and description`);
+      }
+      return { type: "create", title: o.title, description: o.description };
+    case "keep":
+    case "mark_stale":
+      if (!nonEmptyString(o.existing_key) || !nonEmptyString(o.reason)) {
+        fail(`actions[${idx}] ${o.type} requires existing_key and reason`);
+      }
+      return {
+        type: o.type,
+        existing_key: o.existing_key,
+        reason: o.reason
+      };
+    case "noop":
+      if (!nonEmptyString(o.reason)) fail(`actions[${idx}] noop requires reason`);
+      return { type: "noop", reason: o.reason };
+    default:
+      return fail(`actions[${idx}] has unknown type ${String(o.type)}`);
+  }
+}
+function parseRefinerCostEstimate(raw) {
+  const o = asObject(raw);
+  if (typeof o.loUsd !== "number" || !Number.isFinite(o.loUsd) || o.loUsd < 0) {
+    fail("cost_estimate.loUsd must be a non-negative number");
+  }
+  if (typeof o.hiUsd !== "number" || !Number.isFinite(o.hiUsd) || o.hiUsd < 0) {
+    fail("cost_estimate.hiUsd must be a non-negative number");
+  }
+  if (o.confidence !== "low" && o.confidence !== "medium" && o.confidence !== "high") {
+    fail("cost_estimate.confidence must be 'low', 'medium', or 'high'");
+  }
+  if (typeof o.baselineRuns !== "number" || !Number.isInteger(o.baselineRuns) || o.baselineRuns < 0) {
+    fail("cost_estimate.baselineRuns must be a non-negative integer");
+  }
+  return {
+    loUsd: o.loUsd,
+    hiUsd: o.hiUsd,
+    confidence: o.confidence,
+    baselineRuns: o.baselineRuns
+  };
+}
+function parseRefinerArtifact(raw) {
+  const o = asObject(raw);
+  if (!Array.isArray(o.actions) || o.actions.length === 0) {
+    fail("actions must be a non-empty array");
+  }
+  if (!isStringArray(o.touch_paths)) fail("touch_paths must be an array of strings");
+  if (o.output_locale !== "en" && o.output_locale !== "fr") {
+    fail("output_locale must be 'en' or 'fr'");
+  }
+  if (!nonEmptyString(o.audit_summary)) fail("audit_summary is required");
+  if (o.attachments !== void 0 && !isStringArray(o.attachments)) {
+    fail("attachments must be an array of strings");
+  }
+  const out = {
+    actions: o.actions.map(parseRefinerAction),
+    touch_paths: o.touch_paths,
+    output_locale: o.output_locale,
+    audit_summary: o.audit_summary
+  };
+  if (o.attachments !== void 0) out.attachments = o.attachments;
+  if (o.cost_estimate !== void 0) {
+    out.cost_estimate = parseRefinerCostEstimate(o.cost_estimate);
+  }
+  return out;
+}
+
+// src/agents/refiner/batch.ts
+import { createHash } from "node:crypto";
+var SUBTASK_CAP = 12;
+function subtaskContentHash(title, description) {
+  return createHash("sha256").update(`${title}
+${description}`).digest("hex").slice(0, 12);
+}
+function prepareBatch(createActions, cap) {
+  const subtaskCap = cap ?? (parseInt(process.env.FERRY_REFINER_SUBTASK_CAP ?? "", 10) || SUBTASK_CAP);
+  const truncated = createActions.length > subtaskCap;
+  const slice = truncated ? createActions.slice(0, subtaskCap) : createActions;
+  const subtasks = slice.map((s) => ({
+    title: s.title,
+    description: `${s.description}
+
+[ferry:refiner-subtask:${subtaskContentHash(s.title, s.description)}]`
+  }));
+  return {
+    subtasks,
+    truncated,
+    originalCount: createActions.length
+  };
+}
+async function applyBatch(prepared, create) {
+  try {
+    const refs = await create(prepared.subtasks);
+    return { createdCount: refs.length, ids: refs.map((r) => r.id) };
+  } catch (e) {
+    throw new FerryError("transient", {
+      reason: "batch-create-failed",
+      cause: e instanceof Error ? e.message : String(e)
+    });
+  }
+}
+
+// src/agents/refiner/idempotency.ts
+var MARKER_REGEX = /\[ferry:refiner-subtask:[^\]]+\]/;
+function extractSubtaskMarker(description) {
+  const match = description.match(MARKER_REGEX);
+  return match ? match[0] : null;
+}
+function filterExistingSubtasks(prepared, existingDescriptions) {
+  const existingMarkers = new Set(
+    existingDescriptions.map(extractSubtaskMarker).filter((m) => m !== null)
+  );
+  const subtasks = prepared.subtasks.filter((s) => {
+    const m = extractSubtaskMarker(s.description);
+    return m === null || !existingMarkers.has(m);
+  });
+  return { ...prepared, subtasks };
+}
+
+// src/agents/refiner/reconcile.ts
+var LOCKED_STATUSES = /* @__PURE__ */ new Set(["In Progress", "Done"]);
+async function applyActions(actions, ctx) {
+  const noopAction = actions.find((a) => a.type === "noop");
+  if (noopAction) {
+    return {
+      createdCount: 0,
+      keptCount: 0,
+      staledCount: 0,
+      noop: true,
+      noopReason: noopAction.reason
+    };
+  }
+  const existingByKey = new Map(ctx.existingSubtasks.map((s) => [s.key, s]));
+  const existingDescriptions = ctx.existingSubtasks.map((s) => s.description);
+  const staleMarkerPrefix = `[ferry:refiner-stale:${ctx.eventId}]`;
+  let keptCount = 0;
+  let staledCount = 0;
+  for (const action of actions) {
+    if (action.type === "keep") {
+      keptCount++;
+      continue;
+    }
+    if (action.type === "mark_stale") {
+      const existing = existingByKey.get(action.existing_key);
+      if (existing && LOCKED_STATUSES.has(existing.status)) {
+        await ctx.tracker.postComment(
+          ctx.ticketKey,
+          `${staleMarkerPrefix} Would mark ${action.existing_key} stale but it is ${existing.status} \u2014 ${action.reason}`
+        );
+      } else {
+        await ctx.tracker.postComment(action.existing_key, `${staleMarkerPrefix} ${action.reason}`);
+      }
+      staledCount++;
+    }
+  }
+  const createActions = actions.filter(
+    (a) => a.type === "create"
+  );
+  let createdCount = 0;
+  if (createActions.length > 0) {
+    const batch = filterExistingSubtasks(prepareBatch(createActions), existingDescriptions);
+    const applied = await applyBatch(
+      batch,
+      (items) => Promise.all(
+        items.map((item) => ctx.tracker.createSubtask(ctx.ticketKey, item.title, item.description))
+      )
+    );
+    createdCount = applied.createdCount;
+  }
+  return { createdCount, keptCount, staledCount, noop: false };
+}
 
 // src/lib/dispatch/cc-apply-action.ts
 var VALID_ROLES = ["refiner", "developer", "reviewer", "iterator"];
@@ -1694,8 +1863,6 @@ async function applyCcArtifact(params) {
     prNumber,
     priorIterations,
     cap,
-    runLink,
-    subtaskCount,
     tracker,
     ticketKey,
     dryRun,
@@ -1711,12 +1878,38 @@ async function applyCcArtifact(params) {
     ...prUrl !== void 0 ? { prUrl } : {},
     ...prNumber !== void 0 ? { prNumber } : {},
     ...priorIterations !== void 0 ? { priorIterations } : {},
-    ...cap !== void 0 ? { cap } : {},
-    ...runLink !== void 0 ? { runLink } : {},
-    ...subtaskCount !== void 0 ? { subtaskCount } : {}
+    ...cap !== void 0 ? { cap } : {}
   };
   const decision = decideContract(output, ctx);
   return applyContract({ tracker, ticketKey, marker, existingComments, decision, dryRun, getEnv });
+}
+async function applyRefinerCcArtifact(params) {
+  const { rawArtifact, marker, existingComments, eventId, ticketKey, runLink, tracker, dryRun } = params;
+  let plan;
+  try {
+    plan = parseRefinerArtifact(rawArtifact);
+  } catch (err) {
+    throw new FerryError("state-invariant", {
+      reason: "agent-output-invalid",
+      paths: [err instanceof Error ? err.message : String(err)]
+    });
+  }
+  if (checkIdempotencyMarker(marker, existingComments).skipped) {
+    return { skipped: true, emitted: false, exitCode: 0 };
+  }
+  if (dryRun === true) {
+    return { skipped: false, emitted: false, exitCode: 0 };
+  }
+  const existingSubtasks = await tracker.getSubtaskDetails(ticketKey);
+  const result = await applyActions(plan.actions, {
+    ticketKey,
+    eventId,
+    existingSubtasks,
+    tracker
+  });
+  const comment = result.noop ? `${marker} No changes needed \u2014 existing ${existingSubtasks.length} sub-task(s) still valid. ${result.noopReason ?? ""}`.trimEnd() : `${marker} Refined. Created ${result.createdCount}, kept ${result.keptCount}, staled ${result.staledCount} sub-task(s). See run: ${runLink}`;
+  await tracker.postComment(ticketKey, comment);
+  return { skipped: false, emitted: true, exitCode: 0 };
 }
 async function runCcApplyAction() {
   const rawPayload = process.env.FERRY_ENVELOPE_PAYLOAD;
@@ -1767,8 +1960,6 @@ async function runCcApplyAction() {
   const cap = role === "reviewer" ? config.limits.max_iterations : void 0;
   const githubRepo = process.env.GITHUB_REPO ?? "unknown";
   const githubRunId = process.env.GITHUB_RUN_ID ?? "0";
-  const runLink = role === "refiner" ? `https://github.com/${githubRepo}/actions/runs/${githubRunId}` : void 0;
-  const subtaskCount = role === "refiner" ? parseInt(process.env.FERRY_SUBTASK_COUNT ?? "0", 10) || 0 : void 0;
   const prNumber = role === "reviewer" || role === "iterator" ? parseInt(process.env.FERRY_PR_NUMBER ?? "", 10) || void 0 : void 0;
   const artifactPath = join2(process.cwd(), CC_OUTPUT_ARTIFACT_PATH);
   let rawArtifact;
@@ -1782,7 +1973,16 @@ async function runCcApplyAction() {
   }
   let result;
   try {
-    result = await applyCcArtifact({
+    result = role === "refiner" ? await applyRefinerCcArtifact({
+      rawArtifact,
+      marker,
+      existingComments,
+      eventId: envelope.event_id,
+      ticketKey: envelope.ticket_key,
+      runLink: `https://github.com/${githubRepo}/actions/runs/${githubRunId}`,
+      tracker,
+      dryRun
+    }) : await applyCcArtifact({
       rawArtifact,
       role,
       marker,
@@ -1791,8 +1991,6 @@ async function runCcApplyAction() {
       prNumber,
       priorIterations,
       cap,
-      runLink,
-      subtaskCount,
       tracker,
       ticketKey: envelope.ticket_key,
       dryRun
@@ -1826,5 +2024,6 @@ if (invokedDirectly) {
 }
 export {
   applyCcArtifact,
+  applyRefinerCcArtifact,
   runCcApplyAction
 };

@@ -10,7 +10,6 @@ import type {
   DeveloperAgentOutput,
   IteratorAgentOutput,
   ReviewerAgentOutput,
-  RefinerAgentOutput,
 } from './agent-output.js';
 
 const SHA = 'abc1234def5678';
@@ -275,53 +274,5 @@ describe('decideContract — reviewer (FR24)', () => {
 
   it('fail-closed: reviewer without a PR number throws', () => {
     expect(() => decideContract(rev({}), baseCtx({ marker: M }))).toThrow(FerryError);
-  });
-});
-
-describe('decideContract — refiner (no FR transition)', () => {
-  const M = '[ferry:refiner:EVT-9]';
-  const ref = (o: Partial<RefinerAgentOutput>): RefinerAgentOutput => ({
-    version: 'v1',
-    role: 'refiner',
-    result: 'refined',
-    summary: 's',
-    ...o,
-  });
-
-  it('refined → created/kept/staled + run link, no transition', () => {
-    const d = decideContract(
-      ref({ created: 2, kept: 1, staled: 3 }),
-      baseCtx({ marker: M, runLink: 'https://run/1' }),
-    );
-    expect(d.comment).toBe(
-      `${M} Refined. Created 2, kept 1, staled 3 sub-task(s). See run: https://run/1`,
-    );
-    expect(d.transitions).toEqual([]);
-  });
-
-  it('refined with missing counts → defaults to 0', () => {
-    const d = decideContract(ref({}), baseCtx({ marker: M, runLink: 'https://run/1' }));
-    expect(d.comment).toBe(
-      `${M} Refined. Created 0, kept 0, staled 0 sub-task(s). See run: https://run/1`,
-    );
-  });
-
-  it('noop → existing N still valid, trimmed reason', () => {
-    const d = decideContract(
-      ref({ result: 'noop', noop_reason: 'all valid' }),
-      baseCtx({ marker: M, subtaskCount: 4 }),
-    );
-    expect(d.comment).toBe(
-      `${M} No changes needed — existing 4 sub-task(s) still valid. all valid`,
-    );
-  });
-
-  it('noop without a reason → trailing space trimmed (script parity)', () => {
-    const d = decideContract(ref({ result: 'noop' }), baseCtx({ marker: M, subtaskCount: 0 }));
-    expect(d.comment).toBe(`${M} No changes needed — existing 0 sub-task(s) still valid.`);
-  });
-
-  it('fail-closed: refined without a run link throws', () => {
-    expect(() => decideContract(ref({}), baseCtx({ marker: M }))).toThrow(FerryError);
   });
 });

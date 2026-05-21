@@ -121,7 +121,8 @@ var require_fast_content_type_parse = __commonJS({
 });
 
 // src/lib/dispatch/cc-prepare-action.ts
-import { appendFileSync } from "node:fs";
+import { appendFileSync, mkdirSync } from "node:fs";
+import { join as join4 } from "node:path";
 import { randomBytes } from "node:crypto";
 import { execFileSync as execFileSync5 } from "node:child_process";
 
@@ -2439,13 +2440,13 @@ function packageJsonPath(repoRoot) {
   return path3.join(repoRoot, "package.json");
 }
 function detectPackageManager(repoRoot, _checkExists = existsSync4, _readFile = (p, enc) => readFileSync4(p, enc)) {
-  const join4 = (file) => path3.join(repoRoot, file);
-  if (_checkExists(join4("pnpm-lock.yaml"))) {
+  const join5 = (file) => path3.join(repoRoot, file);
+  if (_checkExists(join5("pnpm-lock.yaml"))) {
     return "pnpm lockfile detected (`pnpm-lock.yaml`). Use pnpm for all install and script commands.";
   }
-  if (_checkExists(join4("package.json"))) {
+  if (_checkExists(join5("package.json"))) {
     try {
-      const pkg = JSON.parse(_readFile(join4("package.json"), "utf8"));
+      const pkg = JSON.parse(_readFile(join5("package.json"), "utf8"));
       const pm = typeof pkg.packageManager === "string" ? pkg.packageManager : "";
       if (pm.startsWith("pnpm")) {
         return "pnpm declared in `package.json` (`packageManager` field). Use pnpm for all install and script commands.";
@@ -2462,25 +2463,25 @@ function detectPackageManager(repoRoot, _checkExists = existsSync4, _readFile = 
     } catch {
     }
   }
-  if (_checkExists(join4("yarn.lock"))) {
+  if (_checkExists(join5("yarn.lock"))) {
     return "yarn lockfile detected (`yarn.lock`). Use yarn for all install and script commands.";
   }
-  if (_checkExists(join4("bun.lockb"))) {
+  if (_checkExists(join5("bun.lockb"))) {
     return "bun lockfile detected (`bun.lockb`). Use bun for all install and script commands.";
   }
-  if (_checkExists(join4("package-lock.json"))) {
+  if (_checkExists(join5("package-lock.json"))) {
     return "npm lockfile detected (`package-lock.json`). Use npm for all install and script commands.";
   }
-  const hasPyproject = _checkExists(join4("pyproject.toml"));
-  const hasRequirements = _checkExists(join4("requirements.txt"));
+  const hasPyproject = _checkExists(join5("pyproject.toml"));
+  const hasRequirements = _checkExists(join5("requirements.txt"));
   if (hasPyproject || hasRequirements) {
     const marker = hasPyproject ? "pyproject.toml" : "requirements.txt";
     return `Python project detected (\`${marker}\`). Use pip or the project's configured tool for dependency management.`;
   }
-  if (_checkExists(join4("Gemfile.lock"))) {
+  if (_checkExists(join5("Gemfile.lock"))) {
     return "Ruby project detected (`Gemfile.lock`). Use bundler for dependency management.";
   }
-  if (_checkExists(join4("Cargo.lock"))) {
+  if (_checkExists(join5("Cargo.lock"))) {
     return "Rust project detected (`Cargo.lock`). Use cargo for dependency management.";
   }
   return null;
@@ -6799,7 +6800,7 @@ function parseClaudeCodeArtifact(role, raw) {
 }
 var DEV_ITER_SHAPE = '{ "outcome": "implemented" | "already_satisfied" | "blocked", "summary": string, "commit_message"?: string, "reason"?: string, "validation"?: [{ "command": string, "outcome": string }], "notes"?: string[] }';
 var REVIEWER_SHAPE = '{ "approved": boolean, "comment": string }';
-var REFINER_SHAPE = '{ "actions": [...], "touch_paths": string[], "output_locale": "en" | "fr", "audit_summary": string }';
+var REFINER_SHAPE = '{ "actions": [ { "type": "create", "title": string, "description": string } | { "type": "keep", "existing_key": string, "reason": string } | { "type": "mark_stale", "existing_key": string, "reason": string } | { "type": "noop", "reason": string } ], "touch_paths": string[], "output_locale": "en" | "fr", "audit_summary": string }';
 function outcomePromptSuffix(role) {
   const header = `
 
@@ -6809,7 +6810,12 @@ FINAL OUTPUT (claude-code path): the \`done\`/\`finish_review\` tools are not av
     return `${header} Shape: ${REVIEWER_SHAPE}`;
   }
   if (role === "refiner") {
-    return `${header} Shape: ${REFINER_SHAPE} (same as the bundled refiner JSON contract).`;
+    return `
+
+---
+FINAL OUTPUT (claude-code path) \u2014 OVERRIDE.
+Ignore any earlier instruction to "reply with JSON only" or to emit "no prose": those describe the script path. On THIS path there is no \`done\` tool and your chat reply is discarded. You MUST use the \`Write\` tool to create the file \`${CC_OUTPUT_ARTIFACT_PATH}\` as your LAST action \u2014 do not print the JSON to the chat. A run that ends without that file is a failure.
+First explore the repository with the \`Read\`, \`Glob\` and \`Grep\` tools so the sub-task descriptions reference real file paths. Then write a single JSON object matching this exact schema (the bundled refiner contract): ${REFINER_SHAPE}. Each action is one of: \`create\` a new sub-task, \`keep\` an existing one unchanged, \`mark_stale\` a superseded one, or \`noop\` when nothing has changed.`;
   }
   const access = ROLE_ACCESS[role];
   return `${header} Commit and push your work with \`git\` first (there is no \`commit_progress\` tool on this path; access=${access}). Then write: ${DEV_ITER_SHAPE}`;
@@ -7193,6 +7199,7 @@ async function runCcPrepareAction() {
   const envelope = validateEnvelope(parsed);
   const role = parseRole(process.env.FERRY_AGENT_ROLE);
   const repoRoot = process.cwd();
+  mkdirSync(join4(repoRoot, ".ferry"), { recursive: true });
   const ferryCfg = loadFerryConfig(repoRoot);
   enforceProviderGate(ferryCfg);
   const logger = createLogger2(envelope.event_id, "ferry:cc-prepare");

@@ -9,10 +9,11 @@
  * Idempotency and fail-closed behaviour are also exercised.
  */
 import { describe, it, expect } from 'vitest';
-import { applyCcArtifact } from './cc-apply-action.js';
+import { applyCcArtifact, applyRefinerCcArtifact } from './cc-apply-action.js';
 import { InMemoryTracker } from '../io/tracker/in-memory.js';
 import { FerryError } from '../errors/index.js';
-import type { TrackerIssue } from '../io/tracker/types.js';
+import { subtaskContentHash } from '../../agents/refiner/batch.js';
+import type { TrackerIssue, TrackerSubtask } from '../io/tracker/types.js';
 
 const MARKER_DEV = '[ferry:dev:abc1234]';
 const MARKER_REVIEWER = '[ferry:reviewer:abc1234]';
@@ -306,94 +307,156 @@ describe('iterator role', () => {
   });
 });
 
-// ── refiner (no transition) ───────────────────────────────────────────────
+// ── refiner (plan artifact → applyActions → audit comment) ────────────────
 
-describe('refiner role', () => {
-  it('refined: posts audit comment with created/kept/staled, no transition', async () => {
-    const artifact = {
-      version: 'v1',
-      role: 'refiner',
-      result: 'refined',
-      summary: 'Sub-tasks updated.',
-      created: 2,
-      kept: 1,
-      staled: 0,
-    };
+describe('refiner role (applyRefinerCcArtifact)', () => {
+  const RUN_LINK = 'https://github.com/o/r/actions/runs/99';
+
+  // A RefinerOutput plan: `create` actions become Jira sub-tasks, `keep` is
+  // counted only, `noop` short-circuits. cc-apply runs the same `applyActions`
+  // reconcile the script path uses.
+  const refinedPlan = {
+    actions: [
+      { type: 'create', title: 'Add validation', description: 'Validate POST /users.' },
+      { type: 'create', title: 'Add tests', description: 'Cover the validation path.' },
+      { type: 'keep', existing_key: 'PROJ-2', reason: 'still valid' },
+    ],
+    touch_paths: ['src/users.ts'],
+    output_locale: 'en',
+    audit_summary: 'Refine the users endpoint.',
+  };
+
+  it('refined: creates sub-tasks via applyActions and posts the audit comment', async () => {
     const tracker = makeTracker();
-    const result = await applyCcArtifact({
-      rawArtifact: artifact,
-      role: 'refiner',
+    const result = await applyRefinerCcArtifact({
+      rawArtifact: refinedPlan,
       marker: MARKER_REFINER,
       existingComments: [],
-      gates: {},
-      runLink: 'https://github.com/o/r/actions/runs/99',
-      subtaskCount: 3,
-      tracker,
+      eventId: 'EVT-1',
       ticketKey: TICKET,
-      getEnv,
+      runLink: RUN_LINK,
+      tracker,
     });
     expect(result).toEqual({ skipped: false, emitted: true, exitCode: 0 });
     expect(tracker.postedTransitions).toEqual([]);
+    expect(tracker.createdSubtasks).toHaveLength(2);
+    expect(tracker.createdSubtasks.map((s) => s.title)).toEqual(['Add validation', 'Add tests']);
+    // Audit comment is byte-identical to the script path (refiner-action.ts:164-167).
     expect(tracker.postedComments).toHaveLength(1);
-    expect(tracker.postedComments[0].body).toContain(MARKER_REFINER);
-    expect(tracker.postedComments[0].body).toContain('Created 2, kept 1, staled 0');
-    expect(tracker.postedComments[0].body).toContain('actions/runs/99');
+    expect(tracker.postedComments[0].body).toBe(
+      `${MARKER_REFINER} Refined. Created 2, kept 1, staled 0 sub-task(s). See run: ${RUN_LINK}`,
+    );
   });
 
-  it('runLink contains owner/repo (not "unknown") when GITHUB_REPO is set', async () => {
-    // Regression: composite action must forward GITHUB_REPO so the refiner
-    // runLink resolves to https://github.com/<owner>/<repo>/actions/runs/<id>
-    // instead of https://github.com/unknown/actions/runs/<id>.
-    const artifact = {
-      version: 'v1',
-      role: 'refiner',
-      result: 'refined',
-      summary: 'Sub-tasks updated.',
-      created: 1,
-      kept: 0,
-      staled: 0,
+  it('noop: posts the audit comment with the fetched existing-subtask count', async () => {
+    const noopPlan = {
+      actions: [{ type: 'noop', reason: 'all sub-tasks still valid' }],
+      touch_paths: [],
+      output_locale: 'en',
+      audit_summary: 'No change.',
     };
     const tracker = makeTracker();
-    await applyCcArtifact({
-      rawArtifact: artifact,
-      role: 'refiner',
+    const existing: TrackerSubtask[] = [
+      { key: 'PROJ-2', title: 'a', description: 'a', status: 'To Do' },
+      { key: 'PROJ-3', title: 'b', description: 'b', status: 'To Do' },
+      { key: 'PROJ-4', title: 'c', description: 'c', status: 'To Do' },
+    ];
+    tracker.seedSubtaskDetails(TICKET, existing);
+    await applyRefinerCcArtifact({
+      rawArtifact: noopPlan,
       marker: MARKER_REFINER,
       existingComments: [],
-      gates: {},
-      runLink: 'https://github.com/big-emotion/ferry/actions/runs/42',
-      subtaskCount: 1,
-      tracker,
+      eventId: 'EVT-1',
       ticketKey: TICKET,
-      getEnv,
+      runLink: RUN_LINK,
+      tracker,
     });
-    const body = tracker.postedComments[0].body;
-    expect(body).toContain('https://github.com/big-emotion/ferry/actions/runs/42');
-    expect(body).not.toContain('github.com/unknown/');
+    expect(tracker.createdSubtasks).toEqual([]);
+    // Byte-identical to the script path noop comment (refiner-action.ts:140-143).
+    expect(tracker.postedComments[0].body).toBe(
+      `${MARKER_REFINER} No changes needed — existing 3 sub-task(s) still valid. all sub-tasks still valid`,
+    );
   });
 
-  it('noop: posts audit comment with subtaskCount', async () => {
-    const artifact = {
-      version: 'v1',
-      role: 'refiner',
-      result: 'noop',
-      summary: 'Nothing changed.',
-      noop_reason: 'all sub-tasks still valid',
-    };
+  it('idempotency: skips all writes when the marker already exists', async () => {
     const tracker = makeTracker();
-    await applyCcArtifact({
-      rawArtifact: artifact,
-      role: 'refiner',
+    const result = await applyRefinerCcArtifact({
+      rawArtifact: refinedPlan,
+      marker: MARKER_REFINER,
+      existingComments: [`earlier ${MARKER_REFINER} run`],
+      eventId: 'EVT-1',
+      ticketKey: TICKET,
+      runLink: RUN_LINK,
+      tracker,
+    });
+    expect(result).toEqual({ skipped: true, emitted: false, exitCode: 0 });
+    expect(tracker.createdSubtasks).toEqual([]);
+    expect(tracker.postedComments).toEqual([]);
+  });
+
+  it('dry-run: suppresses sub-task creation and the audit comment', async () => {
+    const tracker = makeTracker();
+    const result = await applyRefinerCcArtifact({
+      rawArtifact: refinedPlan,
       marker: MARKER_REFINER,
       existingComments: [],
-      gates: {},
-      runLink: 'https://github.com/o/r/actions/runs/99',
-      subtaskCount: 5,
-      tracker,
+      eventId: 'EVT-1',
       ticketKey: TICKET,
-      getEnv,
+      runLink: RUN_LINK,
+      tracker,
+      dryRun: true,
     });
-    expect(tracker.postedTransitions).toEqual([]);
-    expect(tracker.postedComments[0].body).toContain('5 sub-task(s) still valid');
+    expect(result).toEqual({ skipped: false, emitted: false, exitCode: 0 });
+    expect(tracker.createdSubtasks).toEqual([]);
+    expect(tracker.postedComments).toEqual([]);
+  });
+
+  it('content-hash re-run: a sub-task already present is not re-created', async () => {
+    const tracker = makeTracker();
+    // Seed an existing sub-task carrying the content-hash marker of the first
+    // `create` action — filterExistingSubtasks must skip it.
+    const dupHash = subtaskContentHash('Add validation', 'Validate POST /users.');
+    tracker.seedSubtaskDetails(TICKET, [
+      {
+        key: 'PROJ-9',
+        title: 'Add validation',
+        description: `Validate POST /users.\n\n[ferry:refiner-subtask:${dupHash}]`,
+        status: 'To Do',
+      },
+    ]);
+    await applyRefinerCcArtifact({
+      rawArtifact: refinedPlan,
+      marker: MARKER_REFINER,
+      existingComments: [],
+      eventId: 'EVT-1',
+      ticketKey: TICKET,
+      runLink: RUN_LINK,
+      tracker,
+    });
+    expect(tracker.createdSubtasks.map((s) => s.title)).toEqual(['Add tests']);
+    expect(tracker.postedComments[0].body).toContain('Created 1, kept 1, staled 0');
+  });
+
+  it('fail-closed: throws FerryError(agent-output-invalid) for a malformed plan', async () => {
+    const tracker = makeTracker();
+    try {
+      await applyRefinerCcArtifact({
+        rawArtifact: { touch_paths: [], output_locale: 'en', audit_summary: 'x' }, // no actions
+        marker: MARKER_REFINER,
+        existingComments: [],
+        eventId: 'EVT-1',
+        ticketKey: TICKET,
+        runLink: RUN_LINK,
+        tracker,
+      });
+      throw new Error('expected throw');
+    } catch (err) {
+      expect(err).toBeInstanceOf(FerryError);
+      expect((err as FerryError).code).toBe('state-invariant');
+      expect((err as FerryError).context?.reason).toBe('agent-output-invalid');
+    }
+    expect(tracker.createdSubtasks).toEqual([]);
+    expect(tracker.postedComments).toEqual([]);
   });
 });
 

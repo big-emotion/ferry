@@ -72,8 +72,6 @@ export interface ContractContext {
   prNumber?: number;
   priorIterations?: number;
   cap?: number;
-  runLink?: string;
-  subtaskCount?: number;
 }
 
 /** Marker role token. Developer uses `dev` (script parity), others = role. */
@@ -258,28 +256,8 @@ export function decideContract(output: AgentOutputV1, ctx: ContractContext): Con
       };
     }
 
-    case 'refiner': {
-      if (output.result === 'noop') {
-        const subtaskCount = ctx.subtaskCount ?? 0;
-        const reason = output.noop_reason ?? '';
-        return {
-          comment:
-            `${m} No changes needed — existing ${subtaskCount} sub-task(s) still valid. ${reason}`.trimEnd(),
-          labels: [],
-          transitions: [],
-          exitCode: 0,
-        };
-      }
-      const runLink = requireCtx(ctx.runLink, 'runLink', 'refiner', output.result);
-      const created = output.created ?? 0;
-      const kept = output.kept ?? 0;
-      const staled = output.staled ?? 0;
-      return {
-        comment: `${m} Refined. Created ${created}, kept ${kept}, staled ${staled} sub-task(s). See run: ${runLink}`,
-        labels: [],
-        transitions: [],
-        exitCode: 0,
-      };
-    }
+    // NB: the refiner role has no `decideContract` case — its claude-code
+    // artifact is a `RefinerOutput` *plan*, applied by `applyRefinerCcArtifact`
+    // (`dispatch/cc-apply-action.ts`), not a terminal outcome transcribed here.
   }
 }

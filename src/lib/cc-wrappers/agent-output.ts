@@ -27,10 +27,12 @@ const ajvInstance = new ajvModule.Ajv2020({ strict: true });
 
 const validateFn: ValidateFunction = ajvInstance.compile(outputSchema);
 
+// `refiner` stays in the role enum (a valid FERRY_AGENT_ROLE env value), but the
+// refiner artifact is NOT validated here — it is a `RefinerOutput` *plan*, not a
+// terminal outcome. See `applyRefinerCcArtifact` in `dispatch/cc-apply-action.ts`.
 export type AgentOutputRole = 'developer' | 'iterator' | 'reviewer' | 'refiner';
 export type DeveloperOutcome = 'implemented' | 'already_satisfied' | 'blocked';
 export type ReviewerVerdict = 'approved' | 'changes_requested';
-export type RefinerResult = 'refined' | 'noop';
 
 export interface DeveloperAgentOutput {
   version: 'v1';
@@ -58,22 +60,7 @@ export interface ReviewerAgentOutput {
   summary: string;
 }
 
-export interface RefinerAgentOutput {
-  version: 'v1';
-  role: 'refiner';
-  result: RefinerResult;
-  summary: string;
-  created?: number;
-  kept?: number;
-  staled?: number;
-  noop_reason?: string;
-}
-
-export type AgentOutputV1 =
-  | DeveloperAgentOutput
-  | IteratorAgentOutput
-  | ReviewerAgentOutput
-  | RefinerAgentOutput;
+export type AgentOutputV1 = DeveloperAgentOutput | IteratorAgentOutput | ReviewerAgentOutput;
 
 /**
  * Parses + validates the terminal agent artifact. `raw` may be a JSON string

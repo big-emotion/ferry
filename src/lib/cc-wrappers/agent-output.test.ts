@@ -26,16 +26,6 @@ const ITERATOR_OK = {
   pr_number: 7,
 };
 
-const REFINER_OK = {
-  version: 'v1',
-  role: 'refiner',
-  result: 'refined',
-  summary: 'Reconciled sub-tasks',
-  created: 2,
-  kept: 1,
-  staled: 0,
-};
-
 describe('validateAgentOutput — happy paths', () => {
   it('accepts a developer artifact', () => {
     expect(validateAgentOutput(DEV_OK)).toEqual(DEV_OK);
@@ -47,15 +37,6 @@ describe('validateAgentOutput — happy paths', () => {
 
   it('accepts an iterator artifact', () => {
     expect(validateAgentOutput(ITERATOR_OK)).toEqual(ITERATOR_OK);
-  });
-
-  it('accepts a refiner refined artifact', () => {
-    expect(validateAgentOutput(REFINER_OK)).toEqual(REFINER_OK);
-  });
-
-  it('accepts a refiner noop artifact', () => {
-    const noop = { version: 'v1', role: 'refiner', result: 'noop', summary: 's', noop_reason: 'r' };
-    expect(validateAgentOutput(noop)).toEqual(noop);
   });
 
   it('accepts a JSON string artifact (as written to a file by the action)', () => {
@@ -87,6 +68,13 @@ describe('validateAgentOutput — fail-closed', () => {
     expect(() => validateAgentOutput({ version: 'v1', role: 'planner', summary: 's' })).toThrow(
       FerryError,
     );
+  });
+
+  it('rejects a refiner artifact — the refiner uses a RefinerOutput plan, not this schema', () => {
+    // The refiner artifact is a `RefinerOutput` plan validated by
+    // `parseRefinerArtifact` / `applyRefinerCcArtifact`, never `validateAgentOutput`.
+    const refiner = { version: 'v1', role: 'refiner', result: 'refined', summary: 's' };
+    expect(() => validateAgentOutput(refiner)).toThrow(FerryError);
   });
 
   it('throws for a wrong version', () => {
