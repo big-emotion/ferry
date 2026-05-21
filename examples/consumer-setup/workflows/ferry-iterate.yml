@@ -25,7 +25,7 @@
 # claude-code path:   When execution_path=claude-code the Iterator runs as ONE direct
 #                     anthropics/claude-code-action call. The agent pushes fixes to the existing
 #                     PR with native git/gh tools and does its own Jira work via the ferry-jira-mcp
-#                     MCP server (npx -p @big-emotion/ferry ferry-jira-mcp). It never merges,
+#                     MCP server (npx -p @big-emotion/ferry@v0.14.0 ferry-jira-mcp). It never merges,
 #                     closes, or opens PRs. Cost tracking on this path is best-effort — audit
 #                     token/cost are emitted as 0.
 
@@ -184,7 +184,7 @@ jobs:
             - Do not modify `.github/`, `.ferry/`, or lockfiles. Never write secrets into any file.
             - If a finding is genuinely not actionable (contradictory, missing access), do not transition — post one `[ferry:iterator:${{ github.event.client_payload.event_id }}]` comment explaining why so a human can intervene.
           claude_args: >-
-            --mcp-config '{"mcpServers":{"jira":{"command":"npx","args":["-y","-p","@big-emotion/ferry","ferry-jira-mcp"],"env":{"FERRY_JIRA_BASE_URL":"${{ secrets.FERRY_JIRA_BASE_URL }}","FERRY_JIRA_EMAIL":"${{ secrets.FERRY_JIRA_EMAIL }}","FERRY_JIRA_API_TOKEN":"${{ secrets.FERRY_JIRA_API_TOKEN }}"}}}}'
+            --mcp-config '{"mcpServers":{"jira":{"command":"npx","args":["-y","-p","@big-emotion/ferry@v0.14.0","ferry-jira-mcp"],"env":{"FERRY_JIRA_BASE_URL":"${{ secrets.FERRY_JIRA_BASE_URL }}","FERRY_JIRA_EMAIL":"${{ secrets.FERRY_JIRA_EMAIL }}","FERRY_JIRA_API_TOKEN":"${{ secrets.FERRY_JIRA_API_TOKEN }}"}}}}'
             --permission-mode acceptEdits
             --disallowedTools 'Bash(gh pr merge),Bash(gh pr merge:*),Bash(gh pr close:*)'
             --model claude-sonnet-4-6

@@ -18,7 +18,7 @@
 #                     post_agent_command (optional) — shell command to run after the agent (always runs)
 # claude-code path:   When execution_path=claude-code the Refiner runs as ONE direct
 #                     anthropics/claude-code-action call. The agent does its own Jira work
-#                     via the ferry-jira-mcp MCP server (npx -p @big-emotion/ferry ferry-jira-mcp).
+#                     via the ferry-jira-mcp MCP server (npx -p @big-emotion/ferry@v0.14.0 ferry-jira-mcp).
 #                     Cost tracking on this path is best-effort — audit token/cost are emitted as 0.
 
 name: Ferry — Refine
@@ -163,7 +163,7 @@ jobs:
             - Refiner is the one agent that always transitions its ticket. Other Ferry agents rarely transition.
             - Keep the comment concise and in English (or match the ticket's language for the summary if it is clearly French).
           claude_args: >-
-            --mcp-config '{"mcpServers":{"jira":{"command":"npx","args":["-y","-p","@big-emotion/ferry","ferry-jira-mcp"],"env":{"FERRY_JIRA_BASE_URL":"${{ secrets.FERRY_JIRA_BASE_URL }}","FERRY_JIRA_EMAIL":"${{ secrets.FERRY_JIRA_EMAIL }}","FERRY_JIRA_API_TOKEN":"${{ secrets.FERRY_JIRA_API_TOKEN }}"}}}}'
+            --mcp-config '{"mcpServers":{"jira":{"command":"npx","args":["-y","-p","@big-emotion/ferry@v0.14.0","ferry-jira-mcp"],"env":{"FERRY_JIRA_BASE_URL":"${{ secrets.FERRY_JIRA_BASE_URL }}","FERRY_JIRA_EMAIL":"${{ secrets.FERRY_JIRA_EMAIL }}","FERRY_JIRA_API_TOKEN":"${{ secrets.FERRY_JIRA_API_TOKEN }}"}}}}'
             --permission-mode acceptEdits
             --disallowedTools 'Bash(gh pr merge),Bash(gh pr merge:*),Bash(gh pr close:*)'
             --model claude-sonnet-4-6

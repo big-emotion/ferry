@@ -23,7 +23,7 @@
 #                     The ci-gate skips the reviewer silently while CI is pending, and on red CI
 #                     requests changes (FR24) — posts a PR comment + transitions the ticket — without
 #                     spending an LLM call. The agent does its own Jira work via the ferry-jira-mcp
-#                     MCP server (npx -p @big-emotion/ferry ferry-jira-mcp). It never merges or closes
+#                     MCP server (npx -p @big-emotion/ferry@v0.14.0 ferry-jira-mcp). It never merges or closes
 #                     PRs. Cost tracking on this path is best-effort — audit token/cost are emitted as 0.
 #
 # Note: MCP server support is not available for non-Anthropic providers in the Reviewer agent.
@@ -160,7 +160,7 @@ jobs:
     if: needs.route.outputs.path == 'claude-code' && needs.ci-gate.outputs.proceed == 'true'
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
       pull-requests: write
       issues: read
       id-token: write # required by anthropics/claude-code-action@v1 OIDC auth
@@ -212,15 +212,15 @@ jobs:
             - **Idempotency is your responsibility** — if a `[ferry:reviewer:*]` review for this run already exists, do not post a duplicate; post exactly one fingerprinted comment.
             - Keep the review concise and in English.
           claude_args: >-
-            --mcp-config '{"mcpServers":{"jira":{"command":"npx","args":["-y","-p","@big-emotion/ferry","ferry-jira-mcp"],"env":{"FERRY_JIRA_BASE_URL":"${{ secrets.FERRY_JIRA_BASE_URL }}","FERRY_JIRA_EMAIL":"${{ secrets.FERRY_JIRA_EMAIL }}","FERRY_JIRA_API_TOKEN":"${{ secrets.FERRY_JIRA_API_TOKEN }}"}}}}'
+            --mcp-config '{"mcpServers":{"jira":{"command":"npx","args":["-y","-p","@big-emotion/ferry@v0.14.0","ferry-jira-mcp"],"env":{"FERRY_JIRA_BASE_URL":"${{ secrets.FERRY_JIRA_BASE_URL }}","FERRY_JIRA_EMAIL":"${{ secrets.FERRY_JIRA_EMAIL }}","FERRY_JIRA_API_TOKEN":"${{ secrets.FERRY_JIRA_API_TOKEN }}"}}}}'
             --permission-mode acceptEdits
             --disallowedTools 'Bash(gh pr merge),Bash(gh pr merge:*),Bash(gh pr close:*)'
             --model claude-sonnet-4-6
 
   emit-audit:
     name: Emit audit line
-    needs: [run-agent, run-agent-claude-code]
-    if: always() && (needs.run-agent.result != 'skipped' || needs.run-agent-claude-code.result != 'skipped')
+    needs: [run-agent, run-agent-claude-code, ci-gate]
+    if: always() && (needs.run-agent.result != 'skipped' || needs.run-agent-claude-code.result != 'skipped' || (needs.ci-gate.result != 'skipped' && needs.ci-gate.outputs.outcome == 'ci-red'))
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -235,7 +235,7 @@ jobs:
           phase: review
           run_id: ${{ github.event.client_payload.event_id }}
           model: ${{ needs.run-agent.outputs.model || 'claude-sonnet-4-6' }}
-          outcome: ${{ needs.run-agent.result != 'skipped' && needs.run-agent.result || needs.run-agent-claude-code.result }}
+          outcome: ${{ (needs.run-agent.result != 'skipped' && needs.run-agent.result) || (needs.run-agent-claude-code.result != 'skipped' && needs.run-agent-claude-code.result) || (needs.ci-gate.outputs.outcome == 'ci-red' && 'ci-red') || needs.run-agent-claude-code.result }}
           # claude-code path does cost tracking best-effort by design — it emits no token/cost outputs.
           input_tokens: ${{ needs.run-agent.outputs.input_tokens || '0' }}
           output_tokens: ${{ needs.run-agent.outputs.output_tokens || '0' }}
