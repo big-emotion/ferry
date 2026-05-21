@@ -11,6 +11,15 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.13.2] — 2026-05-21
+
+### Fixed
+
+- **claude-code path: `claude_args` is now a shell-quoted string, not a JSON array** (closes #354) — `ferry-cc-prepare` emitted the `claude_args` output as a JSON array, but `anthropics/claude-code-action@v1` word-splits that input with `shell-quote`. The JSON array was mis-tokenized and every flag — including the `Write(.ferry/cc-output.json)` grant added in #358 — was silently dropped, so the agent could not write its output artifact (`permission_denials_count: 3`) and `ferry-cc-apply` failed with `ENOENT` on `.ferry/cc-output.json` despite `claude-code-action` reporting success. This broke the entire claude-code execution path for all four roles. `cc-prepare` now serializes the token list into a single-line, single-quoted shell string via `serializeClaudeArgs`.
+- **claude-code path: the system prompt is delivered via the `prompt:` input, not `claude_args`** (#354) — `claude-code-action` runs `stripShellComments` over `claude_args` before parsing it, deleting every line whose first non-whitespace character is `#`. Passing `buildSystem(<role>)` through `claude_args --append-system-prompt` would have silently dropped the Markdown headings of every agent prompt. The system prompt is now concatenated, verbatim, into the action's `prompt:` input ahead of the initial prompt. ADR-0006 §2 and decisions/0002 are amended accordingly.
+
+---
+
 ## [0.13.1] — 2026-05-21
 
 ### Fixed
@@ -417,7 +426,8 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
-[Unreleased]: https://github.com/big-emotion/ferry/compare/v0.13.1...HEAD
+[Unreleased]: https://github.com/big-emotion/ferry/compare/v0.13.2...HEAD
+[0.13.2]: https://github.com/big-emotion/ferry/releases/tag/v0.13.2
 [0.13.1]: https://github.com/big-emotion/ferry/releases/tag/v0.13.1
 [0.13.0]: https://github.com/big-emotion/ferry/releases/tag/v0.13.0
 [0.12.0]: https://github.com/big-emotion/ferry/releases/tag/v0.12.0
