@@ -1,16 +1,23 @@
 /**
- * Assembles the `claude_args` token list for the `claude-code-action` step.
+ * Assembles the `claude_args` token list for the `claude-code-action` step and
+ * serializes it into the string that action's `claude_args:` input expects.
  *
- * Returned as an ordered `string[]` of `[flag, value, …]` pairs — NOT a
- * pre-quoted shell string. Shell-safe serialization into the action's
- * `claude_args:` input is the deterministic wrapper's job (#301); keeping this
- * a pure token list makes it trivially unit-testable and quoting-agnostic.
+ * `buildClaudeArgs` returns an ordered `string[]` of `[flag, value, …]` pairs —
+ * a pure token list, trivially unit-testable and quoting-agnostic.
+ * `serializeClaudeArgs` renders that list into the single-line, shell-quoted
+ * string `cc-prepare` writes to `$GITHUB_OUTPUT`.
  *
- * The system prompt is forwarded **verbatim** via `--append-system-prompt`
- * (ADR-0006 §2): no rewrite of `buildSystem()` output. No-auto-merge tool
- * hardening (`--disallowedTools`, protected-ref scoping) is wired here via
- * `assertToolPolicyEnforcesNoAutoMerge` + `NO_AUTO_MERGE_DENY` (#303,
- * ADR-0002 §accepted-divergences point 3).
+ * The system prompt is NOT carried here. `claude-code-action` runs
+ * `stripShellComments` over `claude_args` before parsing it with `shell-quote`,
+ * dropping every physical line whose first non-whitespace character is `#` —
+ * which would silently delete the Markdown headings of `buildSystem(<role>)`.
+ * The system prompt is delivered through the action's verbatim `prompt:` input
+ * instead (ADR-0006 §2); `claude_args` therefore carries only single-line,
+ * `#`-free flag values.
+ *
+ * No-auto-merge tool hardening (`--disallowedTools`, protected-ref scoping) is
+ * wired here via `assertToolPolicyEnforcesNoAutoMerge` + `NO_AUTO_MERGE_DENY`
+ * (#303, ADR-0002 §accepted-divergences point 3).
  */
 
 import type { McpServerConfig } from '../llm/agent-loop/types.js';
@@ -22,8 +29,6 @@ import { CC_OUTPUT_ARTIFACT_PATH } from './output-artifact.js';
 
 export interface BuildClaudeArgsInput {
   role: FerryRole;
-  /** Resolved `buildSystem(<role>)` output — passed through unchanged. */
-  system: string;
   /** Already capability-filtered MCP pool (caller runs `filterMcpServers`). */
   mcpServers?: McpServerConfig[];
   /** Coarse loop bound (ADR-0006 §4) — there is no per-run EUR cap on this path. */
@@ -48,8 +53,6 @@ export function buildClaudeArgs(input: BuildClaudeArgsInput): string[] {
   assertToolPolicyEnforcesNoAutoMerge({ allowedTools, disallowedTools });
 
   const args: string[] = [
-    '--append-system-prompt',
-    input.system,
     '--allowedTools',
     allowedTools.join(','),
     '--disallowedTools',
@@ -72,4 +75,35 @@ export function buildClaudeArgs(input: BuildClaudeArgsInput): string[] {
   }
 
   return args;
+}
+
+/** A token safe to emit bare: no shell metacharacter, quote, or whitespace. */
+const SHELL_SAFE_TOKEN = /^[A-Za-z0-9_,.:=/@+-]+$/;
+
+/**
+ * Render a `buildClaudeArgs` token list as the single-line, shell-quoted string
+ * `anthropics/claude-code-action@v1` expects for its `claude_args:` input.
+ *
+ * The action word-splits that input with `shell-quote`; a JSON array (or any
+ * unquoted value containing spaces or parens) is mis-tokenized and the affected
+ * flags are silently dropped — which is exactly how a correct `--allowedTools`
+ * grant can fail to take effect.
+ *
+ * Each token is single-quoted — with the embedded-quote `'\''` idiom — unless
+ * it is already a bare shell-safe word, so the parenthesised tool rules and the
+ * JSON `--mcp-config` payload survive verbatim. A token containing a newline is
+ * rejected: it would span multiple physical lines and hit the action's
+ * `#`-leading-line stripping (see the module header).
+ */
+export function serializeClaudeArgs(tokens: string[]): string {
+  return tokens
+    .map((token) => {
+      if (token.includes('\n')) {
+        throw new Error(`claude_args token must not contain a newline: ${JSON.stringify(token)}`);
+      }
+      return token.length > 0 && SHELL_SAFE_TOKEN.test(token)
+        ? token
+        : `'${token.replace(/'/g, "'\\''")}'`;
+    })
+    .join(' ');
 }

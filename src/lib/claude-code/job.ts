@@ -6,8 +6,8 @@
  * the **already capability-filtered** MCP pool, produces the deterministic
  * inputs the wrapping workflow steps (#301) feed into `claude-code-action`:
  *
- *   - `prompt`            → action `prompt:` input (initial prompt + transport suffix)
- *   - `claudeArgs`        → `claude_args:` token list (system via --append-system-prompt)
+ *   - `prompt`            → action `prompt:` input (system + initial prompt + suffix)
+ *   - `claudeArgs`        → `claude_args:` flag token list (tools, mcp-config, model)
  *   - `authInput`         → the ONLY allowed auth input name (OAuth token; never API key)
  *   - `outputArtifactPath`→ where the LLM writes its final structured result
  *   - `parseOutput`       → role-bound, fail-closed parser → identical script outcomes
@@ -50,10 +50,18 @@ export interface BuildClaudeCodeJobInput {
   model?: string;
 }
 
+/**
+ * Joins the role system prompt to the initial prompt inside the single
+ * `prompt:` action input. The system prompt moved out of `claude_args` because
+ * `claude-code-action` strips `#`-leading lines there (ADR-0006 §2 / #354); the
+ * `prompt:` input is forwarded verbatim, so its Markdown headings survive.
+ */
+const SYSTEM_PROMPT_SEPARATOR = '\n\n---\n\n';
+
 export interface ClaudeCodeJob {
   role: FerryRole;
   access: ToolAccess;
-  /** action `prompt:` — the verbatim initial prompt + the terminal-output suffix. */
+  /** action `prompt:` — system prompt + verbatim initial prompt + terminal-output suffix. */
   prompt: string;
   /** action `claude_args:` token list. */
   claudeArgs: string[];
@@ -74,10 +82,13 @@ export function buildClaudeCodeJob(input: BuildClaudeCodeJobInput): ClaudeCodeJo
   return {
     role: input.role,
     access: ROLE_ACCESS[input.role],
-    prompt: input.initialPrompt + outcomePromptSuffix(input.role),
+    prompt:
+      input.system +
+      SYSTEM_PROMPT_SEPARATOR +
+      input.initialPrompt +
+      outcomePromptSuffix(input.role),
     claudeArgs: buildClaudeArgs({
       role: input.role,
-      system: input.system,
       mcpServers: input.mcpServers,
       maxTurns: input.maxTurns,
       model: input.model,

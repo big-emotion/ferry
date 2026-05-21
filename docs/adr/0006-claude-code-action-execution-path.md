@@ -32,8 +32,9 @@ Adopt a **two-tier execution model behind one dispatch boundary**:
    The explicit Jira-label override (point 3) takes precedence over this default in **both** cases.
 
 2. **`claude-code-action` replaces only the agent _reasoning core_; the Ferry contract stays in deterministic workflow steps that bracket it.** The four agents' existing prompts are reused verbatim — no prompt rewrite:
-   - System prompt = the resolved output of `buildSystem(<role>)` (bundled `prompts/<agent>.md` composed with the consumer's `prompts/<agent>.extra.md` via `src/lib/prompts/resolve.ts`), passed through `claude_args: --append-system-prompt`.
-   - Initial prompt = the same `initialPrompt` the script builds today (the `<<<UNTRUSTED>>>` ticket block + `SUBTASKS` / review findings / repo tree), passed via the action's `prompt:` input.
+   - System prompt = the resolved output of `buildSystem(<role>)` (bundled `prompts/<agent>.md` composed with the consumer's `prompts/<agent>.extra.md` via `src/lib/prompts/resolve.ts`).
+   - Initial prompt = the same `initialPrompt` the script builds today (the `<<<UNTRUSTED>>>` ticket block + `SUBTASKS` / review findings / repo tree).
+   - Both are concatenated, verbatim, into the action's `prompt:` input (system prompt first, then the initial prompt, then the terminal-output suffix). The system prompt is **not** passed via `claude_args: --append-system-prompt`: `claude-code-action` runs `stripShellComments` over `claude_args` before parsing it, deleting every line whose first non-whitespace character is `#` — which would silently drop the Markdown headings of `buildSystem(<role>)`. The `prompt:` input is forwarded verbatim and is the only `#`-safe channel (amended for #354; original wording specified `--append-system-prompt`).
 
    Per-agent input/output parity (what each agent reads, the exact Jira/GitHub side effects, transitions FR18/FR24/FR28, idempotency markers, and the native-tool ↔ Ferry-tool mapping) is the **parity contract** the wrapping steps must satisfy; it is specified in the implementation epic, not duplicated here. The contract stays in deterministic workflow steps that bracket the action:
 

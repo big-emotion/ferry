@@ -52,13 +52,15 @@ inputs:
 outputs:
   prompt:
     description: >
-      Verbatim agent initial prompt + transport suffix; consumed by the
-      `prompt:` input of `anthropics/claude-code-action@v1`.
+      Agent system prompt + verbatim initial prompt + transport suffix;
+      consumed by the `prompt:` input of `anthropics/claude-code-action@v1`.
+      The system prompt is delivered here (not via `claude_args`) so its
+      Markdown headings survive the action's claude_args comment stripping.
     value: ${{ steps.cc-prepare.outputs.prompt }}
   claude_args:
     description: >
-      JSON-encoded array of CLI tokens (e.g. `--append-system-prompt`,
-      `--allowedTools`, `--mcp-config`, …) for the `claude_args:` action input.
+      Shell-quoted CLI argument string (`--allowedTools`, `--disallowedTools`,
+      `--mcp-config`, `--model`, …) for the `claude_args:` action input.
     value: ${{ steps.cc-prepare.outputs.claude_args }}
   allowed_native_tools:
     description: >
