@@ -11,6 +11,25 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.13.2] — 2026-05-21
+
+### Fixed
+
+- **claude-code path: `claude_args` is now a shell-quoted string, not a JSON array** (closes #354) — `ferry-cc-prepare` emitted the `claude_args` output as a JSON array, but `anthropics/claude-code-action@v1` word-splits that input with `shell-quote`. The JSON array was mis-tokenized and every flag — including the `Write(.ferry/cc-output.json)` grant added in #358 — was silently dropped, so the agent could not write its output artifact (`permission_denials_count: 3`) and `ferry-cc-apply` failed with `ENOENT` on `.ferry/cc-output.json` despite `claude-code-action` reporting success. This broke the entire claude-code execution path for all four roles. `cc-prepare` now serializes the token list into a single-line, single-quoted shell string via `serializeClaudeArgs`.
+- **claude-code path: the system prompt is delivered via the `prompt:` input, not `claude_args`** (#354) — `claude-code-action` runs `stripShellComments` over `claude_args` before parsing it, deleting every line whose first non-whitespace character is `#`. Passing `buildSystem(<role>)` through `claude_args --append-system-prompt` would have silently dropped the Markdown headings of every agent prompt. The system prompt is now concatenated, verbatim, into the action's `prompt:` input ahead of the initial prompt. ADR-0006 §2 and decisions/0002 are amended accordingly.
+
+---
+
+## [0.13.1] — 2026-05-21
+
+### Fixed
+
+- **Claude Code workflow stubs now include `id-token: write`** (closes #353, PRs #357 / #358) — `anthropics/claude-code-action@v1` unconditionally calls `core.getIDToken()` during `setupGitHubToken`. When a job had an explicit `permissions:` block that omitted `id-token`, GitHub Actions denied the OIDC fetch and every consumer dispatch failed with "Could not fetch an OIDC token". The `id-token: write` scope is now wired into all four bundled stubs (`examples/consumer-setup/workflows/ferry-{refine,dev,review,iterate}.yml`), into the `ferry-init` templates (`src/cli/init/templates.ts`), into `CLAUDE_CODE_JOB_PERMISSIONS` / `REQUIRED_WRITE_SCOPES` (so `renderPermissionsYaml` and `assertLeastPrivilege` stay in sync with reality), and asserted per-role in `templates.test.ts` so the missing scope cannot recur. Existing consumers pinned to `@v0.13.0` need to add the scope by hand or wait for `ferry-update` to apply the v0.13.x → v0.14.0 migration entry.
+- **`ferry-cc-prepare` now ships its own bundled prompts** (closes #352, PR #356) — the action claimed to be "self-contained; no `.ferry/` needed" but failed with `ENOENT` on the bundled prompt files because `build-ferry-actions.mjs` copied prompts to every `ferry-run-*` action dir but not to `ferry-cc-prepare/`, and `ferry-cc-prepare/action.yml` never set `FERRY_BUNDLED_PROMPTS_DIR`. `resolvePromptPath` fell back to `<consumer-repo>/.ferry/prompts/`, which doesn't exist in a fresh consumer workspace. The build step now copies all five prompts into `.github/actions/ferry-cc-prepare/prompts/` and the action exposes `FERRY_BUNDLED_PROMPTS_DIR` pointing there — mirroring the pattern used by every `ferry-run-*` composite action.
+- **Narrow `Write(.ferry/cc-output.json)` grant for read-only roles on the claude-code path** (PR #358) — `ferry-cc-prepare` emits a `cc-output.json` sidecar that `ferry-cc-apply` later reads. On the reviewer / refiner branches the role's tool policy is read-only by default, which blocked the write. The tool policy now grants a narrow `Write` permission on exactly `.ferry/cc-output.json` so the cc-chain works for read-only roles without widening the surface for arbitrary writes.
+
+---
+
 ## [0.13.0] — 2026-05-20
 
 ### Added
@@ -407,7 +426,9 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
-[Unreleased]: https://github.com/big-emotion/ferry/compare/v0.13.0...HEAD
+[Unreleased]: https://github.com/big-emotion/ferry/compare/v0.13.2...HEAD
+[0.13.2]: https://github.com/big-emotion/ferry/releases/tag/v0.13.2
+[0.13.1]: https://github.com/big-emotion/ferry/releases/tag/v0.13.1
 [0.13.0]: https://github.com/big-emotion/ferry/releases/tag/v0.13.0
 [0.12.0]: https://github.com/big-emotion/ferry/releases/tag/v0.12.0
 [0.11.0]: https://github.com/big-emotion/ferry/releases/tag/v0.11.0
