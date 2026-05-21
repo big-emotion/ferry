@@ -5,8 +5,7 @@
  * `claude-code-action` path, and records *why*. The function is **pure**:
  * the caller supplies the resolved gating inputs (config-derived provider
  * fact, the per-ticket label override from `resolveTicketOverrides`, and the
- * prior round-trip count derived from audit comments — the same mechanism
- * `cc-wrappers/contract.ts` uses for `priorIterations`). No IO, no clock.
+ * prior round-trip count derived from audit comments). No IO, no clock.
  *
  * Resolution order (highest precedence first), per ADR-0006 §3:
  *   1. Explicit `execution_path: script` in ferry.config — a **hard lock**;
@@ -33,8 +32,18 @@
  * Reconciler (ADR-0004) observes which path ran and why.
  */
 import type { ExecutionPath, FerryConfig } from '../config.js';
-import type { AgentOutputRole } from './agent-output.js';
-import { markerRoleToken } from './contract.js';
+
+/** The four Ferry agent roles, in the form used by audit-comment markers. */
+export type AgentOutputRole = 'developer' | 'iterator' | 'reviewer' | 'refiner';
+
+/**
+ * Maps an agent role to its audit-comment marker token. The developer role
+ * uses the `dev` token for parity with the bundled-script path; all other
+ * roles use their own name verbatim.
+ */
+export function markerRoleToken(role: AgentOutputRole): string {
+  return role === 'developer' ? 'dev' : role;
+}
 
 export type ExecutionPathReason = 'label' | 'heuristic' | 'default' | 'provider-gate';
 

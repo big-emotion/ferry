@@ -162,7 +162,7 @@ Checks run in order:
   15. Claude-code path       — when execution_path = claude-code, CLAUDE_CODE_OAUTH_TOKEN present/valid
   16. CC path: token exclusivity — ANTHROPIC_API_KEY must not be set alongside CLAUDE_CODE_OAUTH_TOKEN (ADR-0006 §6)
   17. CC path: provider gate — all four agent providers must be anthropic when execution_path = claude-code
-  18. CC path: workflow shape — workflows must include ferry-cc-prepare + claude-code-action + ferry-cc-apply
+  18. CC path: workflow shape — claude-code workflows use a direct claude-code-action call (no ferry-cc-prepare/apply)
 
 Exit code: 0 if all checks green/yellow, 1 if any check red.
 `);

@@ -1,0 +1,132 @@
+name: Ferry — Reviewer CI Pre-Gate
+description: >
+  Deterministic CI gate that runs before the reviewer's claude-code job
+  (Phase 2). Resolves the PR for the ticket branch, reads its CI check-runs,
+  and feeds them into the pure `gateCi()` resolver. When CI is green the
+  reviewer proceeds; when CI is pending the reviewer is skipped silently; when
+  CI is red the gate requests changes (FR24) — posts a PR comment and
+  transitions the Jira ticket — and the reviewer is skipped. Self-contained;
+  no `.ferry/` needed in the consumer workspace.
+inputs:
+  ticket_key:
+    description: Jira ticket key (drives the ferry/<ticket> branch name)
+    required: true
+  run_id:
+    description: Ferry run id (event_id) — used for the [ferry:reviewer:<run-id>] fingerprint
+    required: true
+  github_token:
+    description: GitHub token used to read CI status and post the PR comment
+    required: true
+  github_repo:
+    description: owner/repo slug
+    required: true
+  pr_branch:
+    description: PR head branch (optional; defaults to ferry/<ticket_key>)
+    required: false
+    default: ''
+  pr_number:
+    description: PR number (optional; resolved from the branch when absent)
+    required: false
+    default: ''
+  jira_base_url:
+    description: Jira base URL
+    required: true
+  jira_email:
+    description: Jira account email
+    required: true
+  jira_api_token:
+    description: Jira API token
+    required: true
+  ferry_iter_transition_id:
+    description: Jira transition id into the Changes Requested column (FR24)
+    required: false
+    default: ''
+outputs:
+  proceed:
+    description: "'true' when the reviewer job should run; 'false' otherwise"
+    value: ${{ steps.gate.outputs.proceed }}
+  outcome:
+    description: pending-ci | ci-red | ci-green
+    value: ${{ steps.gate.outputs.outcome }}
+  failure_summary:
+    description: Short CI failure summary when outcome is ci-red; empty otherwise
+    value: ${{ steps.gate.outputs.failure_summary }}
+runs:
+  using: composite
+  steps:
+    - name: Set up Node.js
+      uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+      with:
+        node-version: '20'
+    - name: Install Ferry action dependencies
+      shell: bash
+      run: npm ci --prefer-offline
+      working-directory: ${{ github.action_path }}
+    - name: Resolve CI gate
+      id: gate
+      shell: bash
+      run: node ${{ github.action_path }}/ci-gate-action.js
+      env:
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+        FERRY_GITHUB_REPO: ${{ inputs.github_repo }}
+        FERRY_TICKET_KEY: ${{ inputs.ticket_key }}
+        FERRY_PR_BRANCH: ${{ inputs.pr_branch }}
+        FERRY_PR_NUMBER: ${{ inputs.pr_number }}
+    - name: Request changes when CI is red (FR24)
+      if: steps.gate.outputs.outcome == 'ci-red'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+        FERRY_GITHUB_REPO: ${{ inputs.github_repo }}
+        FERRY_TICKET_KEY: ${{ inputs.ticket_key }}
+        FERRY_RUN_ID: ${{ inputs.run_id }}
+        FERRY_PR_BRANCH: ${{ inputs.pr_branch }}
+        FERRY_FAILURE_SUMMARY: ${{ steps.gate.outputs.failure_summary }}
+        FERRY_JIRA_BASE_URL: ${{ inputs.jira_base_url }}
+        FERRY_JIRA_EMAIL: ${{ inputs.jira_email }}
+        FERRY_JIRA_API_TOKEN: ${{ inputs.jira_api_token }}
+        FERRY_ITER_TRANSITION_ID: ${{ inputs.ferry_iter_transition_id }}
+      run: |
+        set -euo pipefail
+        BRANCH="${FERRY_PR_BRANCH:-ferry/${FERRY_TICKET_KEY}}"
+        MARKER="[ferry:reviewer:${FERRY_RUN_ID}]"
+        BODY="${MARKER}
+
+        **Review summary for ${FERRY_TICKET_KEY}:** Changes requested — CI is red.
+
+        ${FERRY_FAILURE_SUMMARY}
+
+        **Verdict**: Changes requested. The PR's CI checks must pass before a review can proceed."
+
+        # Post the changes-requested comment on the PR (idempotent: skip if the
+        # same fingerprint is already present).
+        PR_NUMBER=$(gh pr list --repo "${FERRY_GITHUB_REPO}" --head "${BRANCH}" --state open --json number --jq '.[0].number // empty')
+        if [ -n "${PR_NUMBER}" ]; then
+          if gh pr view "${PR_NUMBER}" --repo "${FERRY_GITHUB_REPO}" --json comments \
+              --jq '.comments[].body' | grep -qF "${MARKER}"; then
+            echo "ferry-ci-gate: comment with marker ${MARKER} already present — skipping."
+          else
+            gh pr comment "${PR_NUMBER}" --repo "${FERRY_GITHUB_REPO}" --body "${BODY}"
+          fi
+        else
+          echo "ferry-ci-gate: no open PR for ${BRANCH} — skipping PR comment."
+        fi
+
+        # Transition the Jira ticket into the Changes Requested column (FR24).
+        if [ -n "${FERRY_ITER_TRANSITION_ID}" ]; then
+          if curl -sS -f -X POST \
+            -u "${FERRY_JIRA_EMAIL}:${FERRY_JIRA_API_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            --data "{\"transition\":{\"id\":\"${FERRY_ITER_TRANSITION_ID}\"}}" \
+            "${FERRY_JIRA_BASE_URL%/}/rest/api/3/issue/${FERRY_TICKET_KEY}/transitions"; then
+            echo "ferry-ci-gate: transitioned ${FERRY_TICKET_KEY} (FR24 changes)."
+          else
+            # Keep this non-fatal, but make the failure visible: a workflow
+            # warning annotation plus a line in the job summary so the
+            # un-transitioned ticket is not silently swallowed.
+            echo "::warning::ferry-ci-gate: Jira transition for ${FERRY_TICKET_KEY} failed — ticket may be left un-transitioned"
+            echo "⚠️ ferry-ci-gate: Jira transition for ${FERRY_TICKET_KEY} failed (FR24 changes) — ticket may be left un-transitioned; transition it manually." >> "${GITHUB_STEP_SUMMARY}"
+          fi
+        else
+          echo "ferry-ci-gate: no FERRY_ITER_TRANSITION_ID — skipping Jira transition."
+        fi

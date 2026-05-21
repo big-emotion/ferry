@@ -53,6 +53,16 @@ If there are no consumer-visible changes, omit the section (or note `(none — i
 
 ---
 
+## v0.14.x → v0.15.0
+
+- **(action)** **claude-code execution path simplified — re-copy your four agent workflow stubs.** The `run-agent-claude-code` job no longer runs the `ferry-cc-prepare → anthropics/claude-code-action → ferry-cc-apply` chain; it is now a single direct `anthropics/claude-code-action` call (`checkout` + that one step). The `ferry-cc-prepare` and `ferry-cc-apply` composite actions are deleted. Run `npx -p @big-emotion/ferry@v0.15.0 ferry-update` to pick up the new stubs, or copy the four files from `examples/consumer-setup/workflows/` by hand. Script-path consumers (`execution_path: script`, or any non-Anthropic provider) are unaffected.
+- **(action)** **`ferry-review.yml` gains a `ci-gate` job.** On the claude-code path a deterministic `ferry-ci-gate` composite runs before the reviewer: it reads PR CI status and skips the (paid) LLM reviewer when CI is pending, and on red CI requests changes (FR24) directly. The job is included in the updated stub.
+- **(action)** **Enable branch protection on your default branch.** On the claude-code path the "never merge code" invariant is enforced two ways: `claude-code-action`'s `--disallowedTools` denies `gh pr merge` / `gh pr close`, and GitHub branch protection is the server-side guard. Branch protection on the default branch is now a **required** consumer setting — without it the no-merge guarantee is best-effort only.
+- **(info)** On the claude-code path the agent now does its own Jira work via the Ferry-shipped `ferry-jira-mcp` MCP server (launched by the workflow via `npx -p @big-emotion/ferry ferry-jira-mcp`, token-auth via the existing `FERRY_JIRA_*` secrets). There is no wrapper script: idempotency, the `[ferry:<role>:<run-id>]` audit comment, and the "agents rarely transition columns" guarantee are now **prompt-enforced**, not code-enforced. Token/cost audit values for claude-code-path runs are emitted as `0` (best-effort by design).
+- **(info)** The execution-path routing is unchanged — `execution_path`, the `ferry:claude-code` / `ferry:no-claude-code` labels, the provider gate, and `CLAUDE_CODE_OAUTH_TOKEN` auth all behave exactly as before.
+
+---
+
 ## v0.13.x → v0.14.0
 
 - **(action)** Add `id-token: write` to the `run-agent-claude-code` job's `permissions:` block in each of your four agent workflows (`ferry-refine.yml`, `ferry-dev.yml`, `ferry-review.yml`, `ferry-iterate.yml`). `anthropics/claude-code-action@v1` unconditionally calls `core.getIDToken()` during `setupGitHubToken`; when a job has an explicit `permissions:` block that omits `id-token`, GitHub Actions denies the OIDC fetch and every consumer dispatch fails with "Could not fetch an OIDC token" (#353). Run `npx -p @big-emotion/ferry@v0.14.0 ferry-update` to apply the updated stubs automatically, or add the line by hand alongside the existing permission entries.

@@ -7,6 +7,7 @@ mkdirSync('dist/cli/uninstall', { recursive: true });
 mkdirSync('dist/cli/update', { recursive: true });
 mkdirSync('dist/cli/agent', { recursive: true });
 mkdirSync('dist/cli/cost', { recursive: true });
+mkdirSync('dist/cli/jira-mcp', { recursive: true });
 
 const shared = {
   bundle: true,
@@ -70,6 +71,14 @@ await Promise.all([
     entryPoints: ['src/cli/cost/stats-cmd.ts'],
     outfile: 'dist/cli/cost/stats.js',
   }),
+  // ferry-jira-mcp stdio server. The MCP SDK stays external — it is a declared
+  // runtime dependency, resolved by npx alongside the published package.
+  build({
+    ...shared,
+    entryPoints: ['src/jira-mcp/index.ts'],
+    outfile: 'dist/cli/jira-mcp/index.js',
+    external: ['@modelcontextprotocol/sdk'],
+  }),
 ]);
 
 chmodSync('dist/cli/init/index.js', 0o755);
@@ -81,5 +90,6 @@ chmodSync('dist/cli/cost/run.js', 0o755);
 chmodSync('dist/cli/cost/reconcile-cmd.js', 0o755);
 chmodSync('dist/cli/cost/advice-cmd.js', 0o755);
 chmodSync('dist/cli/cost/stats.js', 0o755);
+chmodSync('dist/cli/jira-mcp/index.js', 0o755);
 
 console.log('Built dist/cli/ bundles.');

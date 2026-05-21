@@ -12,7 +12,8 @@
     "ferry-cost-report": "./dist/cli/cost/run.js",
     "ferry-cost-reconcile": "./dist/cli/cost/reconcile-cmd.js",
     "ferry-cost-advice": "./dist/cli/cost/advice-cmd.js",
-    "ferry-cost-stats": "./dist/cli/cost/stats.js"
+    "ferry-cost-stats": "./dist/cli/cost/stats.js",
+    "ferry-jira-mcp": "./dist/cli/jira-mcp/index.js"
   },
   "files": [
     "dist/cli/",
@@ -65,7 +66,7 @@
     "smoke:bundle": "bash scripts/smoke-bundle.sh",
     "check:fr-drift": "bash scripts/check-fr-drift.sh",
     "prepare": "husky",
-    "version": "npm run build:ferry && git add -f .ferry/ && git add .github/actions/ferry-envelope-validate/ .github/actions/ferry-emit-audit/ .github/actions/ferry-route/ .github/actions/ferry-cc-apply/ .github/actions/ferry-cc-prepare/ .github/actions/ferry-run-refiner/ .github/actions/ferry-run-developer/ .github/actions/ferry-run-reviewer/ .github/actions/ferry-run-iterator/"
+    "version": "npm run build:ferry && git add -f .ferry/ && git add .github/actions/ferry-envelope-validate/ .github/actions/ferry-emit-audit/ .github/actions/ferry-route/ .github/actions/ferry-ci-gate/ .github/actions/ferry-run-refiner/ .github/actions/ferry-run-developer/ .github/actions/ferry-run-reviewer/ .github/actions/ferry-run-iterator/"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
@@ -86,6 +87,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.97.0",
     "@google/genai": "^2.0.1",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@octokit/rest": "^22.0.1",
     "ajv": "^8.0.0",
     "ajv-formats": "^3.0.1",

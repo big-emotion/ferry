@@ -1,5 +1,7 @@
 # 0002 — claude-code-action Path: Full-Lifecycle Parity Analysis
 
+> **Partially superseded** by the claude-code-path simplification: the Ferry wrapper around `claude-code-action` was removed in favour of a direct call, so the parity/contract layer this analysis describes no longer exists. This document is kept as a historical record.
+
 **Status:** Accepted (analysis backing [ADR-0006](../adr/0006-claude-code-action-execution-path.md))
 **Date:** 2026-05-19
 **Relates to:** [ADR-0006](../adr/0006-claude-code-action-execution-path.md) (the decision), [ADR-0004](../adr/0004-idempotency-via-comment-markers.md), [ADR-0005](../adr/0005-no-auto-merge-invariant.md)

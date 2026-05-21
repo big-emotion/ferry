@@ -242,22 +242,19 @@ describe('detectCompositeActions', () => {
   it('detects present composite action directories', () => {
     const dir = makeTempRepo();
     mkdirSync(join(dir, '.github', 'actions', 'ferry-route'), { recursive: true });
-    mkdirSync(join(dir, '.github', 'actions', 'ferry-cc-prepare'), { recursive: true });
 
     const result = detectCompositeActions(dir);
     expect(result.find((a) => a.dirname === 'ferry-route')?.present).toBe(true);
-    expect(result.find((a) => a.dirname === 'ferry-cc-prepare')?.present).toBe(true);
-    expect(result.find((a) => a.dirname === 'ferry-cc-apply')?.present).toBe(false);
+    expect(result.find((a) => a.dirname === 'ferry-ci-gate')?.present).toBe(false);
 
     cleanup(dir);
   });
 
-  it('returns all 3 ferry composite dir names', () => {
+  it('returns the ferry composite dir names', () => {
     const dir = makeTempRepo();
     const names = detectCompositeActions(dir).map((a) => a.dirname);
     expect(names).toContain('ferry-route');
-    expect(names).toContain('ferry-cc-prepare');
-    expect(names).toContain('ferry-cc-apply');
+    expect(names).toContain('ferry-ci-gate');
     cleanup(dir);
   });
 });
@@ -270,15 +267,15 @@ describe('removeCompositeActions', () => {
     const actionsDir = join(dir, '.github', 'actions');
     mkdirSync(join(actionsDir, 'ferry-route'), { recursive: true });
     writeFileSync(join(actionsDir, 'ferry-route', 'action.yml'), 'name: test', 'utf8');
-    mkdirSync(join(actionsDir, 'ferry-cc-prepare'), { recursive: true });
+    mkdirSync(join(actionsDir, 'ferry-ci-gate'), { recursive: true });
 
     const opts = makeOpts();
     removeCompositeActions(dir, detectCompositeActions(dir), opts);
 
     expect(existsSync(join(actionsDir, 'ferry-route'))).toBe(false);
-    expect(existsSync(join(actionsDir, 'ferry-cc-prepare'))).toBe(false);
+    expect(existsSync(join(actionsDir, 'ferry-ci-gate'))).toBe(false);
     expect(opts.actions).toContain('Deleted .github/actions/ferry-route/');
-    expect(opts.actions).toContain('Deleted .github/actions/ferry-cc-prepare/');
+    expect(opts.actions).toContain('Deleted .github/actions/ferry-ci-gate/');
 
     cleanup(dir);
   });
@@ -297,12 +294,12 @@ describe('removeCompositeActions', () => {
   it('dry-run does not delete composite dirs', () => {
     const dir = makeTempRepo();
     const actionsDir = join(dir, '.github', 'actions');
-    mkdirSync(join(actionsDir, 'ferry-cc-apply'), { recursive: true });
+    mkdirSync(join(actionsDir, 'ferry-ci-gate'), { recursive: true });
 
     const opts = makeOpts({ dryRun: true });
     removeCompositeActions(dir, detectCompositeActions(dir), opts);
 
-    expect(existsSync(join(actionsDir, 'ferry-cc-apply'))).toBe(true);
+    expect(existsSync(join(actionsDir, 'ferry-ci-gate'))).toBe(true);
     expect(opts.actions.some((a) => a.includes('[dry-run]'))).toBe(true);
 
     cleanup(dir);

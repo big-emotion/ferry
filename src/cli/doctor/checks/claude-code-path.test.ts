@@ -43,12 +43,23 @@ const WORKFLOW_FILES = [
   'ferry-iterate.yml',
 ];
 
-const V013_WORKFLOW_CONTENT = `
+// Current simplified shape: a single claude-code-action step, no wrappers.
+const CURRENT_WORKFLOW_CONTENT = `
 jobs:
   route:
     name: Resolve execution path
     steps:
-      - uses: big-emotion/ferry/.github/actions/ferry-route@v0.13.0
+      - uses: big-emotion/ferry/.github/actions/ferry-route@v0.14.0
+  run-agent-claude-code:
+    steps:
+      - uses: anthropics/claude-code-action@v1
+`;
+
+// Stale: still carries the deleted ferry-cc-prepare/ferry-cc-apply wrapper chain.
+const STALE_WRAPPER_CONTENT = `
+jobs:
+  route:
+    name: Resolve execution path
   run-agent-claude-code:
     steps:
       - uses: big-emotion/ferry/.github/actions/ferry-cc-prepare@v0.13.0
@@ -56,23 +67,14 @@ jobs:
       - uses: big-emotion/ferry/.github/actions/ferry-cc-apply@v0.13.0
 `;
 
-const V012_STALE_CONTENT = `
-jobs:
-  route:
-    name: Resolve execution path
-  run-agent-claude-code:
-    steps:
-      - name: claude-code execution path not yet wired
-        run: exit 1
-`;
-
-const V012_ROUTE_ONLY_CONTENT = `
+// Missing the claude-code-action step entirely.
+const MISSING_STEP_CONTENT = `
 jobs:
   route:
     name: Resolve execution path
   run-agent:
     steps:
-      - uses: big-emotion/ferry/.github/actions/ferry-run-refiner@v0.13.2
+      - uses: big-emotion/ferry/.github/actions/ferry-run-refiner@v0.14.0
 `;
 
 const ALL_ANTHROPIC_CONFIG = {
@@ -382,34 +384,34 @@ describe('checkWorkflowShape', () => {
     expect(res.status).toBe('skip');
   });
 
-  it('is green when all four workflows have the v0.13.0 cc chain', () => {
+  it('is green when all four workflows use the simplified claude-code-action shape', () => {
     writeConfig(root, { execution_path: 'claude-code' });
     for (const f of WORKFLOW_FILES) {
-      writeWorkflow(root, f, V013_WORKFLOW_CONTENT);
+      writeWorkflow(root, f, CURRENT_WORKFLOW_CONTENT);
     }
     const res = checkWorkflowShape({ repoRoot: root });
     expect(res.status).toBe('green');
-    expect(res.detail).toContain('v0.13.0');
+    expect(res.detail).toContain('claude-code-action');
   });
 
-  it('is yellow when workflows contain the v0.12.x stale placeholder', () => {
+  it('is yellow when workflows still contain the legacy ferry-cc-prepare/apply chain', () => {
     writeConfig(root, { execution_path: 'claude-code' });
     for (const f of WORKFLOW_FILES) {
-      writeWorkflow(root, f, V012_STALE_CONTENT);
+      writeWorkflow(root, f, STALE_WRAPPER_CONTENT);
     }
     const res = checkWorkflowShape({ repoRoot: root });
     expect(res.status).toBe('yellow');
-    expect(res.detail).toContain('v0.12.x');
+    expect(res.detail).toContain('ferry-cc-prepare');
     expect(res.remedy).toContain('ferry-update');
     expect(res.remedy).toContain('MIGRATIONS.md');
   });
 
   it('names the stale workflow files in the detail', () => {
     writeConfig(root, { execution_path: 'claude-code' });
-    writeWorkflow(root, 'ferry-dev.yml', V012_STALE_CONTENT);
-    writeWorkflow(root, 'ferry-iterate.yml', V012_STALE_CONTENT);
-    writeWorkflow(root, 'ferry-refine.yml', V013_WORKFLOW_CONTENT);
-    writeWorkflow(root, 'ferry-review.yml', V013_WORKFLOW_CONTENT);
+    writeWorkflow(root, 'ferry-dev.yml', STALE_WRAPPER_CONTENT);
+    writeWorkflow(root, 'ferry-iterate.yml', STALE_WRAPPER_CONTENT);
+    writeWorkflow(root, 'ferry-refine.yml', CURRENT_WORKFLOW_CONTENT);
+    writeWorkflow(root, 'ferry-review.yml', CURRENT_WORKFLOW_CONTENT);
     const res = checkWorkflowShape({ repoRoot: root });
     expect(res.status).toBe('yellow');
     expect(res.detail).toContain('ferry-dev.yml');
@@ -417,22 +419,22 @@ describe('checkWorkflowShape', () => {
     expect(res.detail).not.toContain('ferry-refine.yml');
   });
 
-  it('is yellow when workflows have a route job but are missing the cc chain', () => {
+  it('is yellow when workflows are missing the claude-code-action step', () => {
     writeConfig(root, { execution_path: 'claude-code' });
     for (const f of WORKFLOW_FILES) {
-      writeWorkflow(root, f, V012_ROUTE_ONLY_CONTENT);
+      writeWorkflow(root, f, MISSING_STEP_CONTENT);
     }
     const res = checkWorkflowShape({ repoRoot: root });
     expect(res.status).toBe('yellow');
-    expect(res.detail).toContain('ferry-cc-prepare');
+    expect(res.detail).toContain('claude-code-action');
     expect(res.remedy).toContain('ferry-update');
   });
 
   it('skips missing workflow files (covered by the Workflow files check)', () => {
     writeConfig(root, { execution_path: 'claude-code' });
     // Only write two of the four — the others are missing.
-    writeWorkflow(root, 'ferry-dev.yml', V013_WORKFLOW_CONTENT);
-    writeWorkflow(root, 'ferry-iterate.yml', V013_WORKFLOW_CONTENT);
+    writeWorkflow(root, 'ferry-dev.yml', CURRENT_WORKFLOW_CONTENT);
+    writeWorkflow(root, 'ferry-iterate.yml', CURRENT_WORKFLOW_CONTENT);
     // ferry-refine.yml and ferry-review.yml are absent.
     const res = checkWorkflowShape({ repoRoot: root });
     // The two present files pass; the two missing files are skipped.
@@ -443,7 +445,7 @@ describe('checkWorkflowShape', () => {
     writeConfig(root, { execution_path: 'script' });
     // Write stale workflows — they should not be inspected.
     for (const f of WORKFLOW_FILES) {
-      writeWorkflow(root, f, V012_STALE_CONTENT);
+      writeWorkflow(root, f, STALE_WRAPPER_CONTENT);
     }
     const res = checkWorkflowShape({ repoRoot: root });
     expect(res.status).toBe('skip');

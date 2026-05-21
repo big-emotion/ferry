@@ -487,7 +487,7 @@ Override cost / token budgets and iteration limits for this ticket only.
 - `ferry:spend-cap` is applied to the ticket.
 - A Jira audit comment is posted naming the ticket and EUR consumed.
 
-> **Bundled-script path only.** Mid-run EUR enforcement (and therefore `ferry:budget/<eur>`, `limits.max_cost_eur_per_run`, and the `ferry:spend-cap` label) does **not** apply on the experimental `claude-code-action` execution path — see [Execution paths & accepted divergences](#execution-paths--accepted-divergences-experimental).
+> **Bundled-script path only.** Mid-run EUR enforcement (and therefore `ferry:budget/<eur>`, `limits.max_cost_eur_per_run`, and the `ferry:spend-cap` label) does **not** apply on the `claude-code-action` execution path — see [Execution paths & accepted divergences](#execution-paths--accepted-divergences).
 
 **Conflict rules:** Duplicate labels for the same field (e.g. two `ferry:budget/<n>` labels with different values) are a conflict — the agent posts a Jira comment and exits non-zero. `ferry:budget/<eur>` and `ferry:budget/max-cost/<eur>` set the same config field (`limits.max_cost_eur_per_run`); they can coexist as they are separate fields, but the last one applied via `applyTicketOverrides` wins — avoid combining them.
 
@@ -549,7 +549,7 @@ Let a Jira ticket run Ferry without producing side effects — to validate promp
 
 ##### Execution-path routing (`ferry:claude-code`, `ferry:no-claude-code`)
 
-> **Experimental — resolver only.** These labels and config keys are recognised today but only take effect once the `claude-code-action` path itself ships (epic [#299](https://github.com/big-emotion/ferry/issues/299), #302). Until then every consumer runs the bundled-script path regardless. See [Execution paths & accepted divergences](#execution-paths--accepted-divergences-experimental).
+> **Read the trade-off first.** The `claude-code-action` path is a direct call into `anthropics/claude-code-action` with no Ferry wrapper around it — see [Execution paths & accepted divergences](#execution-paths--accepted-divergences). Several invariants that the bundled-script path enforces in code become **prompt-enforced** on this path.
 
 Which execution path an agent run takes is decided by a deterministic resolver ([ADR-0006](./adr/0006-claude-code-action-execution-path.md) §3, [#300](https://github.com/big-emotion/ferry/issues/300)). Precedence, highest first:
 
@@ -565,7 +565,7 @@ The resolved path **and the reason** (`label` / `heuristic` / `default`) are rec
 | `execution_path`                           | _(unset)_ | `"script"` (hard lock) or `"claude-code"` (explicit). Unset → conditional default applies. |
 | `routing.claude_code_round_trip_threshold` | `2`       | Positive integer N for the developer/iterator escalation heuristic.                        |
 
-`ferry:claude-code` only _selects_ the path — it does not provision the `CLAUDE_CODE_OAUTH_TOKEN` the path needs. The hard invariants (cost-governance auto-pause, no-auto-merge) apply regardless of how the path was chosen.
+`ferry:claude-code` only _selects_ the path — it does not provision the `CLAUDE_CODE_OAUTH_TOKEN` the path needs. The one hard, code-enforced invariant that holds regardless of how the path was chosen is **Ferry never merges code**; on the claude-code path it is enforced by `claude-code-action`'s `--disallowedTools` deny-list plus consumer branch protection (see [Execution paths & accepted divergences](#execution-paths--accepted-divergences)).
 
 ##### Extended thinking (`ferry:thinking/*`)
 
@@ -633,7 +633,7 @@ Lets a single Jira ticket pick its own base branch, PR target branch, and PR dra
 | `ferry:paused`    | Cost-governance workflow | Agent exits immediately without processing. Applied automatically when spend reaches 50% of the monthly cap. Remove the label manually to resume. |
 | `ferry:spend-cap` | Cost-governance workflow | Informational — marks tickets that triggered the spend cap check. No direct effect on agent execution.                                            |
 
-> **Execution-path note:** `ferry:paused` (50% monthly auto-pause) is **weakened** and `ferry:spend-cap` **never fires** on the experimental `claude-code-action` path, because subscription-token spend has no measurable EUR figure. See [Execution paths & accepted divergences](#execution-paths--accepted-divergences-experimental).
+> **Execution-path note:** `ferry:paused` (50% monthly auto-pause) is **weakened** and `ferry:spend-cap` **never fires** on the `claude-code-action` path, because subscription-token spend has no measurable EUR figure. See [Execution paths & accepted divergences](#execution-paths--accepted-divergences).
 
 ---
 
@@ -784,9 +784,7 @@ Secrets (`ANTHROPIC_API_KEY`, `FERRY_OPENAI_KEY`, `FERRY_GOOGLE_AI_KEY`) are cre
 
 ---
 
-## Execution paths & accepted divergences (experimental)
-
-> **Experimental — not yet available.** The `claude-code-action` execution path is the target architecture of [ADR-0006](./adr/0006-claude-code-action-execution-path.md); its implementation is tracked under epic [#299](https://github.com/big-emotion/ferry/issues/299) (#300–#306) and is **not shipped yet**. Until those land, **every consumer runs the bundled-script path** and none of the divergences below apply. This section documents the behavioral differences **up front** so operators can decide before opting in.
+## Execution paths & accepted divergences
 
 Ferry's four agents (Refiner, Developer, Reviewer, Iterator) run via one of two execution paths behind the same `repository_dispatch` boundary:
 
@@ -795,65 +793,58 @@ Ferry's four agents (Refiner, Developer, Reviewer, Iterator) run via one of two 
 | **Bundled script**       | Ferry's deterministic agent loop        | Anthropic / OpenAI / Google | Enforced         | `ANTHROPIC_API_KEY` / provider keys      |
 | **`claude-code-action`** | `anthropics/claude-code-action@v1` loop | Anthropic only              | **Not enforced** | `CLAUDE_CODE_OAUTH_TOKEN` (subscription) |
 
-The Ferry **contract** is identical on both paths — envelope validation, structured-output schema, fingerprinted audit comments ([ADR-0004](./adr/0004-idempotency-via-comment-markers.md)), the FR18/FR24/FR28 transitions, idempotency markers, prompts (`buildSystem(<role>)` + `prompts/<agent>.extra.md`), and **every operational edge case** (`ferry:dry-run`, `ferry:read-only`, `ferry:skip/*`, `blocked`, `already_satisfied`, iteration cap, merge conflicts, no-PR / race guard, `LabelConflictError`, CI red/pending, resume branch, prompt-injection fences) behave identically, because they live in deterministic workflow steps that bracket the LLM, never in the LLM itself. The full reuse/parity classification is in [decisions/0002](./decisions/0002-claude-code-path-parity-analysis.md) (§B–§D).
+The **bundled-script path is unchanged** — its deterministic agent loop, structured-output schema, code-enforced idempotency, audit-line emission, and per-run EUR cap all behave exactly as documented elsewhere in this reference.
 
-The differences below are the **only** observable divergences. They are **accepted by design** ([ADR-0006](./adr/0006-claude-code-action-execution-path.md)) — the `claude-code-action` path deliberately trades the per-run EUR ceiling for the subscription-billing + free-agent-loop profile — and apply **only** to tickets running on the `claude-code-action` path.
+### How the claude-code path runs
 
-### 1. `ferry:spend-cap` does not fire (no per-run EUR cap)
+For a `ferry:claude-code` ticket each agent job is **one direct call** into `anthropics/claude-code-action@v1`: a `checkout` step followed by that single action step. There is **no Ferry wrapper** around it — no prepare/apply composite actions, no intermediate JSON artifact, no structured-output "contract" layer. The agent does its own Jira work through a Ferry-shipped MCP server ([`ferry-jira-mcp`](#ferry-jira-mcp-jira-access-for-the-claude-code-path)) and its own GitHub work through `claude-code-action`'s native `git` / `gh` tools. The reviewer job is additionally fronted by the deterministic [`ferry-ci-gate`](#ferry-ci-gate-reviewer-ci-pre-gate) composite action.
 
-On the bundled-script path, `ferry:budget/<eur>` (and `limits.max_cost_eur_per_run`) is enforced mid-run: the agent checks accumulated EUR before each LLM call, throws a spend-cap error, applies `ferry:spend-cap`, and posts an audit comment (see [Budget, iteration, and token caps](#budget-iteration-and-token-caps)).
+Authentication is `CLAUDE_CODE_OAUTH_TOKEN` only — `ANTHROPIC_API_KEY` is **forbidden** on this path ([ADR-0006](./adr/0006-claude-code-action-execution-path.md) §6). The provider gate still applies: the claude-code path is only available to an Anthropic-only consumer configuration.
 
-On the `claude-code-action` path **none of this happens**. The action's agent loop cannot raise a mid-loop EUR error, so:
+### The accepted trade-off: prompt-enforced, not code-enforced
 
-- `ferry:budget/<eur>` and `limits.max_cost_eur_per_run` have **no effect**.
-- The `ferry:spend-cap` label and its audit comment **never appear**.
-- A run is bounded only by `--max-turns` and the job `timeout-minutes`, not by EUR.
+Because there is no wrapper bracketing the LLM, several behaviors that the bundled-script path guarantees in deterministic code become **prompt-enforced** on the claude-code path — the agent is instructed to honour them, but no Ferry code verifies the outcome:
 
-**Rationale:** under Claude subscription billing there is no per-run EUR figure to enforce against, so a mid-loop EUR ceiling is conceptually moot — but it is observably different, so it is called out rather than silently dropped. Use `ferry:max-iterations/<n>` and the job timeout to bound cost on this path.
+- **Idempotency** — fingerprinted comments and repeatable file operations are described in the prompt; they are not validated by a wrapper.
+- **Audit-line emission** — the agent is asked to post the `[ferry:<role>:<run-id>] ...` audit line itself; there is no deterministic step that emits it.
+- **"Agents rarely transition columns"** — FR18 / FR24 / FR28 and the "no other transitions" discipline are prompt instructions, not code-gated transitions.
 
-### 2. Daily cost-governance auto-pause is weakened
+This is **accepted by design**: the claude-code path trades the wrapper's hard guarantees for a direct, lower-overhead call. Operators who need code-enforced idempotency and audit emission should keep that work on the bundled-script path.
 
-`ferry:paused` is applied automatically by the daily cost-governance check when monthly **EUR** spend reaches 50% of the configured cap (see [Safety labels](#safety-labels)). This backstop depends on a measurable EUR figure.
+### The one hard invariant: Ferry never merges code
 
-Under a Claude subscription token, monthly EUR spend is **not measurable**, so on the `claude-code-action` path this auto-pause backstop is **weakened**: it cannot trip from subscription-path spend. Tickets running on the bundled-script path are still governed normally. Operators relying on the 50% auto-pause as a hard safety net should keep cost-sensitive work on the bundled-script path or set an explicit subscription-tier limit with Anthropic directly.
+The single invariant that stays **code-enforced** on the claude-code path is the no-merge rule ([ADR-0005](./adr/0005-no-auto-merge-invariant.md)). It is enforced two ways:
 
-### 3. EUR-cost telemetry is unknown on the subscription path
+1. **`claude-code-action`'s `--disallowedTools`** denies `gh pr merge` and `gh pr close`, so the agent loop cannot merge or close a PR.
+2. **GitHub branch protection on the consumer's default branch** — this is now a **required consumer setting**. The tool deny-list is a client-side control; branch protection is the authoritative server-side gate. Without it the no-merge guarantee does not hold server-side. Configure a branch-protection rule (or ruleset) on your default branch — at minimum require a pull request before merging — when you enable the claude-code path.
 
-`cost_eur` in the audit log is derived from token counts × provider list price. The subscription token returns no per-call EUR price, so for `claude-code-action` runs the cost field is **unknown** (recorded as `0` / null). Downstream tooling is affected: see [COST.md → Cost telemetry on the claude-code path](./COST.md#cost-telemetry-on-the-claude-code-execution-path-experimental).
+### Other accepted divergences
 
-### 4. No-auto-merge runtime enforcement uses a different mechanism
+These remain accepted, by-design differences on the claude-code path — all are cost/safety-budget concerns:
 
-The bundled Developer path enforces the no-auto-merge invariant ([ADR-0005](./adr/0005-no-auto-merge-invariant.md)) with a runtime regex deny-list inside the agent loop (`src/agents/developer/sandbox.ts`). That deny-list does **not** wrap the action's separate loop. On the `claude-code-action` path the invariant is re-established by a restricted `--allowedTools` allowlist (no `gh pr merge`, no `git push` to protected refs) plus a least-privilege `GITHUB_TOKEN`.
+1. **`ferry:spend-cap` does not fire (no per-run EUR cap).** The action's agent loop cannot raise a mid-loop EUR error, so `ferry:budget/<eur>` and `limits.max_cost_eur_per_run` have **no effect** and the `ferry:spend-cap` label never appears. A run is bounded only by `--max-turns` and the job `timeout-minutes`. Under Claude subscription billing there is no per-run EUR figure to enforce against.
 
-**Rationale & risk:** the allowlist + token scoping is **weaker defense-in-depth** than the runtime deny-list — a misconfigured allowlist re-opens the auto-merge risk. The invariant itself (Ferry never merges) is preserved; only the enforcement mechanism differs. GitHub branch protection and CODEOWNERS remain the authoritative merge gate on both paths.
+2. **Daily cost-governance auto-pause is weakened.** The 50%-of-monthly-cap `ferry:paused` backstop depends on a measurable EUR figure. Subscription-token spend is not measurable, so it cannot trip from claude-code-path spend. Bundled-script-path tickets are still governed normally.
 
-### 5. Secret-scan-before-push is a deterministic gate, not an in-loop hook
+3. **EUR-cost telemetry is `0` on the claude-code path.** With no wrapper to capture token/cost values, the `cost_eur` and token audit fields are emitted as `0` (best-effort by design). See [COST.md → Cost telemetry on the claude-code path](./COST.md#cost-telemetry-on-the-claude-code-execution-path).
 
-The bundled loop runs an in-loop `makeSecretScan` callback before pushing. The action has no equivalent hook; on the `claude-code-action` path the scan is re-engineered as a **deterministic gate that runs before the push step**. Observable outcome (a push carrying a detected secret is blocked) is preserved; the mechanism differs.
+### `ferry-jira-mcp` — Jira access for the claude-code path
 
-> **Summary:** the `claude-code-action` path preserves the entire observable Ferry contract and every operational edge case **except** the five points above, all of which are cost/safety-budget concerns. Full analysis: [decisions/0002 → Accepted divergences](./decisions/0002-claude-code-path-parity-analysis.md#accepted-divergences-the-set-aside-list).
+On the claude-code path the agent reaches Jira through **`ferry-jira-mcp`**, a Ferry-owned stdio MCP server shipped as the `ferry-jira-mcp` bin of the `@big-emotion/ferry` npm package. It authenticates with the same token-auth env Ferry already uses — `FERRY_JIRA_BASE_URL`, `FERRY_JIRA_EMAIL`, `FERRY_JIRA_API_TOKEN`.
 
----
+It exposes six tools: `get_issue`, `list_subtasks`, `create_subtask`, `get_transitions`, `transition_issue`, `post_comment`.
 
-## Session log artifact (claude-code path)
+The consumer's claude-code workflow wires it into `claude-code-action` via `claude_args --mcp-config`, launching the server with `npx -y -p @big-emotion/ferry ferry-jira-mcp`.
 
-Every `claude-code-action` run on all four cc-path roles (refiner, developer, reviewer, iterator) uploads a session log artifact via `actions/upload-artifact@v7.0.1`.
+### `ferry-ci-gate` — reviewer CI pre-gate
 
-**Naming convention:** `ferry-<role>-<ticket>-session`
+`ferry-ci-gate` is a deterministic composite action that runs **before** the reviewer's claude-code job. It resolves the PR for the ticket branch, reads the CI check-runs, and classifies them with the same pure `gateCi()` logic the bundled-script path uses:
 
-Example: a Developer run for ticket `FOO-123` produces an artifact named `ferry-developer-FOO-123-session`.
+- **CI pending** → the reviewer job is **skipped silently**.
+- **CI red** → the reviewer job is **skipped**; the gate posts a changes-requested PR comment and transitions the ticket (FR24).
+- **CI green** → the reviewer job **proceeds**.
 
-**Retention:** 7 days (matching the `retention-days: 7` setting in the consumer workflow stubs).
-
-**When it is uploaded:** the upload step runs with `if: always()` — it executes even when the `claude-code-action` step itself fails. The artifact is only skipped if `steps.cc-run.outputs.execution_file` is empty (i.e. the action did not start at all).
-
-**Secret-exposure risk:** the session JSON contains the full prompt sent to Claude Code, response excerpts, repository file paths, and ambient environment variable names visible to the runner. Treat this artifact as sensitive — do not share it publicly or store it beyond the retention window. Download with:
-
-```bash
-gh run download <run-id> --name ferry-developer-FOO-123-session
-```
-
-Or navigate to the workflow run in the GitHub Actions UI under **Artifacts**.
+By short-circuiting on pending/red CI deterministically, the gate avoids spending an LLM call on a review that cannot succeed.
 
 ---
 

@@ -210,30 +210,28 @@ describe('workflowTemplates', () => {
     }
   });
 
-  it('claude-code path wires the four-step chain in every agent workflow', () => {
+  it('claude-code path is a single direct claude-code-action call in every agent workflow', () => {
     for (const tmpl of workflowTemplates('v1', 'claude-code')) {
       expect(tmpl.content).toContain('# Execution path: claude-code');
-      expect(tmpl.content).toContain('ferry-cc-prepare');
       // Match by action ref only (not the version pin) so SHA-pinning the action
       // doesn't require touching this presence check. The pin shape itself is
       // asserted in templates.test.ts.
       expect(tmpl.content).toContain('anthropics/claude-code-action@');
-      expect(tmpl.content).toContain('ferry-cc-apply');
+      // The deleted ferry-cc-prepare/ferry-cc-apply wrapper chain must never reappear.
+      expect(tmpl.content).not.toContain('ferry-cc-prepare');
+      expect(tmpl.content).not.toContain('ferry-cc-apply');
       expect(tmpl.content).toContain(
         'claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}',
       );
     }
   });
 
-  it('claude-code path runs cc-prepare before claude-code-action before cc-apply', () => {
+  it('claude-code path wires an inlined prompt and the ferry-jira-mcp MCP server', () => {
     const dev = workflowTemplates('v1', 'claude-code').find((t) => t.filename === 'ferry-dev.yml');
-    const prepareIdx = dev?.content.indexOf('ferry-cc-prepare') ?? -1;
-    const actionIdx = dev?.content.indexOf('anthropics/claude-code-action@') ?? -1;
-    const applyIdx = dev?.content.indexOf('ferry-cc-apply') ?? -1;
-    expect(prepareIdx).toBeGreaterThan(-1);
-    expect(actionIdx).toBeGreaterThan(-1);
-    expect(applyIdx).toBeGreaterThan(-1);
-    expect(prepareIdx).toBeLessThan(actionIdx);
-    expect(actionIdx).toBeLessThan(applyIdx);
+    expect(dev?.content).toContain('prompt: |');
+    expect(dev?.content).toContain('claude_args: >-');
+    expect(dev?.content).toContain('ferry-jira-mcp');
+    // The model is interpolated from the per-agent variable, not hardcoded.
+    expect(dev?.content).toContain("--model ${{ vars.FERRY_DEV_MODEL || 'claude-sonnet-4-6' }}");
   });
 });

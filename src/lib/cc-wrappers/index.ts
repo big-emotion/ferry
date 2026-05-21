@@ -1,33 +1,19 @@
 /**
- * Deterministic contract wrapper steps for the claude-code execution path
- * (ADR-0006 §2, issue #301). Public surface consumed by the action job (#302).
+ * Deterministic execution-path routing for Ferry agent runs (ADR-0006 §3).
+ *
+ * Decides whether an agent run takes the bundled-script path or the
+ * `claude-code-action` path, and records *why*. All exports come from the
+ * pure `./routing.js` resolver.
  */
-export { validateAgentOutput } from './agent-output.js';
-export type {
-  AgentOutputV1,
-  AgentOutputRole,
-  DeveloperAgentOutput,
-  IteratorAgentOutput,
-  ReviewerAgentOutput,
-  DeveloperOutcome,
-  ReviewerVerdict,
-} from './agent-output.js';
-
-export { decideContract, markerRoleToken, resolveContractMarker } from './contract.js';
-export type {
-  ContractDecision,
-  ContractContext,
-  MarkerContext,
-  TransitionPlan,
-  TransitionIdEnv,
-} from './contract.js';
-
-export { applyContract, checkContractIdempotency } from './apply.js';
-export type { ApplyContractDeps, ApplyContractResult } from './apply.js';
-
 export {
   resolveExecutionPath,
   isAnthropicOnlyConfig,
   formatExecutionPathAudit,
+  markerRoleToken,
 } from './routing.js';
-export type { ExecutionPathDecision, ExecutionPathReason, ExecutionPathInput } from './routing.js';
+export type {
+  ExecutionPathDecision,
+  ExecutionPathReason,
+  ExecutionPathInput,
+  AgentOutputRole,
+} from './routing.js';

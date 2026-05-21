@@ -129,7 +129,7 @@ Options:
 
 What is removed by default:
   • .github/workflows/ferry-*.yml (6 workflow files)
-  • .github/actions/ferry-route/, ferry-cc-prepare/, ferry-cc-apply/ (composite actions)
+  • .github/actions/ferry-route/, ferry-ci-gate/ (composite actions)
   • Ferry entries in .github/CODEOWNERS (file kept; only Ferry lines removed)
   • Repo secrets: FERRY_APP_ID, FERRY_PRIVATE_KEY, FERRY_JIRA_BASE_URL,
                   FERRY_JIRA_EMAIL, FERRY_JIRA_API_TOKEN,

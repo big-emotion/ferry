@@ -1,5 +1,7 @@
 # 0006 — claude-code-action as the conditional default execution path
 
+> **Partially superseded** by the claude-code-path simplification: the Ferry wrapper around `claude-code-action` was removed in favour of a direct call. This ADR is kept as a historical record of the original decision.
+
 **Status:** Accepted (target architecture — not yet implemented)  
 **Date:** 2026-05-19  
 **See also:** [0003](./0003-anthropic-messages-vs-agent-sdk.md) (this is a third execution option beyond raw Messages API and Agent SDK), [0004](./0004-idempotency-via-comment-markers.md) (the audit-marker invariant this ADR must preserve), [0005](./0005-no-auto-merge-invariant.md) (the no-auto-merge invariant whose runtime enforcement does **not** automatically extend to this path)
