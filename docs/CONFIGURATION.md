@@ -799,26 +799,6 @@ The Ferry **contract** is identical on both paths — envelope validation, struc
 
 The differences below are the **only** observable divergences. They are **accepted by design** ([ADR-0006](./adr/0006-claude-code-action-execution-path.md)) — the `claude-code-action` path deliberately trades the per-run EUR ceiling for the subscription-billing + free-agent-loop profile — and apply **only** to tickets running on the `claude-code-action` path.
 
-### Session log artifact
-
-Every `claude-code-action` run on all four cc-path roles (refiner, developer, reviewer, iterator) uploads a session log artifact via `actions/upload-artifact@v7.0.1`.
-
-**Naming convention:** `ferry-<role>-<ticket>-session`
-
-Example: a Developer run for ticket `FOO-123` produces an artifact named `ferry-developer-FOO-123-session`.
-
-**Retention:** 7 days (matching the `retention-days: 7` setting in the consumer workflow stubs).
-
-**When it is uploaded:** the upload step runs with `if: always()` — it executes even when the `claude-code-action` step itself fails. The artifact is only skipped if `steps.cc-run.outputs.execution_file` is empty (i.e. the action did not start at all).
-
-**Secret-exposure risk:** the session JSON contains the full prompt sent to Claude Code, response excerpts, repository file paths, and ambient environment variable names visible to the runner. Treat this artifact as sensitive — do not share it publicly or store it beyond the retention window. Download with:
-
-```bash
-gh run download <run-id> --name ferry-developer-FOO-123-session
-```
-
-Or navigate to the workflow run in the GitHub Actions UI under **Artifacts**.
-
 ### 1. `ferry:spend-cap` does not fire (no per-run EUR cap)
 
 On the bundled-script path, `ferry:budget/<eur>` (and `limits.max_cost_eur_per_run`) is enforced mid-run: the agent checks accumulated EUR before each LLM call, throws a spend-cap error, applies `ferry:spend-cap`, and posts an audit comment (see [Budget, iteration, and token caps](#budget-iteration-and-token-caps)).
@@ -852,6 +832,28 @@ The bundled Developer path enforces the no-auto-merge invariant ([ADR-0005](./ad
 The bundled loop runs an in-loop `makeSecretScan` callback before pushing. The action has no equivalent hook; on the `claude-code-action` path the scan is re-engineered as a **deterministic gate that runs before the push step**. Observable outcome (a push carrying a detected secret is blocked) is preserved; the mechanism differs.
 
 > **Summary:** the `claude-code-action` path preserves the entire observable Ferry contract and every operational edge case **except** the five points above, all of which are cost/safety-budget concerns. Full analysis: [decisions/0002 → Accepted divergences](./decisions/0002-claude-code-path-parity-analysis.md#accepted-divergences-the-set-aside-list).
+
+---
+
+## Session log artifact (claude-code path)
+
+Every `claude-code-action` run on all four cc-path roles (refiner, developer, reviewer, iterator) uploads a session log artifact via `actions/upload-artifact@v7.0.1`.
+
+**Naming convention:** `ferry-<role>-<ticket>-session`
+
+Example: a Developer run for ticket `FOO-123` produces an artifact named `ferry-developer-FOO-123-session`.
+
+**Retention:** 7 days (matching the `retention-days: 7` setting in the consumer workflow stubs).
+
+**When it is uploaded:** the upload step runs with `if: always()` — it executes even when the `claude-code-action` step itself fails. The artifact is only skipped if `steps.cc-run.outputs.execution_file` is empty (i.e. the action did not start at all).
+
+**Secret-exposure risk:** the session JSON contains the full prompt sent to Claude Code, response excerpts, repository file paths, and ambient environment variable names visible to the runner. Treat this artifact as sensitive — do not share it publicly or store it beyond the retention window. Download with:
+
+```bash
+gh run download <run-id> --name ferry-developer-FOO-123-session
+```
+
+Or navigate to the workflow run in the GitHub Actions UI under **Artifacts**.
 
 ---
 

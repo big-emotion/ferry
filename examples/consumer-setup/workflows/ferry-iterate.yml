@@ -22,7 +22,7 @@
 # Action inputs:      pre_agent_command (optional) — shell command to run before the agent (e.g. npm ci)
 #                     pre_agent_timeout_minutes (optional, default: 3)
 #                     post_agent_command (optional) — shell command to run after the agent (always runs)
-# Observability:      Session log uploaded as artifact ferry-iterator-<ticket>-session (7-day retention).
+# Observability:      Session log uploaded as artifact ferry-iterator-<ticket>-session (7-day retention, claude-code path only).
 #                     The session JSON may contain prompt/response excerpts and repo paths — treat as sensitive.
 
 name: Ferry — Iterate
