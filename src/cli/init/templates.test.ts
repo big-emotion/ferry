@@ -99,10 +99,16 @@ describe('workflowTemplates — routing structure', () => {
     }
   });
 
-  it('emit-audit depends on both run-agent and run-agent-claude-code', () => {
+  it('emit-audit depends on both agent jobs (and ci-gate on the review template)', () => {
     for (const tmpl of workflowTemplates('v1')) {
-      expect(tmpl.content, `${tmpl.filename}: emit-audit missing dual dependency`).toContain(
-        'needs: [run-agent, run-agent-claude-code]',
+      // The review template adds the deterministic ci-gate job to the cc path,
+      // so its emit-audit must also depend on ci-gate to surface the ci-red case.
+      const expectedNeeds =
+        tmpl.filename === 'ferry-review.yml'
+          ? 'needs: [run-agent, run-agent-claude-code, ci-gate]'
+          : 'needs: [run-agent, run-agent-claude-code]';
+      expect(tmpl.content, `${tmpl.filename}: emit-audit missing dependency`).toContain(
+        expectedNeeds,
       );
       // emit-audit must run even when one path is skipped
       expect(tmpl.content, `${tmpl.filename}: emit-audit missing always() guard`).toContain(
@@ -153,8 +159,41 @@ describe('workflowTemplates — claude-code path single-step shape', () => {
       expect(tmpl.content, `${tmpl.filename}: missing --permission-mode`).toContain(
         '--permission-mode acceptEdits',
       );
-      expect(tmpl.content, `${tmpl.filename}: missing --model`).toContain(
-        '--model claude-sonnet-4-6',
+    }
+  });
+
+  it('claude_args --mcp-config pins the ferry-jira-mcp package to the templated version', () => {
+    // ferry-init/ferry-update must template the version so the MCP server the
+    // agent launches matches the workflow's pinned Ferry release.
+    for (const tmpl of workflowTemplates('v0.14.0')) {
+      expect(tmpl.content, `${tmpl.filename}: --mcp-config missing`).toContain('--mcp-config');
+      expect(tmpl.content, `${tmpl.filename}: ferry-jira-mcp package not version-pinned`).toContain(
+        '"@big-emotion/ferry@v0.14.0"',
+      );
+      expect(tmpl.content, `${tmpl.filename}: ferry-jira-mcp package left unpinned`).not.toContain(
+        '"@big-emotion/ferry"',
+      );
+    }
+  });
+
+  it('claude_args --model interpolates the per-agent model variable (not hardcoded)', () => {
+    // A consumer who sets the per-agent FERRY_*_MODEL variable must be honoured
+    // on the claude-code path too — the model must never be hardcoded.
+    const modelVars: Record<string, string> = {
+      'ferry-refine.yml': "--model ${{ vars.FERRY_REFINER_MODEL || 'claude-sonnet-4-6' }}",
+      'ferry-dev.yml': "--model ${{ vars.FERRY_DEV_MODEL || 'claude-sonnet-4-6' }}",
+      'ferry-review.yml': "--model ${{ vars.FERRY_REVIEW_MODEL || 'claude-sonnet-4-6' }}",
+      'ferry-iterate.yml': "--model ${{ vars.FERRY_ITER_MODEL || 'claude-sonnet-4-6' }}",
+    };
+    for (const tmpl of workflowTemplates('v1')) {
+      const expected = modelVars[tmpl.filename];
+      expect(expected, `${tmpl.filename}: no expected --model line`).toBeDefined();
+      expect(
+        tmpl.content,
+        `${tmpl.filename}: --model not interpolated from the model var`,
+      ).toContain(expected);
+      expect(tmpl.content, `${tmpl.filename}: --model is still hardcoded`).not.toContain(
+        '--model claude-sonnet-4-6\n',
       );
     }
   });
@@ -228,13 +267,28 @@ describe('workflowTemplates — emit-audit outcome shape', () => {
         tmpl.content,
         `${tmpl.filename}: outcome ternary still uses the regressed == 'success' shape`,
       ).not.toContain("needs.run-agent.result == 'success' && needs.run-agent.result");
+      // The review template extends the ternary with a ci-gate ci-red branch, so
+      // its shape is parenthesised; the other three keep the plain two-branch form.
+      const expectedOutcome =
+        tmpl.filename === 'ferry-review.yml'
+          ? "outcome: ${{ (needs.run-agent.result != 'skipped' && needs.run-agent.result) || (needs.run-agent-claude-code.result != 'skipped' && needs.run-agent-claude-code.result) || (needs.ci-gate.outputs.outcome == 'ci-red' && 'ci-red') || needs.run-agent-claude-code.result }}"
+          : "outcome: ${{ needs.run-agent.result != 'skipped' && needs.run-agent.result || needs.run-agent-claude-code.result }}";
       expect(
         tmpl.content,
         `${tmpl.filename}: outcome ternary missing != 'skipped' shape`,
-      ).toContain(
-        "outcome: ${{ needs.run-agent.result != 'skipped' && needs.run-agent.result || needs.run-agent-claude-code.result }}",
-      );
+      ).toContain(expectedOutcome);
     }
+  });
+});
+
+describe('workflowTemplates — review ci-gate emit-audit ci-red wiring', () => {
+  // The review template's deterministic ci-gate can request changes on red CI
+  // without the cc agent running; emit-audit must still fire for that ci-red case.
+  it('ferry-review.yml emit-audit surfaces the ci-gate ci-red outcome', () => {
+    const review = workflowTemplates('v1').find((t) => t.filename === 'ferry-review.yml');
+    expect(review, 'ferry-review.yml not found').toBeDefined();
+    expect(review!.content).toContain('needs: [run-agent, run-agent-claude-code, ci-gate]');
+    expect(review!.content).toContain("needs.ci-gate.outputs.outcome == 'ci-red'");
   });
 });
 

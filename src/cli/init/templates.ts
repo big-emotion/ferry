@@ -172,10 +172,10 @@ jobs:
             - Refiner is the one agent that always transitions its ticket. Other Ferry agents rarely transition.
             - Keep the comment concise and in English (or match the ticket's language for the summary if it is clearly French).
           claude_args: >-
-            --mcp-config '{"mcpServers":{"jira":{"command":"npx","args":["-y","-p","@big-emotion/ferry","ferry-jira-mcp"],"env":{"FERRY_JIRA_BASE_URL":"\${{ secrets.FERRY_JIRA_BASE_URL }}","FERRY_JIRA_EMAIL":"\${{ secrets.FERRY_JIRA_EMAIL }}","FERRY_JIRA_API_TOKEN":"\${{ secrets.FERRY_JIRA_API_TOKEN }}"}}}}'
+            --mcp-config '{"mcpServers":{"jira":{"command":"npx","args":["-y","-p","@big-emotion/ferry@${version}","ferry-jira-mcp"],"env":{"FERRY_JIRA_BASE_URL":"\${{ secrets.FERRY_JIRA_BASE_URL }}","FERRY_JIRA_EMAIL":"\${{ secrets.FERRY_JIRA_EMAIL }}","FERRY_JIRA_API_TOKEN":"\${{ secrets.FERRY_JIRA_API_TOKEN }}"}}}}'
             --permission-mode acceptEdits
             --disallowedTools 'Bash(gh pr merge),Bash(gh pr merge:*),Bash(gh pr close:*)'
-            --model claude-sonnet-4-6
+            --model \${{ vars.FERRY_REFINER_MODEL || 'claude-sonnet-4-6' }}
 
   emit-audit:
     name: Emit audit line
@@ -362,10 +362,10 @@ jobs:
             - Do not modify \`.github/\`, \`.ferry/\`, or lockfiles. Never write secrets into any file.
             - If a true blocker prevents progress (contradictory spec, missing access), do not transition — post one \`[ferry:developer:\${{ github.event.client_payload.event_id }}]\` comment explaining the blocker so a human can intervene.
           claude_args: >-
-            --mcp-config '{"mcpServers":{"jira":{"command":"npx","args":["-y","-p","@big-emotion/ferry","ferry-jira-mcp"],"env":{"FERRY_JIRA_BASE_URL":"\${{ secrets.FERRY_JIRA_BASE_URL }}","FERRY_JIRA_EMAIL":"\${{ secrets.FERRY_JIRA_EMAIL }}","FERRY_JIRA_API_TOKEN":"\${{ secrets.FERRY_JIRA_API_TOKEN }}"}}}}'
+            --mcp-config '{"mcpServers":{"jira":{"command":"npx","args":["-y","-p","@big-emotion/ferry@${version}","ferry-jira-mcp"],"env":{"FERRY_JIRA_BASE_URL":"\${{ secrets.FERRY_JIRA_BASE_URL }}","FERRY_JIRA_EMAIL":"\${{ secrets.FERRY_JIRA_EMAIL }}","FERRY_JIRA_API_TOKEN":"\${{ secrets.FERRY_JIRA_API_TOKEN }}"}}}}'
             --permission-mode acceptEdits
             --disallowedTools 'Bash(gh pr merge),Bash(gh pr merge:*),Bash(gh pr close:*)'
-            --model claude-sonnet-4-6
+            --model \${{ vars.FERRY_DEV_MODEL || 'claude-sonnet-4-6' }}
 
   emit-audit:
     name: Emit audit line
@@ -586,15 +586,15 @@ jobs:
             - **Idempotency is your responsibility** — if a \`[ferry:reviewer:*]\` review for this run already exists, do not post a duplicate; post exactly one fingerprinted comment.
             - Keep the review concise and in English.
           claude_args: >-
-            --mcp-config '{"mcpServers":{"jira":{"command":"npx","args":["-y","-p","@big-emotion/ferry","ferry-jira-mcp"],"env":{"FERRY_JIRA_BASE_URL":"\${{ secrets.FERRY_JIRA_BASE_URL }}","FERRY_JIRA_EMAIL":"\${{ secrets.FERRY_JIRA_EMAIL }}","FERRY_JIRA_API_TOKEN":"\${{ secrets.FERRY_JIRA_API_TOKEN }}"}}}}'
+            --mcp-config '{"mcpServers":{"jira":{"command":"npx","args":["-y","-p","@big-emotion/ferry@${version}","ferry-jira-mcp"],"env":{"FERRY_JIRA_BASE_URL":"\${{ secrets.FERRY_JIRA_BASE_URL }}","FERRY_JIRA_EMAIL":"\${{ secrets.FERRY_JIRA_EMAIL }}","FERRY_JIRA_API_TOKEN":"\${{ secrets.FERRY_JIRA_API_TOKEN }}"}}}}'
             --permission-mode acceptEdits
             --disallowedTools 'Bash(gh pr merge),Bash(gh pr merge:*),Bash(gh pr close:*)'
-            --model claude-sonnet-4-6
+            --model \${{ vars.FERRY_REVIEW_MODEL || 'claude-sonnet-4-6' }}
 
   emit-audit:
     name: Emit audit line
-    needs: [run-agent, run-agent-claude-code]
-    if: always() && (needs.run-agent.result != 'skipped' || needs.run-agent-claude-code.result != 'skipped')
+    needs: [run-agent, run-agent-claude-code, ci-gate]
+    if: always() && (needs.run-agent.result != 'skipped' || needs.run-agent-claude-code.result != 'skipped' || (needs.ci-gate.result != 'skipped' && needs.ci-gate.outputs.outcome == 'ci-red'))
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -609,7 +609,7 @@ jobs:
           phase: review
           run_id: \${{ github.event.client_payload.event_id }}
           model: \${{ needs.run-agent.outputs.model || 'claude-sonnet-4-6' }}
-          outcome: \${{ needs.run-agent.result != 'skipped' && needs.run-agent.result || needs.run-agent-claude-code.result }}
+          outcome: \${{ (needs.run-agent.result != 'skipped' && needs.run-agent.result) || (needs.run-agent-claude-code.result != 'skipped' && needs.run-agent-claude-code.result) || (needs.ci-gate.outputs.outcome == 'ci-red' && 'ci-red') || needs.run-agent-claude-code.result }}
           # claude-code path does cost tracking best-effort by design — it emits no token/cost outputs.
           input_tokens: \${{ needs.run-agent.outputs.input_tokens || '0' }}
           output_tokens: \${{ needs.run-agent.outputs.output_tokens || '0' }}
@@ -781,10 +781,10 @@ jobs:
             - Do not modify \`.github/\`, \`.ferry/\`, or lockfiles. Never write secrets into any file.
             - If a finding is genuinely not actionable (contradictory, missing access), do not transition — post one \`[ferry:iterator:\${{ github.event.client_payload.event_id }}]\` comment explaining why so a human can intervene.
           claude_args: >-
-            --mcp-config '{"mcpServers":{"jira":{"command":"npx","args":["-y","-p","@big-emotion/ferry","ferry-jira-mcp"],"env":{"FERRY_JIRA_BASE_URL":"\${{ secrets.FERRY_JIRA_BASE_URL }}","FERRY_JIRA_EMAIL":"\${{ secrets.FERRY_JIRA_EMAIL }}","FERRY_JIRA_API_TOKEN":"\${{ secrets.FERRY_JIRA_API_TOKEN }}"}}}}'
+            --mcp-config '{"mcpServers":{"jira":{"command":"npx","args":["-y","-p","@big-emotion/ferry@${version}","ferry-jira-mcp"],"env":{"FERRY_JIRA_BASE_URL":"\${{ secrets.FERRY_JIRA_BASE_URL }}","FERRY_JIRA_EMAIL":"\${{ secrets.FERRY_JIRA_EMAIL }}","FERRY_JIRA_API_TOKEN":"\${{ secrets.FERRY_JIRA_API_TOKEN }}"}}}}'
             --permission-mode acceptEdits
             --disallowedTools 'Bash(gh pr merge),Bash(gh pr merge:*),Bash(gh pr close:*)'
-            --model claude-sonnet-4-6
+            --model \${{ vars.FERRY_ITER_MODEL || 'claude-sonnet-4-6' }}
 
   emit-audit:
     name: Emit audit line
