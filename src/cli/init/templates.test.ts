@@ -156,9 +156,17 @@ describe('workflowTemplates — claude-code path single-step shape', () => {
   it('claude_args wires the ferry-jira-mcp MCP server', () => {
     for (const tmpl of workflowTemplates('v1')) {
       expect(tmpl.content, `${tmpl.filename}: missing ferry-jira-mcp`).toContain('ferry-jira-mcp');
+      // bypassPermissions is required: in a non-interactive (SDK) run, acceptEdits
+      // only auto-approves file edits — every Jira MCP tool call (and Bash/git/gh)
+      // is otherwise denied with no human to grant permission. The
+      // --disallowedTools list still blocks the dangerous `gh pr merge/close`.
       expect(tmpl.content, `${tmpl.filename}: missing --permission-mode`).toContain(
-        '--permission-mode acceptEdits',
+        '--permission-mode bypassPermissions',
       );
+      expect(
+        tmpl.content,
+        `${tmpl.filename}: acceptEdits would deny Jira MCP tool calls in non-interactive runs`,
+      ).not.toContain('--permission-mode acceptEdits');
     }
   });
 
