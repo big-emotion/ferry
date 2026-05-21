@@ -5,7 +5,7 @@
  * input (envelope + Jira issue + role-specific upstream state), the composite
  * emits byte-stable outputs that downstream `claude-code-action@v1` consumes:
  *
- *   prompt | claude_args (JSON array) | allowed_native_tools (JSON array) |
+ *   prompt | claude_args (shell-quoted string) | allowed_native_tools (JSON array) |
  *   output_artifact_path | mcp_config (JSON) | idempotency_marker
  *
  * Two structural invariants from ADR-0006 §6 are also exercised at this layer:
@@ -230,11 +230,13 @@ describe('prepareCcJob — per-role outputs are stable and structurally correct'
     expect(out.prompt).toContain(CC_OUTPUT_ARTIFACT_PATH);
     // idempotency falls back to event_id when no prior branch SHA exists
     expect(out.idempotencyMarker).toBe('[ferry:dev:evt-fixed-001]');
-    // claude_args carries the role's --append-system-prompt + --allowedTools
+    // claude_args carries flags only — the system prompt is folded into the
+    // prompt: input (#354), never claude_args.
     const args = out.claudeArgs;
-    expect(args).toContain('--append-system-prompt');
-    expect(args[args.indexOf('--append-system-prompt') + 1]).toBe('SYSTEM(dev, parts=0)');
+    expect(args).not.toContain('--append-system-prompt');
     expect(args).toContain('--allowedTools');
+    // the stubbed system prompt now leads the prompt: input
+    expect(out.prompt.startsWith('SYSTEM(dev, parts=0)')).toBe(true);
   });
 
   it('reviewer: emits read-only native tools + reviewer initial prompt + sha7 marker', async () => {
@@ -746,5 +748,66 @@ describe('runCcPrepareAction — pr_number output (#350)', () => {
 
     const written = readFileSync(outputFile, 'utf8');
     expect(written).toMatch(/^pr_number=$/m);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// 9. runCcPrepareAction — claude_args is a shell-quoted string, not JSON (#354)
+// ──────────────────────────────────────────────────────────────────────────
+
+describe('runCcPrepareAction — claude_args $GITHUB_OUTPUT format (#354)', () => {
+  let originalCwd: string;
+  let tmp: { cwd: string; outputFile: string; cleanup: () => void };
+
+  beforeEach(() => {
+    originalCwd = process.cwd();
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    if (tmp) tmp.cleanup();
+  });
+
+  it('writes claude_args as a shell-quoted argument string, not a JSON array', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ferry-cc-prepare-test-'));
+    writeFileSync(join(cwd, 'ferry.config.yaml'), '', 'utf8');
+    const outputFile = join(cwd, 'gh-output');
+    writeFileSync(outputFile, '', 'utf8');
+    tmp = { cwd, outputFile, cleanup: () => rmSync(cwd, { recursive: true, force: true }) };
+    process.chdir(cwd);
+
+    const env: Record<string, string> = {
+      FERRY_ENVELOPE_PAYLOAD: JSON.stringify(envelope),
+      FERRY_AGENT_ROLE: 'refiner',
+      FERRY_JIRA_BASE_URL: 'https://acme.atlassian.net',
+      FERRY_JIRA_EMAIL: 'bot@acme.com',
+      FERRY_JIRA_API_TOKEN: 'token',
+      GITHUB_REPO: 'big-emotion/ferry',
+      GITHUB_OUTPUT: outputFile,
+      CLAUDE_CODE_OAUTH_TOKEN: 'oat-test-stub',
+      FERRY_PROMPTS_DIR: join(originalCwd, 'prompts'),
+    };
+    for (const [k, v] of Object.entries(env)) {
+      vi.stubEnv(k, v);
+    }
+    vi.spyOn(JiraTracker.prototype, 'getIssue').mockResolvedValue(issue);
+
+    await runCcPrepareAction();
+
+    const written = readFileSync(outputFile, 'utf8');
+    const line = written.split('\n').find((l) => l.startsWith('claude_args='));
+    expect(line).toBeDefined();
+    const value = line!.slice('claude_args='.length);
+    // Regression for #354: a JSON array is mis-tokenized by claude-code-action's
+    // shell-quote splitter, so every flag is silently dropped.
+    expect(value.startsWith('[')).toBe(false);
+    expect(value.startsWith('--allowedTools ')).toBe(true);
+    // Parenthesised tool rules must be single-quoted to survive shell splitting.
+    expect(value).toContain("--disallowedTools 'Bash(gh pr merge)");
+    // Single physical line — multi-line values hit the action's `#`-line stripping.
+    expect(value).not.toContain('\n');
   });
 });

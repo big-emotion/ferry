@@ -14,13 +14,18 @@ describe('auth invariant (ADR-0006 §6 / decisions/0002 hard constraint)', () =>
 });
 
 describe('buildClaudeCodeJob', () => {
-  it('uses the initial prompt verbatim and appends only the transport suffix', () => {
+  it('folds the system prompt before the verbatim initial prompt + transport suffix', () => {
+    const system = '# Developer\n\nDo the thing.';
     const initialPrompt = '<<<UNTRUSTED>>>\nTICKET: ABC-1\n<<<END>>>\nSUBTASKS: (none)';
-    const job = buildClaudeCodeJob({ role: 'developer', system: 's', initialPrompt });
-    expect(job.prompt.startsWith(initialPrompt)).toBe(true);
+    const job = buildClaudeCodeJob({ role: 'developer', system, initialPrompt });
+    // The system prompt moved out of claude_args (#354) — it now leads the prompt.
+    expect(job.prompt.startsWith(system)).toBe(true);
+    // The initial prompt appears verbatim and contiguous, after the system prompt.
+    const at = job.prompt.indexOf(initialPrompt);
+    expect(at).toBeGreaterThan(system.length);
+    expect(job.prompt.slice(at).startsWith(initialPrompt)).toBe(true);
+    // The transport suffix is still appended after the initial prompt.
     expect(job.prompt).toContain(CC_OUTPUT_ARTIFACT_PATH);
-    // verbatim: removing the suffix recovers the original initial prompt exactly
-    expect(job.prompt.slice(0, initialPrompt.length)).toBe(initialPrompt);
   });
 
   it('exposes the artifact path and a role-bound fail-closed parser', () => {
@@ -41,7 +46,7 @@ describe('buildClaudeCodeJob', () => {
     });
   });
 
-  it('threads role/system/mcp/maxTurns/model into claude_args', () => {
+  it('threads role/mcp/maxTurns/model into claude_args; system goes to the prompt', () => {
     const servers: McpServerConfig[] = [{ type: 'stdio', name: 'jira', command: 'run' }];
     const job = buildClaudeCodeJob({
       role: 'developer',
@@ -51,8 +56,9 @@ describe('buildClaudeCodeJob', () => {
       maxTurns: 25,
       model: 'claude-opus-4-7',
     });
-    expect(job.claudeArgs).toContain('--append-system-prompt');
-    expect(job.claudeArgs[job.claudeArgs.indexOf('--append-system-prompt') + 1]).toBe('SYS');
+    // The system prompt is delivered via the prompt: input, never claude_args (#354).
+    expect(job.claudeArgs).not.toContain('--append-system-prompt');
+    expect(job.prompt.startsWith('SYS')).toBe(true);
     expect(job.claudeArgs).toContain('--mcp-config');
     expect(job.claudeArgs[job.claudeArgs.indexOf('--max-turns') + 1]).toBe('25');
     expect(job.claudeArgs[job.claudeArgs.indexOf('--model') + 1]).toBe('claude-opus-4-7');

@@ -20,8 +20,8 @@
  *      Tests assert this end-to-end.
  *
  * Outputs (written to `$GITHUB_OUTPUT`, all JSON-encoded except scalars):
- *   - `prompt`                 → action `prompt:` input (verbatim + transport suffix)
- *   - `claude_args`            → JSON array of CLI tokens for `claude_args:`
+ *   - `prompt`                 → action `prompt:` input (system + initial prompt + suffix)
+ *   - `claude_args`            → shell-quoted CLI argument string for `claude_args:`
  *   - `allowed_native_tools`   → JSON array of role-permitted native tool names
  *   - `output_artifact_path`   → fixed `.ferry/cc-output.json`
  *   - `mcp_config`             → JSON-encoded `{ mcpServers: {...} }` for `--mcp-config`
@@ -91,6 +91,7 @@ import {
   CLAUDE_CODE_AUTH_INPUT,
   FORBIDDEN_AUTH_INPUT,
 } from '../claude-code/job.js';
+import { serializeClaudeArgs } from '../claude-code/claude-args.js';
 import { toClaudeCodeMcpConfig, type ClaudeCodeMcpConfig } from '../claude-code/mcp-config.js';
 import {
   CLAUDE_CODE_JOB_PERMISSIONS,
@@ -795,7 +796,10 @@ export async function runCcPrepareAction(): Promise<CcPrepareOutputs> {
   // Write outputs. Multi-line values use the heredoc form so embedded newlines
   // survive in `$GITHUB_OUTPUT`. JSON-encoded values stay single-line.
   writeOutput('prompt', outputs.prompt);
-  writeOutput('claude_args', JSON.stringify(outputs.claudeArgs));
+  // claude_args MUST be a shell-quoted argument string, not a JSON array:
+  // claude-code-action word-splits it with `shell-quote`, so a JSON array is
+  // mis-tokenized and every flag is silently dropped (#354).
+  writeOutput('claude_args', serializeClaudeArgs(outputs.claudeArgs));
   writeOutput('allowed_native_tools', JSON.stringify(outputs.allowedNativeTools));
   writeOutput('output_artifact_path', outputs.outputArtifactPath);
   writeOutput('mcp_config', JSON.stringify(outputs.mcpConfig));

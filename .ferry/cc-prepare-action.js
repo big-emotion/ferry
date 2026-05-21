@@ -6826,8 +6826,6 @@ function buildClaudeArgs(input) {
   const disallowedTools = [...NO_AUTO_MERGE_DENY];
   assertToolPolicyEnforcesNoAutoMerge({ allowedTools, disallowedTools });
   const args = [
-    "--append-system-prompt",
-    input.system,
     "--allowedTools",
     allowedTools.join(","),
     "--disallowedTools",
@@ -6847,19 +6845,28 @@ function buildClaudeArgs(input) {
   }
   return args;
 }
+var SHELL_SAFE_TOKEN = /^[A-Za-z0-9_,.:=/@+-]+$/;
+function serializeClaudeArgs(tokens) {
+  return tokens.map((token) => {
+    if (token.includes("\n")) {
+      throw new Error(`claude_args token must not contain a newline: ${JSON.stringify(token)}`);
+    }
+    return token.length > 0 && SHELL_SAFE_TOKEN.test(token) ? token : `'${token.replace(/'/g, "'\\''")}'`;
+  }).join(" ");
+}
 
 // src/lib/claude-code/job.ts
 var CLAUDE_CODE_AUTH_INPUT = "claude_code_oauth_token";
 var FORBIDDEN_AUTH_INPUT = "anthropic_api_key";
+var SYSTEM_PROMPT_SEPARATOR = "\n\n---\n\n";
 function buildClaudeCodeJob(input) {
   const allowedNativeTools = nativeToolsForRole(input.role);
   return {
     role: input.role,
     access: ROLE_ACCESS[input.role],
-    prompt: input.initialPrompt + outcomePromptSuffix(input.role),
+    prompt: input.system + SYSTEM_PROMPT_SEPARATOR + input.initialPrompt + outcomePromptSuffix(input.role),
     claudeArgs: buildClaudeArgs({
       role: input.role,
-      system: input.system,
       mcpServers: input.mcpServers,
       maxTurns: input.maxTurns,
       model: input.model
@@ -7403,7 +7410,7 @@ async function runCcPrepareAction() {
     }
   }
   writeOutput("prompt", outputs.prompt);
-  writeOutput("claude_args", JSON.stringify(outputs.claudeArgs));
+  writeOutput("claude_args", serializeClaudeArgs(outputs.claudeArgs));
   writeOutput("allowed_native_tools", JSON.stringify(outputs.allowedNativeTools));
   writeOutput("output_artifact_path", outputs.outputArtifactPath);
   writeOutput("mcp_config", JSON.stringify(outputs.mcpConfig));
