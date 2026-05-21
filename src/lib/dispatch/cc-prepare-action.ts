@@ -41,7 +41,8 @@
  *   ANTHROPIC_API_KEY           NOT permitted alongside CLAUDE_CODE_OAUTH_TOKEN
  *   CLAUDE_CODE_OAUTH_TOKEN     forwarded by the composite, never logged
  */
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 
@@ -514,6 +515,14 @@ export async function runCcPrepareAction(): Promise<CcPrepareOutputs> {
   const role = parseRole(process.env.FERRY_AGENT_ROLE);
 
   const repoRoot = process.cwd();
+
+  // Create the `.ferry/` directory deterministically, before `claude-code-action`
+  // runs. The LLM writes its result to `.ferry/cc-output.json`; a read-only role
+  // (refiner/reviewer) has no `Bash` tool, so it cannot `mkdir` the parent itself.
+  // cc-prepare runs in the same job/workspace immediately before the action, so
+  // the directory persists for the `Write(.ferry/cc-output.json)` grant.
+  mkdirSync(join(repoRoot, '.ferry'), { recursive: true });
+
   const ferryCfg = loadFerryConfig(repoRoot);
   enforceProviderGate(ferryCfg);
 

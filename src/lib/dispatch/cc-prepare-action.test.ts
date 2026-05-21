@@ -18,7 +18,7 @@
  *            `path == 'claude-code'`, cc-prepare refuses to run).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -510,6 +510,23 @@ describe('runCcPrepareAction — non-refiner roles are wired into the entrypoint
     // resolves to the test fixture without network IO.
     vi.spyOn(JiraTracker.prototype, 'getIssue').mockResolvedValue(issue);
   }
+
+  it('creates the .ferry/ directory so the agent can write cc-output.json', async () => {
+    // A read-only role has no Bash tool — cc-prepare must create `.ferry/`
+    // deterministically before claude-code-action runs.
+    tmp = withTempRepo('');
+    process.chdir(tmp.cwd);
+    vi.stubEnv('GITHUB_TOKEN', '');
+    for (const [k, v] of Object.entries(
+      baseEnv({ GITHUB_OUTPUT: tmp.outputFile, FERRY_AGENT_ROLE: 'developer', GITHUB_TOKEN: '' }),
+    )) {
+      vi.stubEnv(k, v);
+    }
+    stubJiraGetIssue();
+    // The run throws later (no GITHUB_TOKEN) — but the mkdir runs first.
+    await runCcPrepareAction().catch(() => undefined);
+    expect(existsSync(join(tmp.cwd, '.ferry'))).toBe(true);
+  });
 
   for (const role of ['developer', 'reviewer', 'iterator'] as const) {
     it(`role=${role}: dispatches into the role branch (no #333 refusal)`, async () => {

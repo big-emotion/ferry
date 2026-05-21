@@ -223,8 +223,12 @@ const DEV_ITER_SHAPE =
 const REVIEWER_SHAPE = '{ "approved": boolean, "comment": string }';
 
 const REFINER_SHAPE =
-  '{ "actions": [...], "touch_paths": string[], "output_locale": "en" | "fr", ' +
-  '"audit_summary": string }';
+  '{ "actions": [ ' +
+  '{ "type": "create", "title": string, "description": string } | ' +
+  '{ "type": "keep", "existing_key": string, "reason": string } | ' +
+  '{ "type": "mark_stale", "existing_key": string, "reason": string } | ' +
+  '{ "type": "noop", "reason": string } ' +
+  '], "touch_paths": string[], "output_locale": "en" | "fr", "audit_summary": string }';
 
 /**
  * The transport instruction appended to the (verbatim) initial prompt by the
@@ -241,7 +245,26 @@ export function outcomePromptSuffix(role: FerryRole): string {
     return `${header} Shape: ${REVIEWER_SHAPE}`;
   }
   if (role === 'refiner') {
-    return `${header} Shape: ${REFINER_SHAPE} (same as the bundled refiner JSON contract).`;
+    // The refiner system prompt (`prompts/refiner.md`) says "Reply with JSON
+    // only. No prose before or after." twice — written for the script path,
+    // where structured-output enforcement makes that instruction safe. On the
+    // claude-code path there is no such enforcement: obeyed literally, the model
+    // prints the JSON to chat and never calls `Write`, so the artifact is never
+    // produced. This suffix therefore explicitly OVERRIDES that instruction.
+    return (
+      `\n\n---\nFINAL OUTPUT (claude-code path) — OVERRIDE.\n` +
+      `Ignore any earlier instruction to "reply with JSON only" or to emit "no ` +
+      `prose": those describe the script path. On THIS path there is no \`done\` ` +
+      `tool and your chat reply is discarded. You MUST use the \`Write\` tool to ` +
+      `create the file \`${CC_OUTPUT_ARTIFACT_PATH}\` as your LAST action — do not ` +
+      `print the JSON to the chat. A run that ends without that file is a failure.\n` +
+      `First explore the repository with the \`Read\`, \`Glob\` and \`Grep\` tools ` +
+      `so the sub-task descriptions reference real file paths. Then write a single ` +
+      `JSON object matching this exact schema (the bundled refiner contract): ` +
+      `${REFINER_SHAPE}. Each action is one of: \`create\` a new sub-task, \`keep\` ` +
+      `an existing one unchanged, \`mark_stale\` a superseded one, or \`noop\` when ` +
+      `nothing has changed.`
+    );
   }
   // developer / iterator
   const access = ROLE_ACCESS[role]; // referenced so the read-write contract is explicit

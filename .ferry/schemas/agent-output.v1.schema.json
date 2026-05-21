@@ -46,21 +46,6 @@
         "review_comment": { "type": "string", "minLength": 1, "maxLength": 65536 },
         "summary": { "type": "string", "minLength": 1, "maxLength": 2000 }
       }
-    },
-    {
-      "type": "object",
-      "required": ["version", "role", "result", "summary"],
-      "additionalProperties": false,
-      "properties": {
-        "version": { "const": "v1" },
-        "role": { "const": "refiner" },
-        "result": { "enum": ["refined", "noop"] },
-        "summary": { "type": "string", "minLength": 1, "maxLength": 2000 },
-        "created": { "type": "integer", "minimum": 0 },
-        "kept": { "type": "integer", "minimum": 0 },
-        "staled": { "type": "integer", "minimum": 0 },
-        "noop_reason": { "type": "string", "minLength": 1, "maxLength": 2000 }
-      }
     }
   ]
 }

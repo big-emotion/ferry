@@ -40,10 +40,6 @@ inputs:
     description: PR number for the current cycle (required for reviewer and iterator roles)
     required: false
     default: ''
-  ferry_subtask_count:
-    description: Sub-task count for the refiner noop message
-    required: false
-    default: '0'
   github_token:
     description: GitHub token (reserved for future use and consistency with ferry-run-* actions)
     required: false
@@ -94,7 +90,6 @@ runs:
         FERRY_ITER_TRANSITION_ID: ${{ inputs.ferry_iter_transition_id }}
         FERRY_APPROVE_TRANSITION_ID: ${{ inputs.ferry_approve_transition_id }}
         FERRY_PR_NUMBER: ${{ inputs.ferry_pr_number }}
-        FERRY_SUBTASK_COUNT: ${{ inputs.ferry_subtask_count }}
         GITHUB_TOKEN: ${{ inputs.github_token }}
         GH_TOKEN: ${{ inputs.github_token }}
         GITHUB_REPO: ${{ inputs.github_repo }}
