@@ -835,6 +835,28 @@ The bundled loop runs an in-loop `makeSecretScan` callback before pushing. The a
 
 ---
 
+## Session log artifact (claude-code path)
+
+Every `claude-code-action` run on all four cc-path roles (refiner, developer, reviewer, iterator) uploads a session log artifact via `actions/upload-artifact@v7.0.1`.
+
+**Naming convention:** `ferry-<role>-<ticket>-session`
+
+Example: a Developer run for ticket `FOO-123` produces an artifact named `ferry-developer-FOO-123-session`.
+
+**Retention:** 7 days (matching the `retention-days: 7` setting in the consumer workflow stubs).
+
+**When it is uploaded:** the upload step runs with `if: always()` — it executes even when the `claude-code-action` step itself fails. The artifact is only skipped if `steps.cc-run.outputs.execution_file` is empty (i.e. the action did not start at all).
+
+**Secret-exposure risk:** the session JSON contains the full prompt sent to Claude Code, response excerpts, repository file paths, and ambient environment variable names visible to the runner. Treat this artifact as sensitive — do not share it publicly or store it beyond the retention window. Download with:
+
+```bash
+gh run download <run-id> --name ferry-developer-FOO-123-session
+```
+
+Or navigate to the workflow run in the GitHub Actions UI under **Artifacts**.
+
+---
+
 ## GitLab (experimental)
 
 > **Experimental** — see [#210](https://github.com/big-emotion/ferry/issues/210). Same artifact may break across minor versions until promoted.
