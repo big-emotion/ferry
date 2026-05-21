@@ -215,7 +215,7 @@ jobs:
             --mcp-config '{"mcpServers":{"jira":{"command":"npx","args":["-y","-p","@big-emotion/ferry@v0.14.0","ferry-jira-mcp"],"env":{"FERRY_JIRA_BASE_URL":"${{ secrets.FERRY_JIRA_BASE_URL }}","FERRY_JIRA_EMAIL":"${{ secrets.FERRY_JIRA_EMAIL }}","FERRY_JIRA_API_TOKEN":"${{ secrets.FERRY_JIRA_API_TOKEN }}"}}}}'
             --permission-mode acceptEdits
             --disallowedTools 'Bash(gh pr merge),Bash(gh pr merge:*),Bash(gh pr close:*)'
-            --model claude-sonnet-4-6
+            --model ${{ vars.FERRY_REVIEW_MODEL || 'claude-sonnet-4-6' }}
 
   emit-audit:
     name: Emit audit line

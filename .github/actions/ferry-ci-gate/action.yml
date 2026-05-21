@@ -114,13 +114,19 @@ runs:
 
         # Transition the Jira ticket into the Changes Requested column (FR24).
         if [ -n "${FERRY_ITER_TRANSITION_ID}" ]; then
-          curl -sS -f -X POST \
+          if curl -sS -f -X POST \
             -u "${FERRY_JIRA_EMAIL}:${FERRY_JIRA_API_TOKEN}" \
             -H 'Content-Type: application/json' \
             --data "{\"transition\":{\"id\":\"${FERRY_ITER_TRANSITION_ID}\"}}" \
-            "${FERRY_JIRA_BASE_URL%/}/rest/api/3/issue/${FERRY_TICKET_KEY}/transitions" \
-            && echo "ferry-ci-gate: transitioned ${FERRY_TICKET_KEY} (FR24 changes)." \
-            || echo "ferry-ci-gate: Jira transition failed (non-fatal)."
+            "${FERRY_JIRA_BASE_URL%/}/rest/api/3/issue/${FERRY_TICKET_KEY}/transitions"; then
+            echo "ferry-ci-gate: transitioned ${FERRY_TICKET_KEY} (FR24 changes)."
+          else
+            # Keep this non-fatal, but make the failure visible: a workflow
+            # warning annotation plus a line in the job summary so the
+            # un-transitioned ticket is not silently swallowed.
+            echo "::warning::ferry-ci-gate: Jira transition for ${FERRY_TICKET_KEY} failed — ticket may be left un-transitioned"
+            echo "⚠️ ferry-ci-gate: Jira transition for ${FERRY_TICKET_KEY} failed (FR24 changes) — ticket may be left un-transitioned; transition it manually." >> "${GITHUB_STEP_SUMMARY}"
+          fi
         else
           echo "ferry-ci-gate: no FERRY_ITER_TRANSITION_ID — skipping Jira transition."
         fi
