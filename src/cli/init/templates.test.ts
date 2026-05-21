@@ -173,10 +173,10 @@ describe('workflowTemplates — claude-code path single-step shape', () => {
   it('claude_args --mcp-config pins the ferry-jira-mcp package to the templated version', () => {
     // ferry-init/ferry-update must template the version so the MCP server the
     // agent launches matches the workflow's pinned Ferry release.
-    for (const tmpl of workflowTemplates('v0.15.0')) {
+    for (const tmpl of workflowTemplates('v0.15.1')) {
       expect(tmpl.content, `${tmpl.filename}: --mcp-config missing`).toContain('--mcp-config');
       expect(tmpl.content, `${tmpl.filename}: ferry-jira-mcp package not version-pinned`).toContain(
-        '"@big-emotion/ferry@v0.15.0"',
+        '"@big-emotion/ferry@v0.15.1"',
       );
       expect(tmpl.content, `${tmpl.filename}: ferry-jira-mcp package left unpinned`).not.toContain(
         '"@big-emotion/ferry"',

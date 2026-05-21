@@ -11,6 +11,18 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.15.1] — 2026-05-21
+
+### Fixed
+
+- **Claude Code agent workflows are now scaffolded with `--permission-mode bypassPermissions`** (PR #362) — `ferry-init` previously scaffolded the four claude-code agent workflows with `--permission-mode acceptEdits`, which only auto-approves file edits. In a non-interactive (SDK) run there is no human to grant permission, so every Jira MCP tool call (and `Bash` / `git` / `gh`) was denied — the agent finished with permission denials and did no work (e.g. a refine run ended with 4 denials: no sub-tasks created, no transition). The `--disallowedTools` list still blocks `gh pr merge` / `gh pr close`, so Ferry's never-merge guardrail is preserved. `templates.test.ts` now asserts `bypassPermissions` and rejects a regression to `acceptEdits`.
+
+### Security
+
+- **Patched transitive dependencies** — bumped `brace-expansion`, `fast-uri`, `protobufjs`, and `ws` to their patched versions.
+
+---
+
 ## [0.15.0] — 2026-05-21
 
 ### Added
@@ -457,7 +469,8 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
-[Unreleased]: https://github.com/big-emotion/ferry/compare/v0.15.0...HEAD
+[Unreleased]: https://github.com/big-emotion/ferry/compare/v0.15.1...HEAD
+[0.15.1]: https://github.com/big-emotion/ferry/releases/tag/v0.15.1
 [0.15.0]: https://github.com/big-emotion/ferry/releases/tag/v0.15.0
 [0.14.0]: https://github.com/big-emotion/ferry/releases/tag/v0.14.0
 [0.13.2]: https://github.com/big-emotion/ferry/releases/tag/v0.13.2
