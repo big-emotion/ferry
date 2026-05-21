@@ -11,6 +11,18 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.14.0] — 2026-05-21
+
+### Added
+
+- **Claude Code session logs are now uploaded as workflow artifacts** (closes #355, PR #359) — all four consumer workflow templates (refiner, developer, reviewer, iterator) now wrap the `Run claude-code-action` step with an observability bracket: the step gets `id: cc-run` so its `execution_file` output is referenceable, and the session JSON is uploaded as a `ferry-<role>-<ticket>-session` artifact with 7-day retention (`if: always()` so failed runs are captured too). `actions/upload-artifact` is pinned to a SHA matching the existing `ferry-ci.yml` pin. `docs/CONFIGURATION.md` gains a "Session log artifact" subsection covering the artifact name pattern, retention, secret-exposure risk, and `gh run download` usage.
+
+### Fixed
+
+- **claude-code-path refiner now creates Jira sub-tasks** (PR #360) — the claude-code execution path for the refiner was broken end-to-end: `claude-code-action` exited successfully without writing `.ferry/cc-output.json`, so `ferry-cc-apply` failed with `ENOENT`, and three refiner schemas disagreed so nothing created the sub-tasks. `outcomePromptSuffix('refiner')` now overrides the bundled "reply with JSON only" instruction and spells out the full `RefinerOutput` plan schema and the Write-tool contract; `ferry-cc-apply` gains `applyRefinerCcArtifact`, which validates the artifact and runs the same `applyActions` reconcile the script path uses (the LLM never writes to Jira); `ferry-cc-prepare` creates `.ferry/` deterministically so a read-only agent can write the artifact. The dead `RefinerAgentOutput` schema variant is removed.
+
+---
+
 ## [0.13.2] — 2026-05-21
 
 ### Fixed
@@ -426,7 +438,8 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
-[Unreleased]: https://github.com/big-emotion/ferry/compare/v0.13.2...HEAD
+[Unreleased]: https://github.com/big-emotion/ferry/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/big-emotion/ferry/releases/tag/v0.14.0
 [0.13.2]: https://github.com/big-emotion/ferry/releases/tag/v0.13.2
 [0.13.1]: https://github.com/big-emotion/ferry/releases/tag/v0.13.1
 [0.13.0]: https://github.com/big-emotion/ferry/releases/tag/v0.13.0
