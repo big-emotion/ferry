@@ -22,6 +22,7 @@ import {
   checkProviderGate,
   checkWorkflowShape,
 } from './checks/claude-code-path.js';
+import { checkClaudeCodePromptOverrides } from './checks/claude-code-prompts.js';
 import { renderTable } from './table.js';
 import { parseGitLabConfig, runGitLabDoctor } from './gitlab/index.js';
 import type { DoctorConfig } from './types.js';
@@ -163,6 +164,7 @@ Checks run in order:
   16. CC path: token exclusivity — ANTHROPIC_API_KEY must not be set alongside CLAUDE_CODE_OAUTH_TOKEN (ADR-0006 §6)
   17. CC path: provider gate — all four agent providers must be anthropic when execution_path = claude-code
   18. CC path: workflow shape — claude-code workflows use a direct claude-code-action call (no ferry-cc-prepare/apply)
+  19. CC path: prompt overrides — report consumer prompts/<agent>.claude-code.md overrides resolved by ferry-cc-prompt
 
 Exit code: 0 if all checks green/yellow, 1 if any check red.
 `);
@@ -227,6 +229,7 @@ Exit code: 0 if all checks green/yellow, 1 if any check red.
     }),
     checkProviderGate({ repoRoot: config.repoRoot }),
     checkWorkflowShape({ repoRoot: config.repoRoot }),
+    checkClaudeCodePromptOverrides({ repoRoot: config.repoRoot }),
   ]);
 
   process.stdout.write(renderTable(results));
