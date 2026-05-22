@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import * as path from 'node:path';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { resolveCcPrompt, substituteTokens, CC_PROMPT_TOKENS, CC_AGENTS } from './cc-prompt.js';
 
@@ -102,5 +105,16 @@ describe('CC_PROMPT_TOKENS', () => {
   it('declares the review transition token for dev and iterate', () => {
     expect(CC_PROMPT_TOKENS.dev).toContain('REVIEW_TRANSITION_ID');
     expect(CC_PROMPT_TOKENS.iterate).toContain('REVIEW_TRANSITION_ID');
+  });
+});
+
+describe('bundled prompt ↔ CC_PROMPT_TOKENS coupling', () => {
+  const PROMPTS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../../prompts');
+
+  it.each([...CC_AGENTS])('prompts/%s.claude-code.md contains all required tokens', (agent) => {
+    const text = readFileSync(path.join(PROMPTS_DIR, `${agent}.claude-code.md`), 'utf8');
+    for (const token of CC_PROMPT_TOKENS[agent]) {
+      expect(text, `${agent}.claude-code.md is missing token "${token}"`).toContain(token);
+    }
   });
 });
