@@ -144,9 +144,18 @@ describe('workflowTemplates — claude-code path single-step shape', () => {
     }
   });
 
-  it('claude-code-action receives an inlined prompt and claude_args', () => {
+  it('claude-code-action resolves its prompt via ferry-cc-prompt, never inlined', () => {
     for (const tmpl of workflowTemplates('v1')) {
-      expect(tmpl.content, `${tmpl.filename}: missing inlined prompt`).toContain('prompt: |');
+      expect(tmpl.content, `${tmpl.filename}: prompt must not be inlined`).not.toContain(
+        'prompt: |',
+      );
+      expect(tmpl.content, `${tmpl.filename}: missing ferry-cc-prompt resolve step`).toContain(
+        'ferry-cc-prompt',
+      );
+      expect(
+        tmpl.content,
+        `${tmpl.filename}: claude-code-action must read the resolved prompt`,
+      ).toContain('prompt: ${{ steps.prompt.outputs.prompt }}');
       expect(tmpl.content, `${tmpl.filename}: missing claude_args block`).toContain(
         'claude_args: >-',
       );

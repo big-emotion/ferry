@@ -13,7 +13,8 @@
     "ferry-cost-reconcile": "./dist/cli/cost/reconcile-cmd.js",
     "ferry-cost-advice": "./dist/cli/cost/advice-cmd.js",
     "ferry-cost-stats": "./dist/cli/cost/stats.js",
-    "ferry-jira-mcp": "./dist/cli/jira-mcp/index.js"
+    "ferry-jira-mcp": "./dist/cli/jira-mcp/index.js",
+    "ferry-cc-prompt": "./dist/cli/cc-prompt/index.js"
   },
   "files": [
     "dist/cli/",
@@ -54,6 +55,7 @@
     "ferry-cost-reconcile": "tsx src/cli/cost/reconcile-cmd.ts",
     "ferry-cost-advice": "tsx src/cli/cost/advice-cmd.ts",
     "ferry-cost-stats": "tsx src/cli/cost/stats-cmd.ts",
+    "ferry-cc-prompt": "tsx src/cli/cc-prompt/index.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",

@@ -8,6 +8,7 @@ mkdirSync('dist/cli/update', { recursive: true });
 mkdirSync('dist/cli/agent', { recursive: true });
 mkdirSync('dist/cli/cost', { recursive: true });
 mkdirSync('dist/cli/jira-mcp', { recursive: true });
+mkdirSync('dist/cli/cc-prompt', { recursive: true });
 
 const shared = {
   bundle: true,
@@ -79,6 +80,15 @@ await Promise.all([
     outfile: 'dist/cli/jira-mcp/index.js',
     external: ['@modelcontextprotocol/sdk'],
   }),
+  // ferry-cc-prompt resolves the claude-code-path prompt. The `text` loader
+  // inlines the four bundled `prompts/*.claude-code.md` defaults into the
+  // bundle — the npm package ships only `dist/cli/`, never `prompts/`.
+  build({
+    ...shared,
+    entryPoints: ['src/cli/cc-prompt/index.ts'],
+    outfile: 'dist/cli/cc-prompt/index.js',
+    loader: { '.md': 'text' },
+  }),
 ]);
 
 chmodSync('dist/cli/init/index.js', 0o755);
@@ -91,5 +101,6 @@ chmodSync('dist/cli/cost/reconcile-cmd.js', 0o755);
 chmodSync('dist/cli/cost/advice-cmd.js', 0o755);
 chmodSync('dist/cli/cost/stats.js', 0o755);
 chmodSync('dist/cli/jira-mcp/index.js', 0o755);
+chmodSync('dist/cli/cc-prompt/index.js', 0o755);
 
 console.log('Built dist/cli/ bundles.');

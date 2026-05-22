@@ -53,6 +53,13 @@ If there are no consumer-visible changes, omit the section (or note `(none — i
 
 ---
 
+## v0.15.x → v0.16.0
+
+- **(action)** **claude-code workflows now resolve the agent prompt via `ferry-cc-prompt`.** The `run-agent-claude-code` job no longer inlines the system prompt in the workflow YAML — a `Resolve agent prompt` step runs `npx -p @big-emotion/ferry@v0.16.0 ferry-cc-prompt` and `anthropics/claude-code-action` reads `prompt: ${{ steps.prompt.outputs.prompt }}`. Run `npx -p @big-emotion/ferry@v0.16.0 ferry-update`, or re-copy the four workflow stubs from `examples/consumer-setup/workflows/` by hand, to pick this up. **This migration is optional** — existing inline-prompt workflows keep working unchanged; update only to gain prompt overrides. Script-path consumers are unaffected.
+- **(info)** **New consumer prompt override: `prompts/<agent>.claude-code.md`.** Drop a `prompts/refiner.claude-code.md`, `prompts/dev.claude-code.md`, `prompts/review.claude-code.md`, or `prompts/iterate.claude-code.md` file in your repo to fully replace Ferry's bundled claude-code prompt for that agent. Unlike the script-path `.extra.md` mechanism (which appends), this override **replaces** the whole prompt — keep the `TICKET_KEY` / `RUN_ID` / `*_TRANSITION_ID` placeholder tokens so `ferry-cc-prompt` can substitute them. With no file, Ferry's bundled default is used and tracks new releases. See `docs/CONFIGURATION.md` → Prompt customization → claude-code path.
+
+---
+
 ## v0.14.x → v0.15.0
 
 - **(action)** **claude-code execution path simplified — re-copy your four agent workflow stubs.** The `run-agent-claude-code` job no longer runs the `ferry-cc-prepare → anthropics/claude-code-action → ferry-cc-apply` chain; it is now a single direct `anthropics/claude-code-action` call (`checkout` + that one step). The `ferry-cc-prepare` and `ferry-cc-apply` composite actions are deleted. Run `npx -p @big-emotion/ferry@v0.15.0 ferry-update` to pick up the new stubs, or copy the four files from `examples/consumer-setup/workflows/` by hand. Script-path consumers (`execution_path: script`, or any non-Anthropic provider) are unaffected.

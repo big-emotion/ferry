@@ -226,9 +226,13 @@ describe('workflowTemplates', () => {
     }
   });
 
-  it('claude-code path wires an inlined prompt and the ferry-jira-mcp MCP server', () => {
+  it('claude-code path resolves the prompt via ferry-cc-prompt and wires ferry-jira-mcp', () => {
     const dev = workflowTemplates('v1', 'claude-code').find((t) => t.filename === 'ferry-dev.yml');
-    expect(dev?.content).toContain('prompt: |');
+    // The prompt is resolved by ferry-cc-prompt — never inlined into the YAML.
+    expect(dev?.content).not.toContain('prompt: |');
+    expect(dev?.content).toContain('ferry-cc-prompt');
+    expect(dev?.content).toContain('--agent dev');
+    expect(dev?.content).toContain('prompt: ${{ steps.prompt.outputs.prompt }}');
     expect(dev?.content).toContain('claude_args: >-');
     expect(dev?.content).toContain('ferry-jira-mcp');
     // The model is interpolated from the per-agent variable, not hardcoded.

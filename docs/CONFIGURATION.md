@@ -725,6 +725,8 @@ bundled prompt (prompts/<agent>.md, shipped with Ferry)
   + prompts/_project.md          (optional project-wide context, appended last)
 ```
 
+> **This layered model is the bundled-script path.** On the **claude-code execution path** an agent runs as one direct `claude-code-action` call with no Ferry runtime to assemble layers — customisation there is a full-prompt override, see [claude-code path: prompt override](#claude-code-path-prompt-override) below.
+
 Both extension files live in **your consumer repository**, alongside `.github/workflows/ferry-*.yml`. They are loaded at the start of every agent run from `GITHUB_WORKSPACE`. Agent prompt names map to `dev`, `iterate`, `refiner`, and `review`.
 
 | File                       | Purpose                                                                                                                                                        | Size cap (default)                            |
@@ -743,6 +745,29 @@ Both extension files live in **your consumer repository**, alongside `.github/wo
 - Composition is deterministic: bundled prompt first, then the agent's `.extra.md` (under a `## Project-specific guidance for <agent>` heading), then `_project.md` (under a `## Project conventions` heading). Later content cannot remove earlier instructions; treat it as additive only.
 
 To verify which extension files Ferry picked up on a given run, search the agent's job log for `loaded <name>.extra.md` (channel `ferry:prompts`). Files that fell over the cap log `<name>.extra.md exceeds limit — truncating`.
+
+### claude-code path: prompt override
+
+On the claude-code execution path an agent is one direct `anthropics/claude-code-action` call — there is no Ferry runtime to assemble the layered prompt above. Instead the workflow's `Resolve agent prompt` step runs the `ferry-cc-prompt` bin, which resolves the system prompt and feeds it to the action via a step output.
+
+Customisation here is a **full override**, not an extension: drop a file in your consumer repository and it **replaces** Ferry's bundled claude-code prompt for that agent entirely.
+
+| File                             | Replaces the bundled claude-code prompt for |
+| -------------------------------- | -------------------------------------------- |
+| `prompts/refiner.claude-code.md` | Refiner                                      |
+| `prompts/dev.claude-code.md`     | Developer                                    |
+| `prompts/review.claude-code.md`  | Reviewer                                     |
+| `prompts/iterate.claude-code.md` | Iterator                                     |
+
+**Rules:**
+
+- Resolution is override-or-default, like `ferry.config.yaml`: if the file is present it is used as-is; if absent, Ferry's bundled default is used (and tracks new releases). `FERRY_PROMPTS_DIR` overrides the lookup directory.
+- The override **replaces** the whole prompt — it does not append. The `.extra.md` / `_project.md` layering does **not** apply on this path.
+- Keep the placeholder tokens — `ferry-cc-prompt` substitutes them at run time. Bare uppercase tokens: `TICKET_KEY` and `RUN_ID` (all agents); `REVIEW_TRANSITION_ID` (dev, iterate); `APPROVE_TRANSITION_ID` and `CHANGES_TRANSITION_ID` (review). An unrecognised token is left literal.
+- A custom override is **your** contract: the bundled prompts enforce the no-merge rule, the single allowed FR transition, the fingerprinted `[ferry:<role>:<run-id>]` audit comment, and idempotency. Preserve those instructions or you weaken Ferry's guarantees.
+- `ferry-doctor` reports detected overrides (check 19, `CC path: prompt overrides`).
+
+To verify which prompt a run used, search the agent's job log for `ferry-cc-prompt: <agent> prompt resolved (source: override|bundled)`.
 
 ---
 
