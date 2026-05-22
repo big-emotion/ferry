@@ -1,5 +1,11 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { parseArgs, renderPrompt, formatGithubOutput, UsageError, type CcPromptArgs } from './cli.js';
+import {
+  parseArgs,
+  renderPrompt,
+  formatGithubOutput,
+  UsageError,
+  type CcPromptArgs,
+} from './cli.js';
 import type { CcAgent } from '../../lib/prompts/cc-prompt.js';
 
 const BUNDLED: Record<CcAgent, string> = {
@@ -16,13 +22,25 @@ afterEach(() => {
 describe('parseArgs', () => {
   it('parses a dev invocation', () => {
     const args = parseArgs([
-      '--agent', 'dev', '--ticket-key', 'ABC-1', '--run-id', 'r9',
-      '--review-transition-id', '31', '--repo-root', '/repo',
+      '--agent',
+      'dev',
+      '--ticket-key',
+      'ABC-1',
+      '--run-id',
+      'r9',
+      '--review-transition-id',
+      '31',
+      '--repo-root',
+      '/repo',
     ]);
     expect(args.agent).toBe('dev');
     expect(args.repoRoot).toBe('/repo');
     expect(args.outputName).toBe('prompt');
-    expect(args.values).toEqual({ TICKET_KEY: 'ABC-1', RUN_ID: 'r9', REVIEW_TRANSITION_ID: '31' });
+    expect(args.values).toEqual({
+      TICKET_KEY: 'ABC-1',
+      RUN_ID: 'r9',
+      REVIEW_TRANSITION_ID: '31',
+    });
   });
 
   it('rejects a missing --agent', () => {
@@ -41,8 +59,16 @@ describe('parseArgs', () => {
 
   it('allows an empty approve transition id for the reviewer', () => {
     const args = parseArgs([
-      '--agent', 'review', '--ticket-key', 'X-1', '--run-id', 'y',
-      '--approve-transition-id', '', '--changes-transition-id', '41',
+      '--agent',
+      'review',
+      '--ticket-key',
+      'X-1',
+      '--run-id',
+      'y',
+      '--approve-transition-id',
+      '',
+      '--changes-transition-id',
+      '41',
     ]);
     expect(args.values.APPROVE_TRANSITION_ID).toBe('');
     expect(args.values.CHANGES_TRANSITION_ID).toBe('41');
@@ -55,7 +81,14 @@ describe('parseArgs', () => {
 
   it('honours --output-name', () => {
     const args = parseArgs([
-      '--agent', 'refiner', '--ticket-key', 'X', '--run-id', 'y', '--output-name', 'sys',
+      '--agent',
+      'refiner',
+      '--ticket-key',
+      'X',
+      '--run-id',
+      'y',
+      '--output-name',
+      'sys',
     ]);
     expect(args.outputName).toBe('sys');
   });
@@ -88,7 +121,12 @@ describe('renderPrompt', () => {
 
   it('throws when the consumer override is empty', () => {
     expect(() =>
-      renderPrompt(args, BUNDLED, (p) => p === '/repo/prompts/dev.claude-code.md', () => '   \n  '),
+      renderPrompt(
+        args,
+        BUNDLED,
+        (p) => p === '/repo/prompts/dev.claude-code.md',
+        () => '   \n  ',
+      ),
     ).toThrow(/empty/);
   });
 });
@@ -105,10 +143,7 @@ describe('formatGithubOutput', () => {
   });
 
   it('regenerates the delimiter when it collides with a content line', () => {
-    const gen = vi
-      .fn<() => string>()
-      .mockReturnValueOnce('COLLIDE')
-      .mockReturnValue('SAFE');
+    const gen = vi.fn<() => string>().mockReturnValueOnce('COLLIDE').mockReturnValue('SAFE');
     expect(formatGithubOutput('prompt', 'a\nCOLLIDE\nb', gen)).toBe(
       'prompt<<SAFE\na\nCOLLIDE\nb\nSAFE\n',
     );
