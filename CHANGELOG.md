@@ -11,6 +11,15 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.16.0] — 2026-05-25
+
+### Added
+
+- **`FERRY_RUNNER` variable for self-hosted runner labels** (PR #365) — all four agent workflow templates now render `runs-on: ${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}` instead of a hardcoded `ubuntu-latest`. Consumers on self-hosted runners set the `FERRY_RUNNER` repo/org variable to a JSON string (e.g. `"ubuntu-latest"`) or array (e.g. `["self-hosted","Linux","X64"]`); the default is unchanged. The six static example workflows under `examples/consumer-setup/` and the `ferry-init` templates carry the same shape, with a regression test in `templates.test.ts` and the new variable documented in `docs/CONFIGURATION.md`. Closes #364.
+- **`ferry-cc-prompt` agent-prompt resolver** (PR #363) — a new `ferry-cc-prompt` bin resolves the claude-code-path system prompt for each agent, preferring the consumer's `prompts/<agent>.claude-code.md` override over Ferry's bundled default and substituting runtime tokens. The four claude-code workflow stubs now run `npx -p @big-emotion/ferry@v0.16.0 ferry-cc-prompt` as a pre-step instead of inlining ~40 lines of YAML prompt, so consumers customise prompts by editing one Markdown file. Bundled defaults ship inlined into `dist/cli/` via the esbuild text loader (npm package size unchanged). See `docs/CONFIGURATION.md` → Prompt customization → claude-code path.
+
+---
+
 ## [0.15.1] — 2026-05-21
 
 ### Fixed
@@ -469,7 +478,8 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
-[Unreleased]: https://github.com/big-emotion/ferry/compare/v0.15.1...HEAD
+[Unreleased]: https://github.com/big-emotion/ferry/compare/v0.16.0...HEAD
+[0.16.0]: https://github.com/big-emotion/ferry/releases/tag/v0.16.0
 [0.15.1]: https://github.com/big-emotion/ferry/releases/tag/v0.15.1
 [0.15.0]: https://github.com/big-emotion/ferry/releases/tag/v0.15.0
 [0.14.0]: https://github.com/big-emotion/ferry/releases/tag/v0.14.0

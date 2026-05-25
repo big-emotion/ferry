@@ -341,7 +341,7 @@ describe('Quick install — audit issue creation (INSTALL.md §Step 1)', () => {
 describe('Quick install — no @main in workflow refs (INSTALL.md)', () => {
   it('INSTALL.md does not tell users to use @main workflow refs', async () => {
     const doc = await readFile('docs/INSTALL.md');
-    // The doc must not say stubs use @main (they use @v0.15.1)
+    // The doc must not say stubs use @main (they use @v0.16.0)
     expect(doc).not.toMatch(/uses.*@main/);
     expect(doc).not.toContain('always use the latest version automatically');
   });
