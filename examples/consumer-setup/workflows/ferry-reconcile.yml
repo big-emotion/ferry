@@ -3,6 +3,7 @@
 #
 # Required variables: FERRY_AUDIT_ISSUE
 # Optional variables: FERRY_JIRA_PROJECT (Jira project key, e.g. "CHAN")
+#                     FERRY_RUNNER (default: "ubuntu-latest"; JSON string or array for self-hosted runners, e.g. '["self-hosted","X64"]')
 # Required secrets (if FERRY_JIRA_PROJECT is set): FERRY_JIRA_BASE_URL,
 #                                                    FERRY_JIRA_EMAIL,
 #                                                    FERRY_JIRA_API_TOKEN
@@ -26,7 +27,7 @@ env:
 jobs:
   reconcile:
     name: Sweep for stalled tickets
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
     permissions:
       contents: read
       issues: write

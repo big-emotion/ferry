@@ -3,6 +3,7 @@
 #
 # Required variables: FERRY_AUDIT_ISSUE
 # Optional variables: FERRY_SPEND_CAP_EUR (monthly EUR cap — default 200 EUR)
+#                     FERRY_RUNNER (default: "ubuntu-latest"; JSON string or array for self-hosted runners, e.g. '["self-hosted","X64"]')
 # Optional secrets (to apply ferry:paused to Jira tickets on threshold breach):
 #   FERRY_JIRA_BASE_URL, FERRY_JIRA_EMAIL, FERRY_JIRA_API_TOKEN
 #
@@ -26,7 +27,7 @@ env:
 jobs:
   cost-check:
     name: Check provider spend against cap
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
     permissions:
       contents: read
       issues: write

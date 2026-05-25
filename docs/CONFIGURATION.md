@@ -59,6 +59,14 @@ Add these under **Settings → Secrets and variables → Actions → Variables**
 
 All variables marked **wired** below are read directly by the standard consumer workflow stubs in `examples/consumer-setup/workflows/`. Unwired variables are read by `src/lib/config.ts` if present in the agent runtime env, but the standard workflow stubs do not set them — use `ferry.config.yaml` for those instead.
 
+#### Runner label
+
+| Variable       | Default           | Wired?    | Affects    | Description                                                                                                                                                                                                                                                                                 |
+| -------------- | ----------------- | --------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `FERRY_RUNNER` | `"ubuntu-latest"` | yes (all) | All agents | GitHub Actions runner label for every Ferry job. Must be a **JSON-encoded** string or array. Set to `"ubuntu-latest"` (with quotes) for GitHub-hosted runners, or to `["self-hosted","Linux","X64"]` (an array) for self-hosted runners. Omitting this variable keeps the default behavior. |
+
+> **JSON encoding requirement:** The value is passed through `fromJSON()` in the workflow expression `runs-on: ${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}`, so it must be valid JSON. A plain string label requires surrounding quotes: `"ubuntu-latest"`. A multi-label array uses standard JSON array syntax: `["self-hosted","Linux","X64"]`.
+
 #### Model and provider overrides
 
 | Variable                 | Default             | Wired?          | Affects         | Description                                                                                                        |
@@ -753,11 +761,11 @@ On the claude-code execution path an agent is one direct `anthropics/claude-code
 Customisation here is a **full override**, not an extension: drop a file in your consumer repository and it **replaces** Ferry's bundled claude-code prompt for that agent entirely.
 
 | File                             | Replaces the bundled claude-code prompt for |
-| -------------------------------- | -------------------------------------------- |
-| `prompts/refiner.claude-code.md` | Refiner                                      |
-| `prompts/dev.claude-code.md`     | Developer                                    |
-| `prompts/review.claude-code.md`  | Reviewer                                     |
-| `prompts/iterate.claude-code.md` | Iterator                                     |
+| -------------------------------- | ------------------------------------------- |
+| `prompts/refiner.claude-code.md` | Refiner                                     |
+| `prompts/dev.claude-code.md`     | Developer                                   |
+| `prompts/review.claude-code.md`  | Reviewer                                    |
+| `prompts/iterate.claude-code.md` | Iterator                                    |
 
 **Rules:**
 

@@ -10,6 +10,7 @@
 # Required variables: FERRY_AUDIT_ISSUE (GitHub Issue number for the audit log)
 # Optional variables: FERRY_REVIEW_MODEL (default: claude-sonnet-4-6)
 #                     FERRY_REVIEW_PROVIDER (default: anthropic; also: openai, google)
+#                     FERRY_RUNNER (default: "ubuntu-latest"; JSON string or array for self-hosted runners, e.g. '["self-hosted","X64"]')
 #                     FERRY_REVIEWER_MAX_ITERATIONS (default: 40)
 #                     FERRY_REVIEWER_MAX_TOKENS (default: 16384)
 #                     FERRY_MAX_COST_EUR_PER_RUN (default: 10)
@@ -42,7 +43,7 @@ concurrency:
 jobs:
   gate-envelope:
     name: Validate event envelope
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
     permissions:
       contents: read
     steps:
@@ -57,7 +58,7 @@ jobs:
   route:
     name: Resolve execution path
     needs: [gate-envelope]
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
     permissions:
       contents: read
     outputs:
@@ -80,7 +81,7 @@ jobs:
     name: Run Reviewer agent (script path)
     needs: [route]
     if: needs.route.outputs.path == 'script'
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
     permissions:
       contents: read
       pull-requests: write
@@ -130,7 +131,7 @@ jobs:
     name: Reviewer CI pre-gate
     needs: [route]
     if: needs.route.outputs.path == 'claude-code'
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
     permissions:
       contents: read
       pull-requests: write
@@ -158,7 +159,7 @@ jobs:
     name: Run Reviewer agent (claude-code path)
     needs: [route, ci-gate]
     if: needs.route.outputs.path == 'claude-code' && needs.ci-gate.outputs.proceed == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
     permissions:
       contents: read
       pull-requests: write
@@ -192,7 +193,7 @@ jobs:
     name: Emit audit line
     needs: [run-agent, run-agent-claude-code, ci-gate]
     if: always() && (needs.run-agent.result != 'skipped' || needs.run-agent-claude-code.result != 'skipped' || (needs.ci-gate.result != 'skipped' && needs.ci-gate.outputs.outcome == 'ci-red'))
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
     permissions:
       contents: read
       issues: write
