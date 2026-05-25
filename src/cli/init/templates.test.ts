@@ -325,6 +325,20 @@ describe('workflowTemplates — supply-chain action pinning', () => {
   });
 });
 
+describe('workflowTemplates — FERRY_RUNNER runner label (#364)', () => {
+  it('every template uses fromJSON(vars.FERRY_RUNNER) for runs-on (no hardcoded ubuntu-latest)', () => {
+    for (const tmpl of workflowTemplates('v1')) {
+      expect(
+        tmpl.content,
+        `${tmpl.filename}: still contains hardcoded runs-on: ubuntu-latest`,
+      ).not.toContain('runs-on: ubuntu-latest');
+      expect(tmpl.content, `${tmpl.filename}: missing FERRY_RUNNER fromJSON expression`).toContain(
+        'fromJSON(vars.FERRY_RUNNER || \'"ubuntu-latest"\')',
+      );
+    }
+  });
+});
+
 describe('workflowTemplates — cc-path role coverage is complete', () => {
   // All four roles now run end-to-end on the claude-code path (#350), so no
   // template should carry a "not yet wired" guard step.

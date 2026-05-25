@@ -37,6 +37,7 @@ export function workflowTemplates(
 # Required variables: FERRY_AUDIT_ISSUE (GitHub Issue number for the audit log)
 # Optional variables: FERRY_REFINER_PROVIDER (default: anthropic; also: openai, google)
 #                     FERRY_REFINER_MODEL (default: claude-sonnet-4-6; use model ID matching your provider)
+#                     FERRY_RUNNER (default: "ubuntu-latest"; JSON string or array for self-hosted runners, e.g. '["self-hosted","X64"]')
 
 name: Ferry — Refine
 
@@ -52,7 +53,7 @@ concurrency:
 jobs:
   gate-envelope:
     name: Validate event envelope
-    runs-on: ubuntu-latest
+    runs-on: \${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
     permissions:
       contents: read
     steps:
@@ -67,7 +68,7 @@ jobs:
   route:
     name: Resolve execution path
     needs: [gate-envelope]
-    runs-on: ubuntu-latest
+    runs-on: \${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
     permissions:
       contents: read
     outputs:
@@ -90,7 +91,7 @@ jobs:
     name: Run Refiner agent (script path)
     needs: [route]
     if: needs.route.outputs.path == 'script'
-    runs-on: ubuntu-latest
+    runs-on: \${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
     permissions:
       contents: read
     steps:
@@ -121,7 +122,7 @@ jobs:
     name: Run Refiner agent (claude-code path)
     needs: [route]
     if: needs.route.outputs.path == 'claude-code'
-    runs-on: ubuntu-latest
+    runs-on: \${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
     permissions:
       contents: write
       pull-requests: write
@@ -153,7 +154,7 @@ jobs:
     name: Emit audit line
     needs: [run-agent, run-agent-claude-code]
     if: always() && (needs.run-agent.result != 'skipped' || needs.run-agent-claude-code.result != 'skipped')
-    runs-on: ubuntu-latest
+    runs-on: \${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
     permissions:
       contents: read
       issues: write
@@ -190,6 +191,7 @@ jobs:
 # Required variables: FERRY_AUDIT_ISSUE (GitHub Issue number for the audit log)
 # Optional variables: FERRY_DEV_PROVIDER (default: anthropic; also: openai, google)
 #                     FERRY_DEV_MODEL (default: claude-sonnet-4-6; use model ID matching your provider)
+#                     FERRY_RUNNER (default: "ubuntu-latest"; JSON string or array for self-hosted runners, e.g. '["self-hosted","X64"]')
 #
 # Note: MCP server support is not available for non-Anthropic providers in the Developer agent.
 
@@ -207,7 +209,7 @@ concurrency:
 jobs:
   gate-envelope:
     name: Validate event envelope
-    runs-on: ubuntu-latest
+    runs-on: \${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
     permissions:
       contents: read
     steps:
@@ -222,7 +224,7 @@ jobs:
   route:
     name: Resolve execution path
     needs: [gate-envelope]
-    runs-on: ubuntu-latest
+    runs-on: \${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
     permissions:
       contents: read
     outputs:
@@ -245,7 +247,7 @@ jobs:
     name: Run Developer agent (script path)
     needs: [route]
     if: needs.route.outputs.path == 'script'
-    runs-on: ubuntu-latest
+    runs-on: \${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
     permissions:
       contents: write
       pull-requests: write
@@ -284,7 +286,7 @@ jobs:
     name: Run Developer agent (claude-code path)
     needs: [route]
     if: needs.route.outputs.path == 'claude-code'
-    runs-on: ubuntu-latest
+    runs-on: \${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
     permissions:
       contents: write
       pull-requests: write
@@ -317,7 +319,7 @@ jobs:
     name: Emit audit line
     needs: [run-agent, run-agent-claude-code]
     if: always() && (needs.run-agent.result != 'skipped' || needs.run-agent-claude-code.result != 'skipped')
-    runs-on: ubuntu-latest
+    runs-on: \${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
     permissions:
       contents: read
       issues: write
@@ -354,6 +356,7 @@ jobs:
 # Required variables: FERRY_AUDIT_ISSUE (GitHub Issue number for the audit log)
 # Optional variables: FERRY_REVIEW_PROVIDER (default: anthropic; also: openai, google)
 #                     FERRY_REVIEW_MODEL (default: claude-sonnet-4-6; use model ID matching your provider)
+#                     FERRY_RUNNER (default: "ubuntu-latest"; JSON string or array for self-hosted runners, e.g. '["self-hosted","X64"]')
 #
 # Note: MCP server support is not available for non-Anthropic providers in the Reviewer agent.
 
@@ -371,7 +374,7 @@ concurrency:
 jobs:
   gate-envelope:
     name: Validate event envelope
-    runs-on: ubuntu-latest
+    runs-on: \${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
     permissions:
       contents: read
     steps:
@@ -386,7 +389,7 @@ jobs:
   route:
     name: Resolve execution path
     needs: [gate-envelope]
-    runs-on: ubuntu-latest
+    runs-on: \${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
     permissions:
       contents: read
     outputs:
@@ -409,7 +412,7 @@ jobs:
     name: Run Reviewer agent (script path)
     needs: [route]
     if: needs.route.outputs.path == 'script'
-    runs-on: ubuntu-latest
+    runs-on: \${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
     permissions:
       contents: read
       pull-requests: write
@@ -450,7 +453,7 @@ jobs:
     name: Reviewer CI pre-gate
     needs: [route]
     if: needs.route.outputs.path == 'claude-code'
-    runs-on: ubuntu-latest
+    runs-on: \${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
     permissions:
       contents: read
       pull-requests: write
@@ -478,7 +481,7 @@ jobs:
     name: Run Reviewer agent (claude-code path)
     needs: [route, ci-gate]
     if: needs.route.outputs.path == 'claude-code' && needs.ci-gate.outputs.proceed == 'true'
-    runs-on: ubuntu-latest
+    runs-on: \${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
     permissions:
       contents: write
       pull-requests: write
@@ -512,7 +515,7 @@ jobs:
     name: Emit audit line
     needs: [run-agent, run-agent-claude-code, ci-gate]
     if: always() && (needs.run-agent.result != 'skipped' || needs.run-agent-claude-code.result != 'skipped' || (needs.ci-gate.result != 'skipped' && needs.ci-gate.outputs.outcome == 'ci-red'))
-    runs-on: ubuntu-latest
+    runs-on: \${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
     permissions:
       contents: read
       issues: write
@@ -550,6 +553,7 @@ jobs:
 # Optional variables: FERRY_ITER_PROVIDER (default: anthropic; also: openai, google)
 #                     FERRY_ITER_MODEL (default: claude-sonnet-4-6; use model ID matching your provider)
 #                     FERRY_ITER_MAX_INPUT_TOKENS (default: 500000)
+#                     FERRY_RUNNER (default: "ubuntu-latest"; JSON string or array for self-hosted runners, e.g. '["self-hosted","X64"]')
 #
 # Note: MCP server support is not available for non-Anthropic providers in the Iterator agent.
 
@@ -567,7 +571,7 @@ concurrency:
 jobs:
   gate-envelope:
     name: Validate event envelope
-    runs-on: ubuntu-latest
+    runs-on: \${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
     permissions:
       contents: read
     steps:
@@ -582,7 +586,7 @@ jobs:
   route:
     name: Resolve execution path
     needs: [gate-envelope]
-    runs-on: ubuntu-latest
+    runs-on: \${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
     permissions:
       contents: read
     outputs:
@@ -605,7 +609,7 @@ jobs:
     name: Run Iterator agent (script path)
     needs: [route]
     if: needs.route.outputs.path == 'script'
-    runs-on: ubuntu-latest
+    runs-on: \${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
     permissions:
       contents: write
       issues: write
@@ -648,7 +652,7 @@ jobs:
     name: Run Iterator agent (claude-code path)
     needs: [route]
     if: needs.route.outputs.path == 'claude-code'
-    runs-on: ubuntu-latest
+    runs-on: \${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
     permissions:
       contents: write
       pull-requests: write
@@ -681,7 +685,7 @@ jobs:
     name: Emit audit line
     needs: [run-agent, run-agent-claude-code]
     if: always() && (needs.run-agent.result != 'skipped' || needs.run-agent-claude-code.result != 'skipped')
-    runs-on: ubuntu-latest
+    runs-on: \${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
     permissions:
       contents: read
       issues: write
