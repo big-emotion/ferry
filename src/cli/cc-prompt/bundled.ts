@@ -1,12 +1,28 @@
-import type { CcAgent } from '../../lib/prompts/cc-prompt.js';
-import refiner from '../../../prompts/refiner.claude-code.md';
-import dev from '../../../prompts/dev.claude-code.md';
-import review from '../../../prompts/review.claude-code.md';
-import iterate from '../../../prompts/iterate.claude-code.md';
+import type { CcAgent, DirectActionPromptPath } from '../../lib/prompts/cc-prompt.js';
+import refinerClaude from '../../../prompts/refiner.claude-code.md';
+import devClaude from '../../../prompts/dev.claude-code.md';
+import reviewClaude from '../../../prompts/review.claude-code.md';
+import iterateClaude from '../../../prompts/iterate.claude-code.md';
+import refinerCodex from '../../../prompts/refiner.codex-cli.md';
+import devCodex from '../../../prompts/dev.codex-cli.md';
+import reviewCodex from '../../../prompts/review.codex-cli.md';
+import iterateCodex from '../../../prompts/iterate.codex-cli.md';
 
-/**
- * Ferry's default claude-code-path prompts. esbuild's `text` loader inlines the
- * four `prompts/*.claude-code.md` files into the bundle at build time — the npm
- * package ships only `dist/cli/`, so they cannot be read from disk at runtime.
- */
-export const BUNDLED_CC_PROMPTS: Record<CcAgent, string> = { refiner, dev, review, iterate };
+/** Ferry's default prompts for direct-action execution paths. */
+export const BUNDLED_ACTION_PROMPTS: Record<DirectActionPromptPath, Record<CcAgent, string>> = {
+  'claude-code': {
+    refiner: refinerClaude,
+    dev: devClaude,
+    review: reviewClaude,
+    iterate: iterateClaude,
+  },
+  'codex-cli': {
+    refiner: refinerCodex,
+    dev: devCodex,
+    review: reviewCodex,
+    iterate: iterateCodex,
+  },
+};
+
+/** @deprecated Use BUNDLED_ACTION_PROMPTS. */
+export const BUNDLED_CC_PROMPTS: Record<CcAgent, string> = BUNDLED_ACTION_PROMPTS['claude-code'];

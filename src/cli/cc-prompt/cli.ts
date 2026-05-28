@@ -1,17 +1,20 @@
 import { randomBytes } from 'node:crypto';
 import {
-  resolveCcPrompt,
+  resolveActionPrompt,
   substituteTokens,
   CC_AGENTS,
   CC_PROMPT_TOKENS,
+  DIRECT_ACTION_PROMPT_PATHS,
   type CcAgent,
   type CcPromptResolution,
+  type DirectActionPromptPath,
 } from '../../lib/prompts/cc-prompt.js';
 
 /** A usage / configuration error — reported to stderr with exit 1, no stack trace. */
 export class UsageError extends Error {}
 
 export interface CcPromptArgs {
+  path: DirectActionPromptPath;
   agent: CcAgent;
   repoRoot: string;
   /** GITHUB_OUTPUT key the resolved prompt is written under. */
@@ -38,6 +41,11 @@ function getArg(argv: string[], flag: string): string | undefined {
 }
 
 export function parseArgs(argv: string[]): CcPromptArgs {
+  const actionPath = getArg(argv, '--path') ?? 'claude-code';
+  if (!DIRECT_ACTION_PROMPT_PATHS.includes(actionPath as DirectActionPromptPath)) {
+    throw new UsageError(`--path must be one of: ${DIRECT_ACTION_PROMPT_PATHS.join(', ')}`);
+  }
+
   const agent = getArg(argv, '--agent');
   if (!agent) {
     throw new UsageError('--agent is required');
@@ -63,6 +71,7 @@ export function parseArgs(argv: string[]): CcPromptArgs {
   }
 
   return {
+    path: actionPath as DirectActionPromptPath,
     agent: agent as CcAgent,
     repoRoot: getArg(argv, '--repo-root') || process.env.GITHUB_WORKSPACE || process.cwd(),
     outputName: getArg(argv, '--output-name') || 'prompt',
@@ -74,24 +83,38 @@ export function parseArgs(argv: string[]): CcPromptArgs {
  * Resolve the agent's prompt (consumer override or bundled default) and
  * substitute its runtime tokens. Throws `UsageError` on an empty prompt.
  */
+type BundledPromptMap =
+  | Record<DirectActionPromptPath, Record<CcAgent, string>>
+  | Record<CcAgent, string>;
+
+function bundledDefaultFor(args: CcPromptArgs, bundled: BundledPromptMap): string {
+  if (typeof (bundled as Record<CcAgent, string>).dev === 'string') {
+    return (bundled as Record<CcAgent, string>)[args.agent];
+  }
+  return (bundled as Record<DirectActionPromptPath, Record<CcAgent, string>>)[args.path][
+    args.agent
+  ];
+}
+
 export function renderPrompt(
   args: CcPromptArgs,
-  bundled: Record<CcAgent, string>,
+  bundled: BundledPromptMap,
   _checkExists?: (p: string) => boolean,
   _readFile?: (p: string, enc: BufferEncoding) => string,
 ): CcPromptResolution {
-  const resolved = resolveCcPrompt(
+  const resolved = resolveActionPrompt(
+    args.path,
     args.agent,
     args.repoRoot,
-    bundled[args.agent],
+    bundledDefaultFor(args, bundled),
     _checkExists,
     _readFile,
   );
   if (resolved.text.trim() === '') {
     throw new UsageError(
       resolved.source === 'override'
-        ? `consumer override prompts/${args.agent}.claude-code.md is empty`
-        : `bundled prompt for "${args.agent}" is empty`,
+        ? `consumer override prompts/${args.agent}.${args.path}.md is empty`
+        : `bundled ${args.path} prompt for "${args.agent}" is empty`,
     );
   }
   return { source: resolved.source, text: substituteTokens(resolved.text, args.values) };

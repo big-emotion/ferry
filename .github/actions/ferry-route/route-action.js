@@ -491,8 +491,8 @@ function validateConfigShape(raw) {
       }
     }
   }
-  if (c.execution_path !== void 0 && c.execution_path !== "script" && c.execution_path !== "claude-code") {
-    errs.push('execution_path: must be "script" or "claude-code"');
+  if (c.execution_path !== void 0 && c.execution_path !== "script" && c.execution_path !== "claude-code" && c.execution_path !== "codex-cli") {
+    errs.push('execution_path: must be "script", "claude-code", or "codex-cli"');
   }
   if (c.routing !== void 0) {
     if (!c.routing || typeof c.routing !== "object" || Array.isArray(c.routing)) {
@@ -683,7 +683,7 @@ function mergeWithDefaults(raw) {
     },
     ...labels !== void 0 ? { labels } : {},
     workflow: mergeWorkflow(raw.workflow),
-    ...raw.execution_path === "script" || raw.execution_path === "claude-code" ? { execution_path: raw.execution_path } : {},
+    ...["script", "claude-code", "codex-cli"].includes(raw.execution_path) ? { execution_path: raw.execution_path } : {},
     routing: {
       claude_code_round_trip_threshold: num(
         raw.routing?.claude_code_round_trip_threshold,
@@ -1000,6 +1000,8 @@ function resolveTicketOverrides(labels, logger2, options) {
   let readOnly = false;
   let hasClaudeCode = false;
   let hasNoClaudeCode = false;
+  let hasCodexCli = false;
+  let hasNoCodexCli = false;
   const skipPhases = [];
   let baseBranchLabel;
   let baseBranch;
@@ -1291,9 +1293,26 @@ function resolveTicketOverrides(labels, logger2, options) {
       hasNoClaudeCode = true;
       continue;
     }
+    if (label === "ferry:codex-cli") {
+      hasCodexCli = true;
+      continue;
+    }
+    if (label === "ferry:no-codex-cli") {
+      hasNoCodexCli = true;
+      continue;
+    }
     logger2?.warn("unknown ferry override label ignored", { label });
   }
-  const claudeCodePath = hasClaudeCode && !hasNoClaudeCode ? "claude-code" : hasClaudeCode || hasNoClaudeCode ? "script" : void 0;
+  const positiveDirectActionCount = Number(hasClaudeCode) + Number(hasCodexCli);
+  const hasAnyDirectActionLabel = hasClaudeCode || hasNoClaudeCode || hasCodexCli || hasNoCodexCli;
+  let executionPath;
+  if (hasAnyDirectActionLabel) {
+    executionPath = "script";
+    if (positiveDirectActionCount === 1 && !hasNoClaudeCode && !hasNoCodexCli) {
+      executionPath = hasClaudeCode ? "claude-code" : "codex-cli";
+    }
+  }
+  const claudeCodePath = executionPath === "claude-code" || executionPath === "script" ? executionPath : void 0;
   if (blanketModel !== void 0) {
     for (const phase of PHASES_ORDERED) {
       if (modelSources[phase] === void 0) {
@@ -1337,6 +1356,7 @@ function resolveTicketOverrides(labels, logger2, options) {
     ...paused ? { paused: true } : {},
     ...dryRun ? { dryRun: true } : {},
     ...readOnly ? { readOnly: true } : {},
+    ...executionPath !== void 0 ? { executionPath } : {},
     ...claudeCodePath !== void 0 ? { claudeCodePath } : {}
   };
 }
@@ -1350,17 +1370,39 @@ function isAnthropicOnlyConfig(cfg) {
   const m = cfg.models;
   return m.refiner.provider === "anthropic" && m.dev.provider === "anthropic" && m.review.provider === "anthropic" && m.iterate.provider === "anthropic";
 }
+function providerForRole(cfg, role) {
+  switch (role) {
+    case "developer":
+      return cfg.models.dev.provider;
+    case "iterator":
+      return cfg.models.iterate.provider;
+    case "reviewer":
+      return cfg.models.review.provider;
+    case "refiner":
+      return cfg.models.refiner.provider;
+  }
+}
+function isDirectPathAvailable(path2, input) {
+  if (path2 === "script") return true;
+  if (path2 === "claude-code") return input.anthropicOnly;
+  if (path2 === "codex-cli") return input.roleProvider === "openai";
+  return false;
+}
 function resolveExecutionPath(input) {
   if (input.configuredPath === "script") {
     return { path: "script", reason: "default" };
   }
-  if (!input.anthropicOnly) {
+  const requestedDirectPath = input.labelOverride === "claude-code" || input.labelOverride === "codex-cli" ? input.labelOverride : input.configuredPath === "claude-code" || input.configuredPath === "codex-cli" ? input.configuredPath : void 0;
+  if (requestedDirectPath !== void 0 && !isDirectPathAvailable(requestedDirectPath, input)) {
+    return { path: "script", reason: "provider-gate" };
+  }
+  if (!input.anthropicOnly && requestedDirectPath === void 0) {
     return { path: "script", reason: "provider-gate" };
   }
   if (input.labelOverride !== void 0) {
     return { path: input.labelOverride, reason: "label" };
   }
-  const defaultPath = input.configuredPath === "claude-code" || input.anthropicOnly ? "claude-code" : "script";
+  const defaultPath = input.configuredPath === "claude-code" || input.configuredPath === "codex-cli" ? input.configuredPath : input.anthropicOnly ? "claude-code" : "script";
   if (defaultPath === "script" && HEURISTIC_ROLES.has(input.role) && input.roundTripThreshold > 0 && input.priorRoundTrips >= input.roundTripThreshold) {
     return { path: "claude-code", reason: "heuristic" };
   }
@@ -1471,7 +1513,8 @@ async function runRouteAction() {
   const decision = resolveExecutionPath({
     configuredPath: config.execution_path,
     anthropicOnly: isAnthropicOnlyConfig(config),
-    labelOverride: overrides.claudeCodePath,
+    roleProvider: providerForRole(config, role),
+    labelOverride: overrides.executionPath ?? overrides.claudeCodePath,
     role,
     // #FOLLOW-UP: derive priorRoundTrips from the audit issue's `[ferry:iterator:*]
     // complete. Pushed fixes to PR#…` markers (same source `countPriorIterations`

@@ -12,6 +12,7 @@ function input(over: Partial<ExecutionPathInput> = {}): ExecutionPathInput {
   return {
     configuredPath: undefined,
     anthropicOnly: true,
+    roleProvider: 'anthropic',
     labelOverride: undefined,
     role: 'developer',
     priorRoundTrips: 0,
@@ -108,6 +109,32 @@ describe('resolveExecutionPath — provider gate (anthropicOnly === false, issue
     expect(
       resolveExecutionPath(input({ anthropicOnly: true, labelOverride: 'claude-code' })),
     ).toEqual({ path: 'claude-code', reason: 'label' });
+  });
+});
+
+describe('resolveExecutionPath — codex-cli provider gate', () => {
+  it('explicit codex-cli config + OpenAI role provider → codex-cli', () => {
+    expect(
+      resolveExecutionPath(
+        input({ configuredPath: 'codex-cli', anthropicOnly: false, roleProvider: 'openai' }),
+      ),
+    ).toEqual({ path: 'codex-cli', reason: 'default' });
+  });
+
+  it('ferry:codex-cli label + OpenAI role provider → codex-cli', () => {
+    expect(
+      resolveExecutionPath(
+        input({ labelOverride: 'codex-cli', anthropicOnly: false, roleProvider: 'openai' }),
+      ),
+    ).toEqual({ path: 'codex-cli', reason: 'label' });
+  });
+
+  it('codex-cli request + non-OpenAI role provider → script provider-gate', () => {
+    expect(
+      resolveExecutionPath(
+        input({ configuredPath: 'codex-cli', anthropicOnly: false, roleProvider: 'google' }),
+      ),
+    ).toEqual({ path: 'script', reason: 'provider-gate' });
   });
 });
 
@@ -257,8 +284,8 @@ describe('isAnthropicOnlyConfig', () => {
 describe('formatExecutionPathAudit', () => {
   it('emits the fingerprinted marker with path and reason', () => {
     expect(
-      formatExecutionPathAudit('reviewer', 'run-abc', { path: 'claude-code', reason: 'label' }),
-    ).toBe('[ferry:reviewer:run-abc] execution-path: claude-code (reason: label)');
+      formatExecutionPathAudit('reviewer', 'run-abc', { path: 'codex-cli', reason: 'label' }),
+    ).toBe('[ferry:reviewer:run-abc] execution-path: codex-cli (reason: label)');
   });
 
   it('uses the dev marker token for the developer role (script parity)', () => {

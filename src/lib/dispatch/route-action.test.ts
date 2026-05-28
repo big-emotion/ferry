@@ -157,6 +157,25 @@ describe('route-action: resolves and emits execution path', () => {
     expect(decision.reason).toBe('default');
   });
 
+  it('emits path=codex-cli for OpenAI role config and ferry:codex-cli label', async () => {
+    tmp = withTempRepo(`models:
+  dev:
+    provider: openai
+    model: gpt-5-codex
+`);
+    process.chdir(tmp.cwd);
+    setEnv({ ...BASE_ENV, GITHUB_OUTPUT: tmp.outputFile });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(makeMockResponse(200, jiraIssueWith(['ferry:codex-cli']))),
+    );
+
+    const decision = await runRouteAction();
+
+    expect(decision.path).toBe('codex-cli');
+    expect(decision.reason).toBe('label');
+  });
+
   it('writes both `path` and `reason` to $GITHUB_OUTPUT in the `name=value\\n` form', async () => {
     tmp = withTempRepo(null);
     process.chdir(tmp.cwd);

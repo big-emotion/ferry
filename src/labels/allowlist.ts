@@ -50,6 +50,8 @@ export const LABELS_ALLOWLIST = [
   'ferry:read-only',
   'ferry:claude-code',
   'ferry:no-claude-code',
+  'ferry:codex-cli',
+  'ferry:no-codex-cli',
   'ferry:thinking/',
   'ferry:thinking/on',
   'ferry:thinking/off',

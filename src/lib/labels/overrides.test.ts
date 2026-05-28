@@ -1441,17 +1441,27 @@ describe('applyDryRunMarker', () => {
 // ferry:claude-code / ferry:no-claude-code (execution-path override, #300)
 // ------------------------------------------------------------------
 
-describe('resolveTicketOverrides — ferry:claude-code / ferry:no-claude-code', () => {
-  it('is undefined when neither label is present', () => {
+describe('resolveTicketOverrides — direct-action execution path labels', () => {
+  it('is undefined when no execution-path label is present', () => {
+    expect(resolveTicketOverrides([]).executionPath).toBeUndefined();
     expect(resolveTicketOverrides([]).claudeCodePath).toBeUndefined();
   });
 
-  it('ferry:claude-code → claudeCodePath "claude-code"', () => {
-    expect(resolveTicketOverrides(['ferry:claude-code']).claudeCodePath).toBe('claude-code');
+  it('ferry:claude-code → executionPath "claude-code"', () => {
+    const out = resolveTicketOverrides(['ferry:claude-code']);
+    expect(out.executionPath).toBe('claude-code');
+    expect(out.claudeCodePath).toBe('claude-code');
   });
 
-  it('ferry:no-claude-code → claudeCodePath "script"', () => {
-    expect(resolveTicketOverrides(['ferry:no-claude-code']).claudeCodePath).toBe('script');
+  it('ferry:codex-cli → executionPath "codex-cli"', () => {
+    const out = resolveTicketOverrides(['ferry:codex-cli']);
+    expect(out.executionPath).toBe('codex-cli');
+    expect(out.claudeCodePath).toBeUndefined();
+  });
+
+  it('negative direct-action labels → executionPath "script"', () => {
+    expect(resolveTicketOverrides(['ferry:no-claude-code']).executionPath).toBe('script');
+    expect(resolveTicketOverrides(['ferry:no-codex-cli']).executionPath).toBe('script');
   });
 
   it('conflicting labels resolve to the safe path (script) WITHOUT throwing', () => {
@@ -1459,23 +1469,33 @@ describe('resolveTicketOverrides — ferry:claude-code / ferry:no-claude-code', 
       resolveTicketOverrides(['ferry:claude-code', 'ferry:no-claude-code']),
     ).not.toThrow();
     expect(
-      resolveTicketOverrides(['ferry:claude-code', 'ferry:no-claude-code']).claudeCodePath,
+      resolveTicketOverrides(['ferry:claude-code', 'ferry:no-claude-code']).executionPath,
     ).toBe('script');
     // order-independent
     expect(
-      resolveTicketOverrides(['ferry:no-claude-code', 'ferry:claude-code']).claudeCodePath,
+      resolveTicketOverrides(['ferry:no-claude-code', 'ferry:claude-code']).executionPath,
     ).toBe('script');
   });
 
-  it('does not emit an unknown-label warning for either label', () => {
+  it('conflicting positive direct-action labels resolve to script', () => {
+    expect(resolveTicketOverrides(['ferry:claude-code', 'ferry:codex-cli']).executionPath).toBe(
+      'script',
+    );
+  });
+
+  it('does not emit an unknown-label warning for direct-action labels', () => {
     const { logger, records } = createTestLogger('t', 'test');
-    resolveTicketOverrides(['ferry:claude-code', 'ferry:no-claude-code'], logger);
+    resolveTicketOverrides(
+      ['ferry:claude-code', 'ferry:no-claude-code', 'ferry:codex-cli', 'ferry:no-codex-cli'],
+      logger,
+    );
     expect(records.some((rec) => rec.level === 'warn')).toBe(false);
   });
 
   it('counts toward hasNonDefaultOverrides', () => {
     expect(hasNonDefaultOverrides(resolveTicketOverrides(['ferry:claude-code']))).toBe(true);
     expect(hasNonDefaultOverrides(resolveTicketOverrides(['ferry:no-claude-code']))).toBe(true);
+    expect(hasNonDefaultOverrides(resolveTicketOverrides(['ferry:codex-cli']))).toBe(true);
   });
 
   it('is recorded in the overrides audit comment', () => {
@@ -1486,6 +1506,7 @@ describe('resolveTicketOverrides — ferry:claude-code / ferry:no-claude-code', 
     );
     expect(body).toContain('[ferry:developer:run1] overrides applied:');
     expect(JSON.parse(body.split('overrides applied: ')[1])).toMatchObject({
+      executionPath: 'claude-code',
       claudeCodePath: 'claude-code',
     });
   });

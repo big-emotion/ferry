@@ -177,17 +177,22 @@ export interface TicketOverrides {
    */
   readOnly?: boolean;
 
-  // --- ferry:claude-code / ferry:no-claude-code (execution path) ---
+  // --- direct-action execution path labels ---
 
   /**
    * Per-ticket execution-path override (ADR-0006 §3, #300).
    * - `ferry:claude-code`    → 'claude-code' (force the claude-code-action path).
+   * - `ferry:codex-cli`      → 'codex-cli' (force the openai/codex-action path).
    * - `ferry:no-claude-code` → 'script' (force the bundled script path).
+   * - `ferry:no-codex-cli`   → 'script' (force the bundled script path).
    *
    * Conflicting labels (both present) resolve to the **safe path** `'script'`
    * — deliberately, this pair does NOT throw `LabelConflictError`: a routing
    * ambiguity must fail closed onto the deterministic script path rather than
    * block the ticket.
+   *
+   * Multiple positive direct-action labels, or a positive/negative pair for
+   * the same path, resolve to the **safe path** `'script'`.
    *
    * Consumed by `resolveExecutionPath` (src/lib/cc-wrappers/routing.ts): it
    * takes precedence over the heuristic and the conditional default, but an
@@ -200,6 +205,8 @@ export interface TicketOverrides {
    * no-op — the caller emits a warn. This ensures the claude-code path is never
    * activated without the Anthropic token infrastructure (ADR-0006 §6).
    */
+  executionPath?: 'claude-code' | 'codex-cli' | 'script';
+  /** @deprecated Use executionPath. Retained for older callers/tests. */
   claudeCodePath?: 'claude-code' | 'script';
 }
 

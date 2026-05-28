@@ -1,7 +1,7 @@
 name: Ferry — Resolve Execution Path
 description: >
   Decides whether the agent run takes the bundled-script path or the
-  `claude-code-action` path (ADR-0006 §3, issue #300). Exposes the decision
+  `claude-code-action` path, or the `openai/codex-action` path. Exposes the decision
   to the wrapping workflow via the `path` and `reason` outputs. Self-contained;
   no `.ferry/` needed in the consumer workspace.
 inputs:
@@ -22,7 +22,7 @@ inputs:
     required: true
 outputs:
   path:
-    description: Resolved execution path — `script` or `claude-code`
+    description: Resolved execution path — `script`, `claude-code`, or `codex-cli`
     value: ${{ steps.route.outputs.path }}
   reason:
     description: Reason for the decision — `default`, `label`, `heuristic`, or `provider-gate`
@@ -31,7 +31,7 @@ runs:
   using: composite
   steps:
     - name: Set up Node.js
-      uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+      uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
       with:
         node-version: '20'
     - name: Install Ferry action dependencies
