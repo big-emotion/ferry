@@ -152,6 +152,19 @@ When `state.iteration >= limits.max_iterations` (default 3) and findings remain,
 
 ---
 
+### FR32 — Reviewer best-effort dispatches ferry-merge on approve
+
+|                     |                                                                              |
+| ------------------- | ---------------------------------------------------------------------------- |
+| **Status**          | shipped                                                                      |
+| **Source files**    | `src/agents/reviewer/review-action.ts`, `src/cli/init/templates.ts`          |
+| **Test files**      | `src/cli/init/templates.test.ts`                                             |
+| **Date introduced** | 2026-06-06                                                                   |
+
+When the Reviewer verdict is `merge-ready`, Ferry attempts a best-effort `repository_dispatch` to trigger `ferry-merge.yml`. The dispatch is wrapped in try/catch so a failure never loses the approval. The reviewer `run-agent` step requires `contents: write` to issue the dispatch event.
+
+---
+
 ### FR45 — Daily provider spend check against configurable EUR cap
 
 |                     |                                           |
