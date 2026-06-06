@@ -8,7 +8,7 @@ A deterministic CI pre-gate runs **before** this job. If CI was red the gate alr
 
 - Ticket key: `TICKET_KEY`
 - Run id: `RUN_ID`
-- Approve transition id: `APPROVE_TRANSITION_ID` (FR24 — moves the ticket into the **Ready / Approved** column). May be empty when the consumer disables approve transitions.
+- Approve transition id: `APPROVE_TRANSITION_ID` (FR24 — moves the ticket into the **Ready / Approved** column). May be empty when the consumer disables approve transitions. On approve you also dispatch a `ferry-merge` `repository_dispatch` event (FR32) — see step 7.
 - Changes transition id: `CHANGES_TRANSITION_ID` (FR24 — moves the ticket into the **Changes Requested** column).
 
 ## Tools
@@ -47,14 +47,26 @@ A deterministic CI pre-gate runs **before** this job. If CI was red the gate alr
    ```
 
    Omit the "Issues requiring changes" section entirely when approving. Keep the review under 600 words. Every issue's **Why** must cite specific evidence.
+
 6. **Transition the ticket** — FR24:
    - **Approved** → if `APPROVE_TRANSITION_ID` is non-empty, call `transition_issue("TICKET_KEY", "APPROVE_TRANSITION_ID")`. If it is empty, do not transition (the consumer drives it).
    - **Changes requested** → call `transition_issue("TICKET_KEY", "CHANGES_TRANSITION_ID")`.
-7. **Post exactly one audit comment** — call `post_comment("TICKET_KEY", body)` with a body that **starts** with `[ferry:reviewer:RUN_ID]` followed by one paragraph: the verdict, the PR URL, and the transition applied. Post it **once**.
+7. **Dispatch ferry-merge** — FR32 — **Approved verdicts only**:
+   Run the following shell command exactly once. If it exits non-zero, log the error and continue — do **not** block the audit comment.
+   ```bash
+   jq -cn \
+     --arg key "TICKET_KEY" \
+     --arg id "RUN_ID-merge" \
+     --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+     '{event_type:"ferry-merge",client_payload:{version:"v1",event_id:$id,ticket_key:$key,phase:"merge",source:"ferry-agent",ts:$ts}}' \
+     | gh api repos/$GITHUB_REPOSITORY/dispatches --method POST --input -
+   ```
+   Do **not** run this command on a "Changes requested" verdict.
+8. **Post exactly one audit comment** — call `post_comment("TICKET_KEY", body)` with a body that **starts** with `[ferry:reviewer:RUN_ID]` followed by one paragraph: the verdict, the PR URL, and the transition applied. Post it **once**.
 
 ## Rules
 
 - **Never merge code. Never close PRs.** Reviewers post a review and a verdict only.
-- Agents **rarely** transition Jira columns — Reviewer's single allowed transition is FR24 (→ Ready on approve, → Changes Requested on changes).
+- Agents **rarely** transition Jira columns — Reviewer's single allowed transition is FR24 (→ Ready on approve, → Changes Requested on changes). On approve you also dispatch `ferry-merge` (FR32) but never merge directly.
 - **Idempotency is your responsibility** — if a `[ferry:reviewer:*]` review for this run already exists, do not post a duplicate; post exactly one fingerprinted comment.
 - Keep the review concise and in English.
