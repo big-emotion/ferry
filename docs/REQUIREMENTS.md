@@ -152,6 +152,20 @@ When `state.iteration >= limits.max_iterations` (default 3) and findings remain,
 
 ---
 
+### FR32 — Reviewer dispatches `ferry-merge` on Approved verdict (cc-path)
+
+|                     |                                                              |
+| ------------------- | ------------------------------------------------------------ |
+| **Status**          | shipped                                                      |
+| **Source files**    | `prompts/review.claude-code.md`, `src/lib/dispatch/routing.ts` |
+| **Test files**      | `src/schemas/schemas.test.ts`                                |
+| **Docs**            | `docs/CONFIGURATION.md`                                      |
+| **Date introduced** | 2026-06-06                                                   |
+
+On the claude-code execution path, when the Reviewer verdict is Approved, the agent emits a `ferry-merge` `repository_dispatch` event (phase `"merge"`, source `"ferry-agent"`) via `gh api`. This triggers the Merger agent without human intervention. The `"merge"` phase is excluded from `RoutingTable` (handled outside the standard phase-to-workflow table, same as `"reconcile"`).
+
+---
+
 ### FR45 — Daily provider spend check against configurable EUR cap
 
 |                     |                                           |
