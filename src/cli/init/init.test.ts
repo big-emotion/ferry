@@ -141,8 +141,8 @@ describe('buildJiraBundle', () => {
 // ── workflowTemplates ─────────────────────────────────────────────────────────
 
 describe('workflowTemplates', () => {
-  it('returns 4 workflow files', () => {
-    expect(workflowTemplates('v1')).toHaveLength(4);
+  it('returns 5 workflow files', () => {
+    expect(workflowTemplates('v1')).toHaveLength(5);
   });
 
   it('includes all required workflow filenames', () => {
@@ -151,6 +151,7 @@ describe('workflowTemplates', () => {
     expect(names).toContain('ferry-dev.yml');
     expect(names).toContain('ferry-review.yml');
     expect(names).toContain('ferry-iterate.yml');
+    expect(names).toContain('ferry-merge.yml');
   });
 
   it('embeds the ferry version tag in each agent workflow', () => {
@@ -160,6 +161,7 @@ describe('workflowTemplates', () => {
       'ferry-dev.yml',
       'ferry-review.yml',
       'ferry-iterate.yml',
+      'ferry-merge.yml',
     ];
     for (const tmpl of templates) {
       if (agentFiles.includes(tmpl.filename)) {
@@ -174,6 +176,7 @@ describe('workflowTemplates', () => {
       'ferry-dev.yml',
       'ferry-review.yml',
       'ferry-iterate.yml',
+      'ferry-merge.yml',
     ];
     for (const tmpl of workflowTemplates('v1')) {
       if (agentFiles.includes(tmpl.filename)) {

@@ -109,9 +109,9 @@ describe('event.v1.schema.json', () => {
     expect(validateEvent).toBeDefined();
   });
 
-  it('phase enum contains all 5 values', () => {
+  it('phase enum contains all 6 values', () => {
     const phases = eventSchema.properties.phase.enum as string[];
-    for (const v of ['refine', 'dev', 'review', 'iterate', 'reconcile']) {
+    for (const v of ['refine', 'dev', 'review', 'iterate', 'reconcile', 'merge']) {
       expect(phases, `phase enum must contain "${v}"`).toContain(v);
     }
   });
