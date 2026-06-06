@@ -152,6 +152,20 @@ When `state.iteration >= limits.max_iterations` (default 3) and findings remain,
 
 ---
 
+### FR32 — Merger agent: auto-merge PR on `ferry:approved` label
+
+|                     |                                                      |
+| ------------------- | ---------------------------------------------------- |
+| **Status**          | shipped                                              |
+| **Source files**    | `src/agents/merger/`                                 |
+| **Test files**      | `src/agents/merger/merger.test.ts`                   |
+| **Docs**            | `README.md`, `docs/CONFIGURATION.md` (Merger agent section), `MIGRATIONS.md` |
+| **Date introduced** | 2026-06-06                                           |
+
+The Merger is Ferry's fifth agent. It fires when the `ferry:approved` label is applied to a pull request (set by the Reviewer on a passing review). The Merger generates a squash commit message (LLM-assisted), runs `gh pr merge` with the configured strategy, optionally transitions the Jira ticket via `FERRY_MERGE_DONE_TRANSITION_ID`, and emits a `[ferry:merger:<run-id>]` audit comment. If the merge fails, the label is left in place for manual recovery.
+
+---
+
 ### FR45 — Daily provider spend check against configurable EUR cap
 
 |                     |                                           |
