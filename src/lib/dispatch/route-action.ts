@@ -15,7 +15,7 @@
  *   - GITHUB_OUTPUT            GitHub Actions output file (set by the runner)
  *
  * Outputs (written to GITHUB_OUTPUT):
- *   - path     'script' | 'claude-code'
+ *   - path     'script' | 'claude-code' | 'codex-cli'
  *   - reason   'default' | 'label' | 'heuristic' | 'provider-gate'
  *
  * Heuristic-driven escalation is intentionally **disabled in this version**
@@ -33,6 +33,7 @@ import {
   resolveExecutionPath,
   isAnthropicOnlyConfig,
   formatExecutionPathAudit,
+  providerForRole,
   type ExecutionPathDecision,
 } from '../cc-wrappers/routing.js';
 import { createLogger } from '../logger/index.js';
@@ -107,7 +108,8 @@ export async function runRouteAction(): Promise<ExecutionPathDecision> {
   const decision = resolveExecutionPath({
     configuredPath: config.execution_path,
     anthropicOnly: isAnthropicOnlyConfig(config),
-    labelOverride: overrides.claudeCodePath,
+    roleProvider: providerForRole(config, role),
+    labelOverride: overrides.executionPath ?? overrides.claudeCodePath,
     role,
     // #FOLLOW-UP: derive priorRoundTrips from the audit issue's `[ferry:iterator:*]
     // complete. Pushed fixes to PR#…` markers (same source `countPriorIterations`

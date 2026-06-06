@@ -1,18 +1,20 @@
 #!/usr/bin/env node
 import { appendFileSync } from 'node:fs';
-import { BUNDLED_CC_PROMPTS } from './bundled.js';
+import { BUNDLED_ACTION_PROMPTS } from './bundled.js';
 import { parseArgs, renderPrompt, formatGithubOutput } from './cli.js';
 
-const HELP = `ferry-cc-prompt — resolve the claude-code-path system prompt for a Ferry agent.
+const HELP = `ferry-action-prompt — resolve a direct-action-path system prompt for a Ferry agent.
 
 Usage:
+  ferry-action-prompt --path <claude-code|codex-cli> --agent <refiner|dev|review|iterate> --ticket-key <key> --run-id <id> [options]
   ferry-cc-prompt --agent <refiner|dev|review|iterate> --ticket-key <key> --run-id <id> [options]
 
-Resolves prompts/<agent>.claude-code.md from the consumer repo when present,
+Resolves prompts/<agent>.<path>.md from the consumer repo when present,
 otherwise Ferry's bundled default; substitutes runtime tokens; writes the result
 to $GITHUB_OUTPUT (key: --output-name, default "prompt") or to stdout.
 
 Options:
+  --path                   Direct-action path: claude-code | codex-cli (default: claude-code)
   --agent                  Agent: refiner | dev | review | iterate (required)
   --ticket-key             Jira ticket key (required)
   --run-id                 Ferry run id (required)
@@ -32,8 +34,10 @@ function main(): void {
   }
 
   const args = parseArgs(argv);
-  const { text, source } = renderPrompt(args, BUNDLED_CC_PROMPTS);
-  process.stderr.write(`ferry-cc-prompt: ${args.agent} prompt resolved (source: ${source})\n`);
+  const { text, source } = renderPrompt(args, BUNDLED_ACTION_PROMPTS);
+  process.stderr.write(
+    `ferry-action-prompt: ${args.path}/${args.agent} prompt resolved (source: ${source})\n`,
+  );
 
   const githubOutput = process.env.GITHUB_OUTPUT;
   if (githubOutput) {
@@ -46,6 +50,8 @@ function main(): void {
 try {
   main();
 } catch (err) {
-  process.stderr.write(`ferry-cc-prompt: ${err instanceof Error ? err.message : String(err)}\n`);
+  process.stderr.write(
+    `ferry-action-prompt: ${err instanceof Error ? err.message : String(err)}\n`,
+  );
   process.exit(1);
 }

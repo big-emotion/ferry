@@ -192,6 +192,8 @@ export function resolveTicketOverrides(
   let readOnly = false;
   let hasClaudeCode = false;
   let hasNoClaudeCode = false;
+  let hasCodexCli = false;
+  let hasNoCodexCli = false;
   const skipPhases: AgentPhase[] = [];
 
   let baseBranchLabel: string | undefined;
@@ -523,9 +525,9 @@ export function resolveTicketOverrides(
       continue;
     }
 
-    // ferry:claude-code / ferry:no-claude-code — per-ticket execution-path override.
-    // Conflicting labels are NOT a LabelConflictError: a routing ambiguity must
-    // fail closed onto the safe script path (resolved after the loop).
+    // Direct-action execution-path override. Conflicting labels are NOT a
+    // LabelConflictError: a routing ambiguity must fail closed onto the safe
+    // script path (resolved after the loop).
     if (label === 'ferry:claude-code') {
       hasClaudeCode = true;
       continue;
@@ -534,19 +536,33 @@ export function resolveTicketOverrides(
       hasNoClaudeCode = true;
       continue;
     }
+    if (label === 'ferry:codex-cli') {
+      hasCodexCli = true;
+      continue;
+    }
+    if (label === 'ferry:no-codex-cli') {
+      hasNoCodexCli = true;
+      continue;
+    }
 
     // Unrecognised ferry:* label in override namespace — log and ignore
     logger?.warn('unknown ferry override label ignored', { label });
   }
 
   // Resolve the execution-path override. Order-independent and fail-closed:
-  // any conflict (both labels present) collapses to the safe script path.
+  // any conflict collapses to the safe script path.
+  const positiveDirectActionCount = Number(hasClaudeCode) + Number(hasCodexCli);
+  const hasAnyDirectActionLabel = hasClaudeCode || hasNoClaudeCode || hasCodexCli || hasNoCodexCli;
+  let executionPath: 'claude-code' | 'codex-cli' | 'script' | undefined;
+  if (hasAnyDirectActionLabel) {
+    executionPath = 'script';
+    if (positiveDirectActionCount === 1 && !hasNoClaudeCode && !hasNoCodexCli) {
+      executionPath = hasClaudeCode ? 'claude-code' : 'codex-cli';
+    }
+  }
+
   const claudeCodePath: 'claude-code' | 'script' | undefined =
-    hasClaudeCode && !hasNoClaudeCode
-      ? 'claude-code'
-      : hasClaudeCode || hasNoClaudeCode
-        ? 'script'
-        : undefined;
+    executionPath === 'claude-code' || executionPath === 'script' ? executionPath : undefined;
 
   // Apply blanket model/provider to phases not already overridden per-phase.
   // Per-phase labels take precedence: blanket only fills phases with no explicit per-phase override.
@@ -601,6 +617,7 @@ export function resolveTicketOverrides(
     ...(paused ? { paused: true } : {}),
     ...(dryRun ? { dryRun: true } : {}),
     ...(readOnly ? { readOnly: true } : {}),
+    ...(executionPath !== undefined ? { executionPath } : {}),
     ...(claudeCodePath !== undefined ? { claudeCodePath } : {}),
   };
 }
@@ -700,6 +717,7 @@ export function hasNonDefaultOverrides(overrides: TicketOverrides): boolean {
     overrides.paused === true ||
     overrides.dryRun === true ||
     overrides.readOnly === true ||
+    overrides.executionPath !== undefined ||
     overrides.claudeCodePath !== undefined
   );
 }
@@ -743,6 +761,7 @@ export function buildOverridesAuditComment(
   if (overrides.paused) payload.paused = true;
   if (overrides.dryRun) payload.dryRun = true;
   if (overrides.readOnly) payload.readOnly = true;
+  if (overrides.executionPath !== undefined) payload.executionPath = overrides.executionPath;
   if (overrides.claudeCodePath !== undefined) payload.claudeCodePath = overrides.claudeCodePath;
 
   const body = `[ferry:${role}:${runId}] overrides applied: ${JSON.stringify(payload)}`;

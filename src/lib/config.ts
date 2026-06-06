@@ -15,13 +15,15 @@ export interface LlmRoute {
  * - `script`: the bundled multi-provider deterministic agent loop.
  * - `claude-code`: the `anthropics/claude-code-action` reasoning core,
  *   bracketed by deterministic Ferry contract steps. Anthropic-only.
+ * - `codex-cli`: the `openai/codex-action` reasoning core, bracketed
+ *   by deterministic Ferry contract steps. OpenAI-only for the selected role.
  *
  * When `FerryConfig.execution_path` is left unset, the resolver applies the
  * *conditional default* (claude-code for Anthropic-only consumers, script
  * otherwise — see `resolveExecutionPath`). An explicit `script` is a hard
  * lock that the per-ticket label / heuristic never override.
  */
-export type ExecutionPath = 'script' | 'claude-code';
+export type ExecutionPath = 'script' | 'claude-code' | 'codex-cli';
 
 /** Deterministic execution-path routing knobs (ADR-0006 §3, #300). */
 export interface RoutingConfig {
@@ -530,9 +532,10 @@ function validateConfigShape(raw: unknown): ValidationError[] {
   if (
     c.execution_path !== undefined &&
     c.execution_path !== 'script' &&
-    c.execution_path !== 'claude-code'
+    c.execution_path !== 'claude-code' &&
+    c.execution_path !== 'codex-cli'
   ) {
-    errs.push('execution_path: must be "script" or "claude-code"');
+    errs.push('execution_path: must be "script", "claude-code", or "codex-cli"');
   }
 
   if (c.routing !== undefined) {
@@ -755,8 +758,8 @@ function mergeWithDefaults(raw: RawConfig): FerryConfig {
     },
     ...(labels !== undefined ? { labels } : {}),
     workflow: mergeWorkflow(raw.workflow),
-    ...(raw.execution_path === 'script' || raw.execution_path === 'claude-code'
-      ? { execution_path: raw.execution_path }
+    ...(['script', 'claude-code', 'codex-cli'].includes(raw.execution_path as string)
+      ? { execution_path: raw.execution_path as ExecutionPath }
       : {}),
     routing: {
       claude_code_round_trip_threshold: num(

@@ -96,6 +96,7 @@ describe('parseArgs', () => {
 
 describe('renderPrompt', () => {
   const args: CcPromptArgs = {
+    path: 'claude-code',
     agent: 'dev',
     repoRoot: '/repo',
     outputName: 'prompt',

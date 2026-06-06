@@ -80,9 +80,9 @@ await Promise.all([
     outfile: 'dist/cli/jira-mcp/index.js',
     external: ['@modelcontextprotocol/sdk'],
   }),
-  // ferry-cc-prompt resolves the claude-code-path prompt. The `text` loader
-  // inlines the four bundled `prompts/*.claude-code.md` defaults into the
-  // bundle — the npm package ships only `dist/cli/`, never `prompts/`.
+  // ferry-action-prompt / ferry-cc-prompt resolve direct-action path prompts.
+  // The `text` loader inlines bundled `prompts/*.{claude-code,codex-cli}.md`
+  // defaults into the bundle — the npm package ships only `dist/cli/`.
   build({
     ...shared,
     entryPoints: ['src/cli/cc-prompt/index.ts'],

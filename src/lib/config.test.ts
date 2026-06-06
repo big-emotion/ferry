@@ -792,6 +792,11 @@ describe('execution_path + routing config (ADR-0006, #300)', () => {
     expect(cfg.execution_path).toBe('claude-code');
   });
 
+  it('parses execution_path "codex-cli"', () => {
+    const cfg = parseFerryConfigJson(JSON.stringify({ execution_path: 'codex-cli' }));
+    expect(cfg.execution_path).toBe('codex-cli');
+  });
+
   it('parses a custom routing threshold', () => {
     const cfg = parseFerryConfigJson(
       JSON.stringify({ routing: { claude_code_round_trip_threshold: 5 } }),

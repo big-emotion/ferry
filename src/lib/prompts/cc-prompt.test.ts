@@ -2,7 +2,13 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import * as path from 'node:path';
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { resolveCcPrompt, substituteTokens, CC_PROMPT_TOKENS, CC_AGENTS } from './cc-prompt.js';
+import {
+  resolveActionPrompt,
+  resolveCcPrompt,
+  substituteTokens,
+  CC_PROMPT_TOKENS,
+  CC_AGENTS,
+} from './cc-prompt.js';
 
 const REPO_ROOT = '/workspace/repo';
 
@@ -22,6 +28,14 @@ describe('resolveCcPrompt', () => {
     const result = resolveCcPrompt('dev', REPO_ROOT, 'BUNDLED', check, read);
     expect(result).toEqual({ source: 'override', text: 'OVERRIDE' });
     expect(read).toHaveBeenCalledWith('/workspace/repo/prompts/dev.claude-code.md', 'utf8');
+  });
+
+  it('returns a codex-cli consumer override when prompts/<agent>.codex-cli.md exists', () => {
+    const check = (p: string) => p === '/workspace/repo/prompts/dev.codex-cli.md';
+    const read = vi.fn(() => 'CODEX');
+    const result = resolveActionPrompt('codex-cli', 'dev', REPO_ROOT, 'BUNDLED', check, read);
+    expect(result).toEqual({ source: 'override', text: 'CODEX' });
+    expect(read).toHaveBeenCalledWith('/workspace/repo/prompts/dev.codex-cli.md', 'utf8');
   });
 
   it('honours FERRY_PROMPTS_DIR as the override directory', () => {
@@ -115,6 +129,13 @@ describe('bundled prompt ↔ CC_PROMPT_TOKENS coupling', () => {
     const text = readFileSync(path.join(PROMPTS_DIR, `${agent}.claude-code.md`), 'utf8');
     for (const token of CC_PROMPT_TOKENS[agent]) {
       expect(text, `${agent}.claude-code.md is missing token "${token}"`).toContain(token);
+    }
+  });
+
+  it.each([...CC_AGENTS])('prompts/%s.codex-cli.md contains all required tokens', (agent) => {
+    const text = readFileSync(path.join(PROMPTS_DIR, `${agent}.codex-cli.md`), 'utf8');
+    for (const token of CC_PROMPT_TOKENS[agent]) {
+      expect(text, `${agent}.codex-cli.md is missing token "${token}"`).toContain(token);
     }
   });
 });
