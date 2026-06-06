@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { workflowTemplates } from '../init/templates.js';
+import { applyLocalOverrides, type LocalOverrides } from './local-overrides.js';
 import type { WorkflowChange } from './types.js';
 
 const FERRY_WORKFLOW_PATTERN = /uses:\s+big-emotion\/ferry\/.+@(v[\w.-]+)/;
@@ -33,10 +34,19 @@ export function detectInstalledVersion(repoRoot: string): string | undefined {
 /**
  * Compute what changes applying `toVersion` templates would make.
  * Returns one entry per workflow template file.
+ *
+ * When `overrides` is provided the templates are post-processed with
+ * `applyLocalOverrides` before comparison, so the diff reflects only
+ * upstream changes (not the overlay itself).
  */
-export function computeWorkflowChanges(repoRoot: string, toVersion: string): WorkflowChange[] {
+export function computeWorkflowChanges(
+  repoRoot: string,
+  toVersion: string,
+  overrides?: LocalOverrides,
+): WorkflowChange[] {
   const workflowDir = join(repoRoot, '.github', 'workflows');
-  const templates = workflowTemplates(toVersion);
+  const base = workflowTemplates(toVersion);
+  const templates = overrides ? applyLocalOverrides(base, overrides) : base;
   const changes: WorkflowChange[] = [];
 
   for (const tmpl of templates) {
