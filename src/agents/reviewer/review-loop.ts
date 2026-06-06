@@ -1,16 +1,14 @@
 import type { CIRunner, PRFile } from '../../lib/dispatch/runner/types.js';
-import { createLogger } from '../../lib/logger/index.js';
 import type { Logger } from '../../lib/logger/index.js';
 import type { CiStatus } from './ci-gate.js';
-import type { ToolCallLoop, ToolDef } from '../../lib/llm/tool-loop/index.js';
+import type { AgentLoop, AgentTool, McpServerConfig } from '../../lib/llm/agent-loop/index.js';
 
 export const MAX_PATCH_CHARS = 20_000;
 export const MAX_CONTENT_CHARS = 40_000;
-const MAX_ITERATIONS = 40;
 
 export type { CiStatus, PRFile as PrFile };
 
-export const REVIEW_TOOL_DEFS: ToolDef[] = [
+export const REVIEW_TOOL_DEFS: AgentTool[] = [
   {
     name: 'get_file_patch',
     description:
@@ -38,15 +36,23 @@ export const REVIEW_TOOL_DEFS: ToolDef[] = [
     },
   },
   {
-    name: 'finish_review',
+    name: 'done',
     description:
       'Post the review verdict and end the review loop. Call once you have inspected all relevant files.',
     input_schema: {
       type: 'object',
       properties: {
+        actionable: {
+          type: 'boolean',
+          description: 'true if you are approving the PR, false if requesting changes.',
+        },
         approved: {
           type: 'boolean',
           description: 'true = ready to merge, false = changes required.',
+        },
+        summary: {
+          type: 'string',
+          description: 'One sentence summary of the review outcome.',
         },
         comment: {
           type: 'string',
@@ -54,7 +60,7 @@ export const REVIEW_TOOL_DEFS: ToolDef[] = [
             'Full review comment in Markdown. Follow the required format from the system prompt.',
         },
       },
-      required: ['approved', 'comment'],
+      required: ['actionable', 'approved', 'summary', 'comment'],
     },
   },
 ];
@@ -71,17 +77,57 @@ export interface ReviewResult {
 // under src/agents/reviewer/** stay valid.
 export { detectMergeConflicts, buildFileList } from '../../lib/agent-runtime/reviewer-helpers.js';
 
-export async function runReviewLoop(opts: {
-  loop: ToolCallLoop;
-  system: string;
-  initialPrompt: string;
+/**
+ * Factory that returns the reviewer's executeTool function.
+ * Handles get_file_patch and get_file_content; the done tool is handled
+ * by the agent loop internally.
+ */
+export function makeReviewExecuteTool(opts: {
   fileMap: Map<string, string | undefined>;
   runner: CIRunner;
   owner: string;
   repo: string;
   headSha: string;
-  maxIterations?: number;
-  maxTokens?: number;
+  logger: Logger;
+}): (repoRoot: string, name: string, input: Record<string, unknown>) => Promise<string> {
+  const { fileMap, runner, owner, repo, headSha, logger } = opts;
+
+  return async (
+    _repoRoot: string,
+    name: string,
+    input: Record<string, unknown>,
+  ): Promise<string> => {
+    if (name === 'get_file_patch') {
+      const filename = input.filename as string;
+      logger.info('tool', { tool: 'get_file_patch', file: filename });
+      const patch = fileMap.get(filename);
+      if (patch === undefined) return `(file not found in PR: ${filename})`;
+      if (!patch) return '(no patch — binary, empty, or content unchanged)';
+      const patchLimit =
+        parseInt(process.env.FERRY_REVIEW_PATCH_TRUNCATE_CHARS ?? '', 10) || MAX_PATCH_CHARS;
+      return patch.length > patchLimit ? patch.slice(0, patchLimit) + '\n... (truncated)' : patch;
+    }
+    if (name === 'get_file_content') {
+      const filename = input.filename as string;
+      logger.info('tool', { tool: 'get_file_content', file: filename });
+      const fileLimit =
+        parseInt(process.env.FERRY_REVIEW_FILE_TRUNCATE_CHARS ?? '', 10) || MAX_CONTENT_CHARS;
+      const rawContent = await runner.getFileContent(owner, repo, filename, headSha);
+      return rawContent.length > fileLimit
+        ? rawContent.slice(0, fileLimit) + '\n... (truncated)'
+        : rawContent;
+    }
+    throw new Error(`Unknown reviewer tool: ${name}`);
+  };
+}
+
+export async function runReviewLoop(opts: {
+  loop: AgentLoop;
+  system: string;
+  initialPrompt: string;
+  repoRoot: string;
+  branchName: string;
+  mcpServers?: McpServerConfig[];
   logger?: Logger;
 }): Promise<{
   result: ReviewResult;
@@ -91,62 +137,35 @@ export async function runReviewLoop(opts: {
   toolCounts: Record<string, number>;
   toolCallRecords: Array<{ name: string; outputSize: number }>;
 }> {
-  const { loop, system, initialPrompt, fileMap, runner, owner, repo, headSha } = opts;
-  const logger = opts.logger ?? createLogger('', 'ferry:review-loop');
-  const maxIterations =
-    opts.maxIterations ??
-    (parseInt(process.env.FERRY_REVIEWER_MAX_ITERATIONS ?? '', 10) || MAX_ITERATIONS);
-  const maxTokens =
-    opts.maxTokens ?? (parseInt(process.env.FERRY_REVIEWER_MAX_TOKENS ?? '', 10) || 16384);
+  const { loop, system, initialPrompt, repoRoot, branchName } = opts;
+  const mcpServers = opts.mcpServers ?? [];
 
-  const {
-    done: result,
-    usage,
-    iterations,
-    toolCounts,
-    toolCallRecords,
-  } = await loop.run<ReviewResult>({
+  const loopResult = await loop.run({
     system,
     initialPrompt,
     tools: REVIEW_TOOL_DEFS,
-    finishTool: 'finish_review',
-    extractDone: (input) => ({
-      approved: input.approved as boolean,
-      comment: input.comment as string,
-    }),
-    handlers: {
-      get_file_patch: (input) => {
-        const filename = input.filename as string;
-        logger.info('tool', { tool: 'get_file_patch', file: filename });
-        const patch = fileMap.get(filename);
-        if (patch === undefined) return `(file not found in PR: ${filename})`;
-        if (!patch) return '(no patch — binary, empty, or content unchanged)';
-        const patchLimit =
-          parseInt(process.env.FERRY_REVIEW_PATCH_TRUNCATE_CHARS ?? '', 10) || MAX_PATCH_CHARS;
-        return patch.length > patchLimit ? patch.slice(0, patchLimit) + '\n... (truncated)' : patch;
-      },
-      get_file_content: async (input) => {
-        const filename = input.filename as string;
-        logger.info('tool', { tool: 'get_file_content', file: filename });
-        const fileLimit =
-          parseInt(process.env.FERRY_REVIEW_FILE_TRUNCATE_CHARS ?? '', 10) || MAX_CONTENT_CHARS;
-        const rawContent = await runner.getFileContent(owner, repo, filename, headSha);
-        return rawContent.length > fileLimit
-          ? rawContent.slice(0, fileLimit) + '\n... (truncated)'
-          : rawContent;
-      },
-    },
-    maxIterations,
-    maxTokens,
-    logger,
+    repoRoot,
+    branchName,
+    secretScan: () => Promise.resolve(),
+    mcpServers,
   });
+
+  const done = loopResult.done as unknown as {
+    approved: boolean;
+    comment: string;
+  };
+
+  const result: ReviewResult = {
+    approved: done.approved,
+    comment: done.comment,
+  };
 
   return {
     result,
-    inputTokens: usage.inputTokens,
-    outputTokens: usage.outputTokens,
-    iterations,
-    toolCounts,
-    toolCallRecords,
+    inputTokens: loopResult.usage.input_tokens,
+    outputTokens: loopResult.usage.output_tokens,
+    iterations: loopResult.iterations,
+    toolCounts: loopResult.toolCounts,
+    toolCallRecords: loopResult.toolCallRecords,
   };
 }
