@@ -275,10 +275,10 @@ describe('workflowTemplates — role-specific wiring', () => {
     );
   });
 
-  it('ferry-iterate.yml uses fetch-depth: 0 for the script-path checkout', () => {
+  it('ferry-iterate.yml uses fetch-depth: 0 for both script-path and claude-code-path checkouts', () => {
     const iterate = workflowTemplates('v1').find((t) => t.filename === 'ferry-iterate.yml');
     const fetchDepthCount = (iterate?.content.match(/fetch-depth: 0/g) ?? []).length;
-    expect(fetchDepthCount).toBe(1);
+    expect(fetchDepthCount).toBe(2);
   });
 
   it('ferry-review.yml declares checks: read on run-agent and the ci-gate job', () => {
@@ -387,6 +387,68 @@ describe('workflowTemplates — supply-chain action pinning', () => {
         tmpl.content,
         `${tmpl.filename}: claude-code-action still uses a mutable tag`,
       ).not.toMatch(TAG_PIN);
+    }
+  });
+});
+
+describe('workflowTemplates — claude-code path CI permissions and checkout refs (#396)', () => {
+  // dev/iterate/merge instruct the agent to drive CI to green via `gh pr checks`,
+  // `gh run view`, and the GraphQL statusCheckRollup — all need checks: read and
+  // actions: read. Without them every check-status endpoint returns HTTP 403 and
+  // the agent resolves CI as unknown, never transitioning the ticket.
+  it('dev/iterate/merge run-agent-claude-code grants checks: read and actions: read', () => {
+    for (const filename of ['ferry-dev.yml', 'ferry-iterate.yml', 'ferry-merge.yml']) {
+      const tmpl = workflowTemplates('v1').find((t) => t.filename === filename);
+      expect(tmpl, `${filename} not found`).toBeDefined();
+      const ccBlock = tmpl!.content
+        .split('  run-agent-claude-code:')[1]
+        .split('\n  emit-audit:')[0];
+      expect(ccBlock, `${filename}: run-agent-claude-code missing checks: read`).toContain(
+        'checks: read',
+      );
+      expect(ccBlock, `${filename}: run-agent-claude-code missing actions: read`).toContain(
+        'actions: read',
+      );
+    }
+  });
+
+  // On repository_dispatch, a bare actions/checkout checks out the default branch.
+  // refiner/dev must work against the integration branch; iterate/review/merge must
+  // work against the PR branch ferry/<ticket_key>.
+  it('refiner/dev claude-code path checks out the integration branch (FERRY_INTEGRATION_BRANCH)', () => {
+    for (const filename of ['ferry-refine.yml', 'ferry-dev.yml']) {
+      const tmpl = workflowTemplates('v1').find((t) => t.filename === filename);
+      expect(tmpl, `${filename} not found`).toBeDefined();
+      const ccBlock = tmpl!.content
+        .split('  run-agent-claude-code:')[1]
+        .split('\n  emit-audit:')[0];
+      expect(
+        ccBlock,
+        `${filename}: claude-code checkout must target FERRY_INTEGRATION_BRANCH`,
+      ).toContain("ref: ${{ vars.FERRY_INTEGRATION_BRANCH || 'main' }}");
+    }
+  });
+
+  it('iterate/review/merge claude-code path checks out the PR branch (ferry/<ticket_key>)', () => {
+    for (const filename of ['ferry-iterate.yml', 'ferry-review.yml', 'ferry-merge.yml']) {
+      const tmpl = workflowTemplates('v1').find((t) => t.filename === filename);
+      expect(tmpl, `${filename} not found`).toBeDefined();
+      const ccBlock = tmpl!.content
+        .split('  run-agent-claude-code:')[1]
+        .split('\n  emit-audit:')[0];
+      expect(ccBlock, `${filename}: claude-code checkout must target the PR branch`).toContain(
+        'ref: ferry/${{ github.event.client_payload.ticket_key }}',
+      );
+    }
+  });
+
+  it('every run-agent-claude-code checkout uses fetch-depth: 0 (avoids shallow-clone on merge-base)', () => {
+    for (const tmpl of workflowTemplates('v1')) {
+      const ccBlock =
+        tmpl.content.split('  run-agent-claude-code:')[1]?.split('\n  emit-audit:')[0] ?? '';
+      expect(ccBlock, `${tmpl.filename}: claude-code checkout missing fetch-depth: 0`).toContain(
+        'fetch-depth: 0',
+      );
     }
   });
 });
