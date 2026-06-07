@@ -19,6 +19,7 @@ import { getRelevantMigrations } from './migrations.js';
 import { runCredentialGate } from './credential-gate-run.js';
 import { extractJiraConfigFromSetupFile } from './extract-jira-config.js';
 import { resolveForgeFromArgv, type ForgeKind } from '../lib/forge.js';
+import { loadLocalOverrides, applyLocalOverrides, type LocalOverrides } from './local-overrides.js';
 import { rewriteGitLabVersion } from './gitlab/rewriter.js';
 import type { UpdateConfig } from './types.js';
 
@@ -312,9 +313,31 @@ Exit code: 0 on success, 1 on error.
     process.exit(0);
   }
 
+  // ── Load consumer-side overlay (ferry.local.yml) ──────────────────────────
+  let localOverrides: LocalOverrides | null = null;
+  try {
+    localOverrides = loadLocalOverrides(config.repoRoot);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    printError(msg);
+    closePrompt();
+    process.exit(1);
+  }
+  if (localOverrides) {
+    const keys: string[] = [];
+    if (localOverrides.review?.ciGate) keys.push(`review.ciGate=${localOverrides.review.ciGate}`);
+    if (localOverrides.global?.runner !== undefined) {
+      const r = localOverrides.global.runner;
+      keys.push(`global.runner=${Array.isArray(r) ? JSON.stringify(r) : r}`);
+    }
+    if (keys.length > 0) {
+      print(`  Local overrides (ferry.local.yml): ${keys.join(', ')}`);
+    }
+  }
+
   // ── Compute changes ───────────────────────────────────────────────────────
   printStep(2, 3, 'Computing changes');
-  const changes = computeWorkflowChanges(config.repoRoot, toVersion);
+  const changes = computeWorkflowChanges(config.repoRoot, toVersion, localOverrides ?? undefined);
   const toUpdate = changes.filter((c) => c.status === 'updated');
   const toAdd = changes.filter((c) => c.status === 'added');
   const unchanged = changes.filter((c) => c.status === 'unchanged');
@@ -408,7 +431,10 @@ Exit code: 0 on success, 1 on error.
   // ── Apply ─────────────────────────────────────────────────────────────────
   printStep(3, 3, 'Applying changes');
   const workflowDir = join(config.repoRoot, '.github', 'workflows');
-  const templates = workflowTemplates(toVersion);
+  const baseTemplates = workflowTemplates(toVersion);
+  const templates = localOverrides
+    ? applyLocalOverrides(baseTemplates, localOverrides)
+    : baseTemplates;
 
   let errors = 0;
   for (const tmpl of templates) {

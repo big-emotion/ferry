@@ -2,7 +2,13 @@ import { describe, it, expect } from 'vitest';
 import { parse as parseYaml } from 'yaml';
 import { workflowTemplates } from './templates.js';
 
-const AGENT_FILES = ['ferry-refine.yml', 'ferry-dev.yml', 'ferry-review.yml', 'ferry-iterate.yml'];
+const AGENT_FILES = [
+  'ferry-refine.yml',
+  'ferry-dev.yml',
+  'ferry-review.yml',
+  'ferry-iterate.yml',
+  'ferry-merge.yml',
+];
 
 // Validates that a rendered template is structurally sound YAML for GitHub Actions:
 // - Uses only spaces, no tabs (YAML is space-sensitive)
@@ -41,8 +47,8 @@ function assertValidWorkflowYaml(content: string, filename: string): void {
 }
 
 describe('workflowTemplates — count and filenames', () => {
-  it('returns exactly 4 workflow templates', () => {
-    expect(workflowTemplates('v1')).toHaveLength(4);
+  it('returns exactly 5 workflow templates', () => {
+    expect(workflowTemplates('v1')).toHaveLength(5);
   });
 
   it('includes all four agent workflow filenames', () => {
@@ -201,6 +207,7 @@ describe('workflowTemplates — claude-code path single-step shape', () => {
       'ferry-dev.yml': "--model ${{ vars.FERRY_DEV_MODEL || 'claude-sonnet-4-6' }}",
       'ferry-review.yml': "--model ${{ vars.FERRY_REVIEW_MODEL || 'claude-sonnet-4-6' }}",
       'ferry-iterate.yml': "--model ${{ vars.FERRY_ITER_MODEL || 'claude-sonnet-4-6' }}",
+      'ferry-merge.yml': "--model ${{ vars.FERRY_MERGER_MODEL || 'claude-sonnet-4-6' }}",
     };
     for (const tmpl of workflowTemplates('v1')) {
       const expected = modelVars[tmpl.filename];
@@ -230,6 +237,23 @@ describe('workflowTemplates — role-specific wiring', () => {
     expect(dev?.content).toContain(
       'ferry_review_transition_id: ${{ secrets.FERRY_REVIEW_TRANSITION_ID }}',
     );
+  });
+
+  it('ferry-review.yml run-agent (script path) has contents: write — required for repository_dispatch (FR32)', () => {
+    // The reviewer dispatches ferry-merge on approve; repos.createDispatchEvent requires
+    // contents: write. contents: read silently 403s and crashes the job after approval.
+    const review = workflowTemplates('v1').find((t) => t.filename === 'ferry-review.yml');
+    expect(review, 'ferry-review.yml not found').toBeDefined();
+    // Extract the run-agent job block (ends before the ci-gate job).
+    const runAgentBlock = review!.content.split('  ci-gate:')[0].split('  run-agent:')[1];
+    expect(
+      runAgentBlock,
+      'ferry-review.yml run-agent permissions block must have contents: write (not read)',
+    ).toContain('contents: write');
+    expect(
+      runAgentBlock,
+      'ferry-review.yml run-agent must not downgrade to contents: read',
+    ).not.toMatch(/contents: read/);
   });
 
   it('ferry-review.yml wires FERRY_ITER_TRANSITION_ID into run-agent and ci-gate (FR24 changes)', () => {
@@ -363,6 +387,7 @@ describe('workflowTemplates — run-agent-claude-code permissions include id-tok
     { filename: 'ferry-dev.yml', role: 'developer' },
     { filename: 'ferry-review.yml', role: 'reviewer' },
     { filename: 'ferry-iterate.yml', role: 'iterator' },
+    { filename: 'ferry-merge.yml', role: 'merger' },
   ] as const;
 
   for (const { filename, role } of roles) {

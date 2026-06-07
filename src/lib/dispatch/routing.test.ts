@@ -15,6 +15,7 @@ describe('PHASE_TO_WORKFLOW table', () => {
       dev: { workflow: 'ferry-dev.yml', dispatchType: 'ferry-dev' },
       review: { workflow: 'ferry-review.yml', dispatchType: 'ferry-review' },
       iterate: { workflow: 'ferry-iterate.yml', dispatchType: 'ferry-iterate' },
+      merge: { workflow: 'ferry-merge.yml', dispatchType: 'ferry-merge' },
     });
   });
 
