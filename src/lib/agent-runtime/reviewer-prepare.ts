@@ -18,8 +18,13 @@ import {
   buildTicketBlock,
   loadOptionalPrompt as defaultLoadOptionalPrompt,
 } from './prompt.js';
-import { type ResolvedCapabilities, type TicketOverrides } from '../labels/capabilities.js';
+import {
+  type ResolvedCapabilities,
+  type TicketOverrides,
+  filterMcpServers,
+} from '../labels/capabilities.js';
 import { applyRubricToPrompt, detectMergeConflicts, buildFileList } from './reviewer-helpers.js';
+import type { LabelCapability } from '../config.js';
 import type { TrackerIssue } from '../io/tracker/types.js';
 import type { PR, PRFile } from '../dispatch/runner/types.js';
 import type { McpServerConfig } from '../llm/agent-loop/types.js';
@@ -48,6 +53,18 @@ export interface PrepareReviewerInput {
    */
   idempotencyMarker: string;
   repoRoot: string;
+  /**
+   * Full MCP server pool to filter by capabilities. When provided together
+   * with `configLabels`, the returned `mcpServers` is the capability-filtered
+   * subset. When omitted (legacy / test), returns an empty list.
+   */
+  mcpPool?: McpServerConfig[];
+  /**
+   * `effectiveCfg.labels` — used to determine whether a labels section exists.
+   * When undefined (no labels in ferry.config), filterMcpServers returns the
+   * full pool unfiltered (backward-compatible with pre-label configs).
+   */
+  configLabels?: Record<string, LabelCapability>;
   /** Test seam — defaults to the real `buildSystem`. */
   _buildSystem?: typeof defaultBuildSystem;
   /** Test seam — defaults to the real `loadOptionalPrompt`. */
@@ -72,6 +89,8 @@ export function prepareReviewer(input: PrepareReviewerInput): ReviewerPreparedCo
     capabilities,
     idempotencyMarker,
     repoRoot,
+    mcpPool,
+    configLabels,
   } = input;
   const buildSystem = input._buildSystem ?? defaultBuildSystem;
   const loadOptionalPrompt = input._loadOptionalPrompt ?? defaultLoadOptionalPrompt;
@@ -111,7 +130,7 @@ export function prepareReviewer(input: PrepareReviewerInput): ReviewerPreparedCo
     buildFileList(files),
     '',
     'Use get_file_patch to inspect individual file diffs, get_file_content for full file contents.',
-    'When you have enough information, call finish_review.',
+    'When you have enough information, call done.',
   ]
     .filter((l) => l !== null)
     .join('\n');
@@ -122,9 +141,9 @@ export function prepareReviewer(input: PrepareReviewerInput): ReviewerPreparedCo
   });
   const system = applyRubricToPrompt(baseSystem, reviewRubric);
 
-  // The reviewer agent has never used MCP servers; we expose an empty list to
-  // satisfy the shared `RolePreparedContextBase` shape.
-  const mcpServers: McpServerConfig[] = [];
+  const hasLabelsConfig = configLabels !== undefined;
+  const mcpServers: McpServerConfig[] =
+    mcpPool !== undefined ? filterMcpServers(mcpPool, capabilities, hasLabelsConfig) : [];
 
   return {
     system,

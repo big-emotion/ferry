@@ -1,7 +1,7 @@
-import { createToolCallLoop } from '../../lib/llm/tool-loop/index.js';
+import { createAgentLoop } from '../../lib/llm/agent-loop/index.js';
 import { checkIdempotencyMarker } from '../../lib/io/idempotency.js';
 import { gateCi } from './ci-gate.js';
-import { runReviewLoop } from './review-loop.js';
+import { runReviewLoop, makeReviewExecuteTool } from './review-loop.js';
 import {
   resolveCapabilities,
   resolveTicketOverrides,
@@ -14,6 +14,7 @@ import {
 } from '../../lib/agent-runtime/index.js';
 import {
   requireEnv,
+  loadMcpServers,
   appendOutput,
   writeStepSummary,
   createGitHubContext,
@@ -22,6 +23,7 @@ import {
   loadFerryConfigFromBaseBranch,
   logCapabilities,
   logTicketOverrides,
+  filterMcpServers,
   byEventId,
   byPrHeadSha,
   prepareReviewer,
@@ -209,6 +211,16 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
   const files = await runner.listPRFiles({ owner, repo, prNumber });
   const commits = await runner.listPRCommits({ owner, repo, prNumber });
 
+  // MCP plumbing: load the full pool, then filter to the servers enabled by
+  // the ticket's capability labels. Reviewer inherits MCP wiring via
+  // createAgentLoop (issue #322).
+  const mcpPool = loadMcpServers();
+  const hasLabelsConfig = effectiveCfg.labels !== undefined;
+  const mcpServers = filterMcpServers(mcpPool, capabilities, hasLabelsConfig);
+  if (mcpServers.length > 0) {
+    logger.info('MCP servers', { servers: mcpServers.map((s) => s.name) });
+  }
+
   // Pre-loop setup: builds the reviewer system prompt (with review-comment
   // overlay + rubric override), the initial prompt, the filename→patch map,
   // and the capability-filtered MCP pool. Extracted into a reusable prepare
@@ -227,10 +239,22 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
     capabilities,
     idempotencyMarker,
     repoRoot: REPO_ROOT,
+    mcpPool,
+    configLabels: effectiveCfg.labels,
   });
   const { system, initialPrompt, fileMap } = prepared;
 
-  const loop = createToolCallLoop({ provider, model, thinking: thinkingOverride, logger });
+  const executeTool = makeReviewExecuteTool({ fileMap, runner, owner, repo, headSha, logger });
+
+  const loop = createAgentLoop({
+    provider,
+    model,
+    thinking: thinkingOverride,
+    maxIterations: effectiveCfg.limits.reviewer_max_iterations,
+    maxTokens: effectiveCfg.limits.reviewer_max_tokens,
+    executeTool,
+    logger,
+  });
 
   const {
     result: review,
@@ -243,13 +267,9 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
     loop,
     system,
     initialPrompt,
-    fileMap,
-    runner,
-    owner,
-    repo,
-    headSha,
-    maxIterations: effectiveCfg.limits.reviewer_max_iterations,
-    maxTokens: effectiveCfg.limits.reviewer_max_tokens,
+    repoRoot: REPO_ROOT,
+    branchName,
+    mcpServers,
     logger,
   });
 
