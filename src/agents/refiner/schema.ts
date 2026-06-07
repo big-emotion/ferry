@@ -1,3 +1,5 @@
+import type { AgentTool } from '../../lib/llm/agent-loop/index.js';
+
 /**
  * RefinerOutput JSON schema + types (v2 — content-aware reconciliation).
  *
@@ -136,3 +138,84 @@ export const REFINER_TOUCH_PATHS_CAP = 20;
 export function getRefinerTouchPathsCap(): number {
   return parseInt(process.env.FERRY_REFINER_TOUCH_PATHS_CAP ?? '', 10) || REFINER_TOUCH_PATHS_CAP;
 }
+
+/**
+ * Terminating tool for the Refiner agent-loop.
+ * The LLM calls this exactly once to submit the reconciliation plan.
+ * Input schema mirrors REFINER_OUTPUT_SCHEMA so AJV validation still runs
+ * on the captured args (after stripping loop-injected fields via JSON round-trip).
+ */
+export const FINISH_REFINE_TOOL: AgentTool = {
+  name: 'done',
+  description:
+    'Submit the final reconciliation plan and end the loop. Call once after analysing the ticket and all available context.',
+  input_schema: {
+    type: 'object',
+    required: ['actions', 'touch_paths', 'output_locale', 'audit_summary'],
+    properties: {
+      actions: {
+        type: 'array',
+        minItems: 1,
+        items: {
+          anyOf: [
+            {
+              type: 'object',
+              required: ['type', 'title', 'description'],
+              properties: {
+                type: { const: 'create' },
+                title: { type: 'string', minLength: 1, maxLength: 200 },
+                description: { type: 'string', minLength: 1, maxLength: 4000 },
+              },
+            },
+            {
+              type: 'object',
+              required: ['type', 'existing_key', 'reason'],
+              properties: {
+                type: { const: 'keep' },
+                existing_key: { type: 'string', minLength: 1 },
+                reason: { type: 'string', minLength: 1 },
+              },
+            },
+            {
+              type: 'object',
+              required: ['type', 'existing_key', 'reason'],
+              properties: {
+                type: { const: 'mark_stale' },
+                existing_key: { type: 'string', minLength: 1 },
+                reason: { type: 'string', minLength: 1 },
+              },
+            },
+            {
+              type: 'object',
+              required: ['type', 'reason'],
+              properties: {
+                type: { const: 'noop' },
+                reason: { type: 'string', minLength: 1 },
+              },
+            },
+          ],
+        },
+      },
+      touch_paths: {
+        type: 'array',
+        items: { type: 'string', minLength: 1, maxLength: 400 },
+      },
+      output_locale: { enum: ['en', 'fr'] },
+      audit_summary: { type: 'string', minLength: 1, maxLength: 2000 },
+      attachments: {
+        type: 'array',
+        items: { type: 'string', minLength: 1, maxLength: 400 },
+      },
+      cost_estimate: {
+        type: 'object',
+        required: ['loUsd', 'hiUsd', 'confidence', 'baselineRuns'],
+        properties: {
+          loUsd: { type: 'number', minimum: 0 },
+          hiUsd: { type: 'number', minimum: 0 },
+          confidence: { enum: ['low', 'medium', 'high'] },
+          baselineRuns: { type: 'integer', minimum: 0 },
+        },
+      },
+    },
+  },
+};

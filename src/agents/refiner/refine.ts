@@ -11,7 +11,13 @@ import type { ValidateFunction } from 'ajv';
 import { FerryError } from '../../lib/errors/index.js';
 import { delimitUntrusted } from '../../lib/llm/delimit-untrusted.js';
 import { extractFirstJsonObject } from './parse.js';
-import { REFINER_OUTPUT_SCHEMA, getRefinerTouchPathsCap, type RefinerOutput } from './schema.js';
+import {
+  REFINER_OUTPUT_SCHEMA,
+  FINISH_REFINE_TOOL,
+  getRefinerTouchPathsCap,
+  type RefinerOutput,
+} from './schema.js';
+import type { AgentLoop, McpServerConfig } from '../../lib/llm/agent-loop/index.js';
 import type { TrackerSubtask } from '../../lib/io/tracker/types.js';
 
 const _require = createRequire(import.meta.url);
@@ -184,6 +190,62 @@ export async function runRefiner(input: RefinerInput): Promise<RefinerResult> {
     auditSummary: {
       subtaskCount: createCount,
       costEur: llm.usage?.costEur ?? 0,
+      runLink: input.runLink,
+      attachmentNames: input.ticket.attachments ?? [],
+    },
+  };
+}
+
+export interface RefinerLoopInput {
+  ticket: RefinerInput['ticket'];
+  existingSubtasks?: TrackerSubtask[];
+  priorRefinerRuns?: string[];
+  loop: AgentLoop;
+  runLink: string;
+  mcpServers?: McpServerConfig[];
+}
+
+export async function runRefinerLoop(input: RefinerLoopInput): Promise<RefinerResult> {
+  const prompt = buildRefinerPrompt({
+    ticket: input.ticket,
+    existingSubtasks: input.existingSubtasks,
+    priorRefinerRuns: input.priorRefinerRuns,
+    // buildRefinerPrompt only reads ticket/existingSubtasks/priorRefinerRuns
+    callLlm: null as unknown as LlmCall,
+    runLink: '',
+  });
+  const repoRoot = process.env.GITHUB_WORKSPACE ?? process.cwd();
+
+  const loopResult = await input.loop.run({
+    system: '',
+    initialPrompt: prompt,
+    tools: [FINISH_REFINE_TOOL],
+    repoRoot,
+    branchName: '',
+    secretScan: () => Promise.resolve(),
+    mcpServers: input.mcpServers ?? [],
+  });
+
+  // JSON round-trip strips undefined values that the loop injects (actionable, outcome).
+  const parsed = JSON.parse(JSON.stringify(loopResult.done)) as unknown;
+  ensureSchemaValid(parsed, JSON.stringify(parsed));
+
+  const touchPathsCap = getRefinerTouchPathsCap();
+  if (parsed.touch_paths.length > touchPathsCap) {
+    throw new FerryError('oscillation', {
+      reason: 'spec-too-broad',
+      touchPaths: parsed.touch_paths.length,
+      cap: touchPathsCap,
+    });
+  }
+  const createCount = parsed.actions.filter(
+    (a: RefinerOutput['actions'][number]) => a.type === 'create',
+  ).length;
+  return {
+    plan: parsed,
+    auditSummary: {
+      subtaskCount: createCount,
+      costEur: 0,
       runLink: input.runLink,
       attachmentNames: input.ticket.attachments ?? [],
     },

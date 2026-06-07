@@ -25,7 +25,7 @@ import type { CIRunner } from '../lib/dispatch/runner/types.js';
 import { checkIdempotencyMarker } from '../lib/io/idempotency.js';
 import { byEventId, byPrHeadSha, byReviewCommentId } from '../lib/agent-runtime/idempotency.js';
 import type { EventEnvelopeV1 } from '../lib/envelope/types.js';
-import type { LlmCall } from '../agents/refiner/refine.js';
+import type { AgentLoop, AgentLoopResult } from '../lib/llm/agent-loop/index.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -80,7 +80,7 @@ interface MockIO {
   mergeSpy: ReturnType<typeof vi.fn>;
   /** Spy for octokit.graphql (markPullRequestReadyForReview) */
   graphqlSpy: ReturnType<typeof vi.fn>;
-  callLlm: LlmCall;
+  loop: AgentLoop;
 }
 
 function buildMockIO(): MockIO {
@@ -192,12 +192,21 @@ function buildMockIO(): MockIO {
 
   const runner = new GitHubActionsRunner(octokit, OWNER, REPO);
 
-  const callLlm = vi.fn<LlmCall>().mockResolvedValue({
-    text: JSON.stringify(MOCK_PLAN),
-    usage: { inputTokens: 100, outputTokens: 50, costEur: 0.01 },
-  });
+  const loopResult: AgentLoopResult = {
+    done: MOCK_PLAN as unknown as AgentLoopResult['done'],
+    usage: {
+      input_tokens: 100,
+      output_tokens: 50,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 0,
+    },
+    iterations: 1,
+    toolCounts: {},
+    toolCallRecords: [],
+  };
+  const loop: AgentLoop = { run: vi.fn().mockResolvedValue(loopResult) };
 
-  return { octokit, tracker, runner, auditComments, addLabelsSpy, mergeSpy, graphqlSpy, callLlm };
+  return { octokit, tracker, runner, auditComments, addLabelsSpy, mergeSpy, graphqlSpy, loop };
 }
 
 // ─── Phase runners ────────────────────────────────────────────────────────────
@@ -206,7 +215,7 @@ function buildMockIO(): MockIO {
 // git operations that are inappropriate in unit/integration tests.
 
 async function runRefinePhase(io: MockIO): Promise<void> {
-  await runRefinerAction(ENVELOPE, { tracker: io.tracker, callLlm: io.callLlm });
+  await runRefinerAction(ENVELOPE, { tracker: io.tracker, loop: io.loop });
   await emitAudit(
     {
       ticket: TICKET_KEY,

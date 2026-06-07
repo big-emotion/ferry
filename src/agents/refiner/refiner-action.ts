@@ -1,5 +1,6 @@
 import { isDryRun } from '../../lib/dry-run.js';
-import { createLlmCall } from '../../lib/llm/call.js';
+import { createAgentLoop } from '../../lib/llm/agent-loop/index.js';
+import type { AgentLoop, McpServerConfig } from '../../lib/llm/agent-loop/index.js';
 import {
   createLogger,
   createGitHubContext,
@@ -15,20 +16,23 @@ import {
   LabelConflictError,
   logTicketOverrides,
   prepareRefiner,
+  resolveCapabilities,
+  filterMcpServers,
+  logCapabilities,
+  loadMcpServers,
 } from '../../lib/agent-runtime/index.js';
 import type { Logger } from '../../lib/agent-runtime/index.js';
-import { runRefiner } from './refine.js';
+import { runRefinerLoop } from './refine.js';
 import { applyActions } from './reconcile.js';
 import { loadCostBaseline, estimateTicketCost } from './cost-estimate.js';
 import type { IssueTracker } from '../../lib/io/tracker/types.js';
-import type { LlmCall } from './refine.js';
 import type { EventEnvelopeV1 } from '../../lib/envelope/types.js';
 
 const REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
 
 export interface RefinerActionDeps {
   tracker: IssueTracker;
-  callLlm: LlmCall;
+  loop: AgentLoop;
   logger?: Logger;
   /**
    * When true (set via ferry:dry-run label or FERRY_DRY_RUN=1), the Refiner skips
@@ -36,6 +40,7 @@ export interface RefinerActionDeps {
    * the audit comment marker). LLM cost is still incurred.
    */
   dryRun?: boolean;
+  mcpServers?: McpServerConfig[];
 }
 
 export async function run(envelope: EventEnvelopeV1, deps: RefinerActionDeps): Promise<void> {
@@ -50,7 +55,7 @@ export async function run(envelope: EventEnvelopeV1, deps: RefinerActionDeps): P
   const prepared = await prepareRefiner({ envelope, tracker: deps.tracker });
   const { issue, existingSubtasks, priorRefinerRuns, runLink, idempotencyMarker } = prepared;
 
-  const { plan, auditSummary } = await runRefiner({
+  const { plan, auditSummary } = await runRefinerLoop({
     ticket: {
       key: issue.key,
       title: issue.summary,
@@ -60,8 +65,9 @@ export async function run(envelope: EventEnvelopeV1, deps: RefinerActionDeps): P
     },
     existingSubtasks,
     priorRefinerRuns,
-    callLlm: deps.callLlm,
+    loop: deps.loop,
     runLink,
+    mcpServers: deps.mcpServers,
   });
 
   const zeroUsage = {
@@ -227,7 +233,24 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
     throw err;
   }
 
+  const mcpPool = loadMcpServers();
+  const capabilities = resolveCapabilities(issueForLabels.labels, effectiveCfg.labels, logger);
+  logCapabilities(logger, capabilities);
+  const hasLabelsConfig = effectiveCfg.labels !== undefined;
+  const mcpServers = filterMcpServers(mcpPool, capabilities, hasLabelsConfig);
+  if (mcpServers.length > 0) {
+    logger.info('MCP servers', { servers: mcpServers.map((s) => s.name) });
+  }
+
   const route = effectiveCfg.models.refiner;
-  const callLlm: LlmCall = createLlmCall(route);
-  await run(envelope, { tracker, callLlm, logger, dryRun: labelDryRun });
+  const loop = createAgentLoop({
+    provider: route.provider,
+    model: route.model,
+    executeTool: async (_repoRoot: string, name: string) => {
+      throw new Error(`Unknown refiner tool: ${name}`);
+    },
+    maxIterations: parseInt(process.env.FERRY_REFINER_MAX_ITERATIONS ?? '', 10) || 5,
+    logger,
+  });
+  await run(envelope, { tracker, loop, mcpServers, logger, dryRun: labelDryRun });
 }

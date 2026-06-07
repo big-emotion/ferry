@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { run } from './refiner-action.js';
 import { InMemoryTracker } from '../../lib/io/tracker/in-memory.js';
-import type { LlmCall } from './refine.js';
+import type { AgentLoop, AgentLoopResult } from '../../lib/llm/agent-loop/index.js';
 import type { EventEnvelopeV1 } from '../../lib/envelope/types.js';
 
 // Mock the cost-estimate module so we can control baseline presence
@@ -29,11 +29,20 @@ const createPlan = {
   audit_summary: 'One task planned',
 };
 
-function makeMockLlm(plan: unknown = createPlan): LlmCall {
-  return vi.fn<LlmCall>().mockResolvedValue({
-    text: JSON.stringify(plan),
-    usage: { inputTokens: 100, outputTokens: 50, costEur: 0.01 },
-  });
+function makeMockLoop(plan: unknown = createPlan): AgentLoop {
+  const result: AgentLoopResult = {
+    done: plan as AgentLoopResult['done'],
+    usage: {
+      input_tokens: 100,
+      output_tokens: 50,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 0,
+    },
+    iterations: 1,
+    toolCounts: {},
+    toolCallRecords: [],
+  };
+  return { run: vi.fn().mockResolvedValue(result) };
 }
 
 function makeTracker(): InMemoryTracker {
@@ -87,7 +96,7 @@ describe('refiner-action cost estimation', () => {
       mockedLoad.mockReturnValue(null);
 
       const tracker = makeTracker();
-      await run(envelope, { tracker, callLlm: makeMockLlm() });
+      await run(envelope, { tracker, loop: makeMockLoop() });
 
       const estimateComment = tracker.postedComments.find((c) =>
         c.body.includes('ferry:refiner-estimate'),
@@ -101,7 +110,7 @@ describe('refiner-action cost estimation', () => {
       mockedLoad.mockReturnValue(null);
 
       const tracker = makeTracker();
-      await run(envelope, { tracker, callLlm: makeMockLlm() });
+      await run(envelope, { tracker, loop: makeMockLoop() });
 
       expect(tracker.createdSubtasks).toHaveLength(1);
     });
@@ -115,7 +124,7 @@ describe('refiner-action cost estimation', () => {
 
     it('posts estimate comment with correct fingerprint and values', async () => {
       const tracker = makeTracker();
-      await run(envelope, { tracker, callLlm: makeMockLlm() });
+      await run(envelope, { tracker, loop: makeMockLoop() });
 
       const estimateComment = tracker.postedComments.find((c) =>
         c.body.includes('ferry:refiner-estimate:evt-cost-001'),
@@ -129,7 +138,7 @@ describe('refiner-action cost estimation', () => {
 
     it('applies cost-estimate label with lo-hi values', async () => {
       const tracker = makeTracker();
-      await run(envelope, { tracker, callLlm: makeMockLlm() });
+      await run(envelope, { tracker, loop: makeMockLoop() });
 
       const label = tracker.addedLabels.find((l) => l.label.startsWith('ferry:cost-estimate:'));
       expect(label).toBeDefined();
@@ -138,7 +147,7 @@ describe('refiner-action cost estimation', () => {
 
     it('still creates subtasks after posting estimate', async () => {
       const tracker = makeTracker();
-      await run(envelope, { tracker, callLlm: makeMockLlm() });
+      await run(envelope, { tracker, loop: makeMockLoop() });
 
       expect(tracker.createdSubtasks).toHaveLength(1);
     });
@@ -152,7 +161,7 @@ describe('refiner-action cost estimation', () => {
       mockedEstimate.mockReturnValue(mockEstimate);
 
       const tracker = makeTracker();
-      await run(envelope, { tracker, callLlm: makeMockLlm() });
+      await run(envelope, { tracker, loop: makeMockLoop() });
 
       const capComment = tracker.postedComments.find((c) =>
         c.body.includes('ferry:refiner-cap:evt-cost-001'),
@@ -179,7 +188,7 @@ describe('refiner-action cost estimation', () => {
       mockedEstimate.mockReturnValue(mockEstimate);
 
       const tracker = makeTracker();
-      await run(envelope, { tracker, callLlm: makeMockLlm() });
+      await run(envelope, { tracker, loop: makeMockLoop() });
 
       const capComment = tracker.postedComments.find((c) => c.body.includes('ferry:refiner-cap'));
       expect(capComment).toBeUndefined();
