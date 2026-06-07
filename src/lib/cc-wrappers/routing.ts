@@ -10,8 +10,8 @@
  */
 import type { ExecutionPath, FerryConfig, LlmRoute } from '../config.js';
 
-/** The four Ferry agent roles, in the form used by audit-comment markers. */
-export type AgentOutputRole = 'developer' | 'iterator' | 'reviewer' | 'refiner';
+/** The five Ferry agent roles, in the form used by audit-comment markers. */
+export type AgentOutputRole = 'developer' | 'iterator' | 'reviewer' | 'refiner' | 'merger';
 
 /**
  * Maps an agent role to its audit-comment marker token. The developer role
@@ -69,6 +69,9 @@ export function providerForRole(cfg: FerryConfig, role: AgentOutputRole): LlmRou
       return cfg.models.review.provider;
     case 'refiner':
       return cfg.models.refiner.provider;
+    case 'merger':
+      // Merger is always script-path (no LLM); provider is irrelevant for routing.
+      return 'anthropic';
   }
 }
 

@@ -212,4 +212,18 @@ export class GitHubActionsRunner implements CIRunner {
     });
     return data.map((c) => ({ id: c.id, body: c.body ?? '' }));
   }
+
+  async mergePR(
+    prRef: PRRef,
+    strategy: 'squash' | 'merge' | 'rebase',
+    commitTitle?: string,
+  ): Promise<void> {
+    await this.octokit.pulls.merge({
+      owner: prRef.owner,
+      repo: prRef.repo,
+      pull_number: prRef.prNumber,
+      merge_method: strategy,
+      ...(commitTitle !== undefined ? { commit_title: commitTitle } : {}),
+    });
+  }
 }

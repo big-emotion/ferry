@@ -241,7 +241,8 @@ var COMPONENT = {
   refiner: "ferry:refiner-action",
   developer: "ferry:dev-action",
   reviewer: "ferry:review-action",
-  iterator: "ferry:iterate-action"
+  iterator: "ferry:iterate-action",
+  merger: "ferry:merge-action"
 };
 async function runAgent(role, handler2) {
   const component = COMPONENT[role];
@@ -5263,6 +5264,15 @@ var GitHubActionsRunner = class {
     });
     return data.map((c) => ({ id: c.id, body: c.body ?? "" }));
   }
+  async mergePR(prRef, strategy, commitTitle) {
+    await this.octokit.pulls.merge({
+      owner: prRef.owner,
+      repo: prRef.repo,
+      pull_number: prRef.prNumber,
+      merge_method: strategy,
+      ...commitTitle !== void 0 ? { commit_title: commitTitle } : {}
+    });
+  }
 };
 
 // src/lib/dispatch/runner/gitlab/index.ts
@@ -5464,6 +5474,16 @@ var GitLabRunner = class {
     const path7 = `/projects/${this.projectPath(prRef.owner, prRef.repo)}/merge_requests/${prRef.prNumber}/notes?sort=desc&order_by=created_at&per_page=${perPage}`;
     const notes = await this.request("GET", path7);
     return notes.map((n) => ({ id: n.id, body: n.body ?? "" }));
+  }
+  async mergePR(prRef, strategy, commitTitle) {
+    const path7 = `/projects/${this.projectPath(prRef.owner, prRef.repo)}/merge_requests/${prRef.prNumber}/merge`;
+    await this.request("PUT", path7, {
+      body: {
+        should_remove_source_branch: false,
+        squash: strategy === "squash",
+        ...commitTitle !== void 0 ? { squash_commit_message: commitTitle } : {}
+      }
+    });
   }
   // ── Helpers ──────────────────────────────────────────────────────────────
   toPR(mr) {
@@ -10646,18 +10666,71 @@ async function main4(envelope, logger) {
   process.exit(0);
 }
 
+// src/agents/merger/merge-action.ts
+var VALID_STRATEGIES = /* @__PURE__ */ new Set(["squash", "merge", "rebase"]);
+function resolveMergeStrategy() {
+  const raw = process.env.FERRY_MERGE_STRATEGY ?? "squash";
+  if (!VALID_STRATEGIES.has(raw)) {
+    return "squash";
+  }
+  return raw;
+}
+var REPO_ROOT5 = process.env.GITHUB_WORKSPACE ?? process.cwd();
+async function main5(envelope, logger) {
+  const { ticket_key: ticketKey, event_id: eventId } = envelope;
+  const { owner, repo, runner, tracker, ferryCfg: initialCfg } = createGitHubContext(REPO_ROOT5);
+  const resolvedGit = await resolveGitConfig(initialCfg, runner, owner, repo);
+  const ferryCfg = loadFerryConfigFromBaseBranch(resolvedGit.baseBranch, REPO_ROOT5, initialCfg);
+  const issue = await tracker.getIssue(ticketKey);
+  const existingComments = issue.comments;
+  const idempotencyMarker = byEventId("merger", eventId);
+  const { skipped } = checkIdempotencyMarker(idempotencyMarker, existingComments);
+  if (skipped) {
+    logger.info("already processed this merge event \u2014 skipping", { eventId });
+    appendOutput({ input_tokens: 0, output_tokens: 0 });
+    return;
+  }
+  const branchName = `${resolveBranchPrefix(ferryCfg.git.working_branch_prefix, issue)}${ticketKey}`;
+  const prs = await runner.listPRsForBranch(owner, repo, branchName);
+  if (prs.length === 0) {
+    logger.info("no open PR found for branch \u2014 possibly already merged", { branch: branchName });
+    await tracker.postComment(
+      ticketKey,
+      `${idempotencyMarker} No open PR found for branch \`${branchName}\` \u2014 already merged or not yet created.`
+    );
+    appendOutput({ input_tokens: 0, output_tokens: 0 });
+    return;
+  }
+  const prNumber = prs[0].number;
+  const strategy = resolveMergeStrategy();
+  logger.info("merging PR", { prNumber, strategy, branch: branchName });
+  const doneTransitionId = process.env.FERRY_MERGE_DONE_TRANSITION_ID;
+  const transitionNote = doneTransitionId ? " \u2014 transitioning ticket." : ".";
+  await runner.mergePR({ owner, repo, prNumber }, strategy);
+  await tracker.postComment(
+    ticketKey,
+    `${idempotencyMarker} Merged PR#${prNumber} via \`${strategy}\`${transitionNote}`
+  );
+  if (doneTransitionId) {
+    await tracker.postTransition(ticketKey, doneTransitionId);
+  }
+  appendOutput({ input_tokens: 0, output_tokens: 0 });
+}
+
 // src/cli/agent/run.ts
 var ROLES = /* @__PURE__ */ new Set([
   "refiner",
   "developer",
   "reviewer",
-  "iterator"
+  "iterator",
+  "merger"
 ]);
 var HANDLERS = {
   refiner: main,
   developer: main2,
   reviewer: main3,
-  iterator: main4
+  iterator: main4,
+  merger: main5
 };
 var CliUsageError = class extends Error {
   constructor(message) {
@@ -10692,12 +10765,12 @@ function parseArgs(argv) {
   }
   if (!role) {
     throw new CliUsageError(
-      "Missing --role flag. Usage: ferry-agent run --role <refiner|developer|reviewer|iterator>"
+      "Missing --role flag. Usage: ferry-agent run --role <refiner|developer|reviewer|iterator|merger>"
     );
   }
   if (!isAgentRole(role)) {
     throw new CliUsageError(
-      `Invalid role: ${role}. Expected one of: refiner, developer, reviewer, iterator.`
+      `Invalid role: ${role}. Expected one of: refiner, developer, reviewer, iterator, merger.`
     );
   }
   return { command: "run", role };

@@ -3,7 +3,7 @@
  * ferry-agent CLI — single entrypoint for every Ferry agent role.
  *
  * Usage:
- *   ferry-agent run --role <refiner|developer|reviewer|iterator>
+ *   ferry-agent run --role <refiner|developer|reviewer|iterator|merger>
  *
  * Reads the envelope from FERRY_ENVELOPE_PAYLOAD (validated by runAgent),
  * then dispatches to the role's `main` handler.
@@ -13,12 +13,14 @@ import { main as refinerMain } from '../../agents/refiner/refiner-action.js';
 import { main as developerMain } from '../../agents/developer/dev-action.js';
 import { main as reviewerMain } from '../../agents/reviewer/review-action.js';
 import { main as iteratorMain } from '../../agents/iterator/iterate-action.js';
+import { main as mergerMain } from '../../agents/merger/merge-action.js';
 
 const ROLES: ReadonlySet<AgentRole> = new Set([
   'refiner',
   'developer',
   'reviewer',
   'iterator',
+  'merger',
 ] as const);
 
 const HANDLERS = {
@@ -26,6 +28,7 @@ const HANDLERS = {
   developer: developerMain,
   reviewer: reviewerMain,
   iterator: iteratorMain,
+  merger: mergerMain,
 } as const satisfies Record<AgentRole, Parameters<typeof runAgent>[1]>;
 
 export interface ParsedArgs {
@@ -69,12 +72,12 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   }
   if (!role) {
     throw new CliUsageError(
-      'Missing --role flag. Usage: ferry-agent run --role <refiner|developer|reviewer|iterator>',
+      'Missing --role flag. Usage: ferry-agent run --role <refiner|developer|reviewer|iterator|merger>',
     );
   }
   if (!isAgentRole(role)) {
     throw new CliUsageError(
-      `Invalid role: ${role}. Expected one of: refiner, developer, reviewer, iterator.`,
+      `Invalid role: ${role}. Expected one of: refiner, developer, reviewer, iterator, merger.`,
     );
   }
   return { command: 'run', role };

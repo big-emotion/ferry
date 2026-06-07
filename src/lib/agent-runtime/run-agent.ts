@@ -4,13 +4,14 @@ import { requireEnv } from './env.js';
 import { createLogger } from '../logger/index.js';
 import type { Logger } from '../logger/index.js';
 
-export type AgentRole = 'refiner' | 'developer' | 'reviewer' | 'iterator';
+export type AgentRole = 'refiner' | 'developer' | 'reviewer' | 'iterator' | 'merger';
 
 const COMPONENT: Record<AgentRole, string> = {
   refiner: 'ferry:refiner-action',
   developer: 'ferry:dev-action',
   reviewer: 'ferry:review-action',
   iterator: 'ferry:iterate-action',
+  merger: 'ferry:merge-action',
 };
 
 export async function runAgent(
