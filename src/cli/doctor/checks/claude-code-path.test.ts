@@ -49,7 +49,7 @@ jobs:
   route:
     name: Resolve execution path
     steps:
-      - uses: big-emotion/ferry/.github/actions/ferry-route@v0.16.0
+      - uses: big-emotion/ferry/.github/actions/ferry-route@v0.17.0
   run-agent-claude-code:
     steps:
       - uses: anthropics/claude-code-action@v1
@@ -74,7 +74,7 @@ jobs:
     name: Resolve execution path
   run-agent:
     steps:
-      - uses: big-emotion/ferry/.github/actions/ferry-run-refiner@v0.16.0
+      - uses: big-emotion/ferry/.github/actions/ferry-run-refiner@v0.17.0
 `;
 
 const ALL_ANTHROPIC_CONFIG = {

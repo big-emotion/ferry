@@ -37,10 +37,10 @@ Add these under **Settings → Secrets and variables → Actions → Secrets** i
 
 ### Required for specific agents
 
-| Secret                           | Used by             | Description                                                                                                                                                                      |
-| -------------------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `FERRY_REVIEW_TRANSITION_ID`     | Developer, Iterator | Jira transition ID that moves a ticket **into** the **In Review** column (FR18 / FR28). Find it via the Jira REST API: `GET /rest/api/3/issue/{key}/transitions`.               |
-| `FERRY_ITER_TRANSITION_ID`       | Reviewer            | Jira transition ID that moves a ticket **into** the **Changes Requested** column (FR24, when the reviewer requests changes). Same API call as above.                             |
+| Secret                           | Used by             | Description                                                                                                                                                                                         |
+| -------------------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `FERRY_REVIEW_TRANSITION_ID`     | Developer, Iterator | Jira transition ID that moves a ticket **into** the **In Review** column (FR18 / FR28). Find it via the Jira REST API: `GET /rest/api/3/issue/{key}/transitions`.                                   |
+| `FERRY_ITER_TRANSITION_ID`       | Reviewer            | Jira transition ID that moves a ticket **into** the **Changes Requested** column (FR24, when the reviewer requests changes). Same API call as above.                                                |
 | `FERRY_MERGE_DONE_TRANSITION_ID` | Merger              | **Optional.** Jira transition ID that moves a ticket into a configured column after a successful merge (FR32). When omitted, Ferry leaves the ticket in its current column. Same API call as above. |
 
 > **Finding Jira transition IDs:** Call `GET https://<your-domain>.atlassian.net/rest/api/3/issue/<TICKET-KEY>/transitions` with Basic Auth. The response lists available transitions with their `id` and `name`. Use the ID (a number string like `"31"`) for the secret value.
@@ -71,18 +71,18 @@ All variables marked **wired** below are read directly by the standard consumer 
 
 #### Model and provider overrides
 
-| Variable                 | Default             | Wired?          | Affects         | Description                                                                                                        |
-| ------------------------ | ------------------- | --------------- | --------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `FERRY_DEV_MODEL`        | `claude-sonnet-4-6` | yes (`dev`)     | Developer agent | Override the model ID for the Developer. Wired via the `ferry_dev_model` composite action input.                   |
-| `FERRY_DEV_PROVIDER`     | `anthropic`         | yes (`dev`)     | Developer agent | LLM provider override for the Developer (`anthropic` / `openai` / `google`). MCP integration requires `anthropic`. |
-| `FERRY_REVIEW_MODEL`     | `claude-sonnet-4-6` | yes (`review`)  | Reviewer agent  | Override the model ID for the Reviewer. Wired via the `ferry_review_model` composite action input.                 |
-| `FERRY_REVIEW_PROVIDER`  | `anthropic`         | yes (`review`)  | Reviewer agent  | LLM provider override for the Reviewer (`anthropic` / `openai` / `google`). MCP integration requires `anthropic`.  |
-| `FERRY_ITER_MODEL`       | `claude-sonnet-4-6` | yes (`iterate`) | Iterator agent  | Override the model ID for the Iterator. Wired via the `ferry_iter_model` composite action input.                   |
-| `FERRY_ITER_PROVIDER`    | `anthropic`         | yes (`iterate`) | Iterator agent  | LLM provider override for the Iterator (`anthropic` / `openai` / `google`). MCP integration requires `anthropic`.  |
-| `FERRY_REFINER_MODEL`    | `claude-sonnet-4-6` | yes (`refine`)  | Refiner agent   | Override the model ID for the Refiner. Wired via the `ferry_refiner_model` composite action input.                 |
-| `FERRY_REFINER_PROVIDER` | `anthropic`         | yes (`refine`)  | Refiner agent   | LLM provider override for the Refiner (`anthropic` / `openai` / `google`).                                         |
-| `FERRY_MERGER_MODEL`     | `claude-sonnet-4-6` | yes (`merge`)   | Merger agent    | Override the model ID used by the Merger when generating a squash commit message. Wired via the `ferry_merger_model` composite action input. |
-| `FERRY_MERGER_PROVIDER`  | `anthropic`         | yes (`merge`)   | Merger agent    | LLM provider override for the Merger (`anthropic` / `openai` / `google`).                                          |
+| Variable                 | Default             | Wired?          | Affects         | Description                                                                                                                                                                |
+| ------------------------ | ------------------- | --------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `FERRY_DEV_MODEL`        | `claude-sonnet-4-6` | yes (`dev`)     | Developer agent | Override the model ID for the Developer. Wired via the `ferry_dev_model` composite action input.                                                                           |
+| `FERRY_DEV_PROVIDER`     | `anthropic`         | yes (`dev`)     | Developer agent | LLM provider override for the Developer (`anthropic` / `openai` / `google`). MCP integration requires `anthropic`.                                                         |
+| `FERRY_REVIEW_MODEL`     | `claude-sonnet-4-6` | yes (`review`)  | Reviewer agent  | Override the model ID for the Reviewer. Wired via the `ferry_review_model` composite action input.                                                                         |
+| `FERRY_REVIEW_PROVIDER`  | `anthropic`         | yes (`review`)  | Reviewer agent  | LLM provider override for the Reviewer (`anthropic` / `openai` / `google`). MCP integration requires `anthropic`.                                                          |
+| `FERRY_ITER_MODEL`       | `claude-sonnet-4-6` | yes (`iterate`) | Iterator agent  | Override the model ID for the Iterator. Wired via the `ferry_iter_model` composite action input.                                                                           |
+| `FERRY_ITER_PROVIDER`    | `anthropic`         | yes (`iterate`) | Iterator agent  | LLM provider override for the Iterator (`anthropic` / `openai` / `google`). MCP integration requires `anthropic`.                                                          |
+| `FERRY_REFINER_MODEL`    | `claude-sonnet-4-6` | yes (`refine`)  | Refiner agent   | Override the model ID for the Refiner. Wired via the `ferry_refiner_model` composite action input.                                                                         |
+| `FERRY_REFINER_PROVIDER` | `anthropic`         | yes (`refine`)  | Refiner agent   | LLM provider override for the Refiner (`anthropic` / `openai` / `google`).                                                                                                 |
+| `FERRY_MERGER_MODEL`     | `claude-sonnet-4-6` | yes (`merge`)   | Merger agent    | Override the model ID used by the Merger when generating a squash commit message. Wired via the `ferry_merger_model` composite action input.                               |
+| `FERRY_MERGER_PROVIDER`  | `anthropic`         | yes (`merge`)   | Merger agent    | LLM provider override for the Merger (`anthropic` / `openai` / `google`).                                                                                                  |
 | `FERRY_MERGE_STRATEGY`   | `squash`            | yes (`merge`)   | Merger agent    | Merge strategy passed to `gh pr merge`. Accepted values: `squash`, `merge`, `rebase`. Default `squash` keeps a linear history and folds sub-task commits into one message. |
 
 #### Token and iteration limits
@@ -137,7 +137,7 @@ The pre-agent step runs in `GITHUB_WORKSPACE` (your checked-out repo root), afte
 ```yaml
 - name: Run Developer agent
   id: run-developer
-  uses: big-emotion/ferry/.github/actions/ferry-run-developer@v0.16.0
+  uses: big-emotion/ferry/.github/actions/ferry-run-developer@v0.17.0
   with:
     payload: ${{ toJson(github.event.client_payload) }}
     # ... required inputs ...
@@ -160,7 +160,7 @@ steps:
       key: ${{ runner.os }}-node-${{ hashFiles('package-lock.json') }}
 
   - name: Run Developer agent
-    uses: big-emotion/ferry/.github/actions/ferry-run-developer@v0.16.0
+    uses: big-emotion/ferry/.github/actions/ferry-run-developer@v0.17.0
     with:
       payload: ${{ toJson(github.event.client_payload) }}
       # ... required inputs ...
@@ -972,12 +972,12 @@ Run `ferry-update` to add the workflow stub automatically, or copy `examples/con
 
 ### Configuration
 
-| Setting                          | Type     | Default             | Description                                                                                                                    |
-| -------------------------------- | -------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `FERRY_MERGE_STRATEGY` (var)     | variable | `squash`            | Merge strategy: `squash`, `merge`, or `rebase`. Passed directly to `gh pr merge`.                                              |
-| `FERRY_MERGER_MODEL` (var)       | variable | `claude-sonnet-4-6` | LLM model used to generate the squash commit message. Ignored when `FERRY_MERGE_STRATEGY` is not `squash`.                     |
-| `FERRY_MERGER_PROVIDER` (var)    | variable | `anthropic`         | LLM provider for commit-message generation (`anthropic` / `openai` / `google`). Ignored when `FERRY_MERGE_STRATEGY` is not `squash`. |
-| `FERRY_MERGE_DONE_TRANSITION_ID` (secret) | secret | _(none)_     | **Optional.** Jira transition ID that moves the ticket after a successful merge. When omitted, the Jira column is left unchanged post-merge. |
+| Setting                                   | Type     | Default             | Description                                                                                                                                  |
+| ----------------------------------------- | -------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `FERRY_MERGE_STRATEGY` (var)              | variable | `squash`            | Merge strategy: `squash`, `merge`, or `rebase`. Passed directly to `gh pr merge`.                                                            |
+| `FERRY_MERGER_MODEL` (var)                | variable | `claude-sonnet-4-6` | LLM model used to generate the squash commit message. Ignored when `FERRY_MERGE_STRATEGY` is not `squash`.                                   |
+| `FERRY_MERGER_PROVIDER` (var)             | variable | `anthropic`         | LLM provider for commit-message generation (`anthropic` / `openai` / `google`). Ignored when `FERRY_MERGE_STRATEGY` is not `squash`.         |
+| `FERRY_MERGE_DONE_TRANSITION_ID` (secret) | secret   | _(none)_            | **Optional.** Jira transition ID that moves the ticket after a successful merge. When omitted, the Jira column is left unchanged post-merge. |
 
 All four values are wired into the `ferry-merge.yml` stub. Set `FERRY_MERGE_DONE_TRANSITION_ID` as a repository **secret** (not a variable — it is a Jira credential). The model and strategy are repository **variables**.
 
@@ -994,12 +994,12 @@ If your default branch has a protection rule that sets **"Require a pull request
 
 **Options for consumers:**
 
-| Option | When to use |
-| ------ | ----------- |
-| **Disable "Require approvals" — rely on status checks + CODEOWNERS.** Remove the review-approval requirement and instead require passing CI status checks. The Merger can merge as long as CI is green and CODEOWNERS have not blocked the PR. This is the recommended path for teams that trust the Ferry pipeline end-to-end. | You want fully automated merge. |
-| **Grant the ferry workflow token a bypass exemption.** Under Settings → Branches → (your ruleset) → Bypass list, add the GitHub App or Actions token that runs `ferry-merge.yml`. This lets the Merger merge past the review requirement without disabling it for humans. | You want to keep review requirements for humans but exempt Ferry. |
-| **Do not enable the Merger.** Leave `ferry-merge.yml` out of your workflows. The `ferry:approved` label is inert — PRs stay in "approved" state and humans merge at their own pace. This is the safest option if your team already has a merge process. | You merge manually or use an external tool (e.g. Mergify). |
-| **Use GitHub auto-merge triggered externally.** Enable auto-merge on each PR before the Reviewer runs. When `ferry:approved` is set, auto-merge fires once all branch-protection requirements (including review approvals) are satisfied. This bypasses the Merger entirely — use it when your team requires human approval before any merge, even for Ferry-reviewed PRs. | You need a human review checkpoint before merge. |
+| Option                                                                                                                                                                                                                                                                                                                                                                     | When to use                                                       |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| **Disable "Require approvals" — rely on status checks + CODEOWNERS.** Remove the review-approval requirement and instead require passing CI status checks. The Merger can merge as long as CI is green and CODEOWNERS have not blocked the PR. This is the recommended path for teams that trust the Ferry pipeline end-to-end.                                            | You want fully automated merge.                                   |
+| **Grant the ferry workflow token a bypass exemption.** Under Settings → Branches → (your ruleset) → Bypass list, add the GitHub App or Actions token that runs `ferry-merge.yml`. This lets the Merger merge past the review requirement without disabling it for humans.                                                                                                  | You want to keep review requirements for humans but exempt Ferry. |
+| **Do not enable the Merger.** Leave `ferry-merge.yml` out of your workflows. The `ferry:approved` label is inert — PRs stay in "approved" state and humans merge at their own pace. This is the safest option if your team already has a merge process.                                                                                                                    | You merge manually or use an external tool (e.g. Mergify).        |
+| **Use GitHub auto-merge triggered externally.** Enable auto-merge on each PR before the Reviewer runs. When `ferry:approved` is set, auto-merge fires once all branch-protection requirements (including review approvals) are satisfied. This bypasses the Merger entirely — use it when your team requires human approval before any merge, even for Ferry-reviewed PRs. | You need a human review checkpoint before merge.                  |
 
 The ferry documentation recommends the first option (status-check-only branch protection) for teams fully adopting the five-agent pipeline.
 

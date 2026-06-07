@@ -9,9 +9,24 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+---
+
+## [0.17.0] — 2026-06-07
+
 ### Added
 
 - **Merger agent (FR32)** — a new fifth agent triggered by a `repository_dispatch` event of type `ferry-merge`, dispatched automatically by the Reviewer agent on a passing review. Consumers wire it by adding `ferry-merge.yml` to `.github/workflows/` (added automatically by `ferry-update`). The merge strategy is configurable (`FERRY_MERGE_STRATEGY`: `squash` / `merge` / `rebase`; default: `squash`). Model and provider are overrideable via `FERRY_MERGER_MODEL` / `FERRY_MERGER_PROVIDER`. An optional `FERRY_MERGE_DONE_TRANSITION_ID` secret moves the Jira ticket into a configured column after a successful merge. **Branch-protection caveat:** the Reviewer sets the `ferry:approved` label but does not post a formal GitHub PR review — see `docs/CONFIGURATION.md` → Merger agent → Branch-protection caveat for implications when "Require approvals" is enabled.
+- **`codex-cli` execution path** (PR #372) — a third execution path alongside `script` and `claude-code`, running each agent as an `openai/codex-action` call. Adds routing, the `ferry:codex-cli` label override, per-agent `prompts/*.codex-cli.md` defaults, and `ferry-cc-prompt --agent <role>` resolution. See `docs/decisions/0003-codex-cli-action-plan.md`.
+- **`ferry.local.yml` consumer-side overlay** (PR #380) — a consumer-managed override file merged on top of the tracked Ferry config, so local tweaks survive `ferry-update` upgrades without editing generated files.
+
+### Changed
+
+- **Reviewer migrated from a tool-loop to the shared agent-loop** (MCP Phase 2, PR #381) — the Reviewer now runs on the common agent-runtime loop, consolidating tool-call handling and structured output with the other agents.
+- **Refiner migrated to the shared agent-loop** (MCP Phase 3, PR #394) — completes the agent-loop unification; the Refiner gains a structured `schema.ts` and the shared MCP tool-call path.
+
+### Fixed
+
+- **Reviewer script-path now dispatches `ferry-merge` on approve with `contents: write`** (PR #379) — the bundled/script reviewer emits the FR32 `ferry-merge` `repository_dispatch` best-effort on approve, and the consumer example `ferry-review.yml` now grants the script-path job `contents: write` (it previously pinned `contents: read`, which made the dispatch fail silently). Documentation (`CLAUDE.md`, `docs/OVERVIEW.md`, `docs/CONFIGURATION.md`, `docs/INSTALL.md`, `docs/adr/0001`) was aligned with the now-shipped Merger and the gated-merge boundary.
 
 ---
 
@@ -482,7 +497,8 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
-[Unreleased]: https://github.com/big-emotion/ferry/compare/v0.16.0...HEAD
+[Unreleased]: https://github.com/big-emotion/ferry/compare/v0.17.0...HEAD
+[0.17.0]: https://github.com/big-emotion/ferry/releases/tag/v0.17.0
 [0.16.0]: https://github.com/big-emotion/ferry/releases/tag/v0.16.0
 [0.15.1]: https://github.com/big-emotion/ferry/releases/tag/v0.15.1
 [0.15.0]: https://github.com/big-emotion/ferry/releases/tag/v0.15.0
