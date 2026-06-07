@@ -1,6 +1,11 @@
-export type EventPhase = 'refine' | 'dev' | 'review' | 'iterate' | 'reconcile';
+export type EventPhase = 'refine' | 'dev' | 'review' | 'iterate' | 'reconcile' | 'merge';
 
-export type EventSource = 'jira-column' | 'jira-label' | 'jira-mention' | 'reconciler';
+export type EventSource =
+  | 'jira-column'
+  | 'jira-label'
+  | 'jira-mention'
+  | 'reconciler'
+  | 'ferry-agent';
 
 export type TicketType = 'Story' | 'Task' | 'Bug' | 'Spike';
 

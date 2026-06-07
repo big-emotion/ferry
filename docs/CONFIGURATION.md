@@ -4,11 +4,12 @@ This document is the canonical reference for all consumer-configurable parameter
 
 ## Quick Summary
 
-Ferry is configured through three layers, applied in order (later layers override earlier ones):
+Ferry is configured through four layers, applied in order (later layers override earlier ones):
 
-1. **`ferry.config.json`** in your repository root — model selection, limits, MCP label mapping
-2. **GitHub repository variables** (`vars.*`) — per-repo overrides without touching the config file
-3. **GitHub secrets** (`secrets.*`) — credentials and transition IDs
+1. **`ferry.config.json`** (or `ferry.config.yaml`) in your repository root — model selection, limits, MCP label mapping
+2. **`ferry.local.yml`** in your repository root — consumer-side workflow overrides that survive `ferry-update` (see [Local overrides](#local-overrides-ferryLocalYml))
+3. **GitHub repository variables** (`vars.*`) — per-repo overrides without touching the config file
+4. **GitHub secrets** (`secrets.*`) — credentials and transition IDs
 
 ---
 
@@ -165,6 +166,59 @@ steps:
       # ... required inputs ...
       pre_agent_command: npm ci --prefer-offline
 ```
+
+---
+
+## Local overrides (`ferry.local.yml`) {#local-overrides-ferryLocalYml}
+
+`ferry.local.yml` is an optional file at your repository root that declares consumer-side divergences from Ferry's upstream workflow templates. Its purpose is to survive `ferry-update`: instead of editing the generated `ferry-*.yml` files directly (which get clobbered on the next update), you declare the override once in `ferry.local.yml` and `ferry-update` re-applies it every time it regenerates workflows.
+
+### How it works
+
+When `ferry-update` runs, it reads `ferry.local.yml` (if present) and applies the declared overrides to the template content **before** comparing with the on-disk files. This means:
+
+- The `--dry-run` diff shows only genuine upstream changes — not the overlay being re-applied.
+- The written files are deterministic from `(ferry version, ferry.local.yml)`.
+- The file lives in version control, is visible in PRs, and can be owned by `CODEOWNERS`.
+
+### Schema
+
+```yaml
+# ferry.local.yml  (place at your repo root, next to ferry.config.yaml)
+version: 1 # required; must be 1
+
+review:
+  # Disable the CI pre-gate on the claude-code path.
+  # Use this when the review event can fire before CI has reported or before
+  # a PR exists, and you want the Reviewer to run unconditionally.
+  ciGate: disabled
+
+global:
+  # Pin the runner across all Ferry workflow files.
+  # Replaces the ${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }} expression.
+  # Accepts a plain string or an array of labels.
+  runner: ubuntu-latest
+  # runner: ["self-hosted", "X64"]
+```
+
+All top-level keys are optional.
+
+### Supported overrides
+
+#### `review.ciGate: disabled`
+
+Removes the `ci-gate` job from `ferry-review.yml` and rewrites the downstream `needs:`/`if:`/`outcome:` expressions so the Reviewer agent (`run-agent-claude-code`) runs unconditionally on the `claude-code` execution path.
+
+**When to use:** The built-in `ci-gate` treats "no PR found" or "CI checks still pending" as `proceed=false`, blocking the review silently. In Jira-driven flows where the `ferry-review` dispatch can fire before the developer's PR has been opened or before the consumer's CI has a result, this produces missed reviews with no audit signal. Setting `ciGate: disabled` removes the gate entirely.
+
+#### `global.runner`
+
+Pins the GitHub Actions runner label across all four Ferry workflow files (`ferry-refine.yml`, `ferry-dev.yml`, `ferry-review.yml`, `ferry-iterate.yml`).
+
+- `runner: ubuntu-latest` — plain string runner label
+- `runner: ["self-hosted", "X64"]` — YAML sequence of labels (rendered as `${{ fromJSON('["self-hosted","X64"]') }}`)
+
+> **Note:** If you only need to change the runner at runtime (not bake it into the file), use the `FERRY_RUNNER` repository variable instead — see the [Repository Variables](#repository-variables) section.
 
 ---
 

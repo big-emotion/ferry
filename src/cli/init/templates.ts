@@ -414,7 +414,7 @@ jobs:
     if: needs.route.outputs.path == 'script'
     runs-on: \${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
     permissions:
-      contents: read
+      contents: write
       pull-requests: write
       issues: write
       checks: read
@@ -697,6 +697,161 @@ jobs:
         with:
           ticket: \${{ github.event.client_payload.ticket_key }}
           phase: iterate
+          run_id: \${{ github.event.client_payload.event_id }}
+          model: \${{ needs.run-agent.outputs.model || 'claude-sonnet-4-6' }}
+          outcome: \${{ needs.run-agent.result != 'skipped' && needs.run-agent.result || needs.run-agent-claude-code.result }}
+          # claude-code path does cost tracking best-effort by design — it emits no token/cost outputs.
+          input_tokens: \${{ needs.run-agent.outputs.input_tokens || '0' }}
+          output_tokens: \${{ needs.run-agent.outputs.output_tokens || '0' }}
+          cost_eur: \${{ needs.run-agent.outputs.cost_eur || '0' }}
+          start_ms: \${{ github.run_id }}
+          audit_issue: \${{ vars.FERRY_AUDIT_ISSUE }}
+          github_token: \${{ github.token }}
+`,
+    },
+    {
+      filename: 'ferry-merge.yml',
+      content: `# Managed by ferry-init. Re-run \`npx -p @big-emotion/ferry ferry-init\` to update.
+# Required secrets: FERRY_JIRA_BASE_URL, FERRY_JIRA_EMAIL, FERRY_JIRA_API_TOKEN
+#                   ANTHROPIC_API_KEY  — required when FERRY_MERGER_PROVIDER=anthropic (default)
+#                   OPENAI_API_KEY     — required when FERRY_MERGER_PROVIDER=openai
+#                   GOOGLE_API_KEY     — required when FERRY_MERGER_PROVIDER=google
+#                   CLAUDE_CODE_OAUTH_TOKEN — required only when execution_path=claude-code
+#                                             (ADR-0006 §6 — anthropic_api_key is forbidden on this path)
+# Required variables: FERRY_AUDIT_ISSUE (GitHub Issue number for the audit log)
+# Optional variables: FERRY_MERGER_PROVIDER (default: anthropic; also: openai, google)
+#                     FERRY_MERGER_MODEL (default: claude-sonnet-4-6; use model ID matching your provider)
+#                     FERRY_RUNNER (default: "ubuntu-latest"; JSON string or array for self-hosted runners, e.g. '["self-hosted","X64"]')
+
+name: Ferry — Merge
+
+on:
+  repository_dispatch:
+    types: [ferry-merge]
+
+# cancel-in-progress: false — merge must complete atomically; cancellation mid-merge = inconsistent PR state
+concurrency:
+  group: ferry-\${{ github.workflow }}-\${{ github.event.client_payload.ticket_key || 'ferry-invalid-payload-sinkhole' }}
+  cancel-in-progress: false
+
+jobs:
+  gate-envelope:
+    name: Validate event envelope
+    runs-on: \${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Validate event envelope
+        uses: big-emotion/ferry/.github/actions/ferry-envelope-validate@${version}
+        with:
+          payload: \${{ toJson(github.event.client_payload) }}
+
+  route:
+    name: Resolve execution path
+    needs: [gate-envelope]
+    runs-on: \${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
+    permissions:
+      contents: read
+    outputs:
+      path: \${{ steps.route.outputs.path }}
+      reason: \${{ steps.route.outputs.reason }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Resolve execution path
+        id: route
+        uses: big-emotion/ferry/.github/actions/ferry-route@${version}
+        with:
+          payload: \${{ toJson(github.event.client_payload) }}
+          role: merger
+          jira_base_url: \${{ secrets.FERRY_JIRA_BASE_URL }}
+          jira_email: \${{ secrets.FERRY_JIRA_EMAIL }}
+          jira_api_token: \${{ secrets.FERRY_JIRA_API_TOKEN }}
+
+  run-agent:
+    name: Run Merger agent (script path)
+    needs: [route]
+    if: needs.route.outputs.path == 'script'
+    runs-on: \${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    outputs:
+      input_tokens: \${{ steps.run-merger.outputs.input_tokens }}
+      output_tokens: \${{ steps.run-merger.outputs.output_tokens }}
+      cost_eur: \${{ steps.run-merger.outputs.cost_eur }}
+      model: \${{ steps.run-merger.outputs.model }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Run Merger agent
+        id: run-merger
+        uses: big-emotion/ferry/.github/actions/ferry-run-merger@${version}
+        with:
+          payload: \${{ toJson(github.event.client_payload) }}
+          jira_base_url: \${{ secrets.FERRY_JIRA_BASE_URL }}
+          jira_email: \${{ secrets.FERRY_JIRA_EMAIL }}
+          jira_api_token: \${{ secrets.FERRY_JIRA_API_TOKEN }}
+          anthropic_api_key: \${{ secrets.ANTHROPIC_API_KEY }}
+          openai_api_key: \${{ secrets.OPENAI_API_KEY }}
+          google_api_key: \${{ secrets.GOOGLE_API_KEY }}
+          github_token: \${{ github.token }}
+          github_repo: \${{ github.repository }}
+          ferry_merger_model: \${{ vars.FERRY_MERGER_MODEL || 'claude-sonnet-4-6' }}
+
+  run-agent-claude-code:
+    name: Run Merger agent (claude-code path)
+    needs: [route]
+    if: needs.route.outputs.path == 'claude-code'
+    runs-on: \${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: read
+      id-token: write # required by anthropics/claude-code-action@v1 OIDC auth
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      # Resolve the system prompt: prompts/merge.claude-code.md from this repo
+      # if present, otherwise Ferry's bundled default. To customise the prompt
+      # edit that file — no need to touch this workflow. See docs/CONFIGURATION.md.
+      - name: Resolve agent prompt
+        id: prompt
+        run: >-
+          npx -y -p @big-emotion/ferry@${version} ferry-cc-prompt
+          --agent merge
+          --ticket-key "\${{ github.event.client_payload.ticket_key }}"
+          --run-id "\${{ github.event.client_payload.event_id }}"
+      - uses: anthropics/claude-code-action@1dc994ee7a008f0ecc866d9ac23ef036b7229f84 # v1.0.127
+        with:
+          claude_code_oauth_token: \${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: \${{ steps.prompt.outputs.prompt }}
+          claude_args: >-
+            --mcp-config '{"mcpServers":{"jira":{"command":"npx","args":["-y","-p","@big-emotion/ferry@${version}","ferry-jira-mcp"],"env":{"FERRY_JIRA_BASE_URL":"\${{ secrets.FERRY_JIRA_BASE_URL }}","FERRY_JIRA_EMAIL":"\${{ secrets.FERRY_JIRA_EMAIL }}","FERRY_JIRA_API_TOKEN":"\${{ secrets.FERRY_JIRA_API_TOKEN }}"}}}}'
+            --permission-mode bypassPermissions
+            --disallowedTools 'Bash(gh pr merge),Bash(gh pr merge:*),Bash(gh pr close:*)'
+            --model \${{ vars.FERRY_MERGER_MODEL || 'claude-sonnet-4-6' }}
+
+  emit-audit:
+    name: Emit audit line
+    needs: [run-agent, run-agent-claude-code]
+    if: always() && (needs.run-agent.result != 'skipped' || needs.run-agent-claude-code.result != 'skipped')
+    runs-on: \${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Emit audit line
+        uses: big-emotion/ferry/.github/actions/ferry-emit-audit@${version}
+        with:
+          ticket: \${{ github.event.client_payload.ticket_key }}
+          phase: merge
           run_id: \${{ github.event.client_payload.event_id }}
           model: \${{ needs.run-agent.outputs.model || 'claude-sonnet-4-6' }}
           outcome: \${{ needs.run-agent.result != 'skipped' && needs.run-agent.result || needs.run-agent-claude-code.result }}

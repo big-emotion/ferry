@@ -13,21 +13,28 @@ export type WorkflowFile =
   | 'ferry-refine.yml'
   | 'ferry-dev.yml'
   | 'ferry-review.yml'
-  | 'ferry-iterate.yml';
-export type DispatchType = 'ferry-refine' | 'ferry-dev' | 'ferry-review' | 'ferry-iterate';
+  | 'ferry-iterate.yml'
+  | 'ferry-merge.yml';
+export type DispatchType =
+  | 'ferry-refine'
+  | 'ferry-dev'
+  | 'ferry-review'
+  | 'ferry-iterate'
+  | 'ferry-merge';
 
 export type PhaseRoute = Readonly<{
   workflow: WorkflowFile;
   dispatchType: DispatchType;
 }>;
 
-type RoutingTable = Readonly<Record<Exclude<EventPhase, 'reconcile'>, PhaseRoute>>;
+type RoutingTable = Readonly<Record<Exclude<EventPhase, 'reconcile' | 'merge'>, PhaseRoute>>;
 
 export const PHASE_TO_WORKFLOW: RoutingTable = Object.freeze({
   refine: Object.freeze({ workflow: 'ferry-refine.yml', dispatchType: 'ferry-refine' }),
   dev: Object.freeze({ workflow: 'ferry-dev.yml', dispatchType: 'ferry-dev' }),
   review: Object.freeze({ workflow: 'ferry-review.yml', dispatchType: 'ferry-review' }),
   iterate: Object.freeze({ workflow: 'ferry-iterate.yml', dispatchType: 'ferry-iterate' }),
+  merge: Object.freeze({ workflow: 'ferry-merge.yml', dispatchType: 'ferry-merge' }),
 }) as RoutingTable;
 
 export function phaseToWorkflow(phase: keyof RoutingTable): WorkflowFile {
