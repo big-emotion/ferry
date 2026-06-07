@@ -833,7 +833,7 @@ jobs:
           claude_args: >-
             --mcp-config '{"mcpServers":{"jira":{"command":"npx","args":["-y","-p","@big-emotion/ferry@${version}","ferry-jira-mcp"],"env":{"FERRY_JIRA_BASE_URL":"\${{ secrets.FERRY_JIRA_BASE_URL }}","FERRY_JIRA_EMAIL":"\${{ secrets.FERRY_JIRA_EMAIL }}","FERRY_JIRA_API_TOKEN":"\${{ secrets.FERRY_JIRA_API_TOKEN }}"}}}}'
             --permission-mode bypassPermissions
-            --disallowedTools 'Bash(gh pr merge),Bash(gh pr merge:*),Bash(gh pr close:*)'
+            --disallowedTools 'Bash(gh pr close),Bash(gh pr close:*)'
             --model \${{ vars.FERRY_MERGER_MODEL || 'claude-sonnet-4-6' }}
 
   emit-audit:

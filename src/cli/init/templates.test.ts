@@ -333,6 +333,48 @@ describe('workflowTemplates — review ci-gate emit-audit ci-red wiring', () => 
   });
 });
 
+describe('workflowTemplates — merge authority (FR32)', () => {
+  // The Merger is the only role permitted to run `gh pr merge`.
+  // All other roles must keep the ban. This test is the regression guard for
+  // ADR-0005 §FR32: removing a role from the exception list re-bans it here.
+
+  const NON_MERGER_FILES = [
+    'ferry-refine.yml',
+    'ferry-dev.yml',
+    'ferry-review.yml',
+    'ferry-iterate.yml',
+  ];
+
+  it('ferry-merge.yml Merger cc-path does NOT disallow gh pr merge (FR32 exception)', () => {
+    const merge = workflowTemplates('v1').find((t) => t.filename === 'ferry-merge.yml');
+    expect(merge, 'ferry-merge.yml not found').toBeDefined();
+    // gh pr merge must NOT appear in --disallowedTools
+    expect(
+      merge!.content,
+      'ferry-merge.yml: Merger must be allowed to run gh pr merge (FR32)',
+    ).not.toContain('Bash(gh pr merge)');
+  });
+
+  it('ferry-merge.yml Merger cc-path still disallows gh pr close', () => {
+    const merge = workflowTemplates('v1').find((t) => t.filename === 'ferry-merge.yml');
+    expect(merge, 'ferry-merge.yml not found').toBeDefined();
+    expect(
+      merge!.content,
+      'ferry-merge.yml: Merger must still be blocked from gh pr close',
+    ).toContain('Bash(gh pr close)');
+  });
+
+  it('all non-Merger roles still disallow gh pr merge', () => {
+    for (const tmpl of workflowTemplates('v1')) {
+      if (!NON_MERGER_FILES.includes(tmpl.filename)) continue;
+      expect(
+        tmpl.content,
+        `${tmpl.filename}: non-Merger role must not be allowed to run gh pr merge`,
+      ).toContain('Bash(gh pr merge)');
+    }
+  });
+});
+
 describe('workflowTemplates — supply-chain action pinning', () => {
   // anthropics/claude-code-action is a token-scoped action — tag refs like @v1 are
   // mutable, so we require a 40-char commit SHA with a trailing version comment.
