@@ -1,7 +1,8 @@
 # 0005 — No Auto-Merge Invariant
 
-**Status:** Accepted  
-**Date:** 2024-01-01
+**Status:** Accepted (amended by FR32)  
+**Date:** 2024-01-01  
+**Amended:** 2026-06-07
 
 ## Context
 
@@ -62,6 +63,52 @@ On the approval path, the Reviewer does **not** auto-transition the Jira ticket 
 
 - Teams that want fully automated end-to-end delivery must add their own merge automation (e.g., a GitHub Action triggered by the `ferry:approved` label, or enabling GitHub's "auto-merge" feature on the PR).
 - The invariant is not enforced by GitHub branch protection alone — a consumer who grants the Ferry GitHub App `Contents: write` permission could theoretically call the merge API outside of Ferry. The deny-list only covers bash commands executed by the agent loop.
+
+## FR32 Amendment — Merger role exception
+
+**FR32** introduces the Merger agent, the single role in the Ferry pipeline that is explicitly permitted to run `gh pr merge`. This is a deliberate, gated exception to the invariant above.
+
+### What changed
+
+The Merger's claude-code path `--disallowedTools` list was updated from:
+
+```
+--disallowedTools 'Bash(gh pr merge),Bash(gh pr merge:*),Bash(gh pr close:*)'
+```
+
+to:
+
+```
+--disallowedTools 'Bash(gh pr close),Bash(gh pr close:*)'
+```
+
+`gh pr merge` is no longer on the deny-list for the Merger; `gh pr close` remains blocked for all roles including the Merger.
+
+All four other roles (Refiner, Developer, Reviewer, Iterator) retain the original full ban.
+
+### Gating mechanism
+
+The Merger is triggered exclusively by a `ferry-merge` repository dispatch event. That event is emitted only by the Reviewer agent at approve time (FR24 approve path). The chain is:
+
+```
+Reviewer approve → ferry-merge dispatch → Merger → gh pr merge
+```
+
+No other Ferry agent, workflow, or external caller can trigger the Merger without explicitly dispatching `ferry-merge`.
+
+### Branch-protection caveat
+
+The `ferry:approved` label added by the Reviewer on the `ferry-merge` dispatch is **not** the same as a formal GitHub pull request review approval. GitHub branch protection rules that require a minimum number of PR review approvals are **not satisfied** by the `ferry:approved` label alone.
+
+Consumers who rely on branch-protection rules requiring human PR review approvals must ensure those approvals are in place before the Merger runs, or configure branch protection to allow the Ferry GitHub App to bypass the requirement. See `docs/CONFIGURATION.md` for details on Ferry's permission requirements.
+
+### Regression guard
+
+`src/cli/init/templates.test.ts` contains an explicit regression test (describe block `workflowTemplates — merge authority (FR32)`) that asserts:
+
+- `ferry-merge.yml` does **not** contain `Bash(gh pr merge)` in `--disallowedTools`
+- `ferry-merge.yml` does contain `Bash(gh pr close)` in `--disallowedTools`
+- All four other role templates (`ferry-refine.yml`, `ferry-dev.yml`, `ferry-review.yml`, `ferry-iterate.yml`) still contain `Bash(gh pr merge)` in `--disallowedTools`
 
 ## Alternatives Considered
 
