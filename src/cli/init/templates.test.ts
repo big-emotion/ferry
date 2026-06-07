@@ -444,6 +444,48 @@ describe('workflowTemplates — run-agent-claude-code permissions include id-tok
   }
 });
 
+describe('workflowTemplates — CI-driving roles include checks: read + actions: read (#395)', () => {
+  // Developer, Iterator, and Merger agents call gh pr checks, gh run view, and the
+  // GraphQL statusCheckRollup to drive CI before transitioning. Without checks: read
+  // and actions: read, GitHub returns HTTP 403 and the agent treats CI as unknown,
+  // never transitioning the ticket. This regression guard ensures the missing scopes
+  // cannot be reintroduced by a future template edit.
+  const ciRoles = [
+    { filename: 'ferry-dev.yml', role: 'developer' },
+    { filename: 'ferry-iterate.yml', role: 'iterator' },
+    { filename: 'ferry-merge.yml', role: 'merger' },
+  ] as const;
+
+  for (const { filename, role } of ciRoles) {
+    it(`${filename} (${role}): run-agent-claude-code permissions block contains checks: read`, () => {
+      const tmpl = workflowTemplates('v1').find((t) => t.filename === filename);
+      expect(tmpl, `${filename} not found`).toBeDefined();
+      expect(
+        tmpl!.content,
+        `${filename}: run-agent-claude-code job is missing checks: read (fixes #395)`,
+      ).toContain('checks: read');
+    });
+
+    it(`${filename} (${role}): run-agent-claude-code permissions block contains actions: read`, () => {
+      const tmpl = workflowTemplates('v1').find((t) => t.filename === filename);
+      expect(tmpl, `${filename} not found`).toBeDefined();
+      expect(
+        tmpl!.content,
+        `${filename}: run-agent-claude-code job is missing actions: read (fixes #395)`,
+      ).toContain('actions: read');
+    });
+  }
+
+  it('ferry-refine.yml does not gain unnecessary checks: read (no CI interaction)', () => {
+    const tmpl = workflowTemplates('v1').find((t) => t.filename === 'ferry-refine.yml');
+    expect(tmpl, 'ferry-refine.yml not found').toBeDefined();
+    expect(
+      tmpl!.content,
+      'ferry-refine.yml should not have checks: read — refiner has no CI interaction',
+    ).not.toContain('checks: read');
+  });
+});
+
 describe('workflowTemplates — execution path variants', () => {
   it('script path is byte-identical whether implicit or explicit', () => {
     expect(workflowTemplates('v1', 'script')).toEqual(workflowTemplates('v1'));

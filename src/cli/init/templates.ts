@@ -291,6 +291,8 @@ jobs:
       contents: write
       pull-requests: write
       issues: read
+      checks: read # gh pr checks / statusCheckRollup
+      actions: read # gh run view --log-failed / actions/runs
       id-token: write # required by anthropics/claude-code-action@v1 OIDC auth
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -657,6 +659,8 @@ jobs:
       contents: write
       pull-requests: write
       issues: read
+      checks: read # gh pr checks / statusCheckRollup
+      actions: read # gh run view --log-failed / actions/runs
       id-token: write # required by anthropics/claude-code-action@v1 OIDC auth
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -813,6 +817,8 @@ jobs:
       contents: write
       pull-requests: write
       issues: read
+      checks: read # gh pr checks / statusCheckRollup
+      actions: read # gh run view --log-failed / actions/runs
       id-token: write # required by anthropics/claude-code-action@v1 OIDC auth
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
