@@ -18,9 +18,9 @@ There is no dedicated `build` command for the main codebase — `npm run typeche
 
 ## Project Overview
 
-Ferry is a **GitHub Actions-native agent pipeline** for Jira-driven autonomous development. The system orchestrates four agents (Refiner, Developer, Reviewer, Iterator) that run as GitHub Actions workflows, triggered by Jira column transitions via `repository_dispatch` events.
+Ferry is a **GitHub Actions-native agent pipeline** for Jira-driven autonomous development. The system orchestrates five agents (Refiner, Developer, Reviewer, Iterator, Merger) that run as GitHub Actions workflows, triggered by Jira column transitions (and, for the Merger, by a `ferry-merge` dispatch on Reviewer approval) via `repository_dispatch` events.
 
-**Key constraint:** Ferry never merges code and rarely moves Jira columns autonomously — it only auto-transitions on three explicit FR (Ferry Requirement) numbers: FR18 (Dev → In Review), FR24 (Reviewer → Ready or Changes), FR28 (Iterator → In Review).
+**Key constraint:** Four of the five agents (Refiner, Developer, Reviewer, Iterator) never merge code — that ban is code-enforced via the Developer sandbox deny-list and the agents' architecture (ADR-0005). The **Merger** is the single, deliberately gated exception (FR32, ADR-0005 amendment): it runs `gh pr merge` only when triggered by a `ferry-merge` `repository_dispatch`, which only the Reviewer emits on approve. Ferry otherwise rarely moves Jira columns autonomously — it auto-transitions on four explicit FR (Ferry Requirement) numbers: FR18 (Dev → In Review), FR24 (Reviewer → Changes Requested), FR28 (Iterator → In Review), and FR32 (Merger merges the PR, then optionally → Done when `FERRY_MERGE_DONE_TRANSITION_ID` is set).
 
 The canonical consumer-facing install guide is the **`## Quick install`** section in `README.md` (with full configuration reference in **`docs/CONFIGURATION.md`**). Contributor guidelines live in **`CONTRIBUTING.md`**.
 

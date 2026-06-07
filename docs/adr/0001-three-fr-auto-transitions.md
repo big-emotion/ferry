@@ -1,7 +1,8 @@
 # 0001 — Three FR Auto-Transitions (FR18, FR24, FR28)
 
-**Status:** Accepted  
-**Date:** 2024-01-01
+**Status:** Accepted (amended by FR32)  
+**Date:** 2024-01-01  
+**Amended:** 2026-06-07
 
 ## Context
 
@@ -43,3 +44,15 @@ All other transitions — including moving a ticket to "Done" after a merge, app
 **No auto-transitions at all (fully manual)** — rejected because the Developer→Review and Iterator→Review handoffs are purely mechanical: if the agent succeeded, the ticket must move. Requiring humans to do this is friction with no upside.
 
 **Auto-merge on Reviewer approval** — rejected; see ADR 0005.
+
+## FR32 Amendment — a fourth, gated auto-transition
+
+**Date:** 2026-06-07
+
+**FR32** adds the Merger agent (Ferry's fifth agent) and, with it, a fourth automated Jira transition — gated and off by default. The "exactly three" decision above now reads: **three always-on transitions, plus one opt-in.**
+
+After the Reviewer approves a PR it dispatches a `ferry-merge` `repository_dispatch`. The Merger merges the PR and — **only when the consumer sets `FERRY_MERGE_DONE_TRANSITION_ID`** — calls `tracker.postTransition(ticketKey, doneTransitionId)` to move the ticket to its terminal column (e.g. Done). Implementation: `src/agents/merger/merge-action.ts`.
+
+This stays consistent with the original decision's spirit: closing a ticket is a business-significant moment, so the Done transition is **not** automatic unless the consumer explicitly opts in by configuring the transition ID. When the ID is unset, the Merger merges the PR but leaves the ticket in its current column for a human to close — exactly the "all other transitions require human action" rule from the Decision section above.
+
+The merge itself (not the Jira transition) is the larger departure, and it lands against this ADR's sibling, [ADR-0005](./0005-no-auto-merge-invariant.md) ("No Auto-Merge Invariant"). See that ADR's FR32 amendment for the merge gating mechanism and the branch-protection caveat (`ferry:approved` is not a formal PR review approval).

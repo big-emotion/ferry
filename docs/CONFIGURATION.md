@@ -631,7 +631,7 @@ The resolved path **and the reason** (`label` / `heuristic` / `default`) are rec
 | `execution_path`                           | _(unset)_ | `"script"` (hard lock) or `"claude-code"` (explicit). Unset → conditional default applies. |
 | `routing.claude_code_round_trip_threshold` | `2`       | Positive integer N for the developer/iterator escalation heuristic.                        |
 
-`ferry:claude-code` only _selects_ the path — it does not provision the `CLAUDE_CODE_OAUTH_TOKEN` the path needs. The one hard, code-enforced invariant that holds regardless of how the path was chosen is **Ferry never merges code**; on the claude-code path it is enforced by `claude-code-action`'s `--disallowedTools` deny-list plus consumer branch protection (see [Execution paths & accepted divergences](#execution-paths--accepted-divergences)).
+`ferry:claude-code` only _selects_ the path — it does not provision the `CLAUDE_CODE_OAUTH_TOKEN` the path needs. The merge boundary holds regardless of how the path was chosen: the Refiner, Developer, Reviewer, and Iterator **never merge code** — on the claude-code path enforced by `claude-code-action`'s `--disallowedTools` deny-list plus consumer branch protection. Merging is confined to the separate, gated **Merger** agent (FR32), triggered only by a `ferry-merge` dispatch on Reviewer approval (see [Execution paths & accepted divergences](#execution-paths--accepted-divergences)).
 
 ##### Extended thinking (`ferry:thinking/*`)
 
@@ -878,7 +878,7 @@ Secrets (`ANTHROPIC_API_KEY`, `FERRY_OPENAI_KEY`, `FERRY_GOOGLE_AI_KEY`) are cre
 
 ## Execution paths & accepted divergences
 
-Ferry's four agents (Refiner, Developer, Reviewer, Iterator) run via one of two execution paths behind the same `repository_dispatch` boundary:
+Ferry's five agents (Refiner, Developer, Reviewer, Iterator, Merger) run via one of two execution paths behind the same `repository_dispatch` boundary:
 
 | Path                     | Reasoning core                          | Providers                   | Per-run EUR cap  | Auth                                     |
 | ------------------------ | --------------------------------------- | --------------------------- | ---------------- | ---------------------------------------- |
@@ -903,12 +903,12 @@ Because there is no wrapper bracketing the LLM, several behaviors that the bundl
 
 This is **accepted by design**: the claude-code path trades the wrapper's hard guarantees for a direct, lower-overhead call. Operators who need code-enforced idempotency and audit emission should keep that work on the bundled-script path.
 
-### The one hard invariant: Ferry never merges code
+### The merge boundary: four agents never merge, the Merger is gated
 
-The single invariant that stays **code-enforced** on the claude-code path is the no-merge rule ([ADR-0005](./adr/0005-no-auto-merge-invariant.md)). It is enforced two ways:
+Merging is confined to a single role ([ADR-0005](./adr/0005-no-auto-merge-invariant.md) and its FR32 amendment). On the claude-code path it is enforced two ways:
 
-1. **`claude-code-action`'s `--disallowedTools`** denies `gh pr merge` and `gh pr close`, so the agent loop cannot merge or close a PR.
-2. **GitHub branch protection on the consumer's default branch** — this is now a **required consumer setting**. The tool deny-list is a client-side control; branch protection is the authoritative server-side gate. Without it the no-merge guarantee does not hold server-side. Configure a branch-protection rule (or ruleset) on your default branch — at minimum require a pull request before merging — when you enable the claude-code path.
+1. **`claude-code-action`'s `--disallowedTools`** denies `gh pr merge` and `gh pr close` for the Refiner, Developer, Reviewer, and Iterator, so those agent loops cannot merge or close a PR. The **Merger** is the one role whose deny-list lifts `gh pr merge` (FR32); `gh pr close` stays denied for every role including the Merger.
+2. **GitHub branch protection on the consumer's default branch** — this is now a **required consumer setting**. The tool deny-list is a client-side control; branch protection is the authoritative server-side gate. It is also what bounds the Merger: the `ferry:approved` label is **not** a formal GitHub PR review approval, so a branch-protection rule requiring human review approvals will still block the Merger's `gh pr merge` unless the Ferry app is allowed to bypass it (ADR-0005 §FR32). Configure a branch-protection rule (or ruleset) on your default branch — at minimum require a pull request before merging — when you enable the claude-code path.
 
 ### Other accepted divergences
 

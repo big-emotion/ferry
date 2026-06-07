@@ -375,10 +375,11 @@ describe('Quick install — smoke test documented (INSTALL.md §Smoke test)', ()
 // 14. No-auto-merge invariant cross-check
 // ---------------------------------------------------------------------------
 
-describe('Quick install — Ferry never merges (INSTALL.md)', () => {
-  it('INSTALL.md states Ferry never merges', async () => {
+describe('Quick install — gated merge boundary (INSTALL.md)', () => {
+  it('INSTALL.md documents that merging is gated (Merger / FR32), not unconditional', async () => {
     const doc = await readFile('docs/INSTALL.md');
-    expect(doc).toMatch(/Ferry never merges/i);
+    expect(doc).toMatch(/Merging is gated/i);
+    expect(doc).toMatch(/Merger/);
   });
 });
 

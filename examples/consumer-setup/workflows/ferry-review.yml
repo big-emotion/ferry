@@ -83,7 +83,7 @@ jobs:
     if: needs.route.outputs.path == 'script'
     runs-on: ${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
     permissions:
-      contents: read
+      contents: write # required to dispatch ferry-merge (FR32) via POST /repos/.../dispatches on approve
       pull-requests: write
       issues: write
       checks: read

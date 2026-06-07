@@ -132,9 +132,9 @@ Refresh pinned SHAs every 1–2 months, or configure [Dependabot for GitHub Acti
 
 ## Smoke test
 
-Create a **Story** ticket in Jira and move it to **Refinement**. Within ~5 seconds the `Ferry — Refine` workflow should appear in GitHub Actions. Approve the sub-tasks, move the ticket to **In Development**, and watch the loop: Developer opens a draft PR and auto-transitions the ticket to _In Review_ (FR18); Reviewer runs when CI is green and either marks the PR ready (FR24 — `ferry:approved` label) or transitions to _Changes Requested_ (FR24); Iterator applies findings and transitions back to _In Review_ (FR28).
+Create a **Story** ticket in Jira and move it to **Refinement**. Within ~5 seconds the `Ferry — Refine` workflow should appear in GitHub Actions. Approve the sub-tasks, move the ticket to **In Development**, and watch the loop: Developer opens a draft PR and auto-transitions the ticket to _In Review_ (FR18); Reviewer runs when CI is green and either marks the PR ready and adds the `ferry:approved` label (FR24) or transitions to _Changes Requested_ (FR24); Iterator applies findings and transitions back to _In Review_ (FR28). On approval the Reviewer also dispatches `ferry-merge`, and the **Merger** squash-merges the PR — optionally moving the ticket to Done when `FERRY_MERGE_DONE_TRANSITION_ID` is set (FR32).
 
-**Ferry never merges** — you merge the PR yourself when satisfied.
+**Merging is gated, not unconditional** — the Merger squash-merges only on Reviewer approval and only if your branch protection lets the Ferry app merge (the `ferry:approved` label is not a formal PR review approval). Otherwise the approved PR waits for you to merge it yourself.
 
 ---
 
