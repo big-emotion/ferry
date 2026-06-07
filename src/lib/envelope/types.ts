@@ -1,4 +1,4 @@
-export type EventPhase = 'refine' | 'dev' | 'review' | 'iterate' | 'reconcile';
+export type EventPhase = 'refine' | 'dev' | 'review' | 'iterate' | 'reconcile' | 'merge';
 
 export type EventSource = 'jira-column' | 'jira-label' | 'jira-mention' | 'reconciler';
 

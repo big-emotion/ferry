@@ -5088,7 +5088,8 @@ var PHASE_TO_WORKFLOW = Object.freeze({
   refine: Object.freeze({ workflow: "ferry-refine.yml", dispatchType: "ferry-refine" }),
   dev: Object.freeze({ workflow: "ferry-dev.yml", dispatchType: "ferry-dev" }),
   review: Object.freeze({ workflow: "ferry-review.yml", dispatchType: "ferry-review" }),
-  iterate: Object.freeze({ workflow: "ferry-iterate.yml", dispatchType: "ferry-iterate" })
+  iterate: Object.freeze({ workflow: "ferry-iterate.yml", dispatchType: "ferry-iterate" }),
+  merge: Object.freeze({ workflow: "ferry-merge.yml", dispatchType: "ferry-merge" })
 });
 
 // src/lib/dispatch/runner/github-actions/index.ts
@@ -10811,6 +10812,11 @@ async function main3(envelope, logger) {
       await runner.commentOnPR({ owner, repo, prNumber }, review.comment);
       if (shouldTransitionApprove) {
         await tracker.postTransition(ticketKey, approveTransitionId);
+      }
+      try {
+        await runner.dispatch("merge", { ...envelope, phase: "merge" });
+      } catch (err) {
+        logger.warn("ferry-merge dispatch failed (non-fatal)", { error: err.message });
       }
     }
   } else {

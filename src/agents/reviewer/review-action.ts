@@ -290,6 +290,13 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
       if (shouldTransitionApprove) {
         await tracker.postTransition(ticketKey, approveTransitionId);
       }
+      // FR32: dispatch ferry-merge best-effort — a dispatch failure must never lose an approval.
+      // The reviewer job on the script path requires contents: write for repository_dispatch.
+      try {
+        await runner.dispatch('merge', { ...envelope, phase: 'merge' });
+      } catch (err) {
+        logger.warn('ferry-merge dispatch failed (non-fatal)', { error: (err as Error).message });
+      }
     }
   } else {
     const priorIterations = countPriorIterations(existingComments);
