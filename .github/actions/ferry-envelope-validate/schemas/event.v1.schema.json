@@ -14,7 +14,7 @@
     "ticket_key": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]+-\\d+$" },
     "phase": { "enum": ["refine", "dev", "review", "iterate", "reconcile", "merge"] },
     "source": {
-      "enum": ["jira-column", "jira-label", "jira-mention", "reconciler"]
+      "enum": ["jira-column", "jira-label", "jira-mention", "reconciler", "ferry-agent"]
     },
     "instructions": { "type": "string" },
     "ticket_type": { "enum": ["Story", "Task", "Bug", "Spike"] },

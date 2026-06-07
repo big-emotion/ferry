@@ -161,7 +161,7 @@ jobs:
     if: needs.route.outputs.path == 'claude-code' && needs.ci-gate.outputs.proceed == 'true'
     runs-on: ${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
     permissions:
-      contents: read
+      contents: write # required to dispatch ferry-merge (FR32) via POST /repos/.../dispatches
       pull-requests: write
       issues: read
       id-token: write # required by anthropics/claude-code-action@v1 OIDC auth

@@ -152,16 +152,17 @@ When `state.iteration >= limits.max_iterations` (default 3) and findings remain,
 
 ---
 
-### FR32 — Reviewer best-effort dispatches ferry-merge on approve
+### FR32 — Reviewer dispatches `ferry-merge` on Approved verdict (cc-path)
 
-|                     |                                                                              |
-| ------------------- | ---------------------------------------------------------------------------- |
-| **Status**          | shipped                                                                      |
-| **Source files**    | `src/agents/reviewer/review-action.ts`, `src/cli/init/templates.ts`          |
-| **Test files**      | `src/cli/init/templates.test.ts`                                             |
-| **Date introduced** | 2026-06-06                                                                   |
+|                     |                                                              |
+| ------------------- | ------------------------------------------------------------ |
+| **Status**          | shipped                                                      |
+| **Source files**    | `prompts/review.claude-code.md`, `src/lib/dispatch/routing.ts` |
+| **Test files**      | `src/schemas/schemas.test.ts`                                |
+| **Docs**            | `docs/CONFIGURATION.md`                                      |
+| **Date introduced** | 2026-06-06                                                   |
 
-When the Reviewer verdict is `merge-ready`, Ferry attempts a best-effort `repository_dispatch` to trigger `ferry-merge.yml`. The dispatch is wrapped in try/catch so a failure never loses the approval. The reviewer `run-agent` step requires `contents: write` to issue the dispatch event.
+On the claude-code execution path, when the Reviewer verdict is Approved, the agent emits a `ferry-merge` `repository_dispatch` event (phase `"merge"`, source `"ferry-agent"`) via `gh api`. This triggers the Merger agent without human intervention. The `"merge"` phase is excluded from `RoutingTable` (handled outside the standard phase-to-workflow table, same as `"reconcile"`).
 
 ---
 

@@ -27,7 +27,7 @@ export type PhaseRoute = Readonly<{
   dispatchType: DispatchType;
 }>;
 
-type RoutingTable = Readonly<Record<Exclude<EventPhase, 'reconcile'>, PhaseRoute>>;
+type RoutingTable = Readonly<Record<Exclude<EventPhase, 'reconcile' | 'merge'>, PhaseRoute>>;
 
 export const PHASE_TO_WORKFLOW: RoutingTable = Object.freeze({
   refine: Object.freeze({ workflow: 'ferry-refine.yml', dispatchType: 'ferry-refine' }),
