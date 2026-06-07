@@ -13,6 +13,7 @@ const BUNDLED: Record<CcAgent, string> = {
   dev: 'dev default TICKET_KEY RUN_ID REVIEW_TRANSITION_ID',
   review: 'review TICKET_KEY RUN_ID APPROVE_TRANSITION_ID CHANGES_TRANSITION_ID',
   iterate: 'iterate TICKET_KEY RUN_ID REVIEW_TRANSITION_ID',
+  merge: 'merge default TICKET_KEY RUN_ID',
 };
 
 afterEach(() => {
@@ -92,6 +93,21 @@ describe('parseArgs', () => {
     ]);
     expect(args.outputName).toBe('sys');
   });
+
+  it('parses a merge invocation with only ticket-key and run-id', () => {
+    const args = parseArgs([
+      '--agent',
+      'merge',
+      '--ticket-key',
+      'PROJ-42',
+      '--run-id',
+      'r7',
+      '--repo-root',
+      '/repo',
+    ]);
+    expect(args.agent).toBe('merge');
+    expect(args.values).toEqual({ TICKET_KEY: 'PROJ-42', RUN_ID: 'r7' });
+  });
 });
 
 describe('renderPrompt', () => {
@@ -129,6 +145,37 @@ describe('renderPrompt', () => {
         () => '   \n  ',
       ),
     ).toThrow(/empty/);
+  });
+
+  it('resolves --agent merge to bundled default and substitutes tokens', () => {
+    const mergeArgs: CcPromptArgs = {
+      path: 'claude-code',
+      agent: 'merge',
+      repoRoot: '/repo',
+      outputName: 'prompt',
+      values: { TICKET_KEY: 'PROJ-42', RUN_ID: 'r7' },
+    };
+    const result = renderPrompt(mergeArgs, BUNDLED, () => false);
+    expect(result.source).toBe('bundled');
+    expect(result.text).toBe('merge default PROJ-42 r7');
+  });
+
+  it('uses a consumer prompts/merge.claude-code.md override when present', () => {
+    const mergeArgs: CcPromptArgs = {
+      path: 'claude-code',
+      agent: 'merge',
+      repoRoot: '/repo',
+      outputName: 'prompt',
+      values: { TICKET_KEY: 'PROJ-42', RUN_ID: 'r7' },
+    };
+    const result = renderPrompt(
+      mergeArgs,
+      BUNDLED,
+      (p) => p === '/repo/prompts/merge.claude-code.md',
+      () => 'consumer merge TICKET_KEY RUN_ID',
+    );
+    expect(result.source).toBe('override');
+    expect(result.text).toBe('consumer merge PROJ-42 r7');
   });
 });
 

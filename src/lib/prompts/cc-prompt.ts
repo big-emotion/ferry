@@ -4,10 +4,10 @@ import * as path from 'node:path';
 /** Prompt resolution for Ferry's direct-action execution paths. */
 
 export type DirectActionPromptPath = 'claude-code' | 'codex-cli';
-export type CcAgent = 'refiner' | 'dev' | 'review' | 'iterate';
+export type CcAgent = 'refiner' | 'dev' | 'review' | 'iterate' | 'merge';
 
-/** The four agents that run on direct-action paths. */
-export const CC_AGENTS: readonly CcAgent[] = ['refiner', 'dev', 'review', 'iterate'];
+/** The agents that run on direct-action paths. */
+export const CC_AGENTS: readonly CcAgent[] = ['refiner', 'dev', 'review', 'iterate', 'merge'];
 export const DIRECT_ACTION_PROMPT_PATHS: readonly DirectActionPromptPath[] = [
   'claude-code',
   'codex-cli',
@@ -22,6 +22,7 @@ export const CC_PROMPT_TOKENS: Record<CcAgent, readonly string[]> = {
   dev: ['TICKET_KEY', 'RUN_ID', 'REVIEW_TRANSITION_ID'],
   review: ['TICKET_KEY', 'RUN_ID', 'APPROVE_TRANSITION_ID', 'CHANGES_TRANSITION_ID'],
   iterate: ['TICKET_KEY', 'RUN_ID', 'REVIEW_TRANSITION_ID'],
+  merge: ['TICKET_KEY', 'RUN_ID'],
 };
 
 export interface CcPromptResolution {
