@@ -254,6 +254,12 @@ const agentActions = [
     prompts: ['iterate'],
     legacyBundle: 'iterate-action.js',
   },
+  {
+    actionDir: '.github/actions/ferry-run-merger',
+    packageName: 'ferry-run-merger-action',
+    prompts: [],
+    legacyBundle: 'merger-action.js',
+  },
 ];
 
 for (const agent of agentActions) {

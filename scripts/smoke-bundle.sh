@@ -30,6 +30,7 @@ ROLES=(
   developer
   reviewer
   iterator
+  merger
 )
 BUNDLE_PATH=".ferry/agent.js"
 
