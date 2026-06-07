@@ -39,7 +39,7 @@ import {
 import { createLogger } from '../logger/index.js';
 import type { AgentOutputRole } from '../cc-wrappers/routing.js';
 
-const VALID_ROLES = ['refiner', 'developer', 'reviewer', 'iterator'] as const;
+const VALID_ROLES = ['refiner', 'developer', 'reviewer', 'iterator', 'merger'] as const;
 
 const logger = createLogger('', 'ferry:route');
 

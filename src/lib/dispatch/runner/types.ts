@@ -101,4 +101,13 @@ export interface CIRunner {
   addLabelsToPR(prRef: PRRef, labels: string[]): Promise<void>;
   removeLabelFromPR(prRef: PRRef, label: string): Promise<void>;
   listPRComments(prRef: PRRef, count: number): Promise<PRComment[]>;
+  /**
+   * Merge a pull request using the specified strategy.
+   * Throws if the PR is not mergeable or the merge fails.
+   */
+  mergePR(
+    prRef: PRRef,
+    strategy: 'squash' | 'merge' | 'rebase',
+    commitTitle?: string,
+  ): Promise<void>;
 }

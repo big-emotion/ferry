@@ -335,6 +335,21 @@ export class GitLabRunner implements CIRunner {
     return notes.map((n) => ({ id: n.id, body: n.body ?? '' }));
   }
 
+  async mergePR(
+    prRef: PRRef,
+    strategy: 'squash' | 'merge' | 'rebase',
+    commitTitle?: string,
+  ): Promise<void> {
+    const path = `/projects/${this.projectPath(prRef.owner, prRef.repo)}/merge_requests/${prRef.prNumber}/merge`;
+    await this.request('PUT', path, {
+      body: {
+        should_remove_source_branch: false,
+        squash: strategy === 'squash',
+        ...(commitTitle !== undefined ? { squash_commit_message: commitTitle } : {}),
+      },
+    });
+  }
+
   // ── Helpers ──────────────────────────────────────────────────────────────
 
   private toPR(mr: GitLabMergeRequest): PR {

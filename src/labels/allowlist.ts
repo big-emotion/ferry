@@ -78,6 +78,7 @@ export const LABELS_ALLOWLIST = [
   'ferry:dev-action',
   'ferry:review-action',
   'ferry:iterate-action',
+  'ferry:merge-action',
   'ferry:dispatch',
   'ferry:envelope',
   'ferry:dev-loop',

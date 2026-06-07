@@ -18,9 +18,12 @@ describe('parseArgs', () => {
     });
   });
 
-  it.each(['refiner', 'developer', 'reviewer', 'iterator'] as const)('accepts role: %s', (role) => {
-    expect(parseArgs([...SCRIPT, 'run', '--role', role])).toEqual({ command: 'run', role });
-  });
+  it.each(['refiner', 'developer', 'reviewer', 'iterator', 'merger'] as const)(
+    'accepts role: %s',
+    (role) => {
+      expect(parseArgs([...SCRIPT, 'run', '--role', role])).toEqual({ command: 'run', role });
+    },
+  );
 
   it('rejects an unknown command', () => {
     expect(() => parseArgs([...SCRIPT, 'execute', '--role', 'refiner'])).toThrow(CliUsageError);

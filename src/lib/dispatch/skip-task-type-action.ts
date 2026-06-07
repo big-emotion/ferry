@@ -26,7 +26,7 @@ if (!issueType) process.exit(0);
 const skip = shouldSkipForTaskType(issueType);
 if (!skip.skip) process.exit(0);
 
-const VALID_ROLES = ['refiner', 'developer', 'reviewer', 'iterator'] as const;
+const VALID_ROLES = ['refiner', 'developer', 'reviewer', 'iterator', 'merger'] as const;
 type AgentRole = (typeof VALID_ROLES)[number];
 
 const rawRole = process.env.FERRY_AGENT_ROLE;
