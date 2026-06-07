@@ -475,7 +475,7 @@ var issueType = envelope.issue_type;
 if (!issueType) process.exit(0);
 var skip = shouldSkipForTaskType(issueType);
 if (!skip.skip) process.exit(0);
-var VALID_ROLES = ["refiner", "developer", "reviewer", "iterator"];
+var VALID_ROLES = ["refiner", "developer", "reviewer", "iterator", "merger"];
 var rawRole = process.env.FERRY_AGENT_ROLE;
 if (!rawRole || !VALID_ROLES.includes(rawRole)) {
   logger.error("FERRY_AGENT_ROLE is invalid", {

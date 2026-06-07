@@ -1380,6 +1380,8 @@ function providerForRole(cfg, role) {
       return cfg.models.review.provider;
     case "refiner":
       return cfg.models.refiner.provider;
+    case "merger":
+      return "anthropic";
   }
 }
 function isDirectPathAvailable(path2, input) {
@@ -1460,7 +1462,7 @@ function createLogger(correlationId, component = "ferry") {
 }
 
 // src/lib/dispatch/route-action.ts
-var VALID_ROLES = ["refiner", "developer", "reviewer", "iterator"];
+var VALID_ROLES = ["refiner", "developer", "reviewer", "iterator", "merger"];
 var logger = createLogger("", "ferry:route");
 function requireEnv(name) {
   const v = process.env[name];
