@@ -9,6 +9,10 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Merger agent (FR32)** — a new fifth agent that fires on the `ferry:approved` GitHub label and merges the PR automatically via `gh pr merge`. Triggered by a new `ferry-merge.yml` consumer workflow (added automatically by `ferry-update`). The merge strategy is configurable (`FERRY_MERGE_STRATEGY`: `squash` / `merge` / `rebase`; default: `squash`). Model and provider are overrideable via `FERRY_MERGE_MODEL` / `FERRY_MERGE_PROVIDER`. An optional `FERRY_MERGE_DONE_TRANSITION_ID` secret moves the Jira ticket into a configured column after a successful merge. **Branch-protection caveat:** approval is gated on the `ferry:approved` label, not a GitHub PR review — see `docs/CONFIGURATION.md` → Merger agent → Branch-protection caveat for implications when "Require approvals" is enabled.
+
 ---
 
 ## [0.16.0] — 2026-05-25

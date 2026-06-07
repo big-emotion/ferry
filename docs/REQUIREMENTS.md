@@ -152,17 +152,17 @@ When `state.iteration >= limits.max_iterations` (default 3) and findings remain,
 
 ---
 
-### FR32 — Reviewer dispatches `ferry-merge` on Approved verdict (cc-path)
+### FR32 — Merger agent: auto-merge PR on `ferry:approved` label
 
-|                     |                                                              |
-| ------------------- | ------------------------------------------------------------ |
-| **Status**          | shipped                                                      |
-| **Source files**    | `prompts/review.claude-code.md`, `src/lib/dispatch/routing.ts` |
-| **Test files**      | `src/schemas/schemas.test.ts`                                |
-| **Docs**            | `docs/CONFIGURATION.md`                                      |
-| **Date introduced** | 2026-06-06                                                   |
+|                     |                                                      |
+| ------------------- | ---------------------------------------------------- |
+| **Status**          | shipped                                              |
+| **Source files**    | `src/agents/merger/`                                 |
+| **Test files**      | `src/agents/merger/merger.test.ts`                   |
+| **Docs**            | `README.md`, `docs/CONFIGURATION.md` (Merger agent section), `MIGRATIONS.md` |
+| **Date introduced** | 2026-06-06                                           |
 
-On the claude-code execution path, when the Reviewer verdict is Approved, the agent emits a `ferry-merge` `repository_dispatch` event (phase `"merge"`, source `"ferry-agent"`) via `gh api`. This triggers the Merger agent without human intervention. The `"merge"` phase is excluded from `RoutingTable` (handled outside the standard phase-to-workflow table, same as `"reconcile"`).
+The Merger is Ferry's fifth agent. It fires when the `ferry:approved` label is applied to a pull request (set by the Reviewer on a passing review). The Merger generates a squash commit message (LLM-assisted), runs `gh pr merge` with the configured strategy, optionally transitions the Jira ticket via `FERRY_MERGE_DONE_TRANSITION_ID`, and emits a `[ferry:merger:<run-id>]` audit comment. If the merge fails, the label is left in place for manual recovery.
 
 ---
 

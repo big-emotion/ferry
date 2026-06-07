@@ -11,11 +11,11 @@
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org)
 
 ```
-Jira board  ──▶  repository_dispatch  ──▶  GitHub Actions  ──▶  draft PR
-   (you)              (automatic)           (autonomous)        (you merge)
+Jira board  ──▶  repository_dispatch  ──▶  GitHub Actions  ──▶  merged PR
+   (you)              (automatic)           (autonomous)        (automatic)
 ```
 
-Ferry connects your Jira board to a fully autonomous dev loop — Refiner, Developer, Reviewer, and Iterator agents run as GitHub Actions workflows, triggered by column transitions on your Jira tickets.
+Ferry connects your Jira board to a fully autonomous dev loop — Refiner, Developer, Reviewer, Iterator, and Merger agents run as GitHub Actions workflows, triggered by column transitions on your Jira tickets.
 
 **Learn more in the [Ferry documentation](docs/).**
 

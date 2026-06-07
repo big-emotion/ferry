@@ -53,6 +53,14 @@ If there are no consumer-visible changes, omit the section (or note `(none — i
 
 ---
 
+## v0.16.x → v0.17.0
+
+- **(action)** **New `ferry-merge.yml` workflow (Merger agent, FR32).** Run `npx -p @big-emotion/ferry@v0.17.0 ferry-update` to add the merge workflow stub to your `.github/workflows/`. Alternatively, copy `examples/consumer-setup/workflows/ferry-merge.yml` by hand. Without this file, PRs that receive the `ferry:approved` label are never automatically merged — they stay approved until a human merges them.
+- **(info)** **Optional `FERRY_MERGE_DONE_TRANSITION_ID` secret.** When set, the Merger moves the Jira ticket into a configured column after a successful merge (FR32). Find the transition ID via the Jira REST API: `GET /rest/api/3/issue/{key}/transitions`. If omitted, Ferry leaves the Jira ticket in its current column after the merge.
+- **(info)** **Branch-protection caveat — label approval vs. required PR reviews.** The Merger approves PRs via the `ferry:approved` label, not a GitHub PR review. If your default branch is protected with a **"Require a pull request before merging — Require approvals"** rule, `gh pr merge` will be rejected because no review approval has been posted by a human or an approved bot. See `docs/CONFIGURATION.md` → Merger agent (FR32) → Branch-protection caveat for options. Consumers who do not enable the Merger are unaffected — the `ferry:approved` label is inert without the workflow.
+
+---
+
 ## v0.15.x → v0.16.0
 
 - **(action)** **claude-code workflows now resolve the agent prompt via `ferry-cc-prompt`.** The `run-agent-claude-code` job no longer inlines the system prompt in the workflow YAML — a `Resolve agent prompt` step runs `npx -p @big-emotion/ferry@v0.16.0 ferry-cc-prompt` and `anthropics/claude-code-action` reads `prompt: ${{ steps.prompt.outputs.prompt }}`. Run `npx -p @big-emotion/ferry@v0.16.0 ferry-update`, or re-copy the four workflow stubs from `examples/consumer-setup/workflows/` by hand, to pick this up. **This migration is optional** — existing inline-prompt workflows keep working unchanged; update only to gain prompt overrides. Script-path consumers are unaffected.
