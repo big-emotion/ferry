@@ -81,8 +81,8 @@ All variables marked **wired** below are read directly by the standard consumer 
 | `FERRY_ITER_PROVIDER`    | `anthropic`         | yes (`iterate`) | Iterator agent  | LLM provider override for the Iterator (`anthropic` / `openai` / `google`). MCP integration requires `anthropic`.  |
 | `FERRY_REFINER_MODEL`    | `claude-sonnet-4-6` | yes (`refine`)  | Refiner agent   | Override the model ID for the Refiner. Wired via the `ferry_refiner_model` composite action input.                 |
 | `FERRY_REFINER_PROVIDER` | `anthropic`         | yes (`refine`)  | Refiner agent   | LLM provider override for the Refiner (`anthropic` / `openai` / `google`).                                         |
-| `FERRY_MERGE_MODEL`      | `claude-sonnet-4-6` | yes (`merge`)   | Merger agent    | Override the model ID used by the Merger when generating a squash commit message. Wired via the `ferry_merge_model` composite action input. |
-| `FERRY_MERGE_PROVIDER`   | `anthropic`         | yes (`merge`)   | Merger agent    | LLM provider override for the Merger (`anthropic` / `openai` / `google`).                                          |
+| `FERRY_MERGER_MODEL`     | `claude-sonnet-4-6` | yes (`merge`)   | Merger agent    | Override the model ID used by the Merger when generating a squash commit message. Wired via the `ferry_merger_model` composite action input. |
+| `FERRY_MERGER_PROVIDER`  | `anthropic`         | yes (`merge`)   | Merger agent    | LLM provider override for the Merger (`anthropic` / `openai` / `google`).                                          |
 | `FERRY_MERGE_STRATEGY`   | `squash`            | yes (`merge`)   | Merger agent    | Merge strategy passed to `gh pr merge`. Accepted values: `squash`, `merge`, `rebase`. Default `squash` keeps a linear history and folds sub-task commits into one message. |
 
 #### Token and iteration limits
@@ -863,7 +863,7 @@ ferry.config.json defaults
          FERRY_REVIEW_PROVIDER, FERRY_REVIEW_MODEL,
          FERRY_REVIEWER_MAX_ITERATIONS, FERRY_REVIEWER_MAX_TOKENS,
          FERRY_ITER_PROVIDER, FERRY_ITER_MODEL, FERRY_ITER_MAX_INPUT_TOKENS,
-         FERRY_MERGE_PROVIDER, FERRY_MERGE_MODEL, FERRY_MERGE_STRATEGY,
+         FERRY_MERGER_PROVIDER, FERRY_MERGER_MODEL, FERRY_MERGE_STRATEGY,
          FERRY_BASH_TIMEOUT_MAX_MS,
          FERRY_MAX_COST_EUR_PER_RUN,
          FERRY_LLM_RETRY_MAX_ATTEMPTS, FERRY_JIRA_RETRY_MAX_ATTEMPTS)
@@ -942,7 +942,7 @@ By short-circuiting on pending/red CI deterministically, the gate avoids spendin
 
 ## Merger agent (FR32)
 
-The Merger is Ferry's fifth agent. It runs as a lightweight, **deterministic** GitHub Actions workflow (`ferry-merge.yml`) that fires whenever the `ferry:approved` label is applied to a pull request — typically by the Reviewer agent after a passing review.
+The Merger is Ferry's fifth agent. It runs as a lightweight, **deterministic** GitHub Actions workflow (`ferry-merge.yml`) that is triggered by a `repository_dispatch` event of type `ferry-merge`, dispatched automatically by the Reviewer agent after a passing review.
 
 ### What the Merger does
 
@@ -956,15 +956,15 @@ If the merge fails (e.g. merge conflicts, CI still pending, branch-protection re
 
 ### Workflow trigger
 
-`ferry-merge.yml` listens for the `pull_request` event with type `labeled` and the label name `ferry:approved`:
+`ferry-merge.yml` listens for a `repository_dispatch` event of type `ferry-merge`:
 
 ```yaml
 on:
-  pull_request:
-    types: [labeled]
+  repository_dispatch:
+    types: [ferry-merge]
 ```
 
-The job runs only when the added label is `ferry:approved`. No `repository_dispatch` is required — the Reviewer's existing label-write already fires the event.
+The event is dispatched automatically by the Reviewer agent when it approves a PR (the same run that sets the `ferry:approved` label on the PR). No additional configuration is required — the Reviewer's existing approval path fires the event.
 
 ### Installation
 
@@ -975,8 +975,8 @@ Run `ferry-update` to add the workflow stub automatically, or copy `examples/con
 | Setting                          | Type     | Default             | Description                                                                                                                    |
 | -------------------------------- | -------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | `FERRY_MERGE_STRATEGY` (var)     | variable | `squash`            | Merge strategy: `squash`, `merge`, or `rebase`. Passed directly to `gh pr merge`.                                              |
-| `FERRY_MERGE_MODEL` (var)        | variable | `claude-sonnet-4-6` | LLM model used to generate the squash commit message. Ignored when `FERRY_MERGE_STRATEGY` is not `squash`.                     |
-| `FERRY_MERGE_PROVIDER` (var)     | variable | `anthropic`         | LLM provider for commit-message generation (`anthropic` / `openai` / `google`). Ignored when `FERRY_MERGE_STRATEGY` is not `squash`. |
+| `FERRY_MERGER_MODEL` (var)       | variable | `claude-sonnet-4-6` | LLM model used to generate the squash commit message. Ignored when `FERRY_MERGE_STRATEGY` is not `squash`.                     |
+| `FERRY_MERGER_PROVIDER` (var)    | variable | `anthropic`         | LLM provider for commit-message generation (`anthropic` / `openai` / `google`). Ignored when `FERRY_MERGE_STRATEGY` is not `squash`. |
 | `FERRY_MERGE_DONE_TRANSITION_ID` (secret) | secret | _(none)_     | **Optional.** Jira transition ID that moves the ticket after a successful merge. When omitted, the Jira column is left unchanged post-merge. |
 
 All four values are wired into the `ferry-merge.yml` stub. Set `FERRY_MERGE_DONE_TRANSITION_ID` as a repository **secret** (not a variable — it is a Jira credential). The model and strategy are repository **variables**.
@@ -985,7 +985,7 @@ All four values are wired into the `ferry-merge.yml` stub. Set `FERRY_MERGE_DONE
 
 > **Important:** This trade-off affects every consumer who has branch protection with required PR reviews. Read this before enabling the Merger.
 
-The Merger approves PRs via the **`ferry:approved` label**, not a GitHub PR review. GitHub's branch-protection model keeps these two concepts separate:
+The Merger is triggered by a `repository_dispatch` event (`ferry-merge`) dispatched by the Reviewer. The Reviewer also sets the **`ferry:approved` label** on the PR, but does **not** post a formal GitHub PR review approval. GitHub's branch-protection model keeps these two concepts separate:
 
 - **Label approval** (`ferry:approved`) — a Ferry-specific signal that the Reviewer has passed the PR.
 - **GitHub PR review approval** — a formal "Approved" review posted by a user or GitHub App with `pull-requests: write` scope.

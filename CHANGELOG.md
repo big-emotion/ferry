@@ -11,7 +11,7 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- **Merger agent (FR32)** — a new fifth agent that fires on the `ferry:approved` GitHub label and merges the PR automatically via `gh pr merge`. Triggered by a new `ferry-merge.yml` consumer workflow (added automatically by `ferry-update`). The merge strategy is configurable (`FERRY_MERGE_STRATEGY`: `squash` / `merge` / `rebase`; default: `squash`). Model and provider are overrideable via `FERRY_MERGE_MODEL` / `FERRY_MERGE_PROVIDER`. An optional `FERRY_MERGE_DONE_TRANSITION_ID` secret moves the Jira ticket into a configured column after a successful merge. **Branch-protection caveat:** approval is gated on the `ferry:approved` label, not a GitHub PR review — see `docs/CONFIGURATION.md` → Merger agent → Branch-protection caveat for implications when "Require approvals" is enabled.
+- **Merger agent (FR32)** — a new fifth agent triggered by a `repository_dispatch` event of type `ferry-merge`, dispatched automatically by the Reviewer agent on a passing review. Consumers wire it by adding `ferry-merge.yml` to `.github/workflows/` (added automatically by `ferry-update`). The merge strategy is configurable (`FERRY_MERGE_STRATEGY`: `squash` / `merge` / `rebase`; default: `squash`). Model and provider are overrideable via `FERRY_MERGER_MODEL` / `FERRY_MERGER_PROVIDER`. An optional `FERRY_MERGE_DONE_TRANSITION_ID` secret moves the Jira ticket into a configured column after a successful merge. **Branch-protection caveat:** the Reviewer sets the `ferry:approved` label but does not post a formal GitHub PR review — see `docs/CONFIGURATION.md` → Merger agent → Branch-protection caveat for implications when "Require approvals" is enabled.
 
 ---
 
