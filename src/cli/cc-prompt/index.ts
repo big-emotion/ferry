@@ -6,8 +6,8 @@ import { parseArgs, renderPrompt, formatGithubOutput } from './cli.js';
 const HELP = `ferry-action-prompt — resolve a direct-action-path system prompt for a Ferry agent.
 
 Usage:
-  ferry-action-prompt --path <claude-code|codex-cli> --agent <refiner|dev|review|iterate> --ticket-key <key> --run-id <id> [options]
-  ferry-cc-prompt --agent <refiner|dev|review|iterate> --ticket-key <key> --run-id <id> [options]
+  ferry-action-prompt --path <claude-code|codex-cli> --agent <refiner|dev|review|iterate|merge> --ticket-key <key> --run-id <id> [options]
+  ferry-cc-prompt --agent <refiner|dev|review|iterate|merge> --ticket-key <key> --run-id <id> [options]
 
 Resolves prompts/<agent>.<path>.md from the consumer repo when present,
 otherwise Ferry's bundled default; substitutes runtime tokens; writes the result
@@ -15,7 +15,7 @@ to $GITHUB_OUTPUT (key: --output-name, default "prompt") or to stdout.
 
 Options:
   --path                   Direct-action path: claude-code | codex-cli (default: claude-code)
-  --agent                  Agent: refiner | dev | review | iterate (required)
+  --agent                  Agent: refiner | dev | review | iterate | merge (required)
   --ticket-key             Jira ticket key (required)
   --run-id                 Ferry run id (required)
   --review-transition-id   FR18 / FR28 transition id (dev, iterate)
