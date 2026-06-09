@@ -130,6 +130,9 @@ jobs:
       id-token: write # required by anthropics/claude-code-action@v1 OIDC auth
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: \${{ vars.FERRY_INTEGRATION_BRANCH || 'main' }}
+          fetch-depth: 0
       # Resolve the system prompt: prompts/refiner.claude-code.md from this repo
       # if present, otherwise Ferry's bundled default. To customise the prompt
       # edit that file — no need to touch this workflow. See docs/CONFIGURATION.md.
@@ -291,11 +294,14 @@ jobs:
       contents: write
       pull-requests: write
       issues: read
-      checks: read # gh pr checks / statusCheckRollup
-      actions: read # gh run view --log-failed / actions/runs
+      checks: read     # PR check-runs / statusCheckRollup
+      actions: read    # gh run view --log-failed / actions/runs
       id-token: write # required by anthropics/claude-code-action@v1 OIDC auth
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: \${{ vars.FERRY_INTEGRATION_BRANCH || 'main' }}
+          fetch-depth: 0
       # Resolve the system prompt: prompts/dev.claude-code.md from this repo if
       # present, otherwise Ferry's bundled default. To customise the prompt edit
       # that file — no need to touch this workflow. See docs/CONFIGURATION.md.
@@ -491,6 +497,9 @@ jobs:
       id-token: write # required by anthropics/claude-code-action@v1 OIDC auth
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ferry/\${{ github.event.client_payload.ticket_key }}
+          fetch-depth: 0
       # Resolve the system prompt: prompts/review.claude-code.md from this repo
       # if present, otherwise Ferry's bundled default. To customise the prompt
       # edit that file — no need to touch this workflow. See docs/CONFIGURATION.md.
@@ -659,11 +668,14 @@ jobs:
       contents: write
       pull-requests: write
       issues: read
-      checks: read # gh pr checks / statusCheckRollup
-      actions: read # gh run view --log-failed / actions/runs
+      checks: read     # PR check-runs / statusCheckRollup
+      actions: read    # gh run view --log-failed / actions/runs
       id-token: write # required by anthropics/claude-code-action@v1 OIDC auth
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ferry/\${{ github.event.client_payload.ticket_key }}
+          fetch-depth: 0
       # Resolve the system prompt: prompts/iterate.claude-code.md from this repo
       # if present, otherwise Ferry's bundled default. To customise the prompt
       # edit that file — no need to touch this workflow. See docs/CONFIGURATION.md.
@@ -817,11 +829,14 @@ jobs:
       contents: write
       pull-requests: write
       issues: read
-      checks: read # gh pr checks / statusCheckRollup
-      actions: read # gh run view --log-failed / actions/runs
+      checks: read     # PR check-runs / statusCheckRollup
+      actions: read    # gh run view --log-failed / actions/runs
       id-token: write # required by anthropics/claude-code-action@v1 OIDC auth
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ferry/\${{ github.event.client_payload.ticket_key }}
+          fetch-depth: 0
       # Resolve the system prompt: prompts/merge.claude-code.md from this repo
       # if present, otherwise Ferry's bundled default. To customise the prompt
       # edit that file — no need to touch this workflow. See docs/CONFIGURATION.md.
