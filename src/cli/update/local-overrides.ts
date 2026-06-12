@@ -185,31 +185,35 @@ function applyReviewCiGateDisabled(content: string): string {
   //    not including) the blank-line separator before "  run-agent-claude-code:".
   let result = content.replace(/\n\n  ci-gate:\n[\s\S]*?(?=\n\n  run-agent-claude-code:)/, '');
 
-  // 2. run-agent-claude-code: remove ci-gate from needs
-  result = result.replace('    needs: [route, ci-gate]\n', '    needs: [route]\n');
+  // 2. direct-action jobs: remove ci-gate from needs
+  result = result.replaceAll('    needs: [route, ci-gate]\n', '    needs: [route]\n');
 
-  // 3. run-agent-claude-code: drop the ci-gate proceed guard from if
+  // 3. direct-action jobs: drop the ci-gate proceed guard from if
   result = result.replace(
     "    if: needs.route.outputs.path == 'claude-code' && needs.ci-gate.outputs.proceed == 'true'\n",
     "    if: needs.route.outputs.path == 'claude-code'\n",
   );
+  result = result.replace(
+    "    if: needs.route.outputs.path == 'codex-cli' && needs.ci-gate.outputs.proceed == 'true'\n",
+    "    if: needs.route.outputs.path == 'codex-cli'\n",
+  );
 
   // 4. emit-audit: remove ci-gate from needs
   result = result.replace(
-    '    needs: [run-agent, run-agent-claude-code, ci-gate]\n',
-    '    needs: [run-agent, run-agent-claude-code]\n',
+    '    needs: [run-agent, run-agent-claude-code, run-agent-codex-cli, ci-gate]\n',
+    '    needs: [run-agent, run-agent-claude-code, run-agent-codex-cli]\n',
   );
 
   // 5. emit-audit: simplify the if expression
   result = result.replace(
-    "    if: always() && (needs.run-agent.result != 'skipped' || needs.run-agent-claude-code.result != 'skipped' || (needs.ci-gate.result != 'skipped' && needs.ci-gate.outputs.outcome == 'ci-red'))\n",
-    "    if: always() && (needs.run-agent.result != 'skipped' || needs.run-agent-claude-code.result != 'skipped')\n",
+    "    if: always() && (needs.run-agent.result != 'skipped' || needs.run-agent-claude-code.result != 'skipped' || needs.run-agent-codex-cli.result != 'skipped' || (needs.ci-gate.result != 'skipped' && needs.ci-gate.outputs.outcome == 'ci-red'))\n",
+    "    if: always() && (needs.run-agent.result != 'skipped' || needs.run-agent-claude-code.result != 'skipped' || needs.run-agent-codex-cli.result != 'skipped')\n",
   );
 
   // 6. emit-audit outcome: remove ci-gate references from the outcome expression
   result = result.replace(
-    "          outcome: ${{ (needs.run-agent.result != 'skipped' && needs.run-agent.result) || (needs.run-agent-claude-code.result != 'skipped' && needs.run-agent-claude-code.result) || (needs.ci-gate.outputs.outcome == 'ci-red' && 'ci-red') || needs.run-agent-claude-code.result }}\n",
-    "          outcome: ${{ (needs.run-agent.result != 'skipped' && needs.run-agent.result) || needs.run-agent-claude-code.result }}\n",
+    "          outcome: ${{ (needs.run-agent.result != 'skipped' && needs.run-agent.result) || (needs.run-agent-claude-code.result != 'skipped' && needs.run-agent-claude-code.result) || (needs.run-agent-codex-cli.result != 'skipped' && needs.run-agent-codex-cli.result) || (needs.ci-gate.outputs.outcome == 'ci-red' && 'ci-red') || needs.run-agent-codex-cli.result || needs.run-agent-claude-code.result }}\n",
+    "          outcome: ${{ (needs.run-agent.result != 'skipped' && needs.run-agent.result) || (needs.run-agent-claude-code.result != 'skipped' && needs.run-agent-claude-code.result) || needs.run-agent-codex-cli.result }}\n",
   );
 
   return result;
