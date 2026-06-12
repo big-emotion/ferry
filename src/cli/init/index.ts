@@ -169,7 +169,7 @@ async function main(): Promise<void> {
   print('Execution path (ADR-0006):');
   print(`  ${EXECUTION_PATH_QUESTION}`);
   const executionPath: ExecutionPath = parseExecutionPathChoice(
-    await ask('Execution path (a=script / b=claude-code)', 'a'),
+    await ask('Execution path (a=script / b=claude-code / c=codex-cli)', 'a'),
   );
 
   function validateProvider(input: string): LlmProvider {
@@ -196,6 +196,16 @@ async function main(): Promise<void> {
     print('claude-code-action path selected — agents run on your Claude subscription.');
     print('  Obtain a token by running:  claude setup-token   (needs Claude Pro/Max)');
     claudeCodeOauthToken = await askSecret('Claude Code OAuth token');
+  } else if (executionPath === 'codex-cli') {
+    print('');
+    print('codex-cli path selected — agents run via openai/codex-action.');
+    print('  All direct-action agents must use the OpenAI provider on this path.');
+    refinerProvider = 'openai';
+    devProvider = 'openai';
+    reviewProvider = 'openai';
+    iterateProvider = 'openai';
+    needsOpenAI = true;
+    openaiApiKey = await askSecret('OpenAI API key (sk-...)');
   } else {
     print('');
     print('LLM provider per phase (anthropic / openai / google, default: anthropic):');
@@ -354,7 +364,12 @@ async function main(): Promise<void> {
           );
           return { ok: true };
         })()
-      : await stepVerify(config.anthropicApiKey);
+      : config.executionPath === 'codex-cli'
+        ? ((): { ok: true } => {
+            printSkip('codex-cli path: OPENAI_API_KEY validity is probed by `ferry-doctor`');
+            return { ok: true };
+          })()
+        : await stepVerify(config.anthropicApiKey);
 
   // ── Summary ───────────────────────────────────────────────────────────────
   print('');
@@ -387,6 +402,9 @@ async function main(): Promise<void> {
       `  ${nextStep++}. Execution path: claude-code (recorded in ferry.config.yaml). Agents run`,
     );
     print('     on your Claude subscription via CLAUDE_CODE_OAUTH_TOKEN — no ANTHROPIC_API_KEY.');
+  } else if (config.executionPath === 'codex-cli') {
+    print(`  ${nextStep++}. Execution path: codex-cli (recorded in ferry.config.yaml). Agents run`);
+    print('     via OPENAI_API_KEY on openai/codex-action with Ferry-managed Jira MCP wiring.');
   }
   print(`  ${nextStep}. Move a Jira ticket to "Refinement" — watch the Actions tab!`);
   print('');

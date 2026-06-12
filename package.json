@@ -14,6 +14,7 @@
     "ferry-cost-advice": "./dist/cli/cost/advice-cmd.js",
     "ferry-cost-stats": "./dist/cli/cost/stats.js",
     "ferry-jira-mcp": "./dist/cli/jira-mcp/index.js",
+    "ferry-codex-config": "./dist/cli/codex-config/index.js",
     "ferry-cc-prompt": "./dist/cli/cc-prompt/index.js",
     "ferry-action-prompt": "./dist/cli/cc-prompt/index.js"
   },
@@ -57,6 +58,7 @@
     "ferry-cost-advice": "tsx src/cli/cost/advice-cmd.ts",
     "ferry-cost-stats": "tsx src/cli/cost/stats-cmd.ts",
     "ferry-cc-prompt": "tsx src/cli/cc-prompt/index.ts",
+    "ferry-codex-config": "tsx src/cli/codex-config/index.ts",
     "ferry-action-prompt": "tsx src/cli/cc-prompt/index.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

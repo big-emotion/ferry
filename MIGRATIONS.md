@@ -53,6 +53,13 @@ If there are no consumer-visible changes, omit the section (or note `(none — i
 
 ---
 
+## v0.17.x → v0.18.0
+
+- **(action)** **`codex-cli` workflow jobs are now generated for all five roles.** Run `npx -p @big-emotion/ferry@v0.18.0 ferry-update` to regenerate your workflow stubs so `path=codex-cli` resolves to a real `run-agent-codex-cli` job instead of silently skipping the agent phase.
+- **(info)** **Codex direct-action runs now use Ferry-managed Jira MCP wiring through `codex-home/config.toml`.** The generated workflows create `codex-home/config.toml` with `ferry-codex-config` and pass it to `openai/codex-action`. Jira credentials still come from the existing `FERRY_JIRA_*` secrets; no new Jira secret is required.
+
+---
+
 ## v0.16.x → v0.17.0
 
 - **(action)** **New `ferry-merge.yml` workflow (Merger agent, FR32).** Run `npx -p @big-emotion/ferry@v0.17.0 ferry-update` to add the merge workflow stub to your `.github/workflows/`. Alternatively, copy `examples/consumer-setup/workflows/ferry-merge.yml` by hand. Without this file, the Reviewer's `ferry-merge` `repository_dispatch` event is never handled and PRs are never automatically merged — they stay in their current state until a human merges them.

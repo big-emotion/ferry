@@ -39,7 +39,7 @@ export function buildSecrets(config: {
       value: config.claudeCodeOauthToken ?? '',
       description: 'Claude Code OAuth token (claude setup-token; Claude Pro/Max subscription)',
     });
-  } else {
+  } else if (config.executionPath !== 'codex-cli') {
     secrets.push({
       name: 'ANTHROPIC_API_KEY',
       value: config.anthropicApiKey ?? '',
@@ -47,10 +47,10 @@ export function buildSecrets(config: {
     });
   }
 
-  if (config.openaiApiKey) {
+  if (config.executionPath === 'codex-cli' || config.openaiApiKey) {
     secrets.push({
       name: 'OPENAI_API_KEY',
-      value: config.openaiApiKey,
+      value: config.openaiApiKey ?? '',
       description: 'OpenAI API key',
     });
   }

@@ -105,14 +105,22 @@ describe('workflowTemplates — routing structure', () => {
     }
   });
 
+  it('run-agent-codex-cli is gated on route output', () => {
+    for (const tmpl of workflowTemplates('v1')) {
+      expect(tmpl.content, `${tmpl.filename}: codex path missing if gate`).toContain(
+        "if: needs.route.outputs.path == 'codex-cli'",
+      );
+    }
+  });
+
   it('emit-audit depends on both agent jobs (and ci-gate on the review template)', () => {
     for (const tmpl of workflowTemplates('v1')) {
       // The review template adds the deterministic ci-gate job to the cc path,
       // so its emit-audit must also depend on ci-gate to surface the ci-red case.
       const expectedNeeds =
         tmpl.filename === 'ferry-review.yml'
-          ? 'needs: [run-agent, run-agent-claude-code, ci-gate]'
-          : 'needs: [run-agent, run-agent-claude-code]';
+          ? 'needs: [run-agent, run-agent-claude-code, run-agent-codex-cli, ci-gate]'
+          : 'needs: [run-agent, run-agent-claude-code, run-agent-codex-cli]';
       expect(tmpl.content, `${tmpl.filename}: emit-audit missing dependency`).toContain(
         expectedNeeds,
       );
@@ -231,6 +239,84 @@ describe('workflowTemplates — claude-code path single-step shape', () => {
   });
 });
 
+describe('workflowTemplates — codex-cli path single-step shape', () => {
+  it('run-agent-codex-cli calls openai/codex-action directly', () => {
+    for (const tmpl of workflowTemplates('v1')) {
+      expect(tmpl.content, `${tmpl.filename}: missing openai/codex-action`).toContain(
+        'openai/codex-action@',
+      );
+    }
+  });
+
+  it('codex-action receives the OPENAI_API_KEY input and a shared codex-home', () => {
+    for (const tmpl of workflowTemplates('v1')) {
+      expect(tmpl.content, `${tmpl.filename}: missing openai-api-key wiring`).toContain(
+        'openai-api-key: ${{ secrets.OPENAI_API_KEY }}',
+      );
+      expect(tmpl.content, `${tmpl.filename}: missing codex-home input`).toContain(
+        'codex-home: codex-home',
+      );
+    }
+  });
+
+  it('codex-action resolves prompts via ferry-action-prompt with --path codex-cli, never inline', () => {
+    for (const tmpl of workflowTemplates('v1')) {
+      expect(tmpl.content, `${tmpl.filename}: codex prompt must not be inlined`).not.toContain(
+        'prompt: |',
+      );
+      expect(tmpl.content, `${tmpl.filename}: missing ferry-action-prompt step`).toContain(
+        'ferry-action-prompt',
+      );
+      expect(tmpl.content, `${tmpl.filename}: missing --path codex-cli`).toContain(
+        '--path codex-cli',
+      );
+      expect(
+        tmpl.content,
+        `${tmpl.filename}: codex-action must read the resolved prompt`,
+      ).toContain('prompt: ${{ steps.prompt.outputs.prompt }}');
+    }
+  });
+
+  it('codex-action wires model, effort, sandbox, safety strategy, and optional version through vars', () => {
+    const expectedModelLines: Record<string, string> = {
+      'ferry-refine.yml': "model: ${{ vars.FERRY_REFINER_MODEL || 'gpt-5-codex' }}",
+      'ferry-dev.yml': "model: ${{ vars.FERRY_DEV_MODEL || 'gpt-5-codex' }}",
+      'ferry-review.yml': "model: ${{ vars.FERRY_REVIEW_MODEL || 'gpt-5-codex' }}",
+      'ferry-iterate.yml': "model: ${{ vars.FERRY_ITER_MODEL || 'gpt-5-codex' }}",
+      'ferry-merge.yml': "model: ${{ vars.FERRY_MERGER_MODEL || 'gpt-5-codex' }}",
+    };
+    for (const tmpl of workflowTemplates('v1')) {
+      expect(tmpl.content, `${tmpl.filename}: missing expected model line`).toContain(
+        expectedModelLines[tmpl.filename],
+      );
+      expect(tmpl.content, `${tmpl.filename}: missing effort var`).toContain(
+        "effort: ${{ vars.FERRY_CODEX_EFFORT || '' }}",
+      );
+      expect(tmpl.content, `${tmpl.filename}: missing sandbox var`).toContain(
+        "sandbox: ${{ vars.FERRY_CODEX_SANDBOX || 'workspace-write' }}",
+      );
+      expect(tmpl.content, `${tmpl.filename}: missing safety strategy var`).toContain(
+        "safety-strategy: ${{ vars.FERRY_CODEX_SAFETY_STRATEGY || 'drop-sudo' }}",
+      );
+      expect(tmpl.content, `${tmpl.filename}: missing optional codex version var`).toContain(
+        "codex-version: ${{ vars.FERRY_CODEX_VERSION || '' }}",
+      );
+    }
+  });
+
+  it('codex job generates codex-home/config.toml with ferry-codex-config before the action step', () => {
+    for (const tmpl of workflowTemplates('v0.17.0')) {
+      expect(tmpl.content, `${tmpl.filename}: missing ferry-codex-config step`).toContain(
+        'ferry-codex-config > codex-home/config.toml',
+      );
+      expect(
+        tmpl.content,
+        `${tmpl.filename}: ferry-codex-config package must be version-pinned`,
+      ).toContain('@big-emotion/ferry@v0.17.0');
+    }
+  });
+});
+
 describe('workflowTemplates — role-specific wiring', () => {
   it('ferry-dev.yml wires FERRY_REVIEW_TRANSITION_ID into the script-path run-agent (FR18)', () => {
     const dev = workflowTemplates('v1').find((t) => t.filename === 'ferry-dev.yml');
@@ -284,7 +370,7 @@ describe('workflowTemplates — role-specific wiring', () => {
   it('ferry-review.yml declares checks: read on run-agent and the ci-gate job', () => {
     const review = workflowTemplates('v1').find((t) => t.filename === 'ferry-review.yml');
     const checksCount = (review?.content.match(/checks: read/g) ?? []).length;
-    expect(checksCount).toBe(2);
+    expect(checksCount).toBe(3);
   });
 
   it('ferry-review.yml runs the deterministic ci-gate before the reviewer cc job', () => {
@@ -312,8 +398,8 @@ describe('workflowTemplates — emit-audit outcome shape', () => {
       // its shape is parenthesised; the other three keep the plain two-branch form.
       const expectedOutcome =
         tmpl.filename === 'ferry-review.yml'
-          ? "outcome: ${{ (needs.run-agent.result != 'skipped' && needs.run-agent.result) || (needs.run-agent-claude-code.result != 'skipped' && needs.run-agent-claude-code.result) || (needs.ci-gate.outputs.outcome == 'ci-red' && 'ci-red') || needs.run-agent-claude-code.result }}"
-          : "outcome: ${{ needs.run-agent.result != 'skipped' && needs.run-agent.result || needs.run-agent-claude-code.result }}";
+          ? "outcome: ${{ (needs.run-agent.result != 'skipped' && needs.run-agent.result) || (needs.run-agent-claude-code.result != 'skipped' && needs.run-agent-claude-code.result) || (needs.run-agent-codex-cli.result != 'skipped' && needs.run-agent-codex-cli.result) || (needs.ci-gate.outputs.outcome == 'ci-red' && 'ci-red') || needs.run-agent-codex-cli.result || needs.run-agent-claude-code.result }}"
+          : "outcome: ${{ (needs.run-agent.result != 'skipped' && needs.run-agent.result) || (needs.run-agent-claude-code.result != 'skipped' && needs.run-agent-claude-code.result) || needs.run-agent-codex-cli.result }}";
       expect(
         tmpl.content,
         `${tmpl.filename}: outcome ternary missing != 'skipped' shape`,
@@ -328,7 +414,9 @@ describe('workflowTemplates — review ci-gate emit-audit ci-red wiring', () => 
   it('ferry-review.yml emit-audit surfaces the ci-gate ci-red outcome', () => {
     const review = workflowTemplates('v1').find((t) => t.filename === 'ferry-review.yml');
     expect(review, 'ferry-review.yml not found').toBeDefined();
-    expect(review!.content).toContain('needs: [run-agent, run-agent-claude-code, ci-gate]');
+    expect(review!.content).toContain(
+      'needs: [run-agent, run-agent-claude-code, run-agent-codex-cli, ci-gate]',
+    );
     expect(review!.content).toContain("needs.ci-gate.outputs.outcome == 'ci-red'");
   });
 });
@@ -373,6 +461,15 @@ describe('workflowTemplates — merge authority (FR32)', () => {
       ).toContain('Bash(gh pr merge)');
     }
   });
+
+  it('ferry-merge.yml Merger codex path still disallows gh pr close', () => {
+    const merge = workflowTemplates('v1').find((t) => t.filename === 'ferry-merge.yml');
+    expect(merge, 'ferry-merge.yml not found').toBeDefined();
+    expect(
+      merge!.content,
+      'ferry-merge.yml: Merger codex path must still be blocked from gh pr close',
+    ).toContain('gh pr close');
+  });
 });
 
 describe('workflowTemplates — supply-chain action pinning', () => {
@@ -387,6 +484,17 @@ describe('workflowTemplates — supply-chain action pinning', () => {
         tmpl.content,
         `${tmpl.filename}: claude-code-action still uses a mutable tag`,
       ).not.toMatch(TAG_PIN);
+    }
+  });
+
+  it('codex-action is SHA-pinned (not tag-pinned)', () => {
+    const SHA_PIN = /openai\/codex-action@[0-9a-f]{40}\s*#\s*v\d+/;
+    const TAG_PIN = /openai\/codex-action@v\d+\s*$/m;
+    for (const tmpl of workflowTemplates('v1')) {
+      expect(tmpl.content, `${tmpl.filename}: codex-action not SHA-pinned`).toMatch(SHA_PIN);
+      expect(tmpl.content, `${tmpl.filename}: codex-action still uses a mutable tag`).not.toMatch(
+        TAG_PIN,
+      );
     }
   });
 });

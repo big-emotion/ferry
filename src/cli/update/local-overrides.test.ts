@@ -170,13 +170,18 @@ describe('applyLocalOverrides — review.ciGate: disabled', () => {
     const review = result.find((t) => t.filename === 'ferry-review.yml')!;
     expect(review.content).not.toContain("ci-gate.outputs.proceed == 'true'");
     expect(review.content).toContain("    if: needs.route.outputs.path == 'claude-code'\n");
+    expect(review.content).toContain("    if: needs.route.outputs.path == 'codex-cli'\n");
   });
 
   it('removes ci-gate from emit-audit needs', () => {
     const result = applyLocalOverrides(templates, { review: { ciGate: 'disabled' } });
     const review = result.find((t) => t.filename === 'ferry-review.yml')!;
-    expect(review.content).not.toContain('needs: [run-agent, run-agent-claude-code, ci-gate]');
-    expect(review.content).toContain('    needs: [run-agent, run-agent-claude-code]\n');
+    expect(review.content).not.toContain(
+      'needs: [run-agent, run-agent-claude-code, run-agent-codex-cli, ci-gate]',
+    );
+    expect(review.content).toContain(
+      '    needs: [run-agent, run-agent-claude-code, run-agent-codex-cli]\n',
+    );
   });
 
   it('simplifies emit-audit if expression', () => {
@@ -184,7 +189,7 @@ describe('applyLocalOverrides — review.ciGate: disabled', () => {
     const review = result.find((t) => t.filename === 'ferry-review.yml')!;
     expect(review.content).not.toContain("needs.ci-gate.result != 'skipped'");
     expect(review.content).toContain(
-      "    if: always() && (needs.run-agent.result != 'skipped' || needs.run-agent-claude-code.result != 'skipped')\n",
+      "    if: always() && (needs.run-agent.result != 'skipped' || needs.run-agent-claude-code.result != 'skipped' || needs.run-agent-codex-cli.result != 'skipped')\n",
     );
   });
 
@@ -193,7 +198,7 @@ describe('applyLocalOverrides — review.ciGate: disabled', () => {
     const review = result.find((t) => t.filename === 'ferry-review.yml')!;
     expect(review.content).not.toContain('ci-gate.outputs.outcome');
     expect(review.content).toContain(
-      "          outcome: ${{ (needs.run-agent.result != 'skipped' && needs.run-agent.result) || needs.run-agent-claude-code.result }}\n",
+      "          outcome: ${{ (needs.run-agent.result != 'skipped' && needs.run-agent.result) || (needs.run-agent-claude-code.result != 'skipped' && needs.run-agent-claude-code.result) || needs.run-agent-codex-cli.result }}\n",
     );
   });
 
@@ -214,6 +219,7 @@ describe('applyLocalOverrides — review.ciGate: disabled', () => {
     expect(review.content).toContain('\n  route:\n');
     expect(review.content).toContain('\n  run-agent:\n');
     expect(review.content).toContain('\n  run-agent-claude-code:\n');
+    expect(review.content).toContain('\n  run-agent-codex-cli:\n');
     expect(review.content).toContain('\n  emit-audit:\n');
   });
 

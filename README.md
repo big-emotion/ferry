@@ -43,7 +43,7 @@ See [docs/CLI.md](docs/CLI.md) — `ferry-init`, `ferry-doctor`, `ferry-update`,
 
 - [Install guide](docs/INSTALL.md) — GitHub Actions setup and the experimental GitLab CI setup
 - [How Ferry works](docs/OVERVIEW.md) — what it is and isn't, agent phases, auto-transitions
-- [Configuration reference](docs/CONFIGURATION.md) — includes the [Execution paths & accepted divergences](docs/CONFIGURATION.md#execution-paths--accepted-divergences) reference (script vs. `claude-code-action` paths, the prompt-enforced trade-off, the required branch-protection setting, `ferry-jira-mcp`, and `ferry-ci-gate`)
+- [Configuration reference](docs/CONFIGURATION.md) — includes the [Execution paths & accepted divergences](docs/CONFIGURATION.md#execution-paths--accepted-divergences) reference (script vs. `claude-code-action` vs. `codex-cli`, the prompt-enforced trade-off, the required branch-protection setting, `ferry-jira-mcp`, and `ferry-ci-gate`)
 - [MCP servers](docs/MCP.md)
 - [Cost governance](docs/COST.md)
 - [Runbook](docs/RUNBOOK.md)
