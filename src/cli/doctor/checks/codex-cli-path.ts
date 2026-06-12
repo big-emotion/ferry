@@ -106,7 +106,7 @@ export function checkProviderGate(opts: { repoRoot: string }): CheckResult {
   try {
     const cfg = loadFerryConfig(repoRoot);
     const invalid: string[] = [];
-    for (const role of ['refiner', 'dev', 'review', 'iterate', 'merger'] as const) {
+    for (const role of ['refiner', 'dev', 'review', 'iterate'] as const) {
       const provider = cfg.models?.[role]?.provider;
       if (provider && provider !== 'openai') invalid.push(role);
     }
