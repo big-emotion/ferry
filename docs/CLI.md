@@ -9,6 +9,15 @@
 | `npx -p @big-emotion/ferry ferry-update`    | Upgrade Ferry to a newer version |
 | `npx -p @big-emotion/ferry ferry-uninstall` | Remove Ferry from a repo         |
 
+GitLab CI uses the same four lifecycle commands with `--forge gitlab`:
+
+| Command                                                    | What it does                                              |
+| ---------------------------------------------------------- | --------------------------------------------------------- |
+| `npx -p @big-emotion/ferry ferry-init --forge gitlab`      | Scaffold `ci/ferry/*.gitlab-ci.yml` into a GitLab repo    |
+| `npx -p @big-emotion/ferry ferry-doctor --forge gitlab`    | Validate the GitLab project token, trigger, and variables |
+| `npx -p @big-emotion/ferry ferry-update --forge gitlab`    | Rewrite pinned Ferry versions in GitLab CI files          |
+| `npx -p @big-emotion/ferry ferry-uninstall --forge gitlab` | Plan or remove the local GitLab install                   |
+
 `ferry-doctor` will warn when a newer version is available:
 
 ```
