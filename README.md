@@ -4,7 +4,7 @@
 
 # Ferry
 
-> **GitHub Actions–native agent pipeline for Jira-driven automated development.**
+> **Agent pipeline for Jira-driven automated development on GitHub Actions, with experimental GitLab CI support.**
 
 [![CI](https://github.com/big-emotion/ferry/actions/workflows/ferry-ci.yml/badge.svg)](https://github.com/big-emotion/ferry/actions/workflows/ferry-ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -23,7 +23,7 @@ Ferry connects your Jira board to a fully autonomous dev loop — Refiner, Devel
 
 ## Get started
 
-> Requires Node ≥ 20, a Jira Cloud project, and a GitHub App. See the [install guide](docs/INSTALL.md) for prerequisites and the four follow-up steps after the wizard.
+> Requires Node ≥ 20 and a Jira Cloud project. See the [install guide](docs/INSTALL.md) for the GitHub Actions path and the experimental GitLab CI path.
 
 ```bash
 npx -p @big-emotion/ferry ferry-init
@@ -41,7 +41,7 @@ See [docs/CLI.md](docs/CLI.md) — `ferry-init`, `ferry-doctor`, `ferry-update`,
 
 ## Documentation
 
-- [Install guide](docs/INSTALL.md) — prerequisites, wizard walkthrough, Jira automation setup
+- [Install guide](docs/INSTALL.md) — GitHub Actions setup and the experimental GitLab CI setup
 - [How Ferry works](docs/OVERVIEW.md) — what it is and isn't, agent phases, auto-transitions
 - [Configuration reference](docs/CONFIGURATION.md) — includes the [Execution paths & accepted divergences](docs/CONFIGURATION.md#execution-paths--accepted-divergences) reference (script vs. `claude-code-action` paths, the prompt-enforced trade-off, the required branch-protection setting, `ferry-jira-mcp`, and `ferry-ci-gate`)
 - [MCP servers](docs/MCP.md)

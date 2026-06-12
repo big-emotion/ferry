@@ -2,24 +2,41 @@
 
 ## Requirements
 
-- GitHub repository (target repo where Ferry runs)
-- **GitHub App** installed on the target repo with `contents: write`, `pull-requests: write`, and `issues: write`. The wizard's first step prompts for the App ID and the private-key PEM file — have both ready before running `ferry-init`. (The App is used by `ferry-doctor` to validate the install; the agent workflows themselves run on `${{ github.token }}`.)
+### Common
+
 - Jira Cloud Standard or Premium (outbound web requests required)
 - Anthropic account (required for all phases); OpenAI or Google AI accounts if you configure those providers for the Refiner
 - **Story** issue type (and Task, Bug, Spike if your project uses them) must be enabled in the Jira project
-- Local tooling: `gh` CLI authenticated against the target repo (`gh auth status`), Node ≥ 20
+- Node ≥ 20
+
+### GitHub Actions
+
+- GitHub repository (target repo where Ferry runs)
+- **GitHub App** installed on the target repo with `contents: write`, `pull-requests: write`, and `issues: write`. The wizard's first step prompts for the App ID and the private-key PEM file — have both ready before running `ferry-init`. (The App is used by `ferry-doctor` to validate the install; the agent workflows themselves run on `${{ github.token }}`.)
+- `gh` CLI authenticated against the target repo (`gh auth status`)
+
+### GitLab CI (experimental)
+
+- GitLab project
+- GitLab project access token with `api` scope (`FERRY_GITLAB_TOKEN`)
+- GitLab pipeline trigger token (`FERRY_GITLAB_PIPELINE_TRIGGER_TOKEN`)
+- Optional self-managed GitLab API base (`FERRY_GITLAB_API_BASE`) if you do not use `https://gitlab.com/api/v4`
 
 ---
 
 ## Quick install
 
-> **Forge:** Ferry runs natively on **GitHub Actions** (production-ready) and on **GitLab CI** (experimental — see [#210](https://github.com/big-emotion/ferry/issues/210)). The wizard targets GitHub; GitLab consumers should copy the templates from [`examples/consumer-setup-gitlab/`](../examples/consumer-setup-gitlab) and follow the [GitLab section in `docs/CONFIGURATION.md`](CONFIGURATION.md#gitlab-experimental).
+> **Forge:** Ferry runs natively on **GitHub Actions** (production-ready) and on **GitLab CI** (experimental — see [#210](https://github.com/big-emotion/ferry/issues/210)). Pick the install path that matches your forge.
 
 ```bash
 npx -p @big-emotion/ferry ferry-init
 ```
 
 The wizard collects your Jira URL, credentials, column status names (prompts with defaults: **Refinement** / **In Development** / **In Review** / **Changes Requested** / **Ready to Merge**), and LLM provider selection per phase. Ferry supports **Anthropic** (default), **OpenAI**, and **Google AI** — see the [provider × phase matrix](CONFIGURATION.md#provider--phase-matrix) for a full breakdown and caveats. Custom status names work — enter them when prompted.
+
+After the wizard finishes, complete the manual setup for your forge.
+
+## GitHub Actions install
 
 After the wizard finishes, complete four manual steps:
 
@@ -113,6 +130,134 @@ Set `event_type` and `phase` to `ferry-dev` / `ferry-review` / `ferry-iterate` f
 > **PAT:** Use a GitHub fine-grained PAT with **Contents: write** on `YOUR_ORG/YOUR_REPO`. Marking `Authorization` as secret keeps the token out of Jira's audit log.
 
 > **Generated reference files:** `ferry-init` writes `ferry-jira-automation-setup.md` (per-rule UI walkthrough) and `ferry-jira-automation-rules.beta.json` into your repo root. The Markdown file mirrors the steps above. The JSON can be loaded via **Automation → ⋮ → Import rules**, but that feature is beta and breaks across Jira Cloud releases — treat it as a reference only.
+
+---
+
+## GitLab CI install (experimental)
+
+GitLab support is **experimental**: the adapter and CLI paths ship in Ferry, but the full Jira → MR production loop has not yet completed the promotion checklist in [#210](https://github.com/big-emotion/ferry/issues/210). Expect the install flow to work, but treat minor-version upgrades with more caution than the GitHub path.
+
+### Step 1 — Scaffold the GitLab templates
+
+Run the GitLab branch of the installer:
+
+```bash
+npx -p @big-emotion/ferry ferry-init --forge gitlab
+```
+
+The wizard detects the GitLab project from `origin` when possible and writes six templates under `ci/ferry/`:
+
+- `ci/ferry/refine.gitlab-ci.yml`
+- `ci/ferry/dev.gitlab-ci.yml`
+- `ci/ferry/review.gitlab-ci.yml`
+- `ci/ferry/iterate.gitlab-ci.yml`
+- `ci/ferry/reconcile.gitlab-ci.yml`
+- `ci/ferry/cost-daily.gitlab-ci.yml`
+
+Include them from the project root `.gitlab-ci.yml`:
+
+```yaml
+variables:
+  FERRY_FORGE: gitlab
+  FERRY_GITLAB_API_BASE: '$CI_API_V4_URL'
+  FERRY_GITLAB_TRIGGER_REF: '$CI_DEFAULT_BRANCH'
+  GITHUB_REPO: '$CI_PROJECT_PATH'
+  GITHUB_TOKEN: '$FERRY_GITLAB_TOKEN'
+
+include:
+  - local: ci/ferry/refine.gitlab-ci.yml
+  - local: ci/ferry/dev.gitlab-ci.yml
+  - local: ci/ferry/review.gitlab-ci.yml
+  - local: ci/ferry/iterate.gitlab-ci.yml
+  # Optional scheduled jobs:
+  # - local: ci/ferry/reconcile.gitlab-ci.yml
+  # - local: ci/ferry/cost-daily.gitlab-ci.yml
+```
+
+### Step 2 — Set GitLab CI/CD variables
+
+Under **Settings → CI/CD → Variables**, create:
+
+- `FERRY_VERSION` — pinned Ferry version, e.g. `v0.17.0`
+- `FERRY_JIRA_BASE_URL`, `FERRY_JIRA_EMAIL`, `FERRY_JIRA_API_TOKEN`
+- `FERRY_GITLAB_TOKEN`, `FERRY_GITLAB_PIPELINE_TRIGGER_TOKEN`
+- `FERRY_REVIEW_TRANSITION_ID`, `FERRY_ITER_TRANSITION_ID`, `FERRY_APPROVE_TRANSITION_ID`
+- `FERRY_AUDIT_ISSUE`
+- At least one of `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`
+
+Mark every token-bearing variable as **Masked** and **Protected**.
+
+### Step 3 — Connect Jira → GitLab
+
+Create one Jira Automation rule per Ferry column. Each rule should POST to the GitLab pipeline trigger endpoint:
+
+```http
+POST https://gitlab.example/api/v4/projects/<encoded-path>/trigger/pipeline
+Content-Type: application/x-www-form-urlencoded
+
+token=<FERRY_GITLAB_PIPELINE_TRIGGER_TOKEN>&
+ref=main&
+variables[FERRY_DISPATCH_TYPE]=ferry-refine&
+variables[FERRY_ENVELOPE_PAYLOAD]={"version":"v1","event_id":"{{issue.key}}-{{issue.id}}","ticket_key":"{{issue.key}}","phase":"refine","source":"jira-column","ts":"{{now.jiraDate}}"}
+```
+
+Required form fields:
+
+- `token` — the GitLab pipeline trigger token
+- `ref` — usually the default branch
+- `variables[FERRY_DISPATCH_TYPE]` — one of `ferry-refine`, `ferry-dev`, `ferry-review`, `ferry-iterate`
+- `variables[FERRY_ENVELOPE_PAYLOAD]` — the JSON envelope Ferry consumes
+
+### Step 4 — Add scheduled jobs (recommended)
+
+To enable the reconciler and cost-governance jobs, include `ci/ferry/reconcile.gitlab-ci.yml` and `ci/ferry/cost-daily.gitlab-ci.yml`, then create GitLab schedules:
+
+- Reconciler: every 10 minutes with CI variable `schedule_reconcile=true`
+- Cost governance: daily with CI variable `schedule_cost_daily=true`
+
+### Step 5 — Smoke test and validate
+
+Create a Jira **Story**, move it to **Refinement**, and verify that a GitLab pipeline starts with `FERRY_DISPATCH_TYPE=ferry-refine`. After the first successful trigger, validate the install with:
+
+```bash
+npx -p @big-emotion/ferry ferry-doctor --forge gitlab \
+  --project owner/repo \
+  --token "$FERRY_GITLAB_TOKEN" \
+  --trigger-token "$FERRY_GITLAB_PIPELINE_TRIGGER_TOKEN"
+```
+
+`ferry-doctor --forge gitlab` checks project access, token scope visibility, trigger registration, CI/CD variables, and a manual Jira-webhook confirmation step.
+
+### Step 6 — Update and uninstall
+
+Upgrade the GitLab templates in place:
+
+```bash
+npx -p @big-emotion/ferry@<new-version> ferry-update --forge gitlab
+```
+
+Plan or remove the install locally:
+
+```bash
+# Plan only
+npx -p @big-emotion/ferry ferry-uninstall --forge gitlab
+
+# Apply cleanup
+npx -p @big-emotion/ferry ferry-uninstall --forge gitlab --apply
+```
+
+### GitLab install checklist
+
+```
+[ ] ferry-init --forge gitlab run successfully
+[ ] ci/ferry/*.gitlab-ci.yml files written and included from .gitlab-ci.yml
+[ ] GitLab CI/CD variables created and token-bearing ones marked Masked + Protected
+[ ] Jira Automation rules POST to /projects/<id>/trigger/pipeline
+[ ] variables[FERRY_DISPATCH_TYPE] and variables[FERRY_ENVELOPE_PAYLOAD] set in each rule
+[ ] Smoke test passed (pipeline starts from Jira transition)
+[ ] ferry-doctor --forge gitlab reports no FAIL lines
+[ ] reconcile / cost-daily schedules added if you want maintenance automation
+```
 
 ---
 
