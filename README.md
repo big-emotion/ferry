@@ -43,6 +43,7 @@ See [docs/CLI.md](docs/CLI.md) — `ferry-init`, `ferry-doctor`, `ferry-update`,
 
 - [Install guide](docs/INSTALL.md) — prerequisites, wizard walkthrough, Jira automation setup
 - [How Ferry works](docs/OVERVIEW.md) — what it is and isn't, agent phases, auto-transitions
+- [Local runner](docs/LOCAL-RUNNER.md) — operator-local execution with per-ticket worktrees
 - [Configuration reference](docs/CONFIGURATION.md) — includes the [Execution paths & accepted divergences](docs/CONFIGURATION.md#execution-paths--accepted-divergences) reference (script vs. `claude-code-action` paths, the prompt-enforced trade-off, the required branch-protection setting, `ferry-jira-mcp`, and `ferry-ci-gate`)
 - [MCP servers](docs/MCP.md)
 - [Cost governance](docs/COST.md)
