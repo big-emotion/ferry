@@ -31,6 +31,11 @@ export function detectInstalledVersion(repoRoot: string): string | undefined {
   return undefined;
 }
 
+export interface ComputeWorkflowChangeOptions {
+  fromVersion?: string;
+  overrides?: LocalOverrides;
+}
+
 /**
  * Compute what changes applying `toVersion` templates would make.
  * Returns one entry per workflow template file.
@@ -42,11 +47,17 @@ export function detectInstalledVersion(repoRoot: string): string | undefined {
 export function computeWorkflowChanges(
   repoRoot: string,
   toVersion: string,
-  overrides?: LocalOverrides,
+  options?: LocalOverrides | ComputeWorkflowChangeOptions,
 ): WorkflowChange[] {
   const workflowDir = join(repoRoot, '.github', 'workflows');
   const base = workflowTemplates(toVersion);
-  const templates = overrides ? applyLocalOverrides(base, overrides) : base;
+  const normalized = normalizeOptions(options);
+  const templates = normalized.overrides ? applyLocalOverrides(base, normalized.overrides) : base;
+  const baselineTemplates = normalized.fromVersion
+    ? normalized.overrides
+      ? applyLocalOverrides(workflowTemplates(normalized.fromVersion), normalized.overrides)
+      : workflowTemplates(normalized.fromVersion)
+    : null;
   const changes: WorkflowChange[] = [];
 
   for (const tmpl of templates) {
@@ -63,11 +74,28 @@ export function computeWorkflowChanges(
       continue;
     }
 
+    const baseline = baselineTemplates?.find((entry) => entry.filename === tmpl.filename);
+    if (baseline && existing !== baseline.content && existing !== tmpl.content) {
+      const diff = computeUnifiedDiff(tmpl.filename, existing, tmpl.content);
+      changes.push({ filename: tmpl.filename, status: 'drifted', diff });
+      continue;
+    }
+
     const diff = computeUnifiedDiff(tmpl.filename, existing, tmpl.content);
     changes.push({ filename: tmpl.filename, status: 'updated', diff });
   }
 
   return changes;
+}
+
+function normalizeOptions(
+  options?: LocalOverrides | ComputeWorkflowChangeOptions,
+): ComputeWorkflowChangeOptions {
+  if (!options) return {};
+  if ('fromVersion' in options || 'overrides' in options) {
+    return options as ComputeWorkflowChangeOptions;
+  }
+  return { overrides: options as LocalOverrides };
 }
 
 function computeUnifiedDiff(filename: string, oldContent: string, newContent: string): string {

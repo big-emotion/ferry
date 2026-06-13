@@ -276,6 +276,10 @@ What is NOT touched:
   • Jira Automation rules themselves (consumer-side, manual)
   • GitHub App installation
 
+Important:
+  • Direct edits inside .github/workflows/ferry-*.yml are not a durable customisation surface.
+    Ferry warns on unmanaged drift before overwrite; move supported workflow changes into ferry.local.yml.
+
 Exit code: 0 on success, 1 on error.
 `);
     process.exit(0);
@@ -337,12 +341,16 @@ Exit code: 0 on success, 1 on error.
 
   // ── Compute changes ───────────────────────────────────────────────────────
   printStep(2, 3, 'Computing changes');
-  const changes = computeWorkflowChanges(config.repoRoot, toVersion, localOverrides ?? undefined);
+  const changes = computeWorkflowChanges(config.repoRoot, toVersion, {
+    fromVersion,
+    overrides: localOverrides ?? undefined,
+  });
   const toUpdate = changes.filter((c) => c.status === 'updated');
   const toAdd = changes.filter((c) => c.status === 'added');
+  const drifted = changes.filter((c) => c.status === 'drifted');
   const unchanged = changes.filter((c) => c.status === 'unchanged');
 
-  if (toUpdate.length === 0 && toAdd.length === 0) {
+  if (toUpdate.length === 0 && toAdd.length === 0 && drifted.length === 0) {
     printSkip('All workflow files already match the target version — nothing to do.');
     // A code-only range stays silent; a range that declares a newly-required
     // secret is still gated even when no workflow file changed (e.g. re-run).
@@ -371,12 +379,18 @@ Exit code: 0 on success, 1 on error.
       print(`    • ${c.filename}`);
     }
   }
+  if (drifted.length > 0) {
+    print(`  Files with unmanaged local drift (${drifted.length}):`);
+    for (const c of drifted) {
+      print(`    • ${c.filename}`);
+    }
+  }
   if (unchanged.length > 0) {
     print(`  Unchanged (${unchanged.length}): ${unchanged.map((c) => c.filename).join(', ')}`);
   }
 
   // Print diffs
-  const changed = [...toUpdate, ...toAdd];
+  const changed = [...toUpdate, ...toAdd, ...drifted];
   if (changed.length > 0) {
     print('');
     print('─── Unified diff ───────────────────────────────────────────────────');
@@ -390,6 +404,11 @@ Exit code: 0 on success, 1 on error.
 
   if (config.dryRun) {
     print('');
+    if (drifted.length > 0) {
+      printWarn(
+        'Dry-run detected unmanaged local workflow edits. Ferry would not overwrite these files without explicit confirmation.',
+      );
+    }
     print('Dry-run mode — no changes written.');
     const gate = await runCredentialGate({
       repoRoot: config.repoRoot,
@@ -406,8 +425,17 @@ Exit code: 0 on success, 1 on error.
   // ── Confirm ───────────────────────────────────────────────────────────────
   if (!config.yes) {
     print('');
+    if (drifted.length > 0) {
+      printWarn('Unmanaged local workflow edits detected. Ferry will not overwrite them silently.');
+      for (const c of drifted) {
+        printWarn(
+          `${c.filename}: move durable changes into ferry.local.yml or confirm the overwrite intentionally`,
+        );
+      }
+      print('');
+    }
     const ok = await confirm(
-      `Apply ${toUpdate.length + toAdd.length} file change(s) to .github/workflows/?`,
+      `Apply ${toUpdate.length + toAdd.length + drifted.length} file change(s) to .github/workflows/?`,
       true,
     );
     if (!ok) {

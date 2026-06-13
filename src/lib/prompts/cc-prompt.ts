@@ -26,8 +26,8 @@ export const CC_PROMPT_TOKENS: Record<CcAgent, readonly string[]> = {
 };
 
 export interface CcPromptResolution {
-  /** `override` when a consumer file was used, `bundled` when Ferry's default was. */
-  source: 'override' | 'bundled';
+  /** `override` when a consumer file was used, `local-overlay` when local guidance was appended, `bundled` when Ferry's default was. */
+  source: 'override' | 'local-overlay' | 'bundled';
   text: string;
 }
 
@@ -48,6 +48,14 @@ export function resolveActionPrompt(
   const overridePath = path.join(overridesDir, `${agent}.${actionPath}.md`);
   if (_checkExists(overridePath)) {
     return { source: 'override', text: _readFile(overridePath, 'utf8') };
+  }
+  const localOverlayPath = path.join(overridesDir, `${agent}.${actionPath}.local.md`);
+  if (_checkExists(localOverlayPath)) {
+    const local = _readFile(localOverlayPath, 'utf8');
+    return {
+      source: 'local-overlay',
+      text: `${bundledDefault}\n\n## Project-specific guidance for ${agent} (${actionPath})\n\n${local}`,
+    };
   }
   return { source: 'bundled', text: bundledDefault };
 }
