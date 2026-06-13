@@ -18,12 +18,12 @@
 
 ## Agent phases at a glance
 
-| Phase         | Jira column    | What the agent does                                                                                        |
-| ------------- | -------------- | ---------------------------------------------------------------------------------------------------------- |
-| **Refiner**   | Refinement     | Reads the ticket, creates sub-tasks, awaits human approval                                                 |
-| **Developer** | In Development | Reads approved sub-tasks, opens a draft PR on `ferry/<TICKET-KEY>` (e.g. `ferry/PROJ-42`)                  |
-| **Reviewer**  | In Review      | Reads PR diff (green CI only), posts fingerprinted findings                                                |
-| **Iterator**  | Iteration      | Applies findings, re-triggers Reviewer (max 3 rounds by default; configurable via `limits.max_iterations`) |
+| Phase         | Jira column         | What the agent does                                                                                                                                    |
+| ------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Refiner**   | Refinement          | Reads the ticket, creates sub-tasks, awaits human approval                                                                                             |
+| **Developer** | In Development      | Reads approved sub-tasks, opens a draft PR on `ferry/<TICKET-KEY>` (e.g. `ferry/PROJ-42`)                                                              |
+| **Reviewer**  | In Review           | Reads PR diff (green CI only), posts fingerprinted findings                                                                                            |
+| **Iterator**  | Iteration           | Applies findings, re-triggers Reviewer (max 3 rounds by default; configurable via `limits.max_iterations`)                                             |
 | **Merger**    | In Review → approve | Squash-merges the approved PR via `gh pr merge` (triggered by the Reviewer's `ferry-merge` dispatch), optionally transitions the ticket to Done (FR32) |
 
 ---
@@ -56,3 +56,5 @@ Four of Ferry's five agents **never merge**; the **Merger** (FR32) is the single
 4. Merger → Done (FR32, only when `FERRY_MERGE_DONE_TRANSITION_ID` is set)
 
 All auto-transitions are configurable via `workflow.agents` in `ferry.config.yaml` — set any to `null` to hand control back to humans, or set custom column names to match your board. See [`docs/CONFIGURATION.md`](CONFIGURATION.md#workflowagents) for details.
+
+For operator-local execution without a GitHub Actions runner, see [`docs/LOCAL-RUNNER.md`](LOCAL-RUNNER.md).
