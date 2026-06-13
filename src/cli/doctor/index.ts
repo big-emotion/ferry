@@ -22,6 +22,11 @@ import {
   checkProviderGate,
   checkWorkflowShape,
 } from './checks/claude-code-path.js';
+import {
+  checkCodexCliPath,
+  checkProviderGate as checkCodexProviderGate,
+  checkWorkflowShape as checkCodexWorkflowShape,
+} from './checks/codex-cli-path.js';
 import { checkClaudeCodePromptOverrides } from './checks/claude-code-prompts.js';
 import { renderTable } from './table.js';
 import { parseGitLabConfig, runGitLabDoctor } from './gitlab/index.js';
@@ -165,6 +170,9 @@ Checks run in order:
   17. CC path: provider gate — all four agent providers must be anthropic when execution_path = claude-code
   18. CC path: workflow shape — claude-code workflows use a direct claude-code-action call (no ferry-cc-prepare/apply)
   19. CC path: prompt overrides — report consumer prompts/<agent>.claude-code.md overrides resolved by ferry-cc-prompt
+  20. Codex-cli path        — when execution_path = codex-cli, OPENAI_API_KEY present
+  21. Codex path: provider gate — all configured codex-cli agent providers must be OpenAI
+  22. Codex path: workflow shape — workflows include run-agent-codex-cli backed by openai/codex-action
 
 Exit code: 0 if all checks green/yellow, 1 if any check red.
 `);
@@ -230,6 +238,13 @@ Exit code: 0 if all checks green/yellow, 1 if any check red.
     checkProviderGate({ repoRoot: config.repoRoot }),
     checkWorkflowShape({ repoRoot: config.repoRoot }),
     checkClaudeCodePromptOverrides({ repoRoot: config.repoRoot }),
+    checkCodexCliPath({
+      repoRoot: config.repoRoot,
+      repo: config.repo,
+      openaiApiKey: config.openaiApiKey,
+    }),
+    checkCodexProviderGate({ repoRoot: config.repoRoot }),
+    checkCodexWorkflowShape({ repoRoot: config.repoRoot }),
   ]);
 
   process.stdout.write(renderTable(results));

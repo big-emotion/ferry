@@ -12,9 +12,15 @@ describe('parseExecutionPathChoice', () => {
     expect(parseExecutionPathChoice('B')).toBe('claude-code');
   });
 
+  it('selects "codex-cli" for the (c) answer', () => {
+    expect(parseExecutionPathChoice('c')).toBe('codex-cli');
+    expect(parseExecutionPathChoice('C')).toBe('codex-cli');
+  });
+
   it('accepts explicit path names (case/space-insensitive)', () => {
     expect(parseExecutionPathChoice('  Claude-Code ')).toBe('claude-code');
     expect(parseExecutionPathChoice('claude-code-action')).toBe('claude-code');
+    expect(parseExecutionPathChoice(' codex-cli ')).toBe('codex-cli');
     expect(parseExecutionPathChoice('script')).toBe('script');
   });
 
@@ -27,5 +33,6 @@ describe('parseExecutionPathChoice', () => {
   it('exposes a prompt that names both options', () => {
     expect(EXECUTION_PATH_QUESTION).toMatch(/script/i);
     expect(EXECUTION_PATH_QUESTION).toMatch(/claude-code/i);
+    expect(EXECUTION_PATH_QUESTION).toMatch(/codex-cli/i);
   });
 });

@@ -57,6 +57,35 @@ describe('resolveCcPrompt', () => {
     expect(resolveCcPrompt('dev', REPO_ROOT, 'B', check).source).toBe('bundled');
     expect(resolveCcPrompt('iterate', REPO_ROOT, 'B', check, () => 'I').source).toBe('override');
   });
+
+  it('appends a local claude-code overlay when no full override exists', () => {
+    const check = (p: string) => p === '/workspace/repo/prompts/dev.claude-code.local.md';
+    const read = vi.fn(() => 'LOCAL');
+    const result = resolveCcPrompt('dev', REPO_ROOT, 'BUNDLED', check, read);
+    expect(result).toEqual({
+      source: 'local-overlay',
+      text: 'BUNDLED\n\n## Project-specific guidance for dev (claude-code)\n\nLOCAL',
+    });
+  });
+
+  it('prefers a full override over a local claude-code overlay', () => {
+    const check = (p: string) =>
+      p === '/workspace/repo/prompts/dev.claude-code.md' ||
+      p === '/workspace/repo/prompts/dev.claude-code.local.md';
+    const read = vi.fn((p: string) => (p.endsWith('.local.md') ? 'LOCAL' : 'OVERRIDE'));
+    const result = resolveCcPrompt('dev', REPO_ROOT, 'BUNDLED', check, read);
+    expect(result).toEqual({ source: 'override', text: 'OVERRIDE' });
+  });
+
+  it('appends a local codex-cli overlay when no full override exists', () => {
+    const check = (p: string) => p === '/workspace/repo/prompts/dev.codex-cli.local.md';
+    const read = vi.fn(() => 'LOCAL');
+    const result = resolveActionPrompt('codex-cli', 'dev', REPO_ROOT, 'BUNDLED', check, read);
+    expect(result).toEqual({
+      source: 'local-overlay',
+      text: 'BUNDLED\n\n## Project-specific guidance for dev (codex-cli)\n\nLOCAL',
+    });
+  });
 });
 
 describe('substituteTokens', () => {

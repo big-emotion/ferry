@@ -8,6 +8,6 @@ export interface UpdateConfig {
 
 export interface WorkflowChange {
   filename: string;
-  status: 'updated' | 'unchanged' | 'added';
+  status: 'updated' | 'unchanged' | 'added' | 'drifted';
   diff: string;
 }

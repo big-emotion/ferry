@@ -613,25 +613,25 @@ Let a Jira ticket run Ferry without producing side effects — to validate promp
 
 **Use case:** validate a new MCP server configuration or refined prompt by running the full agent loop on a real ticket without touching the repo or the Jira board.
 
-##### Execution-path routing (`ferry:claude-code`, `ferry:no-claude-code`)
+##### Execution-path routing (`ferry:claude-code`, `ferry:no-claude-code`, `ferry:codex-cli`, `ferry:no-codex-cli`)
 
 > **Read the trade-off first.** The `claude-code-action` path is a direct call into `anthropics/claude-code-action` with no Ferry wrapper around it — see [Execution paths & accepted divergences](#execution-paths--accepted-divergences). Several invariants that the bundled-script path enforces in code become **prompt-enforced** on this path.
 
 Which execution path an agent run takes is decided by a deterministic resolver ([ADR-0006](./adr/0006-claude-code-action-execution-path.md) §3, [#300](https://github.com/big-emotion/ferry/issues/300)). Precedence, highest first:
 
 1. **Explicit `execution_path: "script"`** in `ferry.config.*` — a hard lock; never overridden by the label or the heuristic.
-2. **Per-ticket label** — `ferry:claude-code` forces the claude-code-action path; `ferry:no-claude-code` forces the bundled script. Both labels present is **not** a `LabelConflictError`: it fails closed to the safe `script` path.
+2. **Per-ticket label** — `ferry:claude-code` forces the claude-code-action path; `ferry:codex-cli` forces the Codex direct-action path; `ferry:no-claude-code` / `ferry:no-codex-cli` force the bundled script. Conflicting direct-action labels fail closed to the safe `script` path.
 3. **Automatic heuristic** — a `developer` / `iterator` run with `priorRoundTrips >= routing.claude_code_round_trip_threshold` escalates an otherwise-script default to claude-code.
 4. **Conditional default** — explicit `execution_path: "claude-code"`, else `claude-code` for an Anthropic-only consumer, else `script`.
 
 The resolved path **and the reason** (`label` / `heuristic` / `default`) are recorded in the audit comment so the Reconciler observes which path ran and why.
 
-| Config key                                 | Default   | Effect                                                                                     |
-| ------------------------------------------ | --------- | ------------------------------------------------------------------------------------------ |
-| `execution_path`                           | _(unset)_ | `"script"` (hard lock) or `"claude-code"` (explicit). Unset → conditional default applies. |
-| `routing.claude_code_round_trip_threshold` | `2`       | Positive integer N for the developer/iterator escalation heuristic.                        |
+| Config key                                 | Default   | Effect                                                                                                     |
+| ------------------------------------------ | --------- | ---------------------------------------------------------------------------------------------------------- |
+| `execution_path`                           | _(unset)_ | `"script"` (hard lock), `"claude-code"`, or `"codex-cli"` (explicit). Unset → conditional default applies. |
+| `routing.claude_code_round_trip_threshold` | `2`       | Positive integer N for the developer/iterator escalation heuristic.                                        |
 
-`ferry:claude-code` only _selects_ the path — it does not provision the `CLAUDE_CODE_OAUTH_TOKEN` the path needs. The merge boundary holds regardless of how the path was chosen: the Refiner, Developer, Reviewer, and Iterator **never merge code** — on the claude-code path enforced by `claude-code-action`'s `--disallowedTools` deny-list plus consumer branch protection. Merging is confined to the separate, gated **Merger** agent (FR32), triggered only by a `ferry-merge` dispatch on Reviewer approval (see [Execution paths & accepted divergences](#execution-paths--accepted-divergences)).
+`ferry:claude-code` only _selects_ the path — it does not provision the `CLAUDE_CODE_OAUTH_TOKEN` the path needs. Likewise, `ferry:codex-cli` only selects the path — it still requires `OPENAI_API_KEY` and OpenAI providers for the agents that run on it. The merge boundary holds regardless of how the path was chosen: the Refiner, Developer, Reviewer, and Iterator **never merge code** — on the direct-action paths enforced by the action deny-lists plus consumer branch protection. Merging is confined to the separate, gated **Merger** agent (FR32), triggered only by a `ferry-merge` dispatch on Reviewer approval (see [Execution paths & accepted divergences](#execution-paths--accepted-divergences)).
 
 ##### Extended thinking (`ferry:thinking/*`)
 
@@ -816,7 +816,16 @@ To verify which extension files Ferry picked up on a given run, search the agent
 
 On the claude-code execution path an agent is one direct `anthropics/claude-code-action` call — there is no Ferry runtime to assemble the layered prompt above. Instead the workflow's `Resolve agent prompt` step runs the `ferry-cc-prompt` bin, which resolves the system prompt and feeds it to the action via a step output.
 
-Customisation here is a **full override**, not an extension: drop a file in your consumer repository and it **replaces** Ferry's bundled claude-code prompt for that agent entirely.
+Preferred customisation here is an additive local overlay:
+
+| File                                   | Appends local guidance to the bundled claude-code prompt for |
+| -------------------------------------- | ------------------------------------------------------------ |
+| `prompts/refiner.claude-code.local.md` | Refiner                                                      |
+| `prompts/dev.claude-code.local.md`     | Developer                                                    |
+| `prompts/review.claude-code.local.md`  | Reviewer                                                     |
+| `prompts/iterate.claude-code.local.md` | Iterator                                                     |
+
+Legacy full overrides still work, but should be treated as a last resort:
 
 | File                             | Replaces the bundled claude-code prompt for |
 | -------------------------------- | ------------------------------------------- |
@@ -827,13 +836,15 @@ Customisation here is a **full override**, not an extension: drop a file in your
 
 **Rules:**
 
-- Resolution is override-or-default, like `ferry.config.yaml`: if the file is present it is used as-is; if absent, Ferry's bundled default is used (and tracks new releases). `FERRY_PROMPTS_DIR` overrides the lookup directory.
+- Resolution order is: full override `prompts/<agent>.claude-code.md`, then additive local overlay `prompts/<agent>.claude-code.local.md`, then Ferry's bundled default. `FERRY_PROMPTS_DIR` overrides the lookup directory.
+- `*.claude-code.local.md` appends repo-specific guidance to Ferry's bundled prompt and keeps the upstream prompt contract intact.
 - The override **replaces** the whole prompt — it does not append. The `.extra.md` / `_project.md` layering does **not** apply on this path.
 - Keep the placeholder tokens — `ferry-cc-prompt` substitutes them at run time. Bare uppercase tokens: `TICKET_KEY` and `RUN_ID` (all agents); `REVIEW_TRANSITION_ID` (dev, iterate); `APPROVE_TRANSITION_ID` and `CHANGES_TRANSITION_ID` (review). An unrecognised token is left literal.
 - A custom override is **your** contract: the bundled prompts enforce the no-merge rule, the single allowed FR transition, the fingerprinted `[ferry:<role>:<run-id>]` audit comment, and idempotency. Preserve those instructions or you weaken Ferry's guarantees.
-- `ferry-doctor` reports detected overrides (check 19, `CC path: prompt overrides`).
+- Prefer the `.local.md` form whenever possible so new Ferry prompt-contract changes continue to flow into your repo.
+- `ferry-doctor` reports detected overrides and warns on legacy full replacements (check 19, `CC path: prompt overrides`).
 
-To verify which prompt a run used, search the agent's job log for `ferry-cc-prompt: <agent> prompt resolved (source: override|bundled)`.
+To verify which prompt a run used, search the agent's job log for `ferry-cc-prompt: <agent> prompt resolved (source: override|local-overlay|bundled)`.
 
 ---
 
@@ -878,12 +889,13 @@ Secrets (`ANTHROPIC_API_KEY`, `FERRY_OPENAI_KEY`, `FERRY_GOOGLE_AI_KEY`) are cre
 
 ## Execution paths & accepted divergences
 
-Ferry's five agents (Refiner, Developer, Reviewer, Iterator, Merger) run via one of two execution paths behind the same `repository_dispatch` boundary:
+Ferry's five agents (Refiner, Developer, Reviewer, Iterator, Merger) run via one of three execution paths behind the same `repository_dispatch` boundary:
 
 | Path                     | Reasoning core                          | Providers                   | Per-run EUR cap  | Auth                                     |
 | ------------------------ | --------------------------------------- | --------------------------- | ---------------- | ---------------------------------------- |
 | **Bundled script**       | Ferry's deterministic agent loop        | Anthropic / OpenAI / Google | Enforced         | `ANTHROPIC_API_KEY` / provider keys      |
 | **`claude-code-action`** | `anthropics/claude-code-action@v1` loop | Anthropic only              | **Not enforced** | `CLAUDE_CODE_OAUTH_TOKEN` (subscription) |
+| **`codex-cli`**          | `openai/codex-action@v1` loop           | OpenAI only                 | **Not enforced** | `OPENAI_API_KEY`                         |
 
 The **bundled-script path is unchanged** — its deterministic agent loop, structured-output schema, code-enforced idempotency, audit-line emission, and per-run EUR cap all behave exactly as documented elsewhere in this reference.
 
@@ -892,6 +904,12 @@ The **bundled-script path is unchanged** — its deterministic agent loop, struc
 For a `ferry:claude-code` ticket each agent job is **one direct call** into `anthropics/claude-code-action@v1`: a `checkout` step followed by that single action step. There is **no Ferry wrapper** around it — no prepare/apply composite actions, no intermediate JSON artifact, no structured-output "contract" layer. The agent does its own Jira work through a Ferry-shipped MCP server ([`ferry-jira-mcp`](#ferry-jira-mcp-jira-access-for-the-claude-code-path)) and its own GitHub work through `claude-code-action`'s native `git` / `gh` tools. The reviewer job is additionally fronted by the deterministic [`ferry-ci-gate`](#ferry-ci-gate-reviewer-ci-pre-gate) composite action.
 
 Authentication is `CLAUDE_CODE_OAUTH_TOKEN` only — `ANTHROPIC_API_KEY` is **forbidden** on this path ([ADR-0006](./adr/0006-claude-code-action-execution-path.md) §6). The provider gate still applies: the claude-code path is only available to an Anthropic-only consumer configuration.
+
+### How the codex-cli path runs
+
+For a `ferry:codex-cli` ticket each agent job is one direct `openai/codex-action@v1` call. The workflow resolves the role prompt with `ferry-action-prompt --path codex-cli`, generates `codex-home/config.toml` with `ferry-codex-config`, and passes that `codex-home` directory to the action. Ferry owns the Jira bridge here too: Codex has **no native Jira-label integration**, so the agent reaches Jira only through Ferry's `ferry-jira-mcp` server declared in `codex-home/config.toml`.
+
+Authentication is `OPENAI_API_KEY`. The provider gate still applies: the codex-cli path is only available when the relevant agent provider is `openai`.
 
 ### The accepted trade-off: prompt-enforced, not code-enforced
 
@@ -920,13 +938,13 @@ These remain accepted, by-design differences on the claude-code path — all are
 
 3. **EUR-cost telemetry is `0` on the claude-code path.** With no wrapper to capture token/cost values, the `cost_eur` and token audit fields are emitted as `0` (best-effort by design). See [COST.md → Cost telemetry on the claude-code path](./COST.md#cost-telemetry-on-the-claude-code-execution-path).
 
-### `ferry-jira-mcp` — Jira access for the claude-code path
+### `ferry-jira-mcp` — Jira access for the direct-action paths
 
-On the claude-code path the agent reaches Jira through **`ferry-jira-mcp`**, a Ferry-owned stdio MCP server shipped as the `ferry-jira-mcp` bin of the `@big-emotion/ferry` npm package. It authenticates with the same token-auth env Ferry already uses — `FERRY_JIRA_BASE_URL`, `FERRY_JIRA_EMAIL`, `FERRY_JIRA_API_TOKEN`.
+On the direct-action paths the agent reaches Jira through **`ferry-jira-mcp`**, a Ferry-owned stdio MCP server shipped as the `ferry-jira-mcp` bin of the `@big-emotion/ferry` npm package. It authenticates with the same token-auth env Ferry already uses — `FERRY_JIRA_BASE_URL`, `FERRY_JIRA_EMAIL`, `FERRY_JIRA_API_TOKEN`.
 
 It exposes six tools: `get_issue`, `list_subtasks`, `create_subtask`, `get_transitions`, `transition_issue`, `post_comment`.
 
-The consumer's claude-code workflow wires it into `claude-code-action` via `claude_args --mcp-config`, launching the server with `npx -y -p @big-emotion/ferry ferry-jira-mcp`.
+The consumer's claude-code workflow wires it into `claude-code-action` via `claude_args --mcp-config`, while the codex-cli workflow writes the same server definition into `codex-home/config.toml` and passes `codex-home` to `openai/codex-action`. In both cases the launched command is `npx -y -p @big-emotion/ferry ferry-jira-mcp`.
 
 ### `ferry-ci-gate` — reviewer CI pre-gate
 

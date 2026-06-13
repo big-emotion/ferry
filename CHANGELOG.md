@@ -9,6 +9,10 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Complete `codex-cli` workflow execution path** — the generated consumer workflows now include a real `run-agent-codex-cli` job for all five roles, backed by `openai/codex-action`, `ferry-action-prompt --path codex-cli`, and a generated `codex-home/config.toml` that wires Ferry's Jira MCP server into Codex. `ferry-init` now offers `codex-cli` as an install-time execution path, `ferry-doctor` validates `OPENAI_API_KEY` / provider-gate / workflow shape for that path, and `ferry-update` documents the regeneration step in `MIGRATIONS.md`.
+
 ---
 
 ## [0.17.0] — 2026-06-07

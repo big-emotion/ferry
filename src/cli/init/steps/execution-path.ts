@@ -8,7 +8,8 @@ import type { ExecutionPath } from '../../../lib/config.js';
  */
 export const EXECUTION_PATH_QUESTION =
   'Execution path: (a) bundled script [multi-provider, per-run EUR cap — default] ' +
-  'or (b) claude-code-action [Anthropic subscription, free agent loop, requires CLAUDE_CODE_OAUTH_TOKEN]';
+  'or (b) claude-code-action [Anthropic subscription, free agent loop, requires CLAUDE_CODE_OAUTH_TOKEN] ' +
+  'or (c) codex-cli [OpenAI direct action, requires OPENAI_API_KEY]';
 
 /**
  * Parse the wizard answer into an {@link ExecutionPath}. Anything that is not an
@@ -18,6 +19,9 @@ export function parseExecutionPathChoice(answer: string): ExecutionPath {
   const v = answer.trim().toLowerCase();
   if (v === 'b' || v === 'claude-code' || v === 'claude-code-action') {
     return 'claude-code';
+  }
+  if (v === 'c' || v === 'codex-cli') {
+    return 'codex-cli';
   }
   return 'script';
 }

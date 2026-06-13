@@ -372,6 +372,38 @@ describe('Quick install — smoke test documented (INSTALL.md §Smoke test)', ()
 });
 
 // ---------------------------------------------------------------------------
+// 14.5 GitLab install path documented end-to-end
+// ---------------------------------------------------------------------------
+
+describe('GitLab install path — end-to-end docs (issue #406)', () => {
+  it('INSTALL.md documents the GitLab init command', async () => {
+    const doc = await readFile('docs/INSTALL.md');
+    expect(doc).toContain('npx -p @big-emotion/ferry ferry-init --forge gitlab');
+  });
+
+  it('INSTALL.md documents including ci/ferry templates from .gitlab-ci.yml', async () => {
+    const doc = await readFile('docs/INSTALL.md');
+    expect(doc).toContain('ci/ferry/');
+    expect(doc).toContain('.gitlab-ci.yml');
+    expect(doc).toContain('include:');
+  });
+
+  it('INSTALL.md documents the Jira Automation trigger fields used by GitLab', async () => {
+    const doc = await readFile('docs/INSTALL.md');
+    expect(doc).toContain('trigger/pipeline');
+    expect(doc).toContain('FERRY_DISPATCH_TYPE');
+    expect(doc).toContain('FERRY_ENVELOPE_PAYLOAD');
+  });
+
+  it('INSTALL.md documents GitLab validation, update, and uninstall commands', async () => {
+    const doc = await readFile('docs/INSTALL.md');
+    expect(doc).toContain('ferry-doctor --forge gitlab');
+    expect(doc).toContain('ferry-update --forge gitlab');
+    expect(doc).toContain('ferry-uninstall --forge gitlab');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 14. No-auto-merge invariant cross-check
 // ---------------------------------------------------------------------------
 
@@ -518,5 +550,36 @@ describe('supply-chain — npm audit step in ferry-ci.yml (issue #105)', () => {
   it('ferry-ci.yml declares an audit job', async () => {
     const content = await readFile('.github/workflows/ferry-ci.yml');
     expect(content, 'ferry-ci.yml must have an "audit:" job').toMatch(/^  audit:\s*$/m);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 19. CLI docs include forge-aware lifecycle commands
+// ---------------------------------------------------------------------------
+
+describe('CLI docs — GitLab forge variants (issue #406)', () => {
+  it('docs/CLI.md mentions --forge gitlab for every lifecycle command', async () => {
+    const doc = await readFile('docs/CLI.md');
+    expect(doc).toContain('ferry-init --forge gitlab');
+    expect(doc).toContain('ferry-doctor --forge gitlab');
+    expect(doc).toContain('ferry-update --forge gitlab');
+    expect(doc).toContain('ferry-uninstall --forge gitlab');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 20. GitLab example docs must not describe shipped commands as pending
+// ---------------------------------------------------------------------------
+
+describe('GitLab example docs — shipped command status (issue #406)', () => {
+  it('examples/consumer-setup-gitlab/README.md does not say ferry-doctor is planned', async () => {
+    const doc = await readFile('examples/consumer-setup-gitlab/README.md');
+    expect(doc).not.toContain('not yet shipped');
+    expect(doc).not.toContain('planned in [#214]');
+  });
+
+  it('examples/consumer-setup-gitlab/README.md includes a validation path with ferry-doctor --forge gitlab', async () => {
+    const doc = await readFile('examples/consumer-setup-gitlab/README.md');
+    expect(doc).toContain('ferry-doctor --forge gitlab');
   });
 });

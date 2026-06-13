@@ -9,14 +9,24 @@ const CLAUDE_CODE_HEADER =
   '# Required secret: CLAUDE_CODE_OAUTH_TOKEN (run `claude setup-token`; Claude Pro/Max subscription).\n' +
   '# Set execution_path: script in ferry.config.yaml to revert to the bundled multi-provider path.\n';
 
+const CODEX_HEADER =
+  '# Execution path: codex-cli — agents run via openai/codex-action.\n' +
+  '# Required secret: OPENAI_API_KEY.\n' +
+  '# Set execution_path: script in ferry.config.yaml to revert to the bundled multi-provider path.\n';
+
+const CLAUDE_CODE_ACTION_PIN =
+  'anthropics/claude-code-action@1dc994ee7a008f0ecc866d9ac23ef036b7229f84 # v1.0.127';
+const CODEX_ACTION_PIN = 'openai/codex-action@a26d2d4d8b78a694338b8e3715c3630254340b2c # v1';
+
 function applyExecutionPath(
   templates: WorkflowEntry[],
   executionPath: ExecutionPath,
 ): WorkflowEntry[] {
-  if (executionPath !== 'claude-code') return templates;
+  if (executionPath === 'script') return templates;
+  const header = executionPath === 'claude-code' ? CLAUDE_CODE_HEADER : CODEX_HEADER;
   return templates.map((t) => ({
     filename: t.filename,
-    content: t.content.replace(MANAGED_BY_LINE, MANAGED_BY_LINE + CLAUDE_CODE_HEADER),
+    content: t.content.replace(MANAGED_BY_LINE, MANAGED_BY_LINE + header),
   }));
 }
 
@@ -130,6 +140,9 @@ jobs:
       id-token: write # required by anthropics/claude-code-action@v1 OIDC auth
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: \${{ vars.FERRY_INTEGRATION_BRANCH || 'main' }}
+          fetch-depth: 0
       # Resolve the system prompt: prompts/refiner.claude-code.md from this repo
       # if present, otherwise Ferry's bundled default. To customise the prompt
       # edit that file — no need to touch this workflow. See docs/CONFIGURATION.md.
@@ -140,7 +153,7 @@ jobs:
           --agent refiner
           --ticket-key "\${{ github.event.client_payload.ticket_key }}"
           --run-id "\${{ github.event.client_payload.event_id }}"
-      - uses: anthropics/claude-code-action@1dc994ee7a008f0ecc866d9ac23ef036b7229f84 # v1.0.127
+      - uses: ${CLAUDE_CODE_ACTION_PIN}
         with:
           claude_code_oauth_token: \${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: \${{ steps.prompt.outputs.prompt }}
@@ -150,10 +163,43 @@ jobs:
             --disallowedTools 'Bash(gh pr merge),Bash(gh pr merge:*),Bash(gh pr close:*)'
             --model \${{ vars.FERRY_REFINER_MODEL || 'claude-sonnet-4-6' }}
 
+  run-agent-codex-cli:
+    name: Run Refiner agent (codex-cli path)
+    needs: [route]
+    if: needs.route.outputs.path == 'codex-cli'
+    runs-on: \${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
+    permissions:
+      contents: read
+      issues: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Resolve agent prompt
+        id: prompt
+        run: >-
+          npx -y -p @big-emotion/ferry@${version} ferry-action-prompt
+          --path codex-cli
+          --agent refiner
+          --ticket-key "\${{ github.event.client_payload.ticket_key }}"
+          --run-id "\${{ github.event.client_payload.event_id }}"
+      - name: Generate Codex config
+        run: |
+          mkdir -p codex-home
+          npx -y -p @big-emotion/ferry@${version} ferry-codex-config > codex-home/config.toml
+      - uses: ${CODEX_ACTION_PIN}
+        with:
+          openai-api-key: \${{ secrets.OPENAI_API_KEY }}
+          prompt: \${{ steps.prompt.outputs.prompt }}
+          model: \${{ vars.FERRY_REFINER_MODEL || 'gpt-5-codex' }}
+          effort: \${{ vars.FERRY_CODEX_EFFORT || '' }}
+          sandbox: \${{ vars.FERRY_CODEX_SANDBOX || 'workspace-write' }}
+          safety-strategy: \${{ vars.FERRY_CODEX_SAFETY_STRATEGY || 'drop-sudo' }}
+          codex-version: \${{ vars.FERRY_CODEX_VERSION || '' }}
+          codex-home: codex-home
+
   emit-audit:
     name: Emit audit line
-    needs: [run-agent, run-agent-claude-code]
-    if: always() && (needs.run-agent.result != 'skipped' || needs.run-agent-claude-code.result != 'skipped')
+    needs: [run-agent, run-agent-claude-code, run-agent-codex-cli]
+    if: always() && (needs.run-agent.result != 'skipped' || needs.run-agent-claude-code.result != 'skipped' || needs.run-agent-codex-cli.result != 'skipped')
     runs-on: \${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
     permissions:
       contents: read
@@ -168,7 +214,7 @@ jobs:
           phase: refine
           run_id: \${{ github.event.client_payload.event_id }}
           model: claude-sonnet-4-6
-          outcome: \${{ needs.run-agent.result != 'skipped' && needs.run-agent.result || needs.run-agent-claude-code.result }}
+          outcome: \${{ (needs.run-agent.result != 'skipped' && needs.run-agent.result) || (needs.run-agent-claude-code.result != 'skipped' && needs.run-agent-claude-code.result) || needs.run-agent-codex-cli.result }}
           # claude-code path does cost tracking best-effort by design — it emits no token/cost outputs.
           input_tokens: '0'
           output_tokens: '0'
@@ -291,9 +337,14 @@ jobs:
       contents: write
       pull-requests: write
       issues: read
+      checks: read     # PR check-runs / statusCheckRollup
+      actions: read    # gh run view --log-failed / actions/runs
       id-token: write # required by anthropics/claude-code-action@v1 OIDC auth
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: \${{ vars.FERRY_INTEGRATION_BRANCH || 'main' }}
+          fetch-depth: 0
       # Resolve the system prompt: prompts/dev.claude-code.md from this repo if
       # present, otherwise Ferry's bundled default. To customise the prompt edit
       # that file — no need to touch this workflow. See docs/CONFIGURATION.md.
@@ -305,7 +356,7 @@ jobs:
           --ticket-key "\${{ github.event.client_payload.ticket_key }}"
           --run-id "\${{ github.event.client_payload.event_id }}"
           --review-transition-id "\${{ secrets.FERRY_REVIEW_TRANSITION_ID }}"
-      - uses: anthropics/claude-code-action@1dc994ee7a008f0ecc866d9ac23ef036b7229f84 # v1.0.127
+      - uses: ${CLAUDE_CODE_ACTION_PIN}
         with:
           claude_code_oauth_token: \${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: \${{ steps.prompt.outputs.prompt }}
@@ -315,10 +366,45 @@ jobs:
             --disallowedTools 'Bash(gh pr merge),Bash(gh pr merge:*),Bash(gh pr close:*)'
             --model \${{ vars.FERRY_DEV_MODEL || 'claude-sonnet-4-6' }}
 
+  run-agent-codex-cli:
+    name: Run Developer agent (codex-cli path)
+    needs: [route]
+    if: needs.route.outputs.path == 'codex-cli'
+    runs-on: \${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Resolve agent prompt
+        id: prompt
+        run: >-
+          npx -y -p @big-emotion/ferry@${version} ferry-action-prompt
+          --path codex-cli
+          --agent dev
+          --ticket-key "\${{ github.event.client_payload.ticket_key }}"
+          --run-id "\${{ github.event.client_payload.event_id }}"
+          --review-transition-id "\${{ secrets.FERRY_REVIEW_TRANSITION_ID }}"
+      - name: Generate Codex config
+        run: |
+          mkdir -p codex-home
+          npx -y -p @big-emotion/ferry@${version} ferry-codex-config > codex-home/config.toml
+      - uses: ${CODEX_ACTION_PIN}
+        with:
+          openai-api-key: \${{ secrets.OPENAI_API_KEY }}
+          prompt: \${{ steps.prompt.outputs.prompt }}
+          model: \${{ vars.FERRY_DEV_MODEL || 'gpt-5-codex' }}
+          effort: \${{ vars.FERRY_CODEX_EFFORT || '' }}
+          sandbox: \${{ vars.FERRY_CODEX_SANDBOX || 'workspace-write' }}
+          safety-strategy: \${{ vars.FERRY_CODEX_SAFETY_STRATEGY || 'drop-sudo' }}
+          codex-version: \${{ vars.FERRY_CODEX_VERSION || '' }}
+          codex-home: codex-home
+
   emit-audit:
     name: Emit audit line
-    needs: [run-agent, run-agent-claude-code]
-    if: always() && (needs.run-agent.result != 'skipped' || needs.run-agent-claude-code.result != 'skipped')
+    needs: [run-agent, run-agent-claude-code, run-agent-codex-cli]
+    if: always() && (needs.run-agent.result != 'skipped' || needs.run-agent-claude-code.result != 'skipped' || needs.run-agent-codex-cli.result != 'skipped')
     runs-on: \${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
     permissions:
       contents: read
@@ -333,7 +419,7 @@ jobs:
           phase: dev
           run_id: \${{ github.event.client_payload.event_id }}
           model: claude-sonnet-4-6
-          outcome: \${{ needs.run-agent.result != 'skipped' && needs.run-agent.result || needs.run-agent-claude-code.result }}
+          outcome: \${{ (needs.run-agent.result != 'skipped' && needs.run-agent.result) || (needs.run-agent-claude-code.result != 'skipped' && needs.run-agent-claude-code.result) || needs.run-agent-codex-cli.result }}
           # claude-code path does cost tracking best-effort by design — it emits no token/cost outputs.
           input_tokens: \${{ needs.run-agent.outputs.input_tokens || '0' }}
           output_tokens: \${{ needs.run-agent.outputs.output_tokens || '0' }}
@@ -452,7 +538,7 @@ jobs:
   ci-gate:
     name: Reviewer CI pre-gate
     needs: [route]
-    if: needs.route.outputs.path == 'claude-code'
+    if: needs.route.outputs.path == 'claude-code' || needs.route.outputs.path == 'codex-cli'
     runs-on: \${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
     permissions:
       contents: read
@@ -489,6 +575,9 @@ jobs:
       id-token: write # required by anthropics/claude-code-action@v1 OIDC auth
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ferry/\${{ github.event.client_payload.ticket_key }}
+          fetch-depth: 0
       # Resolve the system prompt: prompts/review.claude-code.md from this repo
       # if present, otherwise Ferry's bundled default. To customise the prompt
       # edit that file — no need to touch this workflow. See docs/CONFIGURATION.md.
@@ -501,7 +590,7 @@ jobs:
           --run-id "\${{ github.event.client_payload.event_id }}"
           --approve-transition-id "\${{ secrets.FERRY_APPROVE_TRANSITION_ID }}"
           --changes-transition-id "\${{ secrets.FERRY_ITER_TRANSITION_ID }}"
-      - uses: anthropics/claude-code-action@1dc994ee7a008f0ecc866d9ac23ef036b7229f84 # v1.0.127
+      - uses: ${CLAUDE_CODE_ACTION_PIN}
         with:
           claude_code_oauth_token: \${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: \${{ steps.prompt.outputs.prompt }}
@@ -511,10 +600,47 @@ jobs:
             --disallowedTools 'Bash(gh pr merge),Bash(gh pr merge:*),Bash(gh pr close:*)'
             --model \${{ vars.FERRY_REVIEW_MODEL || 'claude-sonnet-4-6' }}
 
+  run-agent-codex-cli:
+    name: Run Reviewer agent (codex-cli path)
+    needs: [route, ci-gate]
+    if: needs.route.outputs.path == 'codex-cli' && needs.ci-gate.outputs.proceed == 'true'
+    runs-on: \${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: read
+      checks: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Resolve agent prompt
+        id: prompt
+        run: >-
+          npx -y -p @big-emotion/ferry@${version} ferry-action-prompt
+          --path codex-cli
+          --agent review
+          --ticket-key "\${{ github.event.client_payload.ticket_key }}"
+          --run-id "\${{ github.event.client_payload.event_id }}"
+          --approve-transition-id "\${{ secrets.FERRY_APPROVE_TRANSITION_ID }}"
+          --changes-transition-id "\${{ secrets.FERRY_ITER_TRANSITION_ID }}"
+      - name: Generate Codex config
+        run: |
+          mkdir -p codex-home
+          npx -y -p @big-emotion/ferry@${version} ferry-codex-config > codex-home/config.toml
+      - uses: ${CODEX_ACTION_PIN}
+        with:
+          openai-api-key: \${{ secrets.OPENAI_API_KEY }}
+          prompt: \${{ steps.prompt.outputs.prompt }}
+          model: \${{ vars.FERRY_REVIEW_MODEL || 'gpt-5-codex' }}
+          effort: \${{ vars.FERRY_CODEX_EFFORT || '' }}
+          sandbox: \${{ vars.FERRY_CODEX_SANDBOX || 'workspace-write' }}
+          safety-strategy: \${{ vars.FERRY_CODEX_SAFETY_STRATEGY || 'drop-sudo' }}
+          codex-version: \${{ vars.FERRY_CODEX_VERSION || '' }}
+          codex-home: codex-home
+
   emit-audit:
     name: Emit audit line
-    needs: [run-agent, run-agent-claude-code, ci-gate]
-    if: always() && (needs.run-agent.result != 'skipped' || needs.run-agent-claude-code.result != 'skipped' || (needs.ci-gate.result != 'skipped' && needs.ci-gate.outputs.outcome == 'ci-red'))
+    needs: [run-agent, run-agent-claude-code, run-agent-codex-cli, ci-gate]
+    if: always() && (needs.run-agent.result != 'skipped' || needs.run-agent-claude-code.result != 'skipped' || needs.run-agent-codex-cli.result != 'skipped' || (needs.ci-gate.result != 'skipped' && needs.ci-gate.outputs.outcome == 'ci-red'))
     runs-on: \${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
     permissions:
       contents: read
@@ -529,7 +655,7 @@ jobs:
           phase: review
           run_id: \${{ github.event.client_payload.event_id }}
           model: \${{ needs.run-agent.outputs.model || 'claude-sonnet-4-6' }}
-          outcome: \${{ (needs.run-agent.result != 'skipped' && needs.run-agent.result) || (needs.run-agent-claude-code.result != 'skipped' && needs.run-agent-claude-code.result) || (needs.ci-gate.outputs.outcome == 'ci-red' && 'ci-red') || needs.run-agent-claude-code.result }}
+          outcome: \${{ (needs.run-agent.result != 'skipped' && needs.run-agent.result) || (needs.run-agent-claude-code.result != 'skipped' && needs.run-agent-claude-code.result) || (needs.run-agent-codex-cli.result != 'skipped' && needs.run-agent-codex-cli.result) || (needs.ci-gate.outputs.outcome == 'ci-red' && 'ci-red') || needs.run-agent-codex-cli.result || needs.run-agent-claude-code.result }}
           # claude-code path does cost tracking best-effort by design — it emits no token/cost outputs.
           input_tokens: \${{ needs.run-agent.outputs.input_tokens || '0' }}
           output_tokens: \${{ needs.run-agent.outputs.output_tokens || '0' }}
@@ -657,9 +783,14 @@ jobs:
       contents: write
       pull-requests: write
       issues: read
+      checks: read     # PR check-runs / statusCheckRollup
+      actions: read    # gh run view --log-failed / actions/runs
       id-token: write # required by anthropics/claude-code-action@v1 OIDC auth
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ferry/\${{ github.event.client_payload.ticket_key }}
+          fetch-depth: 0
       # Resolve the system prompt: prompts/iterate.claude-code.md from this repo
       # if present, otherwise Ferry's bundled default. To customise the prompt
       # edit that file — no need to touch this workflow. See docs/CONFIGURATION.md.
@@ -671,7 +802,7 @@ jobs:
           --ticket-key "\${{ github.event.client_payload.ticket_key }}"
           --run-id "\${{ github.event.client_payload.event_id }}"
           --review-transition-id "\${{ secrets.FERRY_REVIEW_TRANSITION_ID }}"
-      - uses: anthropics/claude-code-action@1dc994ee7a008f0ecc866d9ac23ef036b7229f84 # v1.0.127
+      - uses: ${CLAUDE_CODE_ACTION_PIN}
         with:
           claude_code_oauth_token: \${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: \${{ steps.prompt.outputs.prompt }}
@@ -681,10 +812,45 @@ jobs:
             --disallowedTools 'Bash(gh pr merge),Bash(gh pr merge:*),Bash(gh pr close:*)'
             --model \${{ vars.FERRY_ITER_MODEL || 'claude-sonnet-4-6' }}
 
+  run-agent-codex-cli:
+    name: Run Iterator agent (codex-cli path)
+    needs: [route]
+    if: needs.route.outputs.path == 'codex-cli'
+    runs-on: \${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Resolve agent prompt
+        id: prompt
+        run: >-
+          npx -y -p @big-emotion/ferry@${version} ferry-action-prompt
+          --path codex-cli
+          --agent iterate
+          --ticket-key "\${{ github.event.client_payload.ticket_key }}"
+          --run-id "\${{ github.event.client_payload.event_id }}"
+          --review-transition-id "\${{ secrets.FERRY_REVIEW_TRANSITION_ID }}"
+      - name: Generate Codex config
+        run: |
+          mkdir -p codex-home
+          npx -y -p @big-emotion/ferry@${version} ferry-codex-config > codex-home/config.toml
+      - uses: ${CODEX_ACTION_PIN}
+        with:
+          openai-api-key: \${{ secrets.OPENAI_API_KEY }}
+          prompt: \${{ steps.prompt.outputs.prompt }}
+          model: \${{ vars.FERRY_ITER_MODEL || 'gpt-5-codex' }}
+          effort: \${{ vars.FERRY_CODEX_EFFORT || '' }}
+          sandbox: \${{ vars.FERRY_CODEX_SANDBOX || 'workspace-write' }}
+          safety-strategy: \${{ vars.FERRY_CODEX_SAFETY_STRATEGY || 'drop-sudo' }}
+          codex-version: \${{ vars.FERRY_CODEX_VERSION || '' }}
+          codex-home: codex-home
+
   emit-audit:
     name: Emit audit line
-    needs: [run-agent, run-agent-claude-code]
-    if: always() && (needs.run-agent.result != 'skipped' || needs.run-agent-claude-code.result != 'skipped')
+    needs: [run-agent, run-agent-claude-code, run-agent-codex-cli]
+    if: always() && (needs.run-agent.result != 'skipped' || needs.run-agent-claude-code.result != 'skipped' || needs.run-agent-codex-cli.result != 'skipped')
     runs-on: \${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
     permissions:
       contents: read
@@ -699,7 +865,7 @@ jobs:
           phase: iterate
           run_id: \${{ github.event.client_payload.event_id }}
           model: \${{ needs.run-agent.outputs.model || 'claude-sonnet-4-6' }}
-          outcome: \${{ needs.run-agent.result != 'skipped' && needs.run-agent.result || needs.run-agent-claude-code.result }}
+          outcome: \${{ (needs.run-agent.result != 'skipped' && needs.run-agent.result) || (needs.run-agent-claude-code.result != 'skipped' && needs.run-agent-claude-code.result) || needs.run-agent-codex-cli.result }}
           # claude-code path does cost tracking best-effort by design — it emits no token/cost outputs.
           input_tokens: \${{ needs.run-agent.outputs.input_tokens || '0' }}
           output_tokens: \${{ needs.run-agent.outputs.output_tokens || '0' }}
@@ -813,9 +979,14 @@ jobs:
       contents: write
       pull-requests: write
       issues: read
+      checks: read     # PR check-runs / statusCheckRollup
+      actions: read    # gh run view --log-failed / actions/runs
       id-token: write # required by anthropics/claude-code-action@v1 OIDC auth
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ferry/\${{ github.event.client_payload.ticket_key }}
+          fetch-depth: 0
       # Resolve the system prompt: prompts/merge.claude-code.md from this repo
       # if present, otherwise Ferry's bundled default. To customise the prompt
       # edit that file — no need to touch this workflow. See docs/CONFIGURATION.md.
@@ -826,7 +997,7 @@ jobs:
           --agent merge
           --ticket-key "\${{ github.event.client_payload.ticket_key }}"
           --run-id "\${{ github.event.client_payload.event_id }}"
-      - uses: anthropics/claude-code-action@1dc994ee7a008f0ecc866d9ac23ef036b7229f84 # v1.0.127
+      - uses: ${CLAUDE_CODE_ACTION_PIN}
         with:
           claude_code_oauth_token: \${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: \${{ steps.prompt.outputs.prompt }}
@@ -836,10 +1007,44 @@ jobs:
             --disallowedTools 'Bash(gh pr close),Bash(gh pr close:*)'
             --model \${{ vars.FERRY_MERGER_MODEL || 'claude-sonnet-4-6' }}
 
+  run-agent-codex-cli:
+    name: Run Merger agent (codex-cli path)
+    needs: [route]
+    if: needs.route.outputs.path == 'codex-cli'
+    runs-on: \${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Resolve agent prompt
+        id: prompt
+        run: >-
+          npx -y -p @big-emotion/ferry@${version} ferry-action-prompt
+          --path codex-cli
+          --agent merge
+          --ticket-key "\${{ github.event.client_payload.ticket_key }}"
+          --run-id "\${{ github.event.client_payload.event_id }}"
+      - name: Generate Codex config
+        run: |
+          mkdir -p codex-home
+          npx -y -p @big-emotion/ferry@${version} ferry-codex-config > codex-home/config.toml
+      - uses: ${CODEX_ACTION_PIN}
+        with:
+          openai-api-key: \${{ secrets.OPENAI_API_KEY }}
+          prompt: \${{ steps.prompt.outputs.prompt }}
+          model: \${{ vars.FERRY_MERGER_MODEL || 'gpt-5-codex' }}
+          effort: \${{ vars.FERRY_CODEX_EFFORT || '' }}
+          sandbox: \${{ vars.FERRY_CODEX_SANDBOX || 'workspace-write' }}
+          safety-strategy: \${{ vars.FERRY_CODEX_SAFETY_STRATEGY || 'drop-sudo' }}
+          codex-version: \${{ vars.FERRY_CODEX_VERSION || '' }}
+          codex-home: codex-home
+
   emit-audit:
     name: Emit audit line
-    needs: [run-agent, run-agent-claude-code]
-    if: always() && (needs.run-agent.result != 'skipped' || needs.run-agent-claude-code.result != 'skipped')
+    needs: [run-agent, run-agent-claude-code, run-agent-codex-cli]
+    if: always() && (needs.run-agent.result != 'skipped' || needs.run-agent-claude-code.result != 'skipped' || needs.run-agent-codex-cli.result != 'skipped')
     runs-on: \${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
     permissions:
       contents: read
@@ -854,7 +1059,7 @@ jobs:
           phase: merge
           run_id: \${{ github.event.client_payload.event_id }}
           model: \${{ needs.run-agent.outputs.model || 'claude-sonnet-4-6' }}
-          outcome: \${{ needs.run-agent.result != 'skipped' && needs.run-agent.result || needs.run-agent-claude-code.result }}
+          outcome: \${{ (needs.run-agent.result != 'skipped' && needs.run-agent.result) || (needs.run-agent-claude-code.result != 'skipped' && needs.run-agent-claude-code.result) || needs.run-agent-codex-cli.result }}
           # claude-code path does cost tracking best-effort by design — it emits no token/cost outputs.
           input_tokens: \${{ needs.run-agent.outputs.input_tokens || '0' }}
           output_tokens: \${{ needs.run-agent.outputs.output_tokens || '0' }}
