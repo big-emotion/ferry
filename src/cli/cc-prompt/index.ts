@@ -9,9 +9,11 @@ Usage:
   ferry-action-prompt --path <claude-code|codex-cli> --agent <refiner|dev|review|iterate|merge> --ticket-key <key> --run-id <id> [options]
   ferry-cc-prompt --agent <refiner|dev|review|iterate|merge> --ticket-key <key> --run-id <id> [options]
 
-Resolves prompts/<agent>.<path>.md from the consumer repo when present,
-otherwise Ferry's bundled default; substitutes runtime tokens; writes the result
-to $GITHUB_OUTPUT (key: --output-name, default "prompt") or to stdout.
+Resolves prompts/<agent>.<path>.md from the consumer repo when present.
+Otherwise, if prompts/<agent>.<path>.local.md exists, Ferry appends that local
+guidance to the bundled default. If neither file exists, Ferry uses the bundled
+default as-is; substitutes runtime tokens; writes the result to $GITHUB_OUTPUT
+(key: --output-name, default "prompt") or to stdout.
 
 Options:
   --path                   Direct-action path: claude-code | codex-cli (default: claude-code)

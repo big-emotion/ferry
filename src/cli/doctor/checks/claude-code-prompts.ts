@@ -16,8 +16,11 @@ export function checkClaudeCodePromptOverrides(opts: { repoRoot: string }): Chec
   const overrides = CC_AGENTS.filter((agent) =>
     existsSync(join(promptsDir, `${agent}.claude-code.md`)),
   );
+  const overlays = CC_AGENTS.filter((agent) =>
+    existsSync(join(promptsDir, `${agent}.claude-code.local.md`)),
+  );
 
-  if (overrides.length === 0) {
+  if (overrides.length === 0 && overlays.length === 0) {
     return {
       label: 'CC path: prompt overrides',
       status: 'green',
@@ -25,11 +28,27 @@ export function checkClaudeCodePromptOverrides(opts: { repoRoot: string }): Chec
     };
   }
 
+  if (overrides.length > 0) {
+    return {
+      label: 'CC path: prompt overrides',
+      status: 'yellow',
+      detail: `Legacy claude-code full override(s) detected: ${overrides
+        .map((agent) => `prompts/${agent}.claude-code.md`)
+        .join(
+          ', ',
+        )}. These replace Ferry's bundled direct-action prompt entirely and can freeze the prompt contract. Prefer additive local overlays such as ${overrides
+        .map((agent) => `prompts/${agent}.claude-code.local.md`)
+        .join(', ')}.`,
+      remedy:
+        'Move repo-specific direct-action guidance into prompts/<agent>.claude-code.local.md when possible',
+    };
+  }
+
   return {
     label: 'CC path: prompt overrides',
     status: 'green',
-    detail: `${overrides.length} claude-code prompt override(s) resolved by ferry-cc-prompt: ${overrides
-      .map((agent) => `prompts/${agent}.claude-code.md`)
+    detail: `${overlays.length} claude-code local overlay(s) resolved by ferry-cc-prompt: ${overlays
+      .map((agent) => `prompts/${agent}.claude-code.local.md`)
       .join(', ')}`,
   };
 }

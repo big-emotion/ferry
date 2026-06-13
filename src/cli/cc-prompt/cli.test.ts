@@ -136,6 +136,19 @@ describe('renderPrompt', () => {
     expect(result.text).toBe('custom ABC-1');
   });
 
+  it('appends a local overlay when prompts/<agent>.<path>.local.md exists', () => {
+    const result = renderPrompt(
+      args,
+      BUNDLED,
+      (p) => p === '/repo/prompts/dev.claude-code.local.md',
+      () => 'local REVIEW_TRANSITION_ID',
+    );
+    expect(result.source).toBe('local-overlay');
+    expect(result.text).toBe(
+      'dev default ABC-1 r9 31\n\n## Project-specific guidance for dev (claude-code)\n\nlocal 31',
+    );
+  });
+
   it('throws when the consumer override is empty', () => {
     expect(() =>
       renderPrompt(

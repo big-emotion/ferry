@@ -11,6 +11,7 @@ vi.mock('node:child_process', () => ({
 }));
 
 import { detectInstalledVersion, computeWorkflowChanges } from './detect.js';
+import { applyLocalOverrides } from './local-overrides.js';
 import { getRelevantMigrations } from './migrations.js';
 import { workflowTemplates } from '../init/templates.js';
 
@@ -146,6 +147,39 @@ describe('computeWorkflowChanges', () => {
 
     const changes = computeWorkflowChanges(dir, 'v0.3.1');
     expect(changes.every((c) => c.status === 'unchanged')).toBe(true);
+    cleanup(dir);
+  });
+
+  it('classifies unmanaged local workflow edits as drifted when fromVersion is provided', () => {
+    const dir = makeTempRepo();
+    const templates = workflowTemplates('v0.3.0');
+    const tmpl = templates[0]!;
+    writeFileSync(
+      join(dir, '.github', 'workflows', tmpl.filename),
+      `${tmpl.content}\n# local unmanaged edit\n`,
+      'utf8',
+    );
+
+    const changes = computeWorkflowChanges(dir, 'v0.3.1', { fromVersion: 'v0.3.0' });
+    const change = changes.find((c) => c.filename === tmpl.filename);
+    expect(change?.status).toBe('drifted');
+    cleanup(dir);
+  });
+
+  it('does not mark a supported ferry.local.yml overlay as drift', () => {
+    const dir = makeTempRepo();
+    const baseline = applyLocalOverrides(workflowTemplates('v0.3.0'), {
+      global: { runner: 'self-hosted' },
+    });
+    const tmpl = baseline[0]!;
+    writeFileSync(join(dir, '.github', 'workflows', tmpl.filename), tmpl.content, 'utf8');
+
+    const changes = computeWorkflowChanges(dir, 'v0.3.1', {
+      fromVersion: 'v0.3.0',
+      overrides: { global: { runner: 'self-hosted' } },
+    });
+    const change = changes.find((c) => c.filename === tmpl.filename);
+    expect(change?.status).toBe('updated');
     cleanup(dir);
   });
 });
