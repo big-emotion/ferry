@@ -46,6 +46,13 @@ _bmad-output/
 # Claude Code
 .claude/*
 !.claude/settings.json
+# Project skills are versioned (ferry-* only — local bmad-*/ai-sdk packs stay untracked)
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/ferry-release/
+!.claude/skills/ferry-audit/
+!.claude/skills/ferry-spec/
+!.claude/skills/ferry-ticket/
 
 # Docs (drafts)
 docs/prd.md
