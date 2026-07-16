@@ -8876,6 +8876,14 @@ function formatDeveloperCommit(input) {
 }
 
 // src/agents/developer/pr.ts
+var REVIEWING_LABEL = "ferry:reviewing";
+async function addReviewingLabelForBranch(runner, owner, repo, branchName) {
+  const prs = await runner.listPRsForBranch(owner, repo, branchName);
+  const pr = prs[0];
+  if (!pr) return void 0;
+  await runner.addLabelsToPR({ owner, repo, prNumber: pr.number }, [REVIEWING_LABEL]);
+  return pr.number;
+}
 function formatPullRequestTitle(input) {
   return `${input.ticketKey} ${input.summary}`;
 }
@@ -9848,6 +9856,19 @@ async function main2(envelope, logger) {
       prBody,
       prDraftOverride !== void 0 ? { draft: prDraftOverride } : void 0
     );
+    try {
+      const prNumber = await addReviewingLabelForBranch(runner, owner, repo, branchName);
+      if (prNumber === void 0) {
+        logger.warn("could not add ferry:reviewing label: no open PR found after createPR", {
+          branch: branchName
+        });
+      }
+    } catch (e) {
+      logger.warn("could not add ferry:reviewing label to PR", {
+        branch: branchName,
+        error: e instanceof Error ? e.message : String(e)
+      });
+    }
     assertDevOutputContract(resolvedOutcome, { branchPushed, prUrl, verificationNoteWritten });
     if (shouldAutoTransition) {
       await tracker.postTransition(ticketKey, reviewTransitionId);

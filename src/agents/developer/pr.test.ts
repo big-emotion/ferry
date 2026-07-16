@@ -1,5 +1,11 @@
-import { describe, it, expect } from 'vitest';
-import { formatPullRequestTitle, formatPullRequestBody } from './pr.js';
+import { describe, it, expect, vi } from 'vitest';
+import type { CIRunner } from '../../lib/dispatch/runner/types.js';
+import {
+  addReviewingLabelForBranch,
+  formatPullRequestTitle,
+  formatPullRequestBody,
+  REVIEWING_LABEL,
+} from './pr.js';
 
 describe('formatPullRequestTitle (Story 4-4 FR16)', () => {
   it('prefixes with the ticket key (no brackets)', () => {
@@ -97,5 +103,37 @@ describe('formatPullRequestBody (Story 4-4)', () => {
     const body = formatPullRequestBody(base);
     expect(body).not.toMatch(/ +\n/);
     expect(body.endsWith('\n')).toBe(true);
+  });
+});
+
+describe('addReviewingLabelForBranch', () => {
+  function makeRunner(prs: Array<{ number: number }>): CIRunner {
+    return {
+      listPRsForBranch: vi.fn().mockResolvedValue(prs),
+      addLabelsToPR: vi.fn().mockResolvedValue(undefined),
+    } as unknown as CIRunner;
+  }
+
+  it('adds the ferry:reviewing label to the open PR for the developer branch', async () => {
+    const runner = makeRunner([{ number: 411 }]);
+
+    const prNumber = await addReviewingLabelForBranch(runner, 'big-emotion', 'ferry', 'ferry/FR-1');
+
+    expect(prNumber).toBe(411);
+    expect(runner.listPRsForBranch).toHaveBeenCalledWith('big-emotion', 'ferry', 'ferry/FR-1');
+    expect(runner.addLabelsToPR).toHaveBeenCalledWith(
+      { owner: 'big-emotion', repo: 'ferry', prNumber: 411 },
+      [REVIEWING_LABEL],
+    );
+  });
+
+  it('returns undefined and skips labeling when the branch has no open PR', async () => {
+    const runner = makeRunner([]);
+
+    await expect(
+      addReviewingLabelForBranch(runner, 'big-emotion', 'ferry', 'ferry/FR-404'),
+    ).resolves.toBeUndefined();
+
+    expect(runner.addLabelsToPR).not.toHaveBeenCalled();
   });
 });

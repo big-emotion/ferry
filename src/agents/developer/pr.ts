@@ -1,6 +1,22 @@
+import type { CIRunner } from '../../lib/dispatch/runner/types.js';
 import type { ValidationEntry } from '../../lib/llm/agent-loop/types.js';
 
 export { ValidationEntry };
+
+export const REVIEWING_LABEL = 'ferry:reviewing';
+
+export async function addReviewingLabelForBranch(
+  runner: CIRunner,
+  owner: string,
+  repo: string,
+  branchName: string,
+): Promise<number | undefined> {
+  const prs = await runner.listPRsForBranch(owner, repo, branchName);
+  const pr = prs[0];
+  if (!pr) return undefined;
+  await runner.addLabelsToPR({ owner, repo, prNumber: pr.number }, [REVIEWING_LABEL]);
+  return pr.number;
+}
 
 export interface PrTitleInput {
   ticketKey: string;
