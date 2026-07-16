@@ -1,0 +1,7 @@
+{
+  "execution_path": "claude-code",
+  "ticket_types": {
+    "refine_allowlist": ["Tâche"],
+    "dev_allowlist": ["Tâche"]
+  }
+}
