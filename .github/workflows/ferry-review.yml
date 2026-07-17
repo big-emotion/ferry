@@ -1,0 +1,220 @@
+# Installed from examples/consumer-setup/workflows/ferry-review.yml (dogfooding, FER-3).
+# Pinned to @v0.17.0 — bump alongside the release reference map (see .claude/skills/ferry-release).
+# Required secrets: FERRY_JIRA_BASE_URL, FERRY_JIRA_EMAIL, FERRY_JIRA_API_TOKEN,
+#                   FERRY_ITER_TRANSITION_ID
+#                   ANTHROPIC_API_KEY    — required when FERRY_REVIEW_PROVIDER=anthropic (default)
+#                   OPENAI_API_KEY       — required when FERRY_REVIEW_PROVIDER=openai
+#                   GOOGLE_API_KEY       — required when FERRY_REVIEW_PROVIDER=google
+#                   CLAUDE_CODE_OAUTH_TOKEN — required only when execution_path=claude-code
+#                                             (ADR-0006 §6 — anthropic_api_key is forbidden on this path).
+# Required variables: FERRY_AUDIT_ISSUE (GitHub Issue number for the audit log)
+# Optional variables: FERRY_REVIEW_MODEL (default: claude-sonnet-4-6)
+#                     FERRY_REVIEW_PROVIDER (default: anthropic; also: openai, google)
+#                     FERRY_RUNNER (default: "ubuntu-latest"; JSON string or array for self-hosted runners, e.g. '["self-hosted","X64"]')
+#                     FERRY_REVIEWER_MAX_ITERATIONS (default: 40)
+#                     FERRY_REVIEWER_MAX_TOKENS (default: 16384)
+#                     FERRY_MAX_COST_EUR_PER_RUN (default: 10)
+#                     FERRY_LLM_RETRY_MAX_ATTEMPTS (default: 3)
+#                     FERRY_JIRA_RETRY_MAX_ATTEMPTS (default: 3)
+# Action inputs:      pre_agent_command (optional) — shell command to run before the agent (e.g. npm ci)
+#                     pre_agent_timeout_minutes (optional, default: 3)
+#                     post_agent_command (optional) — shell command to run after the agent (always runs)
+# claude-code path:   When execution_path=claude-code the Reviewer runs as ONE direct
+#                     anthropics/claude-code-action call, preceded by a deterministic ci-gate job.
+#                     The ci-gate skips the reviewer silently while CI is pending, and on red CI
+#                     requests changes (FR24) — posts a PR comment + transitions the ticket — without
+#                     spending an LLM call. The agent does its own Jira work via the ferry-jira-mcp
+#                     MCP server (npx -p @big-emotion/ferry@v0.17.0 ferry-jira-mcp). It never merges or closes
+#                     PRs. Cost tracking on this path is best-effort — audit token/cost are emitted as 0.
+#
+# Note: MCP server support is not available for non-Anthropic providers in the Reviewer agent.
+
+name: Ferry — Review
+
+on:
+  repository_dispatch:
+    types: [ferry-review]
+
+# cancel-in-progress: false — writes fingerprints to state.iteration_history[] + PR review body; must complete atomically
+concurrency:
+  group: ferry-${{ github.workflow }}-${{ github.event.client_payload.ticket_key || 'ferry-invalid-payload-sinkhole' }}
+  cancel-in-progress: false
+
+jobs:
+  gate-envelope:
+    name: Validate event envelope
+    runs-on: ${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Validate event envelope
+        uses: big-emotion/ferry/.github/actions/ferry-envelope-validate@v0.17.0
+        with:
+          payload: ${{ toJson(github.event.client_payload) }}
+
+  route:
+    name: Resolve execution path
+    needs: [gate-envelope]
+    runs-on: ${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
+    permissions:
+      contents: read
+    outputs:
+      path: ${{ steps.route.outputs.path }}
+      reason: ${{ steps.route.outputs.reason }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Resolve execution path
+        id: route
+        uses: big-emotion/ferry/.github/actions/ferry-route@v0.17.0
+        with:
+          payload: ${{ toJson(github.event.client_payload) }}
+          role: reviewer
+          jira_base_url: ${{ secrets.FERRY_JIRA_BASE_URL }}
+          jira_email: ${{ secrets.FERRY_JIRA_EMAIL }}
+          jira_api_token: ${{ secrets.FERRY_JIRA_API_TOKEN }}
+
+  run-agent:
+    name: Run Reviewer agent (script path)
+    needs: [route]
+    if: needs.route.outputs.path == 'script'
+    runs-on: ${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
+    permissions:
+      contents: write # required to dispatch ferry-merge (FR32) via POST /repos/.../dispatches on approve
+      pull-requests: write
+      issues: write
+      checks: read
+    outputs:
+      input_tokens: ${{ steps.run-reviewer.outputs.input_tokens }}
+      output_tokens: ${{ steps.run-reviewer.outputs.output_tokens }}
+      cost_eur: ${{ steps.run-reviewer.outputs.cost_eur }}
+      model: ${{ steps.run-reviewer.outputs.model }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install gitleaks
+        shell: bash
+        run: |
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz" \
+            | tar -xz -C /usr/local/bin gitleaks
+
+      - name: Run Reviewer agent
+        id: run-reviewer
+        uses: big-emotion/ferry/.github/actions/ferry-run-reviewer@v0.17.0
+        with:
+          payload: ${{ toJson(github.event.client_payload) }}
+          jira_base_url: ${{ secrets.FERRY_JIRA_BASE_URL }}
+          jira_email: ${{ secrets.FERRY_JIRA_EMAIL }}
+          jira_api_token: ${{ secrets.FERRY_JIRA_API_TOKEN }}
+          ferry_iter_transition_id: ${{ secrets.FERRY_ITER_TRANSITION_ID }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          openai_api_key: ${{ secrets.OPENAI_API_KEY }}
+          google_api_key: ${{ secrets.GOOGLE_API_KEY }}
+          github_token: ${{ github.token }}
+          github_repo: ${{ github.repository }}
+          ferry_review_model: ${{ vars.FERRY_REVIEW_MODEL || 'claude-sonnet-4-6' }}
+          ferry_review_provider: ${{ vars.FERRY_REVIEW_PROVIDER }}
+          ferry_reviewer_max_iterations: ${{ vars.FERRY_REVIEWER_MAX_ITERATIONS }}
+          ferry_reviewer_max_tokens: ${{ vars.FERRY_REVIEWER_MAX_TOKENS }}
+          ferry_max_cost_eur_per_run: ${{ vars.FERRY_MAX_COST_EUR_PER_RUN }}
+          ferry_llm_retry_max_attempts: ${{ vars.FERRY_LLM_RETRY_MAX_ATTEMPTS }}
+          ferry_jira_retry_max_attempts: ${{ vars.FERRY_JIRA_RETRY_MAX_ATTEMPTS }}
+          # pre_agent_command: npm ci  # uncomment to install deps before the agent
+          # pre_agent_timeout_minutes: '3'
+          # post_agent_command: ''  # uncomment to run cleanup after the agent
+
+  ci-gate:
+    name: Reviewer CI pre-gate
+    needs: [route]
+    if: needs.route.outputs.path == 'claude-code'
+    runs-on: ${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
+    permissions:
+      contents: read
+      pull-requests: write
+      checks: read
+    outputs:
+      proceed: ${{ steps.ci-gate.outputs.proceed }}
+      outcome: ${{ steps.ci-gate.outputs.outcome }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Resolve reviewer CI pre-gate
+        id: ci-gate
+        uses: big-emotion/ferry/.github/actions/ferry-ci-gate@v0.17.0
+        with:
+          ticket_key: ${{ github.event.client_payload.ticket_key }}
+          run_id: ${{ github.event.client_payload.event_id }}
+          github_token: ${{ github.token }}
+          github_repo: ${{ github.repository }}
+          jira_base_url: ${{ secrets.FERRY_JIRA_BASE_URL }}
+          jira_email: ${{ secrets.FERRY_JIRA_EMAIL }}
+          jira_api_token: ${{ secrets.FERRY_JIRA_API_TOKEN }}
+          ferry_iter_transition_id: ${{ secrets.FERRY_ITER_TRANSITION_ID }}
+
+  run-agent-claude-code:
+    name: Run Reviewer agent (claude-code path)
+    needs: [route, ci-gate]
+    if: needs.route.outputs.path == 'claude-code' && needs.ci-gate.outputs.proceed == 'true'
+    runs-on: ${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
+    permissions:
+      contents: write # required to dispatch ferry-merge (FR32) via POST /repos/.../dispatches
+      pull-requests: write
+      issues: read
+      id-token: write # required by anthropics/claude-code-action@v1 OIDC auth
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ferry/${{ github.event.client_payload.ticket_key }}
+          fetch-depth: 0
+      # Resolve the system prompt: prompts/review.claude-code.md from this repo
+      # if present, otherwise Ferry's bundled default. To customise the prompt
+      # edit that file — no need to touch this workflow. See docs/CONFIGURATION.md.
+      - name: Resolve agent prompt
+        id: prompt
+        run: >-
+          npx -y -p @big-emotion/ferry@v0.17.0 ferry-cc-prompt
+          --agent review
+          --ticket-key "${{ github.event.client_payload.ticket_key }}"
+          --run-id "${{ github.event.client_payload.event_id }}"
+          --approve-transition-id "${{ secrets.FERRY_APPROVE_TRANSITION_ID }}"
+          --changes-transition-id "${{ secrets.FERRY_ITER_TRANSITION_ID }}"
+      - uses: anthropics/claude-code-action@1dc994ee7a008f0ecc866d9ac23ef036b7229f84 # v1.0.127
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: ${{ steps.prompt.outputs.prompt }}
+          claude_args: >-
+            --mcp-config '{"mcpServers":{"jira":{"command":"npx","args":["-y","-p","@big-emotion/ferry@v0.17.0","ferry-jira-mcp"],"env":{"FERRY_JIRA_BASE_URL":"${{ secrets.FERRY_JIRA_BASE_URL }}","FERRY_JIRA_EMAIL":"${{ secrets.FERRY_JIRA_EMAIL }}","FERRY_JIRA_API_TOKEN":"${{ secrets.FERRY_JIRA_API_TOKEN }}"}}}}'
+            --permission-mode acceptEdits
+            --disallowedTools 'Bash(gh pr merge),Bash(gh pr merge:*),Bash(gh pr close:*)'
+            --model ${{ vars.FERRY_REVIEW_MODEL || 'claude-sonnet-4-6' }}
+
+  emit-audit:
+    name: Emit audit line
+    needs: [run-agent, run-agent-claude-code, ci-gate]
+    if: always() && (needs.run-agent.result != 'skipped' || needs.run-agent-claude-code.result != 'skipped' || (needs.ci-gate.result != 'skipped' && needs.ci-gate.outputs.outcome == 'ci-red'))
+    runs-on: ${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Emit audit line
+        uses: big-emotion/ferry/.github/actions/ferry-emit-audit@v0.17.0
+        with:
+          ticket: ${{ github.event.client_payload.ticket_key }}
+          phase: review
+          run_id: ${{ github.event.client_payload.event_id }}
+          model: ${{ needs.run-agent.outputs.model || 'claude-sonnet-4-6' }}
+          outcome: ${{ (needs.run-agent.result != 'skipped' && needs.run-agent.result) || (needs.run-agent-claude-code.result != 'skipped' && needs.run-agent-claude-code.result) || (needs.ci-gate.outputs.outcome == 'ci-red' && 'ci-red') || needs.run-agent-claude-code.result }}
+          # claude-code path does cost tracking best-effort by design — it emits no token/cost outputs.
+          input_tokens: ${{ needs.run-agent.outputs.input_tokens || '0' }}
+          output_tokens: ${{ needs.run-agent.outputs.output_tokens || '0' }}
+          cost_eur: ${{ needs.run-agent.outputs.cost_eur || '0' }}
+          start_ms: ${{ github.run_id }}
+          audit_issue: ${{ vars.FERRY_AUDIT_ISSUE }}
+          github_token: ${{ github.token }}
