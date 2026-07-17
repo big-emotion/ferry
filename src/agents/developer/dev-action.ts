@@ -20,7 +20,7 @@ import type { Logger } from '../../lib/agent-runtime/index.js';
 import { isDryRun } from '../../lib/dry-run.js';
 import { FerryError } from '../../lib/errors/index.js';
 import { formatDeveloperCommit } from './commit.js';
-import { formatPullRequestTitle, formatPullRequestBody } from './pr.js';
+import { formatPullRequestTitle, formatPullRequestBody, addReviewingLabelForBranch } from './pr.js';
 import {
   TOOL_SCHEMAS,
   COMMIT_PROGRESS_SCHEMA,
@@ -441,6 +441,20 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
       prBody,
       prDraftOverride !== undefined ? { draft: prDraftOverride } : undefined,
     );
+
+    try {
+      const prNumber = await addReviewingLabelForBranch(runner, owner, repo, branchName);
+      if (prNumber === undefined) {
+        logger.warn('could not add ferry:reviewing label: no open PR found after createPR', {
+          branch: branchName,
+        });
+      }
+    } catch (e) {
+      logger.warn('could not add ferry:reviewing label to PR', {
+        branch: branchName,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
 
     // Output-contract guard: verify all required outputs exist before terminal comment.
     assertDevOutputContract(resolvedOutcome, { branchPushed, prUrl, verificationNoteWritten });
