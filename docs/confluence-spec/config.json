@@ -1,0 +1,18 @@
+{
+  "cloudId": "75eb33f5-5dd0-4328-b0e6-8bb3f4e0af91",
+  "siteUrl": "https://big-emotion.atlassian.net",
+  "spaceKey": "Ferry",
+  "spaceId": "171507716",
+  "engineeringRootPageId": "171508008",
+  "requirementsPageId": "171540481",
+  "decisionsPageId": "171573249",
+  "architecturePageId": "171606017",
+  "obsoletePageId": "171638785",
+  "jiraProjectKey": "FER",
+  "jiraProjectId": "10167",
+  "jiraIssueTypeIds": {
+    "Epic": "10285",
+    "Task": "10284",
+    "Sub-task": "10286"
+  }
+}
