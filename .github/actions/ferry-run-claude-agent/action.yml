@@ -1,0 +1,214 @@
+name: Ferry — Run Claude Agent (shared)
+description: >
+  Runs any Ferry agent on the claude-code path. One role-parameterized action
+  absorbs everything the per-agent workflow stubs used to inline — branch
+  resolution, checkout, dependency bootstrap, Jira transition auto-resolution,
+  prompt resolution, the claude-code-action call, and execution-log capture —
+  so the consumer workflow stays thin and is never patched by hand. Invoked by
+  the router workflow (ferry-router.yml); the reviewer CI gate runs as a
+  separate router job, not here.
+inputs:
+  role:
+    description: Agent to run — refiner | dev | review | iterate | merge
+    required: true
+  ferry_version:
+    description: Ferry release tag for npx tool pins (e.g. v0.18.0)
+    required: true
+  ticket_key:
+    description: Jira ticket key
+    required: true
+  event_id:
+    description: Ferry run id (dispatch event_id)
+    required: true
+  claude_code_oauth_token:
+    description: Claude Code OAuth token (claude setup-token)
+    required: true
+  jira_base_url:
+    description: Jira base URL
+    required: true
+  jira_email:
+    description: Jira account email
+    required: true
+  jira_api_token:
+    description: Jira API token
+    required: true
+  model:
+    description: Model id passed to --model
+    required: false
+    default: claude-sonnet-4-6
+  integration_branch:
+    description: Branch refiner/dev check out (the base for new work)
+    required: false
+    default: main
+  checkout_token:
+    description: >-
+      Token used by checkout (and therefore agent pushes). Provide a PAT or App
+      token so pushed commits re-trigger CI — a github-actions[bot] push
+      suppresses pull_request events. Empty = the workflow's default token.
+    required: false
+    default: ''
+  review_transition_id:
+    description: Explicit FR18/FR28 transition id (optional — auto-resolved from config when empty)
+    required: false
+    default: ''
+  approve_transition_id:
+    description: Explicit FR24 approve transition id (optional — auto-resolved from config when empty)
+    required: false
+    default: ''
+  changes_transition_id:
+    description: Explicit FR24 changes transition id (optional — auto-resolved from config when empty)
+    required: false
+    default: ''
+  pre_agent_command:
+    description: >-
+      Shell command run after checkout, before the agent — dependency bootstrap
+      (e.g. "npm ci" or "corepack enable && pnpm install --frozen-lockfile") so
+      the agent can run the project's local gates.
+    required: false
+    default: ''
+  extra_claude_args:
+    description: >-
+      Extra flags appended verbatim to claude_args — e.g. additional
+      --mcp-config '<json>' blocks for consumer MCP servers.
+    required: false
+    default: ''
+  show_full_output:
+    description: Echo the agent's full turn-by-turn output into the step log
+    required: false
+    default: 'true'
+outputs:
+  branch:
+    description: The branch the agent ran against
+    value: ${{ steps.target_branch.outputs.branch }}
+runs:
+  using: composite
+  steps:
+    # ferry/<ticket> is Ferry's own convention, but a ticket may have been
+    # developed manually on any branch — fall back to the head of the most
+    # recent open PR referencing the ticket key. refiner/dev start new work,
+    # so they check out the integration branch instead.
+    - name: Resolve target branch
+      id: target_branch
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        REPO: ${{ github.repository }}
+        ROLE: ${{ inputs.role }}
+        TICKET_KEY: ${{ inputs.ticket_key }}
+        INTEGRATION_BRANCH: ${{ inputs.integration_branch }}
+      run: |
+        set -euo pipefail
+        : "${TICKET_KEY:?missing ticket key}"
+        if [ "$ROLE" = "refiner" ] || [ "$ROLE" = "dev" ]; then
+          branch="$INTEGRATION_BRANCH"
+        elif gh api "repos/$REPO/git/ref/heads/ferry/$TICKET_KEY" >/dev/null 2>&1; then
+          branch="ferry/$TICKET_KEY"
+        else
+          key_lc="$(printf '%s' "$TICKET_KEY" | tr '[:upper:]' '[:lower:]')"
+          branch="$(gh pr list --repo "$REPO" --state open --limit 100 \
+            --json number,headRefName,title \
+            --jq "[.[] | select((.headRefName|ascii_downcase|contains(\"$key_lc\")) or (.title|ascii_downcase|contains(\"$key_lc\")))] | sort_by(.number) | last | .headRefName? // empty")"
+          if [ -z "${branch:-}" ]; then
+            echo "::error::Ferry: no branch 'ferry/$TICKET_KEY' and no open PR referencing $TICKET_KEY in $REPO." >&2
+            exit 1
+          fi
+        fi
+        echo "Resolved $ROLE/$TICKET_KEY -> $branch"
+        echo "branch=$branch" >> "$GITHUB_OUTPUT"
+    - name: Checkout target branch
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      with:
+        ref: ${{ steps.target_branch.outputs.branch }}
+        fetch-depth: 0
+        token: ${{ inputs.checkout_token || github.token }}
+    - name: Pre-agent command
+      if: inputs.pre_agent_command != ''
+      shell: bash
+      run: ${{ inputs.pre_agent_command }}
+    # Auto-resolve the FR18/FR24/FR28 transition ids from the status names in
+    # ferry.config (workflow.agents.*). The explicit *_transition_id inputs are
+    # honored verbatim when set — no FERRY_*_TRANSITION_ID secrets required.
+    - name: Resolve Jira transitions
+      id: transitions
+      shell: bash
+      env:
+        FERRY_JIRA_BASE_URL: ${{ inputs.jira_base_url }}
+        FERRY_JIRA_EMAIL: ${{ inputs.jira_email }}
+        FERRY_JIRA_API_TOKEN: ${{ inputs.jira_api_token }}
+        ROLE: ${{ inputs.role }}
+        TICKET_KEY: ${{ inputs.ticket_key }}
+        FERRY_PKG: '@big-emotion/ferry@${{ inputs.ferry_version }}'
+        REVIEW_FALLBACK: ${{ inputs.review_transition_id }}
+        APPROVE_FALLBACK: ${{ inputs.approve_transition_id }}
+        CHANGES_FALLBACK: ${{ inputs.changes_transition_id }}
+      run: |
+        set -euo pipefail
+        resolve() { # $1 agent  $2 kind  $3 fallback  $4 output-name
+          npx -y -p "$FERRY_PKG" ferry-resolve-transition \
+            --ticket-key "$TICKET_KEY" --agent "$1" --kind "$2" \
+            --fallback-id "$3" --output-name "$4"
+        }
+        case "$ROLE" in
+          dev)     resolve dev review "$REVIEW_FALLBACK" review_id ;;
+          iterate) resolve iterate review "$REVIEW_FALLBACK" review_id ;;
+          review)  resolve review approve "$APPROVE_FALLBACK" approve_id
+                   resolve review changes "$CHANGES_FALLBACK" changes_id ;;
+          *)       : ;; # refiner/merge: no transition flags in the prompt
+        esac
+    - name: Resolve agent prompt
+      id: prompt
+      shell: bash
+      env:
+        ROLE: ${{ inputs.role }}
+        TICKET_KEY: ${{ inputs.ticket_key }}
+        RUN_ID: ${{ inputs.event_id }}
+        FERRY_PKG: '@big-emotion/ferry@${{ inputs.ferry_version }}'
+        REVIEW_ID: ${{ steps.transitions.outputs.review_id }}
+        APPROVE_ID: ${{ steps.transitions.outputs.approve_id }}
+        CHANGES_ID: ${{ steps.transitions.outputs.changes_id }}
+      run: |
+        set -euo pipefail
+        args=(--agent "$ROLE" --ticket-key "$TICKET_KEY" --run-id "$RUN_ID")
+        case "$ROLE" in
+          dev|iterate) args+=(--review-transition-id "$REVIEW_ID") ;;
+          review)      args+=(--approve-transition-id "$APPROVE_ID" --changes-transition-id "$CHANGES_ID") ;;
+        esac
+        npx -y -p "$FERRY_PKG" ferry-cc-prompt "${args[@]}"
+    # The merger is the single agent allowed to run `gh pr merge` (FR32,
+    # ADR-0005) — every other role has it structurally denied.
+    - name: Assemble role guardrails
+      id: guardrails
+      shell: bash
+      env:
+        ROLE: ${{ inputs.role }}
+      run: |
+        set -euo pipefail
+        if [ "$ROLE" = "merge" ]; then
+          echo "disallowed=Bash(gh pr close),Bash(gh pr close:*)" >> "$GITHUB_OUTPUT"
+        else
+          echo "disallowed=Bash(gh pr merge),Bash(gh pr merge:*),Bash(gh pr close:*)" >> "$GITHUB_OUTPUT"
+        fi
+    - name: Run Claude agent
+      id: claude
+      uses: anthropics/claude-code-action@1dc994ee7a008f0ecc866d9ac23ef036b7229f84 # v1.0.127
+      with:
+        claude_code_oauth_token: ${{ inputs.claude_code_oauth_token }}
+        show_full_output: ${{ inputs.show_full_output == 'true' }}
+        prompt: ${{ steps.prompt.outputs.prompt }}
+        claude_args: >-
+          --verbose
+          --mcp-config '{"mcpServers":{"jira":{"command":"npx","args":["-y","-p","@big-emotion/ferry@${{ inputs.ferry_version }}","ferry-jira-mcp"],"env":{"FERRY_JIRA_BASE_URL":"${{ inputs.jira_base_url }}","FERRY_JIRA_EMAIL":"${{ inputs.jira_email }}","FERRY_JIRA_API_TOKEN":"${{ inputs.jira_api_token }}"}}}}'
+          --permission-mode bypassPermissions
+          --disallowedTools '${{ steps.guardrails.outputs.disallowed }}'
+          --model ${{ inputs.model }}
+          ${{ inputs.extra_claude_args }}
+    # if: always() still fires on job cancellation/timeout, so a hung run keeps
+    # its execution log. Guard on a non-empty output — a hard-killed step sets none.
+    - name: Upload execution log
+      if: always() && steps.claude.outputs.execution_file != ''
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      with:
+        name: ferry-${{ inputs.role }}-execution-log-${{ github.run_attempt }}
+        path: ${{ steps.claude.outputs.execution_file }}
+        if-no-files-found: warn
+        retention-days: 7

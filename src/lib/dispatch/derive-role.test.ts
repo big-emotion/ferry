@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { deriveAgentRole, roleToPhase } from './derive-role.js';
+import { deriveAgentRole, roleToPhase, roleToModelVar } from './derive-role.js';
 import { DEFAULT_FERRY_CONFIG, type FerryConfig } from '../config.js';
 
 const CUSTOM_COLUMNS: FerryConfig = {
@@ -76,5 +76,15 @@ describe('roleToPhase', () => {
     expect(roleToPhase('reviewer')).toBe('review');
     expect(roleToPhase('iterator')).toBe('iterate');
     expect(roleToPhase('merger')).toBe('merge');
+  });
+});
+
+describe('roleToModelVar', () => {
+  it('maps every role to its FERRY_*_MODEL repo-variable name', () => {
+    expect(roleToModelVar('refiner')).toBe('FERRY_REFINER_MODEL');
+    expect(roleToModelVar('developer')).toBe('FERRY_DEV_MODEL');
+    expect(roleToModelVar('reviewer')).toBe('FERRY_REVIEW_MODEL');
+    expect(roleToModelVar('iterator')).toBe('FERRY_ITER_MODEL');
+    expect(roleToModelVar('merger')).toBe('FERRY_MERGER_MODEL');
   });
 });

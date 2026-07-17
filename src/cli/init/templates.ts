@@ -1072,3 +1072,207 @@ jobs:
   ];
   return applyExecutionPath(templates, executionPath);
 }
+
+/**
+ * The thin router workflow (claude-code path). One any-column Jira rule sends
+ * `ferry-transition` with `to_status`; ferry-route maps it to an agent via
+ * `workflow.agents.*.trigger_column` and the shared ferry-run-claude-agent
+ * composite does everything else. Legacy per-agent events keep working during
+ * migration. The merger is only reachable via the Reviewer-emitted
+ * `ferry-merge` dispatch — never from a status move (ADR-0005).
+ */
+export function routerWorkflowTemplate(version: string): WorkflowEntry {
+  return {
+    filename: 'ferry-router.yml',
+    content: `${MANAGED_BY_LINE}${CLAUDE_CODE_HEADER}# Required secrets: FERRY_JIRA_BASE_URL, FERRY_JIRA_EMAIL, FERRY_JIRA_API_TOKEN,
+#                   CLAUDE_CODE_OAUTH_TOKEN
+# Optional secrets: FERRY_REVIEW_TRANSITION_ID, FERRY_ITER_TRANSITION_ID,
+#                   FERRY_APPROVE_TRANSITION_ID — explicit transition-id overrides.
+#                   When unset, ids are auto-resolved from the status names in
+#                   ferry.config (workflow.agents.*).
+#                   FERRY_CHECKOUT_TOKEN — PAT/App token for agent pushes so CI
+#                   re-triggers (a github-actions[bot] push suppresses pull_request events).
+# Required variables: FERRY_AUDIT_ISSUE (GitHub Issue number for the audit log)
+# Optional variables: FERRY_INTEGRATION_BRANCH (default: main)
+#                     FERRY_REFINER_MODEL / FERRY_DEV_MODEL / FERRY_REVIEW_MODEL /
+#                     FERRY_ITER_MODEL / FERRY_MERGER_MODEL (default: claude-sonnet-4-6)
+#                     FERRY_PRE_AGENT_COMMAND (dependency bootstrap, e.g. "npm ci")
+#                     FERRY_EXTRA_CLAUDE_ARGS (extra claude_args, e.g. more --mcp-config)
+#                     FERRY_RUNNER (default: "ubuntu-latest"; JSON string or array)
+
+name: Ferry — Router
+
+on:
+  repository_dispatch:
+    types:
+      - ferry-transition
+      - ferry-refine
+      - ferry-dev
+      - ferry-review
+      - ferry-iterate
+      - ferry-merge
+
+# Per-ticket per-role serialization lives on the run-agent job (the role is only
+# known after route). This workflow-level group only de-dupes identical dispatches.
+concurrency:
+  group: ferry-router-\${{ github.event.action }}-\${{ github.event.client_payload.ticket_key || 'ferry-invalid-payload-sinkhole' }}
+  cancel-in-progress: false
+
+jobs:
+  gate-envelope:
+    name: Validate event envelope
+    runs-on: \${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Validate event envelope
+        uses: big-emotion/ferry/.github/actions/ferry-envelope-validate@${version}
+        with:
+          payload: \${{ toJson(github.event.client_payload) }}
+
+  route:
+    name: Resolve agent and execution path
+    needs: [gate-envelope]
+    runs-on: \${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
+    permissions:
+      contents: read
+    outputs:
+      path: \${{ steps.route.outputs.path }}
+      reason: \${{ steps.route.outputs.reason }}
+      role: \${{ steps.route.outputs.role }}
+      cc_agent: \${{ steps.route.outputs.cc_agent }}
+      phase: \${{ steps.route.outputs.phase }}
+      model_var: \${{ steps.route.outputs.model_var }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Resolve agent and execution path
+        id: route
+        uses: big-emotion/ferry/.github/actions/ferry-route@${version}
+        with:
+          payload: \${{ toJson(github.event.client_payload) }}
+          event_type: \${{ github.event.action }}
+          jira_base_url: \${{ secrets.FERRY_JIRA_BASE_URL }}
+          jira_email: \${{ secrets.FERRY_JIRA_EMAIL }}
+          jira_api_token: \${{ secrets.FERRY_JIRA_API_TOKEN }}
+
+  # Reviewer CI pre-gate: blocks the review while required checks are red and
+  # requests changes itself (FR24) — same behavior as the legacy review stub.
+  ci-gate:
+    name: Reviewer CI gate
+    needs: [route]
+    if: needs.route.outputs.role == 'reviewer' && needs.route.outputs.path == 'claude-code'
+    runs-on: \${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
+    permissions:
+      contents: read
+      pull-requests: write
+      checks: read
+    outputs:
+      proceed: \${{ steps.gate.outputs.proceed }}
+      outcome: \${{ steps.gate.outputs.outcome }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Gate on CI status
+        id: gate
+        uses: big-emotion/ferry/.github/actions/ferry-ci-gate@${version}
+        with:
+          ticket_key: \${{ github.event.client_payload.ticket_key }}
+          run_id: \${{ github.event.client_payload.event_id }}
+          github_token: \${{ github.token }}
+          github_repo: \${{ github.repository }}
+          jira_base_url: \${{ secrets.FERRY_JIRA_BASE_URL }}
+          jira_email: \${{ secrets.FERRY_JIRA_EMAIL }}
+          jira_api_token: \${{ secrets.FERRY_JIRA_API_TOKEN }}
+          ferry_iter_transition_id: \${{ secrets.FERRY_ITER_TRANSITION_ID }}
+
+  run-agent:
+    name: Run \${{ needs.route.outputs.role }} agent (claude-code)
+    needs: [route, ci-gate]
+    # !cancelled() keeps this job eligible when ci-gate is skipped (non-reviewer roles).
+    if: >-
+      !cancelled() && needs.route.outputs.path == 'claude-code' &&
+      needs.route.outputs.role != 'none' &&
+      (needs.route.outputs.role != 'reviewer' || needs.ci-gate.outputs.proceed == 'true')
+    runs-on: \${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
+    # Serialize per ticket and per role; a newer refine may supersede a running one.
+    concurrency:
+      group: ferry-agent-\${{ needs.route.outputs.role }}-\${{ github.event.client_payload.ticket_key }}
+      cancel-in-progress: \${{ needs.route.outputs.role == 'refiner' }}
+    timeout-minutes: 120
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: read
+      checks: read
+      actions: read
+      id-token: write # required by anthropics/claude-code-action@v1 OIDC auth
+    steps:
+      - name: Run Ferry agent
+        uses: big-emotion/ferry/.github/actions/ferry-run-claude-agent@${version}
+        with:
+          role: \${{ needs.route.outputs.cc_agent }}
+          ferry_version: ${version}
+          ticket_key: \${{ github.event.client_payload.ticket_key }}
+          event_id: \${{ github.event.client_payload.event_id }}
+          claude_code_oauth_token: \${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          jira_base_url: \${{ secrets.FERRY_JIRA_BASE_URL }}
+          jira_email: \${{ secrets.FERRY_JIRA_EMAIL }}
+          jira_api_token: \${{ secrets.FERRY_JIRA_API_TOKEN }}
+          model: \${{ vars[needs.route.outputs.model_var] || 'claude-sonnet-4-6' }}
+          integration_branch: \${{ vars.FERRY_INTEGRATION_BRANCH || 'main' }}
+          checkout_token: \${{ secrets.FERRY_CHECKOUT_TOKEN }}
+          review_transition_id: \${{ secrets.FERRY_REVIEW_TRANSITION_ID }}
+          approve_transition_id: \${{ secrets.FERRY_APPROVE_TRANSITION_ID }}
+          changes_transition_id: \${{ secrets.FERRY_ITER_TRANSITION_ID }}
+          pre_agent_command: \${{ vars.FERRY_PRE_AGENT_COMMAND }}
+          extra_claude_args: \${{ vars.FERRY_EXTRA_CLAUDE_ARGS }}
+
+  unsupported-path:
+    name: Unsupported execution path
+    needs: [route]
+    if: >-
+      needs.route.outputs.role != 'none' &&
+      (needs.route.outputs.path == 'script' || needs.route.outputs.path == 'codex-cli')
+    runs-on: \${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
+    permissions: {}
+    steps:
+      - name: Fail with guidance
+        run: |
+          echo "::error::Ferry router only supports execution_path: claude-code. For the script or codex-cli paths, generate the per-agent workflows with ferry-init." >&2
+          exit 1
+
+  emit-audit:
+    name: Emit audit line
+    needs: [route, ci-gate, run-agent]
+    if: >-
+      !cancelled() && needs.route.outputs.role != 'none' &&
+      (needs.run-agent.result != 'skipped' || (needs.ci-gate.result != 'skipped' && needs.ci-gate.outputs.outcome == 'ci-red'))
+    runs-on: \${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Emit audit line
+        uses: big-emotion/ferry/.github/actions/ferry-emit-audit@${version}
+        with:
+          ticket: \${{ github.event.client_payload.ticket_key }}
+          phase: \${{ needs.route.outputs.phase }}
+          run_id: \${{ github.event.client_payload.event_id }}
+          model: \${{ vars[needs.route.outputs.model_var] || 'claude-sonnet-4-6' }}
+          outcome: \${{ (needs.ci-gate.result != 'skipped' && needs.ci-gate.outputs.outcome == 'ci-red' && 'ci-red') || needs.run-agent.result }}
+          # claude-code path does cost tracking best-effort by design — it emits no token/cost outputs.
+          input_tokens: '0'
+          output_tokens: '0'
+          cost_eur: '0'
+          start_ms: \${{ github.run_id }}
+          audit_issue: \${{ vars.FERRY_AUDIT_ISSUE }}
+          github_token: \${{ github.token }}
+`,
+  };
+}

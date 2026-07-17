@@ -11,7 +11,14 @@ vi.mock('../prompt.js', () => ({
   printError: vi.fn(),
 }));
 
-import { buildJiraBundle, stepJiraBundle, DEFAULT_STATUS_NAMES } from './jira-bundle.js';
+import {
+  buildJiraBundle,
+  stepJiraBundle,
+  buildRouterJiraBundle,
+  buildRouterManualSetupDoc,
+  stepRouterJiraBundle,
+  DEFAULT_STATUS_NAMES,
+} from './jira-bundle.js';
 
 const WORKSPACE_ID = '75eb33f5-5dd0-4328-b0e6-8bb3f4e0af91';
 const PROJECT_ID = '10033';
@@ -245,5 +252,82 @@ describe('stepJiraBundle', () => {
     stepJiraBundle(tmpDir, 'acme-corp', 'acme-app', WORKSPACE_ID, PROJECT_ID);
     const content = readFileSync(join(tmpDir, 'ferry-jira-automation-rules.beta.json'), 'utf8');
     expect(content).toContain(`ari:cloud:jira:${WORKSPACE_ID}:project/${PROJECT_ID}`);
+  });
+});
+
+describe('buildRouterJiraBundle — single any-column rule', () => {
+  const bundle = buildRouterJiraBundle('acme', 'app', WORKSPACE_ID, PROJECT_ID);
+
+  it('returns exactly ONE rule', () => {
+    expect(bundle.rules).toHaveLength(1);
+    expect(bundle.cloud).toBe(true);
+  });
+
+  it('fires on any transition — empty From AND To status filters', () => {
+    const trigger = bundle.rules[0].trigger;
+    expect(trigger.type).toBe('jira.issue.event.trigger:transitioned');
+    expect(trigger.value.fromStatus).toEqual([]);
+    expect(trigger.value.toStatus).toEqual([]);
+  });
+
+  it('sends event_type ferry-transition with to_status in the payload', () => {
+    const body = (bundle.rules[0].components[0].value as { customBody: string }).customBody;
+    const parsed = JSON.parse(body) as {
+      event_type: string;
+      client_payload: Record<string, string>;
+    };
+    expect(parsed.event_type).toBe('ferry-transition');
+    expect(parsed.client_payload.phase).toBe('transition');
+    expect(parsed.client_payload.to_status).toBe('{{issue.status.name}}');
+    // idempotency scheme identical to the legacy rules
+    expect(parsed.client_payload.event_id).toBe('{{issue.key}}-{{issue.id}}');
+    expect(parsed.client_payload.source).toBe('jira-column');
+  });
+
+  it('keeps the Authorization header secret', () => {
+    const headers = (
+      bundle.rules[0].components[0].value as {
+        headers: Array<{ name: string; headerSecure: boolean }>;
+      }
+    ).headers;
+    const auth = headers.find((h) => h.name === 'Authorization');
+    expect(auth?.headerSecure).toBe(true);
+  });
+});
+
+describe('buildRouterManualSetupDoc', () => {
+  const doc = buildRouterManualSetupDoc('acme', 'app');
+
+  it('documents exactly one rule with empty status filters', () => {
+    expect(doc).toContain('**one** Jira Automation rule');
+    expect(doc).toContain('leave **From status** and **To status** empty');
+    expect(doc.match(/### Rule:/g)).toHaveLength(1);
+  });
+
+  it('explains that the merger is unreachable from a column move (ADR-0005)', () => {
+    expect(doc).toContain('ADR-0005');
+    expect(doc).toContain('ferry-merge');
+  });
+
+  it('never contains a real token', () => {
+    expect(doc).toContain('YOUR_GITHUB_PAT_WITH_REPO_SCOPE');
+    expect(doc).not.toMatch(/Bearer gh[ps]_[A-Za-z0-9]/);
+  });
+});
+
+describe('stepRouterJiraBundle', () => {
+  let tmpDir: string;
+  afterEach(() => rmSync(tmpDir, { recursive: true, force: true }));
+
+  it('writes a single-rule JSON bundle and the router setup doc', () => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'ferry-router-jb-'));
+    stepRouterJiraBundle(tmpDir, 'acme', 'app', WORKSPACE_ID, PROJECT_ID);
+    const json = JSON.parse(
+      readFileSync(join(tmpDir, 'ferry-jira-automation-rules.beta.json'), 'utf8'),
+    ) as { rules: unknown[] };
+    expect(json.rules).toHaveLength(1);
+    const md = readFileSync(join(tmpDir, 'ferry-jira-automation-setup.md'), 'utf8');
+    expect(md).toContain('router model');
+    expect(md).toContain('ferry-transition');
   });
 });

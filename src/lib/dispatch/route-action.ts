@@ -29,7 +29,7 @@ import { validateEnvelope } from '../envelope/validate.js';
 import { JiraRestClient } from '../io/jira-rest.js';
 import { loadFerryConfig } from '../config.js';
 import { resolveTicketOverrides } from '../labels/overrides.js';
-import { deriveAgentRole, roleToPhase } from './derive-role.js';
+import { deriveAgentRole, roleToPhase, roleToModelVar, roleToCcAgent } from './derive-role.js';
 import {
   resolveExecutionPath,
   isAnthropicOnlyConfig,
@@ -154,6 +154,8 @@ export async function runRouteAction(): Promise<RouteActionOutcome> {
   writeOutput('reason', decision.reason);
   writeOutput('role', role);
   writeOutput('phase', roleToPhase(role));
+  writeOutput('model_var', roleToModelVar(role));
+  writeOutput('cc_agent', roleToCcAgent(role));
 
   // Audit-comment line for the Reconciler (ADR-0004). Written to stdout; the
   // consumer workflow may pipe this into the audit issue via ferry-emit-audit.

@@ -53,6 +53,16 @@ outputs:
   phase:
     description: Audit phase token for the resolved role (`refine` … `merge`); empty on no-op
     value: ${{ steps.route.outputs.phase }}
+  model_var:
+    description: >-
+      Repo-variable name carrying the model override for the resolved role
+      (e.g. `FERRY_DEV_MODEL`); empty on no-op. Look up with `vars[...]`.
+    value: ${{ steps.route.outputs.model_var }}
+  cc_agent:
+    description: >-
+      The resolved role in ferry-cc-prompt / ferry-run-claude-agent naming —
+      `refiner`, `dev`, `review`, `iterate`, `merge`; empty on no-op.
+    value: ${{ steps.route.outputs.cc_agent }}
 runs:
   using: composite
   steps:

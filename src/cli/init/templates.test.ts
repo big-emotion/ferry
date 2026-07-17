@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { parse as parseYaml } from 'yaml';
-import { workflowTemplates } from './templates.js';
+import { workflowTemplates, routerWorkflowTemplate } from './templates.js';
 
 const AGENT_FILES = [
   'ferry-refine.yml',
@@ -671,5 +671,109 @@ describe('workflowTemplates — execution path variants', () => {
     for (const tmpl of workflowTemplates('v1', 'claude-code')) {
       expect(tmpl.content).toContain('# Execution path: claude-code');
     }
+  });
+});
+
+describe('routerWorkflowTemplate — thin router (claude-code path)', () => {
+  const router = routerWorkflowTemplate('v0.18.0');
+
+  it('is named ferry-router.yml (covered by the CODEOWNERS ferry-*.yml glob)', () => {
+    expect(router.filename).toBe('ferry-router.yml');
+  });
+
+  it('is structurally valid workflow YAML', () => {
+    assertValidWorkflowYaml(router.content, router.filename);
+  });
+
+  it('listens for ferry-transition plus every legacy event (migration compat)', () => {
+    for (const event of [
+      'ferry-transition',
+      'ferry-refine',
+      'ferry-dev',
+      'ferry-review',
+      'ferry-iterate',
+      'ferry-merge',
+    ]) {
+      expect(router.content, `router must listen for ${event}`).toContain(`- ${event}`);
+    }
+  });
+
+  it('routes via ferry-route with event_type and NO hardcoded role', () => {
+    expect(router.content).toContain('uses: big-emotion/ferry/.github/actions/ferry-route@v0.18.0');
+    expect(router.content).toContain('event_type: ${{ github.event.action }}');
+    expect(router.content).not.toMatch(/^\s+role: (refiner|developer|reviewer|iterator|merger)$/m);
+  });
+
+  it('runs agents through the shared ferry-run-claude-agent composite', () => {
+    expect(router.content).toContain(
+      'uses: big-emotion/ferry/.github/actions/ferry-run-claude-agent@v0.18.0',
+    );
+    expect(router.content).toContain('role: ${{ needs.route.outputs.cc_agent }}');
+    expect(router.content).toContain('ferry_version: v0.18.0');
+  });
+
+  it('resolves the model dynamically from the role model_var', () => {
+    expect(router.content).toContain(
+      "model: ${{ vars[needs.route.outputs.model_var] || 'claude-sonnet-4-6' }}",
+    );
+  });
+
+  it('transition-id secrets are optional overrides, wired but not required', () => {
+    expect(router.content).toContain(
+      'review_transition_id: ${{ secrets.FERRY_REVIEW_TRANSITION_ID }}',
+    );
+    expect(router.content).toContain(
+      'approve_transition_id: ${{ secrets.FERRY_APPROVE_TRANSITION_ID }}',
+    );
+    expect(router.content).toContain(
+      'changes_transition_id: ${{ secrets.FERRY_ITER_TRANSITION_ID }}',
+    );
+    expect(router.content).toContain('Optional secrets: FERRY_REVIEW_TRANSITION_ID');
+  });
+
+  it('gates the reviewer behind ferry-ci-gate and skips run-agent when CI is red', () => {
+    expect(router.content).toContain(
+      'uses: big-emotion/ferry/.github/actions/ferry-ci-gate@v0.18.0',
+    );
+    expect(router.content).toContain(
+      "needs.route.outputs.role != 'reviewer' || needs.ci-gate.outputs.proceed == 'true'",
+    );
+  });
+
+  it('serializes per ticket AND per role at the job level', () => {
+    expect(router.content).toContain(
+      'group: ferry-agent-${{ needs.route.outputs.role }}-${{ github.event.client_payload.ticket_key }}',
+    );
+    // refine stays cancellable (latest human edit wins); write phases are not
+    expect(router.content).toContain(
+      "cancel-in-progress: ${{ needs.route.outputs.role == 'refiner' }}",
+    );
+  });
+
+  it('fails loudly on script/codex-cli paths instead of dropping the dispatch', () => {
+    expect(router.content).toContain('unsupported-path:');
+    expect(router.content).toContain('exit 1');
+  });
+
+  it('emits the audit line with the routed phase and honors FERRY_AUDIT_ISSUE', () => {
+    expect(router.content).toContain('phase: ${{ needs.route.outputs.phase }}');
+    expect(router.content).toContain('audit_issue: ${{ vars.FERRY_AUDIT_ISSUE }}');
+  });
+
+  it('keeps the FERRY_RUNNER expression on every job (local-overrides compat)', () => {
+    const jobCount = (router.content.match(/^  [a-z-]+:$/gm) ?? []).length;
+    const runnerCount = (
+      router.content.match(
+        /runs-on: \$\{\{ fromJSON\(vars\.FERRY_RUNNER \|\| '"ubuntu-latest"'\) \}\}/g,
+      ) ?? []
+    ).length;
+    expect(runnerCount, 'every job must use the FERRY_RUNNER expression').toBe(jobCount);
+  });
+
+  it('embeds the pinned version everywhere and never @main', () => {
+    expect(router.content).not.toContain('@main');
+    const ferryRefs =
+      router.content.match(/big-emotion\/ferry\/\.github\/actions\/[a-z-]+@v0\.18\.0/g) ?? [];
+    expect(ferryRefs.length).toBeGreaterThanOrEqual(4);
   });
 });

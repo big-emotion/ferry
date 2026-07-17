@@ -15,11 +15,11 @@ import {
 } from './prompt.js';
 import { resolveForgeFromArgv } from '../lib/forge.js';
 import { runGitLabInit } from './gitlab/wizard.js';
-import { workflowTemplates } from './templates.js';
+import { workflowTemplates, routerWorkflowTemplate } from './templates.js';
 import { stepGitHubApp } from './steps/github-app.js';
 import { buildSecrets, stepSecrets } from './steps/secrets.js';
 import { installWorkflows, scaffoldCodeowners } from './steps/workflows.js';
-import { stepJiraBundle, DEFAULT_STATUS_NAMES } from './steps/jira-bundle.js';
+import { stepJiraBundle, stepRouterJiraBundle, DEFAULT_STATUS_NAMES } from './steps/jira-bundle.js';
 import { resolveJiraWorkspaceId, resolveJiraProjectId } from './steps/jira-resolve.js';
 import { stepVerify } from './steps/verify.js';
 import { EXECUTION_PATH_QUESTION, parseExecutionPathChoice } from './steps/execution-path.js';
@@ -37,6 +37,21 @@ function detectRepo(): string | undefined {
     }).trim();
     const match = remote.match(/github\.com[:/]([^/]+\/[^/.]+)/);
     return match ? match[1] : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function detectDefaultBranch(fullRepo: string): string | undefined {
+  try {
+    const branch = execSync(
+      `gh repo view ${fullRepo} --json defaultBranchRef -q .defaultBranchRef.name`,
+      {
+        encoding: 'utf8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      },
+    ).trim();
+    return branch || undefined;
   } catch {
     return undefined;
   }
@@ -70,10 +85,11 @@ async function main(): Promise<void> {
   print('');
   print('This wizard will:');
   print('  1. Guide you through creating a GitHub App');
-  print('  2. Set 6 repository secrets via the gh CLI');
-  print('  3. Install 4 Ferry workflow stubs into .github/workflows/');
-  print('  4. Generate a Jira Automation import bundle');
-  print('  5. Verify your Anthropic API key');
+  print('  2. Set the required repository secrets via the gh CLI');
+  print('  3. Install the Ferry workflow(s) into .github/workflows/');
+  print('     (claude-code path: ONE router workflow; script/codex: per-agent stubs)');
+  print('  4. Generate the Jira Automation rule bundle');
+  print('  5. Verify your provider API key');
   print('');
   print('Prerequisites: gh CLI installed and authenticated (run `gh auth status`)');
   print('');
@@ -277,10 +293,35 @@ async function main(): Promise<void> {
 
   // ── Step 3: Workflows + ferry.config.yaml ────────────────────────────────
   printStep(3, TOTAL_STEPS, 'Installing workflow files');
-  const templates = workflowTemplates(config.ferryVersion, config.executionPath);
+  // claude-code installs the thin router model: one workflow, one Jira rule,
+  // transition ids auto-resolved from config. script/codex keep per-agent stubs.
+  const useRouter = config.executionPath === 'claude-code';
+  const templates = useRouter
+    ? [routerWorkflowTemplate(config.ferryVersion)]
+    : workflowTemplates(config.ferryVersion, config.executionPath);
   const workflowDir = join(repoRoot, '.github', 'workflows');
   installWorkflows(workflowDir, templates, overwrite);
   scaffoldCodeowners(repoRoot, owner);
+
+  if (useRouter) {
+    // The router checks out vars.FERRY_INTEGRATION_BRANCH for refiner/dev —
+    // derive it from the repo's default branch so git.base_branch is effective
+    // without a manual variable step. Non-fatal: 'main' is the fallback.
+    const defaultBranch = detectDefaultBranch(fullRepo);
+    if (defaultBranch && defaultBranch !== 'main') {
+      try {
+        execSync(`gh variable set FERRY_INTEGRATION_BRANCH --repo ${fullRepo}`, {
+          input: defaultBranch,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
+        printSuccess(`Set FERRY_INTEGRATION_BRANCH=${defaultBranch} (repo default branch)`);
+      } catch {
+        printSkip(
+          `Could not set FERRY_INTEGRATION_BRANCH — set it manually: gh variable set FERRY_INTEGRATION_BRANCH --body "${defaultBranch}" --repo ${fullRepo}`,
+        );
+      }
+    }
+  }
 
   const configPath = join(repoRoot, 'ferry.config.yaml');
   if (!existsSync(configPath) || overwrite) {
@@ -347,12 +388,16 @@ async function main(): Promise<void> {
 
   // ── Step 4: Jira automation bundle ────────────────────────────────────────
   printStep(4, TOTAL_STEPS, 'Generating Jira Automation import bundle');
-  stepJiraBundle(repoRoot, owner, repo, config.jiraWorkspaceId, config.jiraProjectId, {
-    refine: refineStatus || DEFAULT_STATUS_NAMES.refine,
-    dev: devStatus || DEFAULT_STATUS_NAMES.dev,
-    review: reviewStatus || DEFAULT_STATUS_NAMES.review,
-    iterate: iterateStatus || DEFAULT_STATUS_NAMES.iterate,
-  });
+  if (useRouter) {
+    stepRouterJiraBundle(repoRoot, owner, repo, config.jiraWorkspaceId, config.jiraProjectId);
+  } else {
+    stepJiraBundle(repoRoot, owner, repo, config.jiraWorkspaceId, config.jiraProjectId, {
+      refine: refineStatus || DEFAULT_STATUS_NAMES.refine,
+      dev: devStatus || DEFAULT_STATUS_NAMES.dev,
+      review: reviewStatus || DEFAULT_STATUS_NAMES.review,
+      iterate: iterateStatus || DEFAULT_STATUS_NAMES.iterate,
+    });
+  }
 
   // ── Step 5: Verify ────────────────────────────────────────────────────────
   printStep(5, TOTAL_STEPS, 'Verifying provider API key');
@@ -379,10 +424,16 @@ async function main(): Promise<void> {
   print('');
   print('Next steps:');
   print('  1. Commit .github/workflows/ferry-*.yml, ferry.config.yaml, and .github/CODEOWNERS');
-  print('  2. Set up Jira Automation rules (choose one):');
-  print('     a) Manual (recommended): follow ferry-jira-automation-setup.md');
-  print('     b) Import (beta): Jira → Project settings → Automation → Import rules');
-  print('        Upload ferry-jira-automation-rules.beta.json');
+  if (useRouter) {
+    print('  2. Create the SINGLE Jira Automation rule (any-column trigger):');
+    print('     follow ferry-jira-automation-setup.md — one rule, no To-status filter.');
+    print('     No FERRY_*_TRANSITION_ID secrets needed: ids auto-resolve from ferry.config.');
+  } else {
+    print('  2. Set up Jira Automation rules (choose one):');
+    print('     a) Manual (recommended): follow ferry-jira-automation-setup.md');
+    print('     b) Import (beta): Jira → Project settings → Automation → Import rules');
+    print('        Upload ferry-jira-automation-rules.beta.json');
+  }
   print('  3. Set spend caps on provider billing pages (see links above)');
   print('  4. Set FERRY_AUDIT_ISSUE repository variable to a GitHub Issue number');
   print('     for the audit log (create a blank issue and use its number)');

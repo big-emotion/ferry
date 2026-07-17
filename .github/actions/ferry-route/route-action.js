@@ -1403,6 +1403,26 @@ var ROLE_TO_PHASE = Object.freeze({
 function roleToPhase(role) {
   return ROLE_TO_PHASE[role];
 }
+var ROLE_TO_MODEL_VAR = Object.freeze({
+  refiner: "FERRY_REFINER_MODEL",
+  developer: "FERRY_DEV_MODEL",
+  reviewer: "FERRY_REVIEW_MODEL",
+  iterator: "FERRY_ITER_MODEL",
+  merger: "FERRY_MERGER_MODEL"
+});
+var ROLE_TO_CC_AGENT = Object.freeze({
+  refiner: "refiner",
+  developer: "dev",
+  reviewer: "review",
+  iterator: "iterate",
+  merger: "merge"
+});
+function roleToCcAgent(role) {
+  return ROLE_TO_CC_AGENT[role];
+}
+function roleToModelVar(role) {
+  return ROLE_TO_MODEL_VAR[role];
+}
 function deriveAgentRole(eventType, toStatus, cfg) {
   const direct = EVENT_TYPE_TO_ROLE[eventType];
   if (direct) return direct;
@@ -1601,6 +1621,8 @@ async function runRouteAction() {
   writeOutput("reason", decision.reason);
   writeOutput("role", role);
   writeOutput("phase", roleToPhase(role));
+  writeOutput("model_var", roleToModelVar(role));
+  writeOutput("cc_agent", roleToCcAgent(role));
   process.stdout.write(`${formatExecutionPathAudit(role, envelope.event_id, decision)}
 `);
   return { ...decision, role };

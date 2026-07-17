@@ -24,6 +24,37 @@ export function roleToPhase(role: AgentOutputRole): EventPhase {
   return ROLE_TO_PHASE[role];
 }
 
+const ROLE_TO_MODEL_VAR: Readonly<Record<AgentOutputRole, string>> = Object.freeze({
+  refiner: 'FERRY_REFINER_MODEL',
+  developer: 'FERRY_DEV_MODEL',
+  reviewer: 'FERRY_REVIEW_MODEL',
+  iterator: 'FERRY_ITER_MODEL',
+  merger: 'FERRY_MERGER_MODEL',
+});
+
+/** ferry-cc-prompt / ferry-run-claude-agent agent naming (CC_AGENTS). */
+const ROLE_TO_CC_AGENT: Readonly<Record<AgentOutputRole, string>> = Object.freeze({
+  refiner: 'refiner',
+  developer: 'dev',
+  reviewer: 'review',
+  iterator: 'iterate',
+  merger: 'merge',
+});
+
+/** The claude-code agent name for a role, as ferry-cc-prompt expects it. */
+export function roleToCcAgent(role: AgentOutputRole): string {
+  return ROLE_TO_CC_AGENT[role];
+}
+
+/**
+ * The repo-variable name carrying the model override for a role. Surfaced as a
+ * route output so the router workflow can look the model up dynamically
+ * (`vars[outputs.model_var]`) without a per-role job.
+ */
+export function roleToModelVar(role: AgentOutputRole): string {
+  return ROLE_TO_MODEL_VAR[role];
+}
+
 /**
  * Resolve which agent a dispatch targets.
  *
