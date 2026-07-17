@@ -12,8 +12,8 @@ import {
   applyDryRunMarker,
   LabelConflictError,
 } from '../../lib/agent-runtime/index.js';
+import { resolveConfiguredTransitionId } from '../../lib/io/tracker/transition-match.js';
 import {
-  requireEnv,
   loadMcpServers,
   appendOutput,
   writeStepSummary,
@@ -98,9 +98,21 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
   // and the ferry:dry-run label (dry-run suppresses all external writes).
   const shouldTransitionChanges = configTransitionChanges && !noAutoTransition && !dryRun;
   const shouldTransitionApprove = configTransitionApprove && !noAutoTransition && !dryRun;
-  const iterTransitionId = shouldTransitionChanges ? requireEnv('FERRY_ITER_TRANSITION_ID') : '';
+  const iterTransitionId = shouldTransitionChanges
+    ? await resolveConfiguredTransitionId({
+        ticketKey,
+        targetStatusName: reviewerWorkflow.auto_transition_changes,
+        explicitId: process.env.FERRY_ITER_TRANSITION_ID,
+        fetchTransitions: (key) => tracker.getTransitions(key),
+      })
+    : '';
   const approveTransitionId = shouldTransitionApprove
-    ? requireEnv('FERRY_APPROVE_TRANSITION_ID')
+    ? await resolveConfiguredTransitionId({
+        ticketKey,
+        targetStatusName: reviewerWorkflow.auto_transition_approve,
+        explicitId: process.env.FERRY_APPROVE_TRANSITION_ID,
+        fetchTransitions: (key) => tracker.getTransitions(key),
+      })
     : '';
 
   const { provider, model } = effectiveCfg.models.review;

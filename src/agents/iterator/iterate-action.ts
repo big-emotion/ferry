@@ -17,8 +17,8 @@ import {
   LabelConflictError,
   remoteBranchExists,
 } from '../../lib/agent-runtime/index.js';
+import { resolveConfiguredTransitionId } from '../../lib/io/tracker/transition-match.js';
 import {
-  requireEnv,
   loadMcpServers,
   appendOutput,
   writeStepSummary,
@@ -139,7 +139,14 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
   // FR28 auto-transition is gated by config, the ferry:no-auto-transition label,
   // and the ferry:dry-run label (dry-run suppresses all external writes).
   const shouldAutoTransition = configAutoTransition && !noAutoTransition && !dryRun;
-  const reviewTransitionId = shouldAutoTransition ? requireEnv('FERRY_REVIEW_TRANSITION_ID') : '';
+  const reviewTransitionId = shouldAutoTransition
+    ? await resolveConfiguredTransitionId({
+        ticketKey,
+        targetStatusName: iteratorWorkflow.auto_transition,
+        explicitId: process.env.FERRY_REVIEW_TRANSITION_ID,
+        fetchTransitions: (key) => tracker.getTransitions(key),
+      })
+    : '';
 
   const { provider: iterProvider, model } = effectiveCfg.models.iterate;
   const mcpPool = loadMcpServers();

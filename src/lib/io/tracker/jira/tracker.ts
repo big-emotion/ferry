@@ -1,6 +1,6 @@
 import { JiraRestClient } from '../../jira-rest.js';
 import { adfToText, textToAdf } from '../../jira-adf.js';
-import type { IssueTracker, TrackerIssue, TrackerSubtask } from '../types.js';
+import type { IssueTracker, TrackerIssue, TrackerSubtask, TrackerTransition } from '../types.js';
 
 const ISSUE_TYPE_LOCALE_MAP: Record<string, string> = {
   // French
@@ -33,6 +33,14 @@ export class JiraTracker implements IssueTracker {
 
   async postComment(key: string, body: string): Promise<void> {
     await this.client.postComment(key, textToAdf(body));
+  }
+
+  async getTransitions(key: string): Promise<TrackerTransition[]> {
+    const { transitions } = await this.client.getTransitions(key);
+    // Key off the target status (`to.name`), not the transition label — see
+    // matchTransitionId. `to` is optional in the parsed shape; an entry without
+    // it can never match a configured status, so an empty toStatus is correct.
+    return transitions.map((t) => ({ id: t.id, toStatus: t.to?.name ?? '' }));
   }
 
   async postTransition(key: string, transitionId: string): Promise<void> {

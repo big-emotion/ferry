@@ -68,6 +68,23 @@ describe('IssueTracker contract — InMemoryTracker', () => {
     expect(tracker.postedTransitions[1].transitionId).toBe('31');
   });
 
+  it('getTransitions returns empty array when none are seeded', async () => {
+    const transitions = await tracker.getTransitions('PROJ-1');
+    expect(transitions).toEqual([]);
+  });
+
+  it('getTransitions returns seeded transitions', async () => {
+    tracker.seedTransitions('PROJ-1', [
+      { id: '3', toStatus: 'In Review' },
+      { id: '4', toStatus: 'To Merge' },
+    ]);
+    const transitions = await tracker.getTransitions('PROJ-1');
+    expect(transitions).toEqual([
+      { id: '3', toStatus: 'In Review' },
+      { id: '4', toStatus: 'To Merge' },
+    ]);
+  });
+
   it('getSubtasks returns empty array when none are seeded', async () => {
     const subtasks = await tracker.getSubtasks('PROJ-1');
     expect(subtasks).toEqual([]);

@@ -184,25 +184,50 @@ describe('Quick install — secret and variable names (INSTALL.md §Step 2)', ()
 // ---------------------------------------------------------------------------
 
 describe('Quick install — secret names match agent code (README §Step 2)', () => {
-  it('developer agent requires FERRY_REVIEW_TRANSITION_ID (FR18)', async () => {
+  // Transition ids are auto-resolved from the config status name via
+  // resolveConfiguredTransitionId; the FERRY_*_TRANSITION_ID env var remains an
+  // optional explicit override, so its exact name must still appear in the code.
+  it('developer agent auto-resolves the FR18 transition (FERRY_REVIEW_TRANSITION_ID override)', async () => {
     const code = await readFile('src/agents/developer/dev-action.ts');
-    expect(code, 'dev-action.ts must call requireEnv("FERRY_REVIEW_TRANSITION_ID")').toContain(
-      "requireEnv('FERRY_REVIEW_TRANSITION_ID')",
+    expect(code, 'dev-action.ts must auto-resolve via resolveConfiguredTransitionId').toContain(
+      'resolveConfiguredTransitionId(',
+    );
+    expect(code, 'dev-action.ts must resolve from the developer auto_transition status').toContain(
+      'targetStatusName: devWorkflow.auto_transition',
+    );
+    expect(code, 'dev-action.ts must still honor FERRY_REVIEW_TRANSITION_ID as override').toContain(
+      'process.env.FERRY_REVIEW_TRANSITION_ID',
     );
   });
 
-  it('reviewer agent requires FERRY_ITER_TRANSITION_ID (FR24)', async () => {
+  it('reviewer agent auto-resolves the FR24 transitions (FERRY_ITER/APPROVE_TRANSITION_ID overrides)', async () => {
     const code = await readFile('src/agents/reviewer/review-action.ts');
-    expect(code, 'review-action.ts must call requireEnv("FERRY_ITER_TRANSITION_ID")').toContain(
-      "requireEnv('FERRY_ITER_TRANSITION_ID')",
+    expect(code, 'review-action.ts must auto-resolve via resolveConfiguredTransitionId').toContain(
+      'resolveConfiguredTransitionId(',
     );
+    expect(
+      code,
+      'review-action.ts must still honor FERRY_ITER_TRANSITION_ID as override',
+    ).toContain('process.env.FERRY_ITER_TRANSITION_ID');
+    expect(
+      code,
+      'review-action.ts must still honor FERRY_APPROVE_TRANSITION_ID as override',
+    ).toContain('process.env.FERRY_APPROVE_TRANSITION_ID');
   });
 
-  it('iterator agent requires FERRY_REVIEW_TRANSITION_ID (FR28)', async () => {
+  it('iterator agent auto-resolves the FR28 transition (FERRY_REVIEW_TRANSITION_ID override)', async () => {
     const code = await readFile('src/agents/iterator/iterate-action.ts');
-    expect(code, 'iterate-action.ts must call requireEnv("FERRY_REVIEW_TRANSITION_ID")').toContain(
-      "requireEnv('FERRY_REVIEW_TRANSITION_ID')",
+    expect(code, 'iterate-action.ts must auto-resolve via resolveConfiguredTransitionId').toContain(
+      'resolveConfiguredTransitionId(',
     );
+    expect(
+      code,
+      'iterate-action.ts must resolve from the iterator auto_transition status',
+    ).toContain('targetStatusName: iteratorWorkflow.auto_transition');
+    expect(
+      code,
+      'iterate-action.ts must still honor FERRY_REVIEW_TRANSITION_ID as override',
+    ).toContain('process.env.FERRY_REVIEW_TRANSITION_ID');
   });
 
   it('shared agent runtime reads FERRY_ENVELOPE_PAYLOAD', async () => {

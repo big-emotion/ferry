@@ -21,6 +21,13 @@ export interface JiraIssueResponse {
 export interface JiraTransition {
   id: string;
   name: string;
+  /**
+   * Target status this transition lands on. Optional because we do not validate
+   * the raw payload — but the Jira API always populates it, and it is the field
+   * to match against: the transition's own `name` can differ from the status it
+   * reaches (e.g. a transition labelled "IN REVIEW" landing on "Revue en cours").
+   */
+  to?: { name: string };
 }
 
 export interface JiraTransitionsResponse {

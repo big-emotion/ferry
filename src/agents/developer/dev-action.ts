@@ -15,6 +15,7 @@ import {
   loadFerryConfigFromBaseBranch,
   prepareDeveloper,
 } from '../../lib/agent-runtime/index.js';
+import { resolveConfiguredTransitionId } from '../../lib/io/tracker/transition-match.js';
 import type { EventEnvelopeV1 } from '../../lib/envelope/types.js';
 import type { Logger } from '../../lib/agent-runtime/index.js';
 import { isDryRun } from '../../lib/dry-run.js';
@@ -162,7 +163,14 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
   // FR18 auto-transition is gated by config, the ferry:no-auto-transition label,
   // and dry-run mode (dry-run suppresses all external writes).
   const shouldAutoTransition = configAutoTransition && !noAutoTransition && !dryRun;
-  const reviewTransitionId = !shouldAutoTransition ? '' : requireEnv('FERRY_REVIEW_TRANSITION_ID');
+  const reviewTransitionId = !shouldAutoTransition
+    ? ''
+    : await resolveConfiguredTransitionId({
+        ticketKey,
+        targetStatusName: devWorkflow.auto_transition,
+        explicitId: process.env.FERRY_REVIEW_TRANSITION_ID,
+        fetchTransitions: (key) => tracker.getTransitions(key),
+      });
   const jiraBaseUrl = requireEnv('FERRY_JIRA_BASE_URL');
 
   const { provider: devProvider } = effectiveCfg.models.dev;

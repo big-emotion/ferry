@@ -5766,6 +5766,10 @@ var JiraTracker = class {
   async postComment(key, body) {
     await this.client.postComment(key, textToAdf(body));
   }
+  async getTransitions(key) {
+    const { transitions } = await this.client.getTransitions(key);
+    return transitions.map((t) => ({ id: t.id, toStatus: t.to?.name ?? "" }));
+  }
   async postTransition(key, transitionId) {
     await this.client.postTransition(key, transitionId);
   }
@@ -8865,6 +8869,31 @@ import { execFileSync as execFileSync6 } from "node:child_process";
 import * as fsp2 from "node:fs/promises";
 import * as path6 from "node:path";
 
+// src/lib/io/tracker/transition-match.ts
+function matchTransitionId(transitions, targetStatusName) {
+  const wanted = targetStatusName.trim().toLowerCase();
+  if (wanted === "") return null;
+  const hit = transitions.find((t) => t.toStatus.trim().toLowerCase() === wanted);
+  return hit ? hit.id : null;
+}
+async function resolveConfiguredTransitionId(params) {
+  const explicit = params.explicitId?.trim();
+  if (explicit) return explicit;
+  const wanted = params.targetStatusName?.trim();
+  if (!wanted) return "";
+  const transitions = await params.fetchTransitions(params.ticketKey);
+  const id = matchTransitionId(transitions, wanted);
+  if (id === null) {
+    throw new FerryError("state-invariant", {
+      reason: "transition-not-found",
+      ticket: params.ticketKey,
+      configuredStatus: wanted,
+      availableStatuses: transitions.map((t) => t.toStatus)
+    });
+  }
+  return id;
+}
+
 // src/agents/developer/commit.ts
 var ALLOWED_TYPES = /* @__PURE__ */ new Set(["feat", "fix", "chore", "docs", "refactor", "test", "perf"]);
 function formatDeveloperCommit(input) {
@@ -9625,7 +9654,12 @@ async function main2(envelope, logger) {
     throw err;
   }
   const shouldAutoTransition = configAutoTransition && !noAutoTransition && !dryRun;
-  const reviewTransitionId = !shouldAutoTransition ? "" : requireEnv("FERRY_REVIEW_TRANSITION_ID");
+  const reviewTransitionId = !shouldAutoTransition ? "" : await resolveConfiguredTransitionId({
+    ticketKey,
+    targetStatusName: devWorkflow.auto_transition,
+    explicitId: process.env.FERRY_REVIEW_TRANSITION_ID,
+    fetchTransitions: (key) => tracker.getTransitions(key)
+  });
   const jiraBaseUrl = requireEnv("FERRY_JIRA_BASE_URL");
   const { provider: devProvider } = effectiveCfg.models.dev;
   const model = effectiveCfg.models.dev.model;
@@ -10110,8 +10144,18 @@ async function main3(envelope, logger) {
   }
   const shouldTransitionChanges = configTransitionChanges && !noAutoTransition && !dryRun;
   const shouldTransitionApprove = configTransitionApprove && !noAutoTransition && !dryRun;
-  const iterTransitionId = shouldTransitionChanges ? requireEnv("FERRY_ITER_TRANSITION_ID") : "";
-  const approveTransitionId = shouldTransitionApprove ? requireEnv("FERRY_APPROVE_TRANSITION_ID") : "";
+  const iterTransitionId = shouldTransitionChanges ? await resolveConfiguredTransitionId({
+    ticketKey,
+    targetStatusName: reviewerWorkflow.auto_transition_changes,
+    explicitId: process.env.FERRY_ITER_TRANSITION_ID,
+    fetchTransitions: (key) => tracker.getTransitions(key)
+  }) : "";
+  const approveTransitionId = shouldTransitionApprove ? await resolveConfiguredTransitionId({
+    ticketKey,
+    targetStatusName: reviewerWorkflow.auto_transition_approve,
+    explicitId: process.env.FERRY_APPROVE_TRANSITION_ID,
+    fetchTransitions: (key) => tracker.getTransitions(key)
+  }) : "";
   const { provider, model } = effectiveCfg.models.review;
   const capabilities = resolveCapabilities(issue.labels, effectiveCfg.labels, logger);
   logCapabilities(logger, capabilities);
@@ -10450,7 +10494,12 @@ async function main4(envelope, logger) {
     throw err;
   }
   const shouldAutoTransition = configAutoTransition && !noAutoTransition && !dryRun;
-  const reviewTransitionId = shouldAutoTransition ? requireEnv("FERRY_REVIEW_TRANSITION_ID") : "";
+  const reviewTransitionId = shouldAutoTransition ? await resolveConfiguredTransitionId({
+    ticketKey,
+    targetStatusName: iteratorWorkflow.auto_transition,
+    explicitId: process.env.FERRY_REVIEW_TRANSITION_ID,
+    fetchTransitions: (key) => tracker.getTransitions(key)
+  }) : "";
   const { provider: iterProvider, model } = effectiveCfg.models.iterate;
   const mcpPool = loadMcpServers();
   const capabilities = resolveCapabilities(issue.labels, effectiveCfg.labels, logger);

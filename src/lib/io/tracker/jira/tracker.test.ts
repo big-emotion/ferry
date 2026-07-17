@@ -194,4 +194,35 @@ describe('JiraTracker', () => {
       expect(result).toEqual([]);
     });
   });
+
+  describe('getTransitions', () => {
+    it('maps each transition to its target status, not its label', async () => {
+      // id 3 is labelled "IN REVIEW" but lands on "Revue en cours": we must
+      // surface the target status so a status-name match works.
+      vi.mocked(client.getTransitions).mockResolvedValue({
+        transitions: [
+          { id: '3', name: 'IN REVIEW', to: { name: 'Revue en cours' } },
+          { id: '21', name: 'En cours', to: { name: 'REFINEMENT' } },
+        ],
+      });
+
+      const result = await tracker.getTransitions('FER-9');
+
+      expect(result).toEqual([
+        { id: '3', toStatus: 'Revue en cours' },
+        { id: '21', toStatus: 'REFINEMENT' },
+      ]);
+      expect(client.getTransitions).toHaveBeenCalledWith('FER-9');
+    });
+
+    it('yields an empty target status when the payload omits it', async () => {
+      vi.mocked(client.getTransitions).mockResolvedValue({
+        transitions: [{ id: '1', name: 'Do it' }],
+      });
+
+      const result = await tracker.getTransitions('PROJ-1');
+
+      expect(result).toEqual([{ id: '1', toStatus: '' }]);
+    });
+  });
 });

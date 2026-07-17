@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { JIRA_MCP_TOOLS, dispatchTool, type JiraMcpDeps } from './tools.js';
-import type { IssueTracker, TrackerIssue, TrackerSubtask } from '../lib/io/tracker/types.js';
+import type {
+  IssueTracker,
+  TrackerIssue,
+  TrackerSubtask,
+  TrackerTransition,
+} from '../lib/io/tracker/types.js';
 
 /** Records every call so tests can assert on the side effects. */
 class FakeTracker implements IssueTracker {
@@ -21,6 +26,11 @@ class FakeTracker implements IssueTracker {
 
   async postComment(key: string, body: string): Promise<void> {
     this.calls.push({ method: 'postComment', args: [key, body] });
+  }
+
+  async getTransitions(key: string): Promise<TrackerTransition[]> {
+    this.calls.push({ method: 'getTransitions', args: [key] });
+    return [{ id: '11', toStatus: 'In Review' }];
   }
 
   async postTransition(key: string, transitionId: string): Promise<void> {

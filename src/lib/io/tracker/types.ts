@@ -17,9 +17,18 @@ export interface TrackerSubtask {
   status: string;
 }
 
+export interface TrackerTransition {
+  /** Transition id, as passed to postTransition. */
+  id: string;
+  /** Name of the status this transition lands the issue on. */
+  toStatus: string;
+}
+
 export interface IssueTracker {
   getIssue(key: string): Promise<TrackerIssue>;
   postComment(key: string, body: string): Promise<void>;
+  /** Workflow transitions currently available on the issue. */
+  getTransitions(key: string): Promise<TrackerTransition[]>;
   postTransition(key: string, transitionId: string): Promise<void>;
   addLabel(key: string, label: string): Promise<void>;
   getSubtasks(key: string): Promise<string[]>;

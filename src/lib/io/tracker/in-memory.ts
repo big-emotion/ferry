@@ -1,4 +1,4 @@
-import type { IssueTracker, TrackerIssue, TrackerSubtask } from './types.js';
+import type { IssueTracker, TrackerIssue, TrackerSubtask, TrackerTransition } from './types.js';
 
 export class InMemoryTracker implements IssueTracker {
   readonly issues = new Map<string, TrackerIssue>();
@@ -8,6 +8,7 @@ export class InMemoryTracker implements IssueTracker {
   readonly createdSubtasks: Array<{ parentKey: string; title: string; description: string }> = [];
   private readonly subtaskMap = new Map<string, string[]>();
   private readonly subtaskDetailMap = new Map<string, TrackerSubtask[]>();
+  private readonly transitionMap = new Map<string, TrackerTransition[]>();
 
   seed(issue: TrackerIssue): void {
     this.issues.set(issue.key, { ...issue, comments: [...issue.comments] });
@@ -24,6 +25,13 @@ export class InMemoryTracker implements IssueTracker {
     );
   }
 
+  seedTransitions(key: string, transitions: TrackerTransition[]): void {
+    this.transitionMap.set(
+      key,
+      transitions.map((t) => ({ ...t })),
+    );
+  }
+
   async getIssue(key: string): Promise<TrackerIssue> {
     const issue = this.issues.get(key);
     if (!issue) throw new Error(`InMemoryTracker: issue ${key} not found`);
@@ -35,6 +43,10 @@ export class InMemoryTracker implements IssueTracker {
     if (!issue) throw new Error(`InMemoryTracker: issue ${key} not found`);
     this.postedComments.push({ key, body });
     issue.comments.push(body);
+  }
+
+  async getTransitions(key: string): Promise<TrackerTransition[]> {
+    return (this.transitionMap.get(key) ?? []).map((t) => ({ ...t }));
   }
 
   async postTransition(key: string, transitionId: string): Promise<void> {
