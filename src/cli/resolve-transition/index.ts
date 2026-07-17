@@ -12,12 +12,12 @@ FERRY_*_TRANSITION_ID secrets by hand. Writes the id to $GITHUB_OUTPUT (key:
 --output-name, default "transition_id") or to stdout.
 
 Usage:
-  ferry-resolve-transition --ticket-key <key> --agent <dev|iterate|review> --kind <review|approve|changes> [options]
+  ferry-resolve-transition --ticket-key <key> --agent <dev|iterate|review|merge> --kind <review|approve|changes|done> [options]
 
 Options:
   --ticket-key    Jira ticket key (required)
-  --agent         dev | iterate | review (required)
-  --kind          review (dev/iterate) | approve | changes (required)
+  --agent         dev | iterate | review | merge (required)
+  --kind          review (dev/iterate) | approve | changes (review) | done (merge) (required)
   --fallback-id   Explicit transition id to use verbatim (FERRY_*_TRANSITION_ID override)
   --repo-root     Consumer repo root (default: $GITHUB_WORKSPACE or cwd)
   --output-name   GITHUB_OUTPUT key (default: transition_id)

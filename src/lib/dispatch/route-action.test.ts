@@ -192,4 +192,119 @@ describe('route-action: resolves and emits execution path', () => {
     expect(out).toContain('path=claude-code\n');
     expect(out).toContain('reason=label\n');
   });
+
+  it('also writes `role` and `phase` outputs when the role is explicit', async () => {
+    tmp = withTempRepo(null);
+    process.chdir(tmp.cwd);
+    setEnv({ ...BASE_ENV, GITHUB_OUTPUT: tmp.outputFile });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(makeMockResponse(200, jiraIssueWith([]))));
+
+    await runRouteAction();
+
+    const { readFileSync } = await import('node:fs');
+    const out = readFileSync(tmp.outputFile, 'utf8');
+    expect(out).toContain('role=developer\n');
+    expect(out).toContain('phase=dev\n');
+  });
+});
+
+describe('route-action: derives the role for the ferry-transition event', () => {
+  let originalCwd: string;
+  let tmp: ReturnType<typeof withTempRepo>;
+
+  const TRANSITION_ENVELOPE = {
+    ...ENVELOPE,
+    phase: 'transition' as const,
+    to_status: 'In Development',
+  };
+
+  // No FERRY_AGENT_ROLE — the router path.
+  const ROUTER_ENV = {
+    FERRY_ENVELOPE_PAYLOAD: JSON.stringify(TRANSITION_ENVELOPE),
+    FERRY_EVENT_TYPE: 'ferry-transition',
+    FERRY_JIRA_BASE_URL: 'https://acme.atlassian.net',
+    FERRY_JIRA_EMAIL: 'bot@acme.com',
+    FERRY_JIRA_API_TOKEN: 'token',
+  };
+
+  beforeEach(() => {
+    originalCwd = process.cwd();
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+    if (tmp) tmp.cleanup();
+  });
+
+  it('maps to_status to the developer via the config trigger_column', async () => {
+    tmp = withTempRepo('');
+    process.chdir(tmp.cwd);
+    setEnv({ ...ROUTER_ENV, GITHUB_OUTPUT: tmp.outputFile });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(makeMockResponse(200, jiraIssueWith([]))));
+
+    const outcome = await runRouteAction();
+
+    expect(outcome.role).toBe('developer');
+    expect(outcome.path).toBe('claude-code'); // Anthropic-only default
+    const { readFileSync } = await import('node:fs');
+    const out = readFileSync(tmp.outputFile, 'utf8');
+    expect(out).toContain('role=developer\n');
+    expect(out).toContain('phase=dev\n');
+  });
+
+  it('legacy event types still map directly (FERRY_EVENT_TYPE=ferry-review)', async () => {
+    tmp = withTempRepo('');
+    process.chdir(tmp.cwd);
+    setEnv({
+      ...ROUTER_ENV,
+      FERRY_ENVELOPE_PAYLOAD: JSON.stringify(ENVELOPE),
+      FERRY_EVENT_TYPE: 'ferry-review',
+      GITHUB_OUTPUT: tmp.outputFile,
+    });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(makeMockResponse(200, jiraIssueWith([]))));
+
+    const outcome = await runRouteAction();
+
+    expect(outcome.role).toBe('reviewer');
+  });
+
+  it('no-ops (role=none) on an unmapped status without any Jira IO', async () => {
+    tmp = withTempRepo('');
+    process.chdir(tmp.cwd);
+    const fetchSpy = vi.fn();
+    setEnv({
+      ...ROUTER_ENV,
+      FERRY_ENVELOPE_PAYLOAD: JSON.stringify({ ...TRANSITION_ENVELOPE, to_status: 'Backlog' }),
+      GITHUB_OUTPUT: tmp.outputFile,
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const outcome = await runRouteAction();
+
+    expect(outcome).toEqual({ path: 'none', reason: 'unmapped-status', role: 'none' });
+    expect(fetchSpy).not.toHaveBeenCalled();
+    const { readFileSync } = await import('node:fs');
+    const out = readFileSync(tmp.outputFile, 'utf8');
+    expect(out).toContain('path=none\n');
+    expect(out).toContain('role=none\n');
+  });
+
+  it('never maps a to_status onto the merger (ADR-0005)', async () => {
+    tmp = withTempRepo(''); // default config has no merger trigger_column at all
+    process.chdir(tmp.cwd);
+    const fetchSpy = vi.fn();
+    setEnv({
+      ...ROUTER_ENV,
+      FERRY_ENVELOPE_PAYLOAD: JSON.stringify({ ...TRANSITION_ENVELOPE, to_status: 'To Merge' }),
+      GITHUB_OUTPUT: tmp.outputFile,
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const outcome = await runRouteAction();
+
+    expect(outcome.role).toBe('none');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
 });

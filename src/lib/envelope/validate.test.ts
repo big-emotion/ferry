@@ -48,6 +48,24 @@ describe('validateEnvelope', () => {
     expect(() => validateEnvelope({ ...VALID_ENVELOPE, event_id: 'CHAN-117-10042' })).not.toThrow();
   });
 
+  it('accepts the generic ferry-transition payload (phase transition + to_status)', () => {
+    const result = validateEnvelope({
+      ...VALID_ENVELOPE,
+      phase: 'transition',
+      to_status: 'In Development',
+    });
+    expect(result.phase).toBe('transition');
+    expect(result.to_status).toBe('In Development');
+  });
+
+  it('accepts to_status on legacy phases too (optional field)', () => {
+    expect(() => validateEnvelope({ ...VALID_ENVELOPE, to_status: 'Refinement' })).not.toThrow();
+  });
+
+  it('rejects a non-string to_status', () => {
+    expect(() => validateEnvelope({ ...VALID_ENVELOPE, to_status: 42 })).toThrow(FerryError);
+  });
+
   it('throws FerryError state-invariant for invalid ticket_key pattern', () => {
     expect(() => validateEnvelope({ ...VALID_ENVELOPE, ticket_key: 'proj-1' })).toThrow(FerryError);
   });

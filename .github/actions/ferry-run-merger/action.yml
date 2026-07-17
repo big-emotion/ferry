@@ -37,6 +37,13 @@ inputs:
     description: Model override (e.g. claude-sonnet-4-6)
     required: false
     default: ''
+  ferry_merge_done_transition_id:
+    description: >-
+      Explicit Jira transition id to Done after merge (FR32). Optional override —
+      when empty, the transition is auto-resolved from
+      workflow.agents.merger.auto_transition_done in ferry.config.
+    required: false
+    default: ''
   ferry_max_cost_eur_per_run:
     description: Cost budget in EUR per agent run (overrides limits.max_cost_eur_per_run)
     required: false
@@ -123,6 +130,7 @@ runs:
         GH_TOKEN: ${{ inputs.github_token }}
         GITHUB_REPO: ${{ inputs.github_repo }}
         FERRY_MERGER_MODEL: ${{ inputs.ferry_merger_model }}
+        FERRY_MERGE_DONE_TRANSITION_ID: ${{ inputs.ferry_merge_done_transition_id }}
         FERRY_MAX_COST_EUR_PER_RUN: ${{ inputs.ferry_max_cost_eur_per_run }}
         FERRY_LLM_RETRY_MAX_ATTEMPTS: ${{ inputs.ferry_llm_retry_max_attempts }}
         FERRY_JIRA_RETRY_MAX_ATTEMPTS: ${{ inputs.ferry_jira_retry_max_attempts }}

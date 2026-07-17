@@ -4,6 +4,7 @@ import { InMemoryTracker } from '../../lib/io/tracker/in-memory.js';
 import type { CIRunner, PR, PRRef } from '../../lib/dispatch/runner/types.js';
 import { checkIdempotencyMarker } from '../../lib/io/idempotency.js';
 import { byEventId } from '../../lib/agent-runtime/index.js';
+import { resolveConfiguredTransitionId } from '../../lib/io/tracker/transition-match.js';
 
 // ── resolveMergeStrategy ──────────────────────────────────────────────────────
 
@@ -175,33 +176,61 @@ describe('merger: skips if no open PR found (already merged)', () => {
   });
 });
 
-describe('merger: performs done-transition only when FERRY_MERGE_DONE_TRANSITION_ID is set', () => {
+describe('merger: FR32 done-transition resolution (config status name, env override)', () => {
+  // Exercises the exact resolution call merge-action.ts makes before merging.
+  const resolveDone = (
+    tracker: InMemoryTracker,
+    autoTransitionDone: string | null,
+    explicitId: string | undefined,
+  ) =>
+    resolveConfiguredTransitionId({
+      ticketKey: 'PROJ-1',
+      targetStatusName: autoTransitionDone,
+      explicitId,
+      fetchTransitions: (key) => tracker.getTransitions(key),
+    });
+
   afterEach(() => {
     delete process.env.FERRY_MERGE_DONE_TRANSITION_ID;
   });
 
-  it('does NOT post transition when env var is unset', async () => {
-    delete process.env.FERRY_MERGE_DONE_TRANSITION_ID;
+  it('does NOT post transition when config and env are both unset', async () => {
     const tracker = makeTracker();
-    const doneTransitionId = process.env.FERRY_MERGE_DONE_TRANSITION_ID;
+    const doneTransitionId = await resolveDone(tracker, null, undefined);
+    expect(doneTransitionId).toBe('');
     if (doneTransitionId) {
       await tracker.postTransition('PROJ-1', doneTransitionId);
     }
     expect(tracker.postedTransitions).toHaveLength(0);
   });
 
-  it('posts transition when FERRY_MERGE_DONE_TRANSITION_ID is set', async () => {
-    process.env.FERRY_MERGE_DONE_TRANSITION_ID = 'done-transition-id';
+  it('auto-resolves auto_transition_done from the ticket transitions', async () => {
     const tracker = makeTracker();
-    const doneTransitionId = process.env.FERRY_MERGE_DONE_TRANSITION_ID;
-    if (doneTransitionId) {
-      await tracker.postTransition('PROJ-1', doneTransitionId);
-    }
-    expect(tracker.postedTransitions).toHaveLength(1);
-    expect(tracker.postedTransitions[0]).toEqual({
-      key: 'PROJ-1',
-      transitionId: 'done-transition-id',
-    });
+    tracker.seedTransitions('PROJ-1', [
+      { id: '31', toStatus: 'Done' },
+      { id: '4', toStatus: 'To Merge' },
+    ]);
+    const doneTransitionId = await resolveDone(tracker, 'Done', undefined);
+    expect(doneTransitionId).toBe('31');
+    await tracker.postTransition('PROJ-1', doneTransitionId);
+    expect(tracker.postedTransitions[0]).toEqual({ key: 'PROJ-1', transitionId: '31' });
+  });
+
+  it('FERRY_MERGE_DONE_TRANSITION_ID wins over the config status name', async () => {
+    process.env.FERRY_MERGE_DONE_TRANSITION_ID = 'done-transition-id';
+    const tracker = makeTracker(); // no transitions seeded — override must not fetch
+    const doneTransitionId = await resolveDone(
+      tracker,
+      'Done',
+      process.env.FERRY_MERGE_DONE_TRANSITION_ID,
+    );
+    expect(doneTransitionId).toBe('done-transition-id');
+  });
+
+  it('throws before the merge when the configured status matches no transition', async () => {
+    const tracker = makeTracker();
+    tracker.seedTransitions('PROJ-1', [{ id: '4', toStatus: 'To Merge' }]);
+    await expect(resolveDone(tracker, 'Done', undefined)).rejects.toThrow(/transition-not-found/);
   });
 });
 

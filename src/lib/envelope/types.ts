@@ -1,4 +1,11 @@
-export type EventPhase = 'refine' | 'dev' | 'review' | 'iterate' | 'reconcile' | 'merge';
+export type EventPhase =
+  | 'refine'
+  | 'dev'
+  | 'review'
+  | 'iterate'
+  | 'reconcile'
+  | 'merge'
+  | 'transition';
 
 export type EventSource =
   | 'jira-column'
@@ -20,4 +27,10 @@ export interface EventEnvelopeV1 {
   ticket_type?: TicketType;
   /** Story 2-1 (PR #18) compatibility alias — accepted in payloads, normalized to ticket_type. */
   issue_type?: string;
+  /**
+   * Target status name for the generic `ferry-transition` event (single
+   * any-column Jira rule). The router maps it to an agent via
+   * `workflow.agents.*.trigger_column`; never mapped to the merger (ADR-0005).
+   */
+  to_status?: string;
 }

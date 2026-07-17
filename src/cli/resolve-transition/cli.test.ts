@@ -41,6 +41,13 @@ describe('targetStatusFor', () => {
     expect(targetStatusFor(cfg, 'review', 'changes')).toBe('Changes Requested');
   });
 
+  it('maps merge/done to the merger auto_transition_done status', () => {
+    const cfg = cfgWith({ merger: { auto_transition_done: 'Done' } });
+    expect(targetStatusFor(cfg, 'merge', 'done')).toBe('Done');
+    // Default is null — merger done-transition disabled.
+    expect(targetStatusFor(DEFAULT_FERRY_CONFIG, 'merge', 'done')).toBeNull();
+  });
+
   it('returns null when the configured transition is disabled', () => {
     const cfg = cfgWith({
       reviewer: {
@@ -54,6 +61,8 @@ describe('targetStatusFor', () => {
 
   it('throws on an unsupported agent/kind pair (only the reviewer approves)', () => {
     expect(() => targetStatusFor(DEFAULT_FERRY_CONFIG, 'dev', 'approve')).toThrow(UsageError);
+    expect(() => targetStatusFor(DEFAULT_FERRY_CONFIG, 'merge', 'review')).toThrow(UsageError);
+    expect(() => targetStatusFor(DEFAULT_FERRY_CONFIG, 'dev', 'done')).toThrow(UsageError);
   });
 });
 

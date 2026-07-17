@@ -2,15 +2,29 @@ name: Ferry — Resolve Execution Path
 description: >
   Decides whether the agent run takes the bundled-script path or the
   `claude-code-action` path, or the `openai/codex-action` path. Exposes the decision
-  to the wrapping workflow via the `path` and `reason` outputs. Self-contained;
-  no `.ferry/` needed in the consumer workspace.
+  to the wrapping workflow via the `path` and `reason` outputs. When `role` is
+  omitted, also derives which agent the dispatch targets (router model): legacy
+  event types map directly; the generic `ferry-transition` event maps its
+  `to_status` against the `workflow.agents.*.trigger_column` names — never onto
+  the merger (ADR-0005). Self-contained; no `.ferry/` needed in the consumer
+  workspace.
 inputs:
   payload:
     description: JSON-encoded event envelope payload
     required: true
   role:
-    description: Agent role (refiner | developer | reviewer | iterator)
-    required: true
+    description: >-
+      Agent role (refiner | developer | reviewer | iterator | merger). Optional —
+      when empty, the role is derived from `event_type` (+ payload `to_status`
+      for ferry-transition).
+    required: false
+    default: ''
+  event_type:
+    description: >-
+      The repository_dispatch event type (`github.event.action`). Required for
+      role derivation when `role` is not provided.
+    required: false
+    default: ''
   jira_base_url:
     description: Jira base URL
     required: true
@@ -22,11 +36,23 @@ inputs:
     required: true
 outputs:
   path:
-    description: Resolved execution path — `script`, `claude-code`, or `codex-cli`
+    description: >-
+      Resolved execution path — `script`, `claude-code`, `codex-cli`, or `none`
+      when the dispatch maps to no agent (router no-op)
     value: ${{ steps.route.outputs.path }}
   reason:
-    description: Reason for the decision — `default`, `label`, `heuristic`, or `provider-gate`
+    description: >-
+      Reason for the decision — `default`, `label`, `heuristic`,
+      `provider-gate`, or `unmapped-status`
     value: ${{ steps.route.outputs.reason }}
+  role:
+    description: >-
+      Resolved agent role — `refiner`, `developer`, `reviewer`, `iterator`,
+      `merger`, or `none`
+    value: ${{ steps.route.outputs.role }}
+  phase:
+    description: Audit phase token for the resolved role (`refine` … `merge`); empty on no-op
+    value: ${{ steps.route.outputs.phase }}
 runs:
   using: composite
   steps:
@@ -45,6 +71,7 @@ runs:
       env:
         FERRY_ENVELOPE_PAYLOAD: ${{ inputs.payload }}
         FERRY_AGENT_ROLE: ${{ inputs.role }}
+        FERRY_EVENT_TYPE: ${{ inputs.event_type }}
         FERRY_JIRA_BASE_URL: ${{ inputs.jira_base_url }}
         FERRY_JIRA_EMAIL: ${{ inputs.jira_email }}
         FERRY_JIRA_API_TOKEN: ${{ inputs.jira_api_token }}

@@ -228,7 +228,8 @@ var DEFAULT_FERRY_CONFIG = {
         auto_transition_approve: null,
         auto_transition_changes: "Changes Requested"
       },
-      iterator: { trigger_column: "Changes Requested", auto_transition: "In Review" }
+      iterator: { trigger_column: "Changes Requested", auto_transition: "In Review" },
+      merger: { auto_transition_done: null }
     }
   },
   routing: {
@@ -330,6 +331,21 @@ function validateWorkflow(val) {
       errs.push(
         ...validateStringOrNull(iter.auto_transition, "workflow.agents.iterator.auto_transition")
       );
+    }
+  }
+  if (agents.merger !== void 0) {
+    if (!agents.merger || typeof agents.merger !== "object") {
+      errs.push("workflow.agents.merger: must be an object");
+    } else {
+      const merger = agents.merger;
+      if ("auto_transition_done" in merger && merger.auto_transition_done !== void 0) {
+        errs.push(
+          ...validateStringOrNull(
+            merger.auto_transition_done,
+            "workflow.agents.merger.auto_transition_done"
+          )
+        );
+      }
     }
   }
   return errs;
@@ -711,6 +727,7 @@ function mergeWorkflow(rawWorkflow) {
   const devRaw = agents.developer && typeof agents.developer === "object" ? agents.developer : {};
   const revRaw = agents.reviewer && typeof agents.reviewer === "object" ? agents.reviewer : {};
   const iterRaw = agents.iterator && typeof agents.iterator === "object" ? agents.iterator : {};
+  const mergerRaw = agents.merger && typeof agents.merger === "object" ? agents.merger : {};
   return {
     agents: {
       refiner: {
@@ -737,6 +754,13 @@ function mergeWorkflow(rawWorkflow) {
       iterator: {
         trigger_column: str(iterRaw.trigger_column, def.agents.iterator.trigger_column),
         auto_transition: strOrNull(iterRaw, "auto_transition", def.agents.iterator.auto_transition)
+      },
+      merger: {
+        auto_transition_done: strOrNull(
+          mergerRaw,
+          "auto_transition_done",
+          def.agents.merger.auto_transition_done
+        )
       }
     }
   };
@@ -1361,6 +1385,42 @@ function resolveTicketOverrides(labels, logger2, options) {
   };
 }
 
+// src/lib/dispatch/derive-role.ts
+var EVENT_TYPE_TO_ROLE = Object.freeze({
+  "ferry-refine": "refiner",
+  "ferry-dev": "developer",
+  "ferry-review": "reviewer",
+  "ferry-iterate": "iterator",
+  "ferry-merge": "merger"
+});
+var ROLE_TO_PHASE = Object.freeze({
+  refiner: "refine",
+  developer: "dev",
+  reviewer: "review",
+  iterator: "iterate",
+  merger: "merge"
+});
+function roleToPhase(role) {
+  return ROLE_TO_PHASE[role];
+}
+function deriveAgentRole(eventType, toStatus, cfg) {
+  const direct = EVENT_TYPE_TO_ROLE[eventType];
+  if (direct) return direct;
+  if (eventType !== "ferry-transition") return "none";
+  const wanted = toStatus?.trim().toLowerCase();
+  if (!wanted) return "none";
+  const agents = cfg.workflow.agents;
+  const columnToRole = [
+    [agents.refiner.trigger_column, "refiner"],
+    [agents.developer.trigger_column, "developer"],
+    [agents.reviewer.trigger_column, "reviewer"],
+    [agents.iterator.trigger_column, "iterator"]
+    // merger deliberately absent — ADR-0005 no-auto-merge invariant.
+  ];
+  const hit = columnToRole.find(([column]) => column.trim().toLowerCase() === wanted);
+  return hit ? hit[1] : "none";
+}
+
 // src/lib/cc-wrappers/routing.ts
 function markerRoleToken(role) {
   return role === "developer" ? "dev" : role;
@@ -1502,8 +1562,20 @@ async function runRouteAction() {
     process.exit(1);
   }
   const envelope = validateEnvelope(parsed);
-  const role = parseRole(process.env.FERRY_AGENT_ROLE);
   const config = loadFerryConfig(process.cwd());
+  const explicitRole = process.env.FERRY_AGENT_ROLE;
+  const role = explicitRole ? parseRole(explicitRole) : deriveAgentRole(process.env.FERRY_EVENT_TYPE ?? "", envelope.to_status, config);
+  if (role === "none") {
+    logger.info("dispatch maps to no agent \u2014 no-op", {
+      eventType: process.env.FERRY_EVENT_TYPE ?? "(unset)",
+      toStatus: envelope.to_status ?? "(unset)"
+    });
+    writeOutput("path", "none");
+    writeOutput("reason", "unmapped-status");
+    writeOutput("role", "none");
+    writeOutput("phase", "");
+    return { path: "none", reason: "unmapped-status", role: "none" };
+  }
   const jiraBaseUrl = requireEnv("FERRY_JIRA_BASE_URL");
   const jiraEmail = requireEnv("FERRY_JIRA_EMAIL");
   const jiraApiToken = requireEnv("FERRY_JIRA_API_TOKEN");
@@ -1527,9 +1599,11 @@ async function runRouteAction() {
   });
   writeOutput("path", decision.path);
   writeOutput("reason", decision.reason);
+  writeOutput("role", role);
+  writeOutput("phase", roleToPhase(role));
   process.stdout.write(`${formatExecutionPathAudit(role, envelope.event_id, decision)}
 `);
-  return decision;
+  return { ...decision, role };
 }
 var invokedDirectly = typeof process !== "undefined" && process.argv[1]?.endsWith("route-action.js");
 if (invokedDirectly) {

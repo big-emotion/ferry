@@ -230,6 +230,21 @@ describe('Quick install — secret names match agent code (README §Step 2)', ()
     ).toContain('process.env.FERRY_REVIEW_TRANSITION_ID');
   });
 
+  it('merger agent auto-resolves the FR32 done-transition (FERRY_MERGE_DONE_TRANSITION_ID override)', async () => {
+    const code = await readFile('src/agents/merger/merge-action.ts');
+    expect(code, 'merge-action.ts must auto-resolve via resolveConfiguredTransitionId').toContain(
+      'resolveConfiguredTransitionId(',
+    );
+    expect(
+      code,
+      'merge-action.ts must resolve from the merger auto_transition_done status',
+    ).toContain('targetStatusName: ferryCfg.workflow.agents.merger.auto_transition_done');
+    expect(
+      code,
+      'merge-action.ts must still honor FERRY_MERGE_DONE_TRANSITION_ID as override',
+    ).toContain('process.env.FERRY_MERGE_DONE_TRANSITION_ID');
+  });
+
   it('shared agent runtime reads FERRY_ENVELOPE_PAYLOAD', async () => {
     // Since the runAgent() helper extraction, all agent entrypoints route
     // through src/lib/agent-runtime/run-agent.ts — that's where the env var

@@ -79,12 +79,23 @@ export interface IteratorWorkflowAgentConfig {
   auto_transition: string | null;
 }
 
+/**
+ * Deliberately has no trigger_column: the Merger is only ever triggered by the
+ * Reviewer-emitted `ferry-merge` dispatch, never mapped from a Jira column
+ * (ADR-0005 no-auto-merge invariant).
+ */
+export interface MergerWorkflowAgentConfig {
+  /** Status name to transition into after a successful merge (FR32). null = no transition. */
+  auto_transition_done: string | null;
+}
+
 export interface WorkflowConfig {
   agents: {
     refiner: RefinerWorkflowAgentConfig;
     developer: DeveloperWorkflowAgentConfig;
     reviewer: ReviewerWorkflowAgentConfig;
     iterator: IteratorWorkflowAgentConfig;
+    merger: MergerWorkflowAgentConfig;
   };
 }
 
@@ -221,6 +232,7 @@ export const DEFAULT_FERRY_CONFIG: FerryConfig = {
         auto_transition_changes: 'Changes Requested',
       },
       iterator: { trigger_column: 'Changes Requested', auto_transition: 'In Review' },
+      merger: { auto_transition_done: null },
     },
   },
   routing: {
@@ -338,6 +350,21 @@ function validateWorkflow(val: unknown): ValidationError[] {
       errs.push(
         ...validateStringOrNull(iter.auto_transition, 'workflow.agents.iterator.auto_transition'),
       );
+    }
+  }
+  if (agents.merger !== undefined) {
+    if (!agents.merger || typeof agents.merger !== 'object') {
+      errs.push('workflow.agents.merger: must be an object');
+    } else {
+      const merger = agents.merger as Record<string, unknown>;
+      if ('auto_transition_done' in merger && merger.auto_transition_done !== undefined) {
+        errs.push(
+          ...validateStringOrNull(
+            merger.auto_transition_done,
+            'workflow.agents.merger.auto_transition_done',
+          ),
+        );
+      }
     }
   }
 
@@ -819,6 +846,10 @@ function mergeWorkflow(rawWorkflow: unknown): WorkflowConfig {
     agents.iterator && typeof agents.iterator === 'object'
       ? (agents.iterator as Record<string, unknown>)
       : {};
+  const mergerRaw =
+    agents.merger && typeof agents.merger === 'object'
+      ? (agents.merger as Record<string, unknown>)
+      : {};
 
   return {
     agents: {
@@ -846,6 +877,13 @@ function mergeWorkflow(rawWorkflow: unknown): WorkflowConfig {
       iterator: {
         trigger_column: str(iterRaw.trigger_column, def.agents.iterator.trigger_column),
         auto_transition: strOrNull(iterRaw, 'auto_transition', def.agents.iterator.auto_transition),
+      },
+      merger: {
+        auto_transition_done: strOrNull(
+          mergerRaw,
+          'auto_transition_done',
+          def.agents.merger.auto_transition_done,
+        ),
       },
     },
   };

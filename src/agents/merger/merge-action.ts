@@ -7,6 +7,7 @@ import {
   loadFerryConfigFromBaseBranch,
   byEventId,
 } from '../../lib/agent-runtime/index.js';
+import { resolveConfiguredTransitionId } from '../../lib/io/tracker/transition-match.js';
 import type { EventEnvelopeV1 } from '../../lib/envelope/types.js';
 import type { Logger } from '../../lib/agent-runtime/index.js';
 
@@ -61,7 +62,14 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
 
   logger.info('merging PR', { prNumber, strategy, branch: branchName });
 
-  const doneTransitionId = process.env.FERRY_MERGE_DONE_TRANSITION_ID;
+  // Resolved BEFORE the merge so a misconfigured status name fails while
+  // nothing irreversible has happened yet (same model as the other agents).
+  const doneTransitionId = await resolveConfiguredTransitionId({
+    ticketKey,
+    targetStatusName: ferryCfg.workflow.agents.merger.auto_transition_done,
+    explicitId: process.env.FERRY_MERGE_DONE_TRANSITION_ID,
+    fetchTransitions: (key) => tracker.getTransitions(key),
+  });
   const transitionNote = doneTransitionId ? ' — transitioning ticket.' : '.';
 
   await runner.mergePR({ owner, repo, prNumber }, strategy);

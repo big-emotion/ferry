@@ -645,7 +645,8 @@ var DEFAULT_FERRY_CONFIG = {
         auto_transition_approve: null,
         auto_transition_changes: "Changes Requested"
       },
-      iterator: { trigger_column: "Changes Requested", auto_transition: "In Review" }
+      iterator: { trigger_column: "Changes Requested", auto_transition: "In Review" },
+      merger: { auto_transition_done: null }
     }
   },
   routing: {
@@ -747,6 +748,21 @@ function validateWorkflow(val) {
       errs.push(
         ...validateStringOrNull(iter.auto_transition, "workflow.agents.iterator.auto_transition")
       );
+    }
+  }
+  if (agents.merger !== void 0) {
+    if (!agents.merger || typeof agents.merger !== "object") {
+      errs.push("workflow.agents.merger: must be an object");
+    } else {
+      const merger = agents.merger;
+      if ("auto_transition_done" in merger && merger.auto_transition_done !== void 0) {
+        errs.push(
+          ...validateStringOrNull(
+            merger.auto_transition_done,
+            "workflow.agents.merger.auto_transition_done"
+          )
+        );
+      }
     }
   }
   return errs;
@@ -1128,6 +1144,7 @@ function mergeWorkflow(rawWorkflow) {
   const devRaw = agents.developer && typeof agents.developer === "object" ? agents.developer : {};
   const revRaw = agents.reviewer && typeof agents.reviewer === "object" ? agents.reviewer : {};
   const iterRaw = agents.iterator && typeof agents.iterator === "object" ? agents.iterator : {};
+  const mergerRaw = agents.merger && typeof agents.merger === "object" ? agents.merger : {};
   return {
     agents: {
       refiner: {
@@ -1154,6 +1171,13 @@ function mergeWorkflow(rawWorkflow) {
       iterator: {
         trigger_column: str(iterRaw.trigger_column, def.agents.iterator.trigger_column),
         auto_transition: strOrNull(iterRaw, "auto_transition", def.agents.iterator.auto_transition)
+      },
+      merger: {
+        auto_transition_done: strOrNull(
+          mergerRaw,
+          "auto_transition_done",
+          def.agents.merger.auto_transition_done
+        )
       }
     }
   };
@@ -10774,7 +10798,12 @@ async function main5(envelope, logger) {
   const prNumber = prs[0].number;
   const strategy = resolveMergeStrategy();
   logger.info("merging PR", { prNumber, strategy, branch: branchName });
-  const doneTransitionId = process.env.FERRY_MERGE_DONE_TRANSITION_ID;
+  const doneTransitionId = await resolveConfiguredTransitionId({
+    ticketKey,
+    targetStatusName: ferryCfg.workflow.agents.merger.auto_transition_done,
+    explicitId: process.env.FERRY_MERGE_DONE_TRANSITION_ID,
+    fetchTransitions: (key) => tracker.getTransitions(key)
+  });
   const transitionNote = doneTransitionId ? " \u2014 transitioning ticket." : ".";
   await runner.mergePR({ owner, repo, prNumber }, strategy);
   await tracker.postComment(

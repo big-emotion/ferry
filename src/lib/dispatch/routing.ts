@@ -27,7 +27,11 @@ export type PhaseRoute = Readonly<{
   dispatchType: DispatchType;
 }>;
 
-type RoutingTable = Readonly<Record<Exclude<EventPhase, 'reconcile' | 'merge'>, PhaseRoute>>;
+// 'transition' is the generic any-column event routed by the router workflow
+// itself, not the dispatcher — it never appears in this table.
+type RoutingTable = Readonly<
+  Record<Exclude<EventPhase, 'reconcile' | 'merge' | 'transition'>, PhaseRoute>
+>;
 
 export const PHASE_TO_WORKFLOW: RoutingTable = Object.freeze({
   refine: Object.freeze({ workflow: 'ferry-refine.yml', dispatchType: 'ferry-refine' }),

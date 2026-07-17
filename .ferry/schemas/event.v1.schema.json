@@ -12,13 +12,16 @@
       "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$"
     },
     "ticket_key": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]+-\\d+$" },
-    "phase": { "enum": ["refine", "dev", "review", "iterate", "reconcile", "merge"] },
+    "phase": {
+      "enum": ["refine", "dev", "review", "iterate", "reconcile", "merge", "transition"]
+    },
     "source": {
       "enum": ["jira-column", "jira-label", "jira-mention", "reconciler", "ferry-agent"]
     },
     "instructions": { "type": "string" },
     "ticket_type": { "enum": ["Story", "Task", "Bug", "Spike"] },
     "issue_type": { "type": "string" },
+    "to_status": { "type": "string", "maxLength": 255 },
     "ts": { "type": "string", "minLength": 1 }
   },
   "additionalProperties": false

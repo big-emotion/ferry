@@ -469,6 +469,7 @@ describe('loadFerryConfig', () => {
       expect(cfg.workflow.agents.reviewer.auto_transition_changes).toBe('Changes Requested');
       expect(cfg.workflow.agents.iterator.trigger_column).toBe('Changes Requested');
       expect(cfg.workflow.agents.iterator.auto_transition).toBe('In Review');
+      expect(cfg.workflow.agents.merger.auto_transition_done).toBeNull();
     });
 
     it('merges partial workflow.agents from config', () => {
@@ -488,6 +489,43 @@ describe('loadFerryConfig', () => {
       // Non-configured agents keep defaults
       expect(cfg.workflow.agents.reviewer.trigger_column).toBe('In Review');
       expect(cfg.workflow.agents.reviewer.auto_transition_changes).toBe('Changes Requested');
+      expect(cfg.workflow.agents.merger.auto_transition_done).toBeNull();
+    });
+
+    it('allows setting auto_transition_done for merger', () => {
+      mockConfigFile(
+        'ferry.config.json',
+        JSON.stringify({ workflow: { agents: { merger: { auto_transition_done: 'Done' } } } }),
+      );
+      const cfg = loadFerryConfig('/repo');
+      expect(cfg.workflow.agents.merger.auto_transition_done).toBe('Done');
+    });
+
+    it('allows null auto_transition_done for merger', () => {
+      mockConfigFile(
+        'ferry.config.json',
+        JSON.stringify({ workflow: { agents: { merger: { auto_transition_done: null } } } }),
+      );
+      const cfg = loadFerryConfig('/repo');
+      expect(cfg.workflow.agents.merger.auto_transition_done).toBeNull();
+    });
+
+    it('throws on invalid auto_transition_done type', () => {
+      mockConfigFile(
+        'ferry.config.json',
+        JSON.stringify({ workflow: { agents: { merger: { auto_transition_done: 42 } } } }),
+      );
+      let thrown: FerryError | null = null;
+      try {
+        loadFerryConfig('/repo');
+      } catch (e) {
+        thrown = e as FerryError;
+      }
+      expect(thrown).toBeInstanceOf(FerryError);
+      const errors = thrown?.context?.errors as string[];
+      expect(errors.some((e) => e.includes('workflow.agents.merger.auto_transition_done'))).toBe(
+        true,
+      );
     });
 
     it('allows null auto_transition for developer', () => {
@@ -573,6 +611,7 @@ describe('loadFerryConfig', () => {
                 auto_transition_changes: 'Needs Work',
               },
               iterator: { trigger_column: 'Needs Work', auto_transition: 'Code Review' },
+              merger: { auto_transition_done: 'Deployed' },
             },
           },
         }),
@@ -584,6 +623,7 @@ describe('loadFerryConfig', () => {
       expect(cfg.workflow.agents.reviewer.auto_transition_approve).toBe('Ready to Deploy');
       expect(cfg.workflow.agents.reviewer.auto_transition_changes).toBe('Needs Work');
       expect(cfg.workflow.agents.iterator.auto_transition).toBe('Code Review');
+      expect(cfg.workflow.agents.merger.auto_transition_done).toBe('Deployed');
     });
   });
 

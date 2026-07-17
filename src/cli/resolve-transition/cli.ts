@@ -5,10 +5,10 @@ import type { TrackerTransition } from '../../lib/io/tracker/types.js';
 /** A usage / configuration error — reported to stderr with exit 1, no stack trace. */
 export class UsageError extends Error {}
 
-export const RESOLVE_AGENTS = ['dev', 'iterate', 'review'] as const;
+export const RESOLVE_AGENTS = ['dev', 'iterate', 'review', 'merge'] as const;
 export type ResolveAgent = (typeof RESOLVE_AGENTS)[number];
 
-export const RESOLVE_KINDS = ['review', 'approve', 'changes'] as const;
+export const RESOLVE_KINDS = ['review', 'approve', 'changes', 'done'] as const;
 export type ResolveKind = (typeof RESOLVE_KINDS)[number];
 
 export interface ResolveTransitionArgs {
@@ -25,8 +25,8 @@ export interface ResolveTransitionArgs {
 /**
  * The config `auto_transition*` status name for an (agent, kind) pair, or null
  * when that transition is disabled. Throws on an unsupported pair — only the
- * reviewer approves/requests-changes; the developer and iterator advance to the
- * review column.
+ * reviewer approves/requests-changes, the developer and iterator advance to the
+ * review column, and only the merger moves to done (FR32).
  */
 export function targetStatusFor(
   cfg: FerryConfig,
@@ -41,6 +41,9 @@ export function targetStatusFor(
   if (agent === 'review') {
     if (kind === 'approve') return agents.reviewer.auto_transition_approve;
     if (kind === 'changes') return agents.reviewer.auto_transition_changes;
+  }
+  if (agent === 'merge' && kind === 'done') {
+    return agents.merger.auto_transition_done;
   }
   throw new UsageError(`unsupported agent/kind: ${agent}/${kind}`);
 }
