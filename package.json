@@ -17,7 +17,8 @@
     "ferry-jira-mcp": "./dist/cli/jira-mcp/index.js",
     "ferry-codex-config": "./dist/cli/codex-config/index.js",
     "ferry-cc-prompt": "./dist/cli/cc-prompt/index.js",
-    "ferry-action-prompt": "./dist/cli/cc-prompt/index.js"
+    "ferry-action-prompt": "./dist/cli/cc-prompt/index.js",
+    "ferry-resolve-transition": "./dist/cli/resolve-transition/index.js"
   },
   "files": [
     "dist/cli/",
@@ -62,6 +63,7 @@
     "ferry-cc-prompt": "tsx src/cli/cc-prompt/index.ts",
     "ferry-codex-config": "tsx src/cli/codex-config/index.ts",
     "ferry-action-prompt": "tsx src/cli/cc-prompt/index.ts",
+    "ferry-resolve-transition": "tsx src/cli/resolve-transition/index.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
