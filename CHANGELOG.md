@@ -11,6 +11,14 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.1.2] — 2026-07-19
+
+### Changed
+
+- **Per-agent default models retiered to the current Claude line (Opus 4.8 + Sonnet 5).** `DEFAULT_FERRY_CONFIG.models` now defaults the Refiner, Reviewer, and Merger to `claude-opus-4-8` and the Developer and Iterator to `claude-sonnet-5`; previously every agent fell back to `claude-sonnet-4-6` (and the script-path Developer default was `claude-opus-4-5`). The `ferry-init` templates (GitHub + GitLab), the consumer stubs, and the dogfood router carry the same per-agent fallbacks — the router now selects the Opus/Sonnet default from the resolved role instead of a single shared fallback. `pricing.ts` gains exact rate rows for `claude-opus-4-8` and `claude-sonnet-5` so cost accounting no longer prices Sonnet 5 at the legacy Opus fallback rate, and `reconcile.ts` maps both models to their Anthropic invoice names. Consumers who pin explicit `FERRY_*_MODEL` variables or a `models:` config block are unaffected. (#429)
+
+---
+
 ## [1.1.1] — 2026-07-19
 
 ### Fixed
@@ -593,7 +601,8 @@ First stable release. Ferry's public contract — the `event.v1` dispatch schema
 
 ---
 
-[Unreleased]: https://github.com/big-emotion/ferry/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/big-emotion/ferry/compare/v1.1.2...HEAD
+[1.1.2]: https://github.com/big-emotion/ferry/releases/tag/v1.1.2
 [1.1.1]: https://github.com/big-emotion/ferry/releases/tag/v1.1.1
 [1.1.0]: https://github.com/big-emotion/ferry/releases/tag/v1.1.0
 [1.0.3]: https://github.com/big-emotion/ferry/releases/tag/v1.0.3

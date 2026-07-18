@@ -196,10 +196,10 @@ describe('workflowTemplates — claude-code path single-step shape', () => {
   it('claude_args --mcp-config pins the ferry-jira-mcp package to the templated version', () => {
     // ferry-init/ferry-update must template the version so the MCP server the
     // agent launches matches the workflow's pinned Ferry release.
-    for (const tmpl of workflowTemplates('v1.1.1')) {
+    for (const tmpl of workflowTemplates('v1.1.2')) {
       expect(tmpl.content, `${tmpl.filename}: --mcp-config missing`).toContain('--mcp-config');
       expect(tmpl.content, `${tmpl.filename}: ferry-jira-mcp package not version-pinned`).toContain(
-        '"@big-emotion/ferry@v1.1.1"',
+        '"@big-emotion/ferry@v1.1.2"',
       );
       expect(tmpl.content, `${tmpl.filename}: ferry-jira-mcp package left unpinned`).not.toContain(
         '"@big-emotion/ferry"',
@@ -306,14 +306,14 @@ describe('workflowTemplates — codex-cli path single-step shape', () => {
   });
 
   it('codex job generates codex-home/config.toml with ferry-codex-config before the action step', () => {
-    for (const tmpl of workflowTemplates('v1.1.1')) {
+    for (const tmpl of workflowTemplates('v1.1.2')) {
       expect(tmpl.content, `${tmpl.filename}: missing ferry-codex-config step`).toContain(
         'ferry-codex-config > codex-home/config.toml',
       );
       expect(
         tmpl.content,
         `${tmpl.filename}: ferry-codex-config package must be version-pinned`,
-      ).toContain('@big-emotion/ferry@v1.1.1');
+      ).toContain('@big-emotion/ferry@v1.1.2');
     }
   });
 });
@@ -676,7 +676,7 @@ describe('workflowTemplates — execution path variants', () => {
 });
 
 describe('routerWorkflowTemplate — thin router (claude-code path)', () => {
-  const router = routerWorkflowTemplate('v1.1.1');
+  const router = routerWorkflowTemplate('v1.1.2');
 
   it('is named ferry-router.yml (covered by the CODEOWNERS ferry-*.yml glob)', () => {
     expect(router.filename).toBe('ferry-router.yml');
@@ -700,17 +700,17 @@ describe('routerWorkflowTemplate — thin router (claude-code path)', () => {
   });
 
   it('routes via ferry-route with event_type and NO hardcoded role', () => {
-    expect(router.content).toContain('uses: big-emotion/ferry/.github/actions/ferry-route@v1.1.1');
+    expect(router.content).toContain('uses: big-emotion/ferry/.github/actions/ferry-route@v1.1.2');
     expect(router.content).toContain('event_type: ${{ github.event.action }}');
     expect(router.content).not.toMatch(/^\s+role: (refiner|developer|reviewer|iterator|merger)$/m);
   });
 
   it('runs agents through the shared ferry-run-claude-agent composite', () => {
     expect(router.content).toContain(
-      'uses: big-emotion/ferry/.github/actions/ferry-run-claude-agent@v1.1.1',
+      'uses: big-emotion/ferry/.github/actions/ferry-run-claude-agent@v1.1.2',
     );
     expect(router.content).toContain('role: ${{ needs.route.outputs.cc_agent }}');
-    expect(router.content).toContain('ferry_version: v1.1.1');
+    expect(router.content).toContain('ferry_version: v1.1.2');
   });
 
   it('resolves the model dynamically from the role model_var', () => {
@@ -734,7 +734,7 @@ describe('routerWorkflowTemplate — thin router (claude-code path)', () => {
 
   it('gates the reviewer behind ferry-ci-gate and skips run-agent when CI is red', () => {
     expect(router.content).toContain(
-      'uses: big-emotion/ferry/.github/actions/ferry-ci-gate@v1.1.1',
+      'uses: big-emotion/ferry/.github/actions/ferry-ci-gate@v1.1.2',
     );
     expect(router.content).toContain(
       "needs.route.outputs.role != 'reviewer' || needs.ci-gate.outputs.proceed == 'true'",
@@ -774,7 +774,7 @@ describe('routerWorkflowTemplate — thin router (claude-code path)', () => {
   it('embeds the pinned version everywhere and never @main', () => {
     expect(router.content).not.toContain('@main');
     const ferryRefs =
-      router.content.match(/big-emotion\/ferry\/\.github\/actions\/[a-z-]+@v1\.1\.1/g) ?? [];
+      router.content.match(/big-emotion\/ferry\/\.github\/actions\/[a-z-]+@v1\.1\.2/g) ?? [];
     expect(ferryRefs.length).toBeGreaterThanOrEqual(4);
   });
 
