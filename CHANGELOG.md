@@ -9,9 +9,27 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+---
+
+## [0.18.0] — 2026-07-18
+
 ### Added
 
+- **Thin router install model (claude-code path)** — an alternative to the five per-agent workflows: one `ferry-router.yml` workflow + one any-column Jira Automation rule. A single rule fires on every status change and sends `event_type: ferry-transition` with `to_status`; `ferry-route` maps the status to an agent via `workflow.agents.*.trigger_column` and no-ops on statuses Ferry does not own. A new shared composite action `ferry-run-claude-agent` (role-parameterized) absorbs the per-consumer YAML that the legacy stubs inlined — branch resolution, checkout (with an optional push token so CI re-triggers), dependency bootstrap (`FERRY_PRE_AGENT_COMMAND`), Jira transition resolution, prompt resolution, the `claude-code-action` call, and execution-log capture. `ferry-init` installs the router + single rule on the `claude-code` path; the per-agent stubs remain available for the `script` / `codex-cli` paths. The Merger is unreachable from a Jira column move — only the Reviewer-emitted `ferry-merge` dispatch triggers it (ADR-0005). See `docs/INSTALL.md` → Router model and `MIGRATIONS.md`.
+- **Automatic Jira transition-id resolution** — the Developer, Reviewer, Iterator and Merger agents now resolve workflow transition ids at runtime from the target status names configured in `ferry.config` (`workflow.agents.*.auto_transition*`), matching on the transition's target status. The `FERRY_REVIEW_TRANSITION_ID` / `FERRY_ITER_TRANSITION_ID` / `FERRY_APPROVE_TRANSITION_ID` / `FERRY_MERGE_DONE_TRANSITION_ID` secrets remain supported as optional explicit overrides, so no manual Jira-API lookup is required. A new `ferry-resolve-transition` CLI exposes the resolution to the workflow layer.
+- **`workflow.agents.merger.auto_transition_done` config (FR32)** — the Merger's post-merge Jira transition is now configurable by status name (script path), auto-resolved at runtime; `FERRY_MERGE_DONE_TRANSITION_ID` stays as an explicit override. The `ferry-run-merger` composite gained the previously-missing `ferry_merge_done_transition_id` input/env wiring.
 - **Complete `codex-cli` workflow execution path** — the generated consumer workflows now include a real `run-agent-codex-cli` job for all five roles, backed by `openai/codex-action`, `ferry-action-prompt --path codex-cli`, and a generated `codex-home/config.toml` that wires Ferry's Jira MCP server into Codex. `ferry-init` now offers `codex-cli` as an install-time execution path, `ferry-doctor` validates `OPENAI_API_KEY` / provider-gate / workflow shape for that path, and `ferry-update` documents the regeneration step in `MIGRATIONS.md`.
+
+### Changed
+
+- **Event envelope schema v1** gained an optional `to_status` field and a `transition` phase value for the generic `ferry-transition` event (backward compatible — existing per-agent payloads are unaffected).
+- **`ferry-doctor`, `ferry-update` and `ferry-uninstall` are router-aware** — doctor validates the router workflow shape (and flags leftover legacy stubs that would double-fire), no longer requires the transition-id secrets, and resolves the provider secret per execution path (`CLAUDE_CODE_OAUTH_TOKEN` on the claude-code path, not `ANTHROPIC_API_KEY`); update manages mid-migration repos as router installs; uninstall sweeps the router workflow and the ops stubs.
+- **The Reviewer CI gate auto-resolves the FR24 changes-transition** from the reviewer's `auto_transition_changes` status name when the explicit secret is unset, so a red-CI ticket is transitioned to Changes Requested without a manually-looked-up transition id.
+
+### Fixed
+
+- **FR32 done-transition wiring gap** — `FERRY_MERGE_DONE_TRANSITION_ID` was read by the merger but never passed through the `ferry-merge.yml` stub / `ferry-run-merger` composite, so the post-merge transition was inert on the GitHub path. It is now wired, and `docs/CONFIGURATION.md`'s "all four values are wired" claim corrected.
+- **`npm audit` supply-chain** — patched newly-published high-severity transitive advisories in `ws` and `protobufjs` (via `@google/genai`) and `hono` (via `@modelcontextprotocol/sdk`) within existing semver ranges.
 
 ---
 
@@ -501,7 +519,8 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
-[Unreleased]: https://github.com/big-emotion/ferry/compare/v0.17.0...HEAD
+[Unreleased]: https://github.com/big-emotion/ferry/compare/v0.18.0...HEAD
+[0.18.0]: https://github.com/big-emotion/ferry/releases/tag/v0.18.0
 [0.17.0]: https://github.com/big-emotion/ferry/releases/tag/v0.17.0
 [0.16.0]: https://github.com/big-emotion/ferry/releases/tag/v0.16.0
 [0.15.1]: https://github.com/big-emotion/ferry/releases/tag/v0.15.1

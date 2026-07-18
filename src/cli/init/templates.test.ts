@@ -196,10 +196,10 @@ describe('workflowTemplates — claude-code path single-step shape', () => {
   it('claude_args --mcp-config pins the ferry-jira-mcp package to the templated version', () => {
     // ferry-init/ferry-update must template the version so the MCP server the
     // agent launches matches the workflow's pinned Ferry release.
-    for (const tmpl of workflowTemplates('v0.17.0')) {
+    for (const tmpl of workflowTemplates('v0.18.0')) {
       expect(tmpl.content, `${tmpl.filename}: --mcp-config missing`).toContain('--mcp-config');
       expect(tmpl.content, `${tmpl.filename}: ferry-jira-mcp package not version-pinned`).toContain(
-        '"@big-emotion/ferry@v0.17.0"',
+        '"@big-emotion/ferry@v0.18.0"',
       );
       expect(tmpl.content, `${tmpl.filename}: ferry-jira-mcp package left unpinned`).not.toContain(
         '"@big-emotion/ferry"',
@@ -305,14 +305,14 @@ describe('workflowTemplates — codex-cli path single-step shape', () => {
   });
 
   it('codex job generates codex-home/config.toml with ferry-codex-config before the action step', () => {
-    for (const tmpl of workflowTemplates('v0.17.0')) {
+    for (const tmpl of workflowTemplates('v0.18.0')) {
       expect(tmpl.content, `${tmpl.filename}: missing ferry-codex-config step`).toContain(
         'ferry-codex-config > codex-home/config.toml',
       );
       expect(
         tmpl.content,
         `${tmpl.filename}: ferry-codex-config package must be version-pinned`,
-      ).toContain('@big-emotion/ferry@v0.17.0');
+      ).toContain('@big-emotion/ferry@v0.18.0');
     }
   });
 });
