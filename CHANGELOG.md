@@ -9,6 +9,10 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+---
+
+## [1.0.2] — 2026-07-18
+
 ### Fixed
 
 - **The Merger never ran on the `claude-code` path — `claude-code-action` blocked its own trigger.** By design the Merger is reached only by the `ferry-merge` event the Reviewer dispatches on approval (ADR-0005), so the merge run's actor is Ferry's Claude GitHub App (`claude[bot]`), never a human. `anthropics/claude-code-action`'s human-actor gate rejects any bot actor unless it is in `allowed_bots` (default empty), so `ferry-run-claude-agent` — which never set that input — made the Merger structurally unrunnable (it failed with `Workflow initiated by non-human actor: claude (type: Bot)`). The composite now passes `allowed_bots: claude`, allow-listing Ferry's own bot only. Human-triggered roles (refiner/dev/review/iterate, whose runs carry a human actor) are unaffected — `allowed_bots` is consulted only for bot actors.
@@ -565,7 +569,9 @@ First stable release. Ferry's public contract — the `event.v1` dispatch schema
 
 ---
 
-[Unreleased]: https://github.com/big-emotion/ferry/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/big-emotion/ferry/compare/v1.0.2...HEAD
+[1.0.2]: https://github.com/big-emotion/ferry/releases/tag/v1.0.2
+[1.0.1]: https://github.com/big-emotion/ferry/releases/tag/v1.0.1
 [1.0.0]: https://github.com/big-emotion/ferry/releases/tag/v1.0.0
 [0.19.0]: https://github.com/big-emotion/ferry/releases/tag/v0.19.0
 [0.18.2]: https://github.com/big-emotion/ferry/releases/tag/v0.18.2

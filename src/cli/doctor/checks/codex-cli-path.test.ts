@@ -48,7 +48,7 @@ jobs:
   route:
     name: Resolve execution path
     steps:
-      - uses: big-emotion/ferry/.github/actions/ferry-route@v1.0.1
+      - uses: big-emotion/ferry/.github/actions/ferry-route@v1.0.2
   run-agent-codex-cli:
     steps:
       - uses: openai/codex-action@a26d2d4d8b78a694338b8e3715c3630254340b2c # v1
@@ -60,7 +60,7 @@ jobs:
     name: Resolve execution path
   run-agent:
     steps:
-      - uses: big-emotion/ferry/.github/actions/ferry-run-refiner@v1.0.1
+      - uses: big-emotion/ferry/.github/actions/ferry-run-refiner@v1.0.2
 `;
 
 const ALL_OPENAI_CONFIG = {
