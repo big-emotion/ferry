@@ -60,7 +60,7 @@ CLI entrypoints live in `src/reconciler/run.ts` and `src/cost-governance/run.ts`
 - **Reconciler** (`src/reconciler/reconcile.ts` + `run.ts`): Sweeps for missed work, re-triggers stalled tickets
 - **Daily audit** (`src/cost-governance/daily-check.ts` + `run.ts`): Checks provider spend against caps, auto-pauses tickets via `ferry:paused` label when spend reaches 50% of monthly limit
 
-The only workflow files in this repo are the agent dispatch workflows (`refine.yml`, `dev.yml`, `review.yml`, `iterate.yml`), the CI gate (`ferry-ci.yml`), CodeQL SAST (`codeql.yml`), and Claude Code helpers (`claude.yml`, `claude-code-review.yml`).
+The only workflow files in this repo are the dogfood consumer install (`ferry-router.yml` — Ferry running on its own repo, pinned to the latest release; FER-1), the CI gate (`ferry-ci.yml`), the release pipeline (`release.yml`), CodeQL SAST (`codeql.yml`), and Claude Code helpers (`claude.yml`, `claude-code-review.yml`).
 
 ### 5. **Composite Actions** (`.github/actions/`)
 

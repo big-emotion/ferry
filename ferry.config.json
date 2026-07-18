@@ -3,5 +3,18 @@
   "ticket_types": {
     "refine_allowlist": ["Tâche"],
     "dev_allowlist": ["Tâche"]
+  },
+  "workflow": {
+    "agents": {
+      "refiner": { "trigger_column": "REFINEMENT", "auto_transition": null },
+      "developer": { "trigger_column": "IN DEVELOPMENT", "auto_transition": "Revue en cours" },
+      "reviewer": {
+        "trigger_column": "Revue en cours",
+        "auto_transition_approve": "TO MERGE",
+        "auto_transition_changes": "CHANGES REQUESTED"
+      },
+      "iterator": { "trigger_column": "CHANGES REQUESTED", "auto_transition": "Revue en cours" },
+      "merger": { "auto_transition_done": "Terminé(e)" }
+    }
   }
 }

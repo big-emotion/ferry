@@ -115,11 +115,13 @@ git grep -nE "@v[0-9]+(\.[0-9]+){0,2}\b|FERRY_REF:|tags/v[0-9]|@big-emotion/ferr
 **Files that MUST be updated (release-coupled):**
 
 1. **`examples/consumer-setup/workflows/ferry-{refine,dev,review,iterate,merge}.yml`** — the 5 agent stubs. Each has several `uses: big-emotion/ferry/.github/actions/ferry-*@v<version>` lines, `npx -y -p @big-emotion/ferry@v<version>` invocations (`ferry-cc-prompt`, and `ferry-jira-mcp` **inside the `--mcp-config` JSON string**), and header comments citing the pinned version.
-2. **`examples/consumer-setup/workflows/ferry-{reconcile,cost-daily}.yml`** — the 2 ops stubs. Each has `FERRY_REF: v<version>` (no `@` prefix — it's a checkout ref env value).
-3. **`docs/INSTALL.md`** — the SHA-pinning command (`gh api repos/big-emotion/ferry/git/refs/tags/v<version>`) and any `@v<version>` prose.
-4. **`docs/RELEASING.md`** — the immutable-tag table cells (`v<version>`) and its SHA-pinning example.
-5. **`docs/CONFIGURATION.md`** — `uses: big-emotion/ferry/.github/actions/*@v<version>` example lines.
-6. **Structural tests** — these hardcode the current tag and are the CI gate that catches drift:
+2. **`examples/consumer-setup/workflows/ferry-router.yml`** — the router stub: `uses: big-emotion/ferry/.github/actions/*@v<version>` lines, the `ferry_version: v<version>` input, and header comments citing the pinned version.
+3. **`.github/workflows/ferry-router.yml`** — the dogfood router install (Ferry consuming its own release on this repo, FER-1). Same pin surfaces as the router stub; it always tracks the release being cut so the dogfood board exercises the newest tag.
+4. **`examples/consumer-setup/workflows/ferry-{reconcile,cost-daily}.yml`** — the 2 ops stubs. Each has `FERRY_REF: v<version>` (no `@` prefix — it's a checkout ref env value).
+5. **`docs/INSTALL.md`** — the SHA-pinning command (`gh api repos/big-emotion/ferry/git/refs/tags/v<version>`) and any `@v<version>` prose.
+6. **`docs/RELEASING.md`** — the immutable-tag table cells (`v<version>`) and its SHA-pinning example.
+7. **`docs/CONFIGURATION.md`** — `uses: big-emotion/ferry/.github/actions/*@v<version>` example lines.
+8. **Structural tests** — these hardcode the current tag and are the CI gate that catches drift:
    - `src/install-guide.test.ts` — test names, assertion messages, and the regex `/@v<version-with-escaped-dots>\b/` (escape dots: `/@v0\.18\.0\b/`, not `/@v0.18.0\b/`).
    - `src/cli/init/templates.test.ts`
    - `src/cli/doctor/checks/claude-code-path.test.ts`
@@ -172,6 +174,7 @@ Stage exactly the files changed in Steps 3–6 (adjust to what actually changed 
 ```
 git add package.json package-lock.json CHANGELOG.md docs/ \
         examples/consumer-setup/workflows/ \
+        .github/workflows/ferry-router.yml \
         src/install-guide.test.ts src/cli/init/templates.test.ts \
         src/cli/doctor/checks/ src/lib/codex/config-toml.test.ts \
         .ferry/
