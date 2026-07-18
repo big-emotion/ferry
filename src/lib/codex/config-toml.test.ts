@@ -3,15 +3,15 @@ import { renderCodexConfigToml } from './config-toml.js';
 
 describe('renderCodexConfigToml', () => {
   it('renders a jira MCP server that launches ferry-jira-mcp through npx', () => {
-    const toml = renderCodexConfigToml({ version: 'v1.0.2' });
+    const toml = renderCodexConfigToml({ version: 'v1.0.3' });
     expect(toml).toContain('[mcp_servers.jira]');
     expect(toml).toContain('command = "npx"');
-    expect(toml).toContain('"@big-emotion/ferry@v1.0.2"');
+    expect(toml).toContain('"@big-emotion/ferry@v1.0.3"');
     expect(toml).toContain('"ferry-jira-mcp"');
   });
 
   it('contains no embedded Jira secret values', () => {
-    const toml = renderCodexConfigToml({ version: 'v1.0.2' });
+    const toml = renderCodexConfigToml({ version: 'v1.0.3' });
     expect(toml).not.toContain('FERRY_JIRA_BASE_URL=');
     expect(toml).not.toContain('FERRY_JIRA_EMAIL=');
     expect(toml).not.toContain('FERRY_JIRA_API_TOKEN=');

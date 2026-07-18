@@ -11,6 +11,14 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.0.3] — 2026-07-18
+
+### Fixed
+
+- **`claude-code`-path agents could not read CI state — every `gh run list` / `gh run view` call returned 403.** The `claude-code-action` App installation token carries no Actions scope by default, so agents querying workflow runs hit `Resource not accessible by integration`. Observed on the CHANSUP dry-run: the Developer honestly labeled its PR `ci-failing` because CI was unreadable, and the Merger could not verify the green state it gates the merge on (FR32, ADR-0005). `ferry-run-claude-agent` now requests `actions: read` via `additional_permissions`; the calling job must grant the matching ceiling, which `ferry-router.yml`'s `run-agent` job already does (`permissions: actions: read`), so consumers on the router pattern get the fix by bumping the action pin alone. (#428)
+
+---
+
 ## [1.0.2] — 2026-07-18
 
 ### Fixed
@@ -569,7 +577,8 @@ First stable release. Ferry's public contract — the `event.v1` dispatch schema
 
 ---
 
-[Unreleased]: https://github.com/big-emotion/ferry/compare/v1.0.2...HEAD
+[Unreleased]: https://github.com/big-emotion/ferry/compare/v1.0.3...HEAD
+[1.0.3]: https://github.com/big-emotion/ferry/releases/tag/v1.0.3
 [1.0.2]: https://github.com/big-emotion/ferry/releases/tag/v1.0.2
 [1.0.1]: https://github.com/big-emotion/ferry/releases/tag/v1.0.1
 [1.0.0]: https://github.com/big-emotion/ferry/releases/tag/v1.0.0
