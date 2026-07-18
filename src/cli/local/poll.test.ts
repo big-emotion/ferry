@@ -36,6 +36,7 @@ describe('poll', () => {
             auto_transition_changes: 'Changes Requested',
           },
           iterator: { trigger_column: 'Changes Requested', auto_transition: 'In Review' },
+          merger: { trigger_column: 'Ready to Merge', auto_transition_done: null },
         },
       },
     });

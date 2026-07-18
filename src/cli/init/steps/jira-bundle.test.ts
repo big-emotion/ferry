@@ -31,9 +31,9 @@ describe('buildJiraBundle', () => {
     expect(bundle).not.toHaveProperty('type');
   });
 
-  it('returns 4 rules', () => {
+  it('returns 5 rules — one per agent, merger included (ADR-0005 rev. 2)', () => {
     const bundle = buildJiraBundle('owner', 'repo', WORKSPACE_ID, PROJECT_ID);
-    expect(bundle.rules).toHaveLength(4);
+    expect(bundle.rules).toHaveLength(5);
   });
 
   it('each rule uses components array with correct action type', () => {
@@ -71,6 +71,7 @@ describe('buildJiraBundle', () => {
       dev: 'Ready for Dev',
       review: 'Awaiting Review',
       iterate: 'Needs Changes',
+      merge: 'To Merge',
     };
     const bundle = buildJiraBundle('owner', 'repo', WORKSPACE_ID, PROJECT_ID, custom);
     const statuses = bundle.rules.map((r) => r.trigger.value.toStatus[0]?.value);
@@ -78,6 +79,7 @@ describe('buildJiraBundle', () => {
     expect(statuses).toContain('Ready for Dev');
     expect(statuses).toContain('Awaiting Review');
     expect(statuses).toContain('Needs Changes');
+    expect(statuses).toContain('To Merge');
   });
 
   it('default iterate status is Changes Requested not Iteration', () => {
@@ -188,13 +190,13 @@ describe('stepJiraBundle', () => {
     expect(content).toContain('acme-corp/acme-app');
   });
 
-  it('JSON output is valid and contains 4 rules', () => {
+  it('JSON output is valid and contains 5 rules', () => {
     tmpDir = mkdtempSync(join(tmpdir(), 'ferry-jb-json-'));
     stepJiraBundle(tmpDir, 'acme-corp', 'acme-app', WORKSPACE_ID, PROJECT_ID);
     const content = readFileSync(join(tmpDir, 'ferry-jira-automation-rules.beta.json'), 'utf8');
     expect(() => JSON.parse(content)).not.toThrow();
     const bundle = JSON.parse(content) as { rules: unknown[] };
-    expect(bundle.rules).toHaveLength(4);
+    expect(bundle.rules).toHaveLength(5);
   });
 
   it('JSON output ends with a newline', () => {
@@ -204,7 +206,7 @@ describe('stepJiraBundle', () => {
     expect(content.endsWith('\n')).toBe(true);
   });
 
-  it('markdown includes all 4 default phase status names', () => {
+  it('markdown includes all 5 default phase status names', () => {
     tmpDir = mkdtempSync(join(tmpdir(), 'ferry-jb-phases-'));
     stepJiraBundle(tmpDir, 'acme-corp', 'acme-app', WORKSPACE_ID, PROJECT_ID);
     const content = readFileSync(join(tmpDir, 'ferry-jira-automation-setup.md'), 'utf8');
@@ -212,6 +214,7 @@ describe('stepJiraBundle', () => {
     expect(content).toContain('In Development');
     expect(content).toContain('In Review');
     expect(content).toContain('Changes Requested');
+    expect(content).toContain('Ready to Merge');
   });
 
   it('markdown uses custom status names when provided', () => {
@@ -221,6 +224,7 @@ describe('stepJiraBundle', () => {
       dev: 'Ready for Dev',
       review: 'Awaiting Review',
       iterate: 'Needs Rework',
+      merge: 'To Merge',
     };
     stepJiraBundle(tmpDir, 'acme-corp', 'acme-app', WORKSPACE_ID, PROJECT_ID, custom);
     const content = readFileSync(join(tmpDir, 'ferry-jira-automation-setup.md'), 'utf8');
@@ -228,6 +232,7 @@ describe('stepJiraBundle', () => {
     expect(content).toContain('Ready for Dev');
     expect(content).toContain('Awaiting Review');
     expect(content).toContain('Needs Rework');
+    expect(content).toContain('To Merge');
   });
 
   it('markdown does not contain a real Authorization token', () => {

@@ -19,7 +19,7 @@ export function mapStatusToPhase(
   if (status === workflow.agents.developer.trigger_column) return 'dev';
   if (status === workflow.agents.reviewer.trigger_column) return 'review';
   if (status === workflow.agents.iterator.trigger_column) return 'iterate';
-  if (status === 'Ready to Merge') return 'merge';
+  if (status === workflow.agents.merger.trigger_column) return 'merge';
   return null;
 }
 

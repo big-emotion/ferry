@@ -61,6 +61,7 @@ export interface StatusNames {
   dev: string;
   review: string;
   iterate: string;
+  merge: string;
 }
 
 export const DEFAULT_STATUS_NAMES: StatusNames = {
@@ -68,6 +69,7 @@ export const DEFAULT_STATUS_NAMES: StatusNames = {
   dev: 'In Development',
   review: 'In Review',
   iterate: 'Changes Requested',
+  merge: 'Ready to Merge',
 };
 
 function buildPhases(statusNames: StatusNames) {
@@ -76,6 +78,7 @@ function buildPhases(statusNames: StatusNames) {
     { eventType: 'ferry-dev', statusName: statusNames.dev, label: 'Dev' },
     { eventType: 'ferry-review', statusName: statusNames.review, label: 'Review' },
     { eventType: 'ferry-iterate', statusName: statusNames.iterate, label: 'Iterate' },
+    { eventType: 'ferry-merge', statusName: statusNames.merge, label: 'Merge' },
   ] as const;
 }
 
@@ -406,9 +409,10 @@ ${body}
 
 ## Note on the Merger
 
-Moving a ticket into a "merge" column does nothing by design: the Merger is only
-triggered by the \`ferry-merge\` event the Reviewer dispatches on approval
-(ADR-0005). The single rule above cannot reach it.
+Moving a ticket into the merge column (\`workflow.agents.merger.trigger_column\`,
+default "Ready to Merge") is an explicit merge order: the router maps it to the
+Merger like any other agent (ADR-0005 rev. 2). The Reviewer-emitted
+\`ferry-merge\` dispatch on approval still works and needs no Jira rule.
 
 ## Verifying the rule works
 

@@ -650,7 +650,7 @@ var DEFAULT_FERRY_CONFIG = {
         auto_transition_changes: "Changes Requested"
       },
       iterator: { trigger_column: "Changes Requested", auto_transition: "In Review" },
-      merger: { auto_transition_done: null }
+      merger: { trigger_column: "Ready to Merge", auto_transition_done: null }
     }
   },
   routing: {
@@ -755,9 +755,8 @@ function validateWorkflow(val) {
     }
   }
   if (agents.merger !== void 0) {
-    if (!agents.merger || typeof agents.merger !== "object") {
-      errs.push("workflow.agents.merger: must be an object");
-    } else {
+    errs.push(...validateWorkflowAgentBase(agents.merger, "workflow.agents.merger"));
+    if (agents.merger && typeof agents.merger === "object") {
       const merger = agents.merger;
       if ("auto_transition_done" in merger && merger.auto_transition_done !== void 0) {
         errs.push(
@@ -1177,6 +1176,7 @@ function mergeWorkflow(rawWorkflow) {
         auto_transition: strOrNull(iterRaw, "auto_transition", def.agents.iterator.auto_transition)
       },
       merger: {
+        trigger_column: str(mergerRaw.trigger_column, def.agents.merger.trigger_column),
         auto_transition_done: strOrNull(
           mergerRaw,
           "auto_transition_done",

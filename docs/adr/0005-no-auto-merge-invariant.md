@@ -1,8 +1,8 @@
 # 0005 — No Auto-Merge Invariant
 
-**Status:** Accepted (amended by FR32)  
+**Status:** Accepted (amended by FR32; rev. 2 opens column triggering)  
 **Date:** 2024-01-01  
-**Amended:** 2026-06-07
+**Amended:** 2026-06-07 (FR32), 2026-07-18 (rev. 2)
 
 ## Context
 
@@ -88,13 +88,13 @@ All four other roles (Refiner, Developer, Reviewer, Iterator) retain the origina
 
 ### Gating mechanism
 
-The Merger is triggered exclusively by a `ferry-merge` repository dispatch event. That event is emitted only by the Reviewer agent at approve time (FR24 approve path). The chain is:
+The Merger is triggered by a `ferry-merge` repository dispatch event, emitted by the Reviewer agent at approve time (FR24 approve path):
 
 ```
 Reviewer approve → ferry-merge dispatch → Merger → gh pr merge
 ```
 
-No other Ferry agent, workflow, or external caller can trigger the Merger without explicitly dispatching `ferry-merge`.
+Since rev. 2 (below), moving a Jira ticket into the merger's `trigger_column` is a second, equivalent trigger path.
 
 ### Branch-protection caveat
 
@@ -109,6 +109,25 @@ Consumers who rely on branch-protection rules requiring human PR review approval
 - `ferry-merge.yml` does **not** contain `Bash(gh pr merge)` in `--disallowedTools`
 - `ferry-merge.yml` does contain `Bash(gh pr close)` in `--disallowedTools`
 - All four other role templates (`ferry-refine.yml`, `ferry-dev.yml`, `ferry-review.yml`, `ferry-iterate.yml`) still contain `Bash(gh pr merge)` in `--disallowedTools`
+
+## Rev. 2 — Column-triggered Merger
+
+**Date:** 2026-07-18
+
+### What changed
+
+The generic `ferry-transition` router path now maps `workflow.agents.merger.trigger_column` (default `"Ready to Merge"`) to the Merger, exactly like the four other agents' trigger columns (`src/lib/dispatch/derive-role.ts`). The Merger config gained the `trigger_column` field; `ferry-init` generates it, `ferry-doctor` validates it, and the legacy per-column Jira bundle ships a fifth rule for it.
+
+### Rationale
+
+The FR32 asymmetry (merger reachable only via the Reviewer-emitted dispatch) forced consumers using the single any-column Jira rule to add a special-cased condition or a second rule to order a merge from the board. In practice a card moved into the merge column _is_ an explicit human merge order — the same human intent the original invariant wanted to protect. Refusing to act on it did not reduce risk; it just moved the merge decision into per-consumer Jira automation.
+
+### What still holds
+
+- Refiner, Developer, Reviewer, and Iterator still never merge — the `gh pr merge` deny-list on those roles is unchanged.
+- The Merger still refuses to merge a PR that is unapproved, CI-red, or conflicted, and no-ops idempotently when no open PR exists for `ferry/<ticket>`.
+- Branch protection remains the authoritative server-side gate (see the branch-protection caveat above).
+- An _accidental_ column move can now trigger a merge attempt — accepted: the Merger's own preconditions (approval, green CI, no conflicts) plus branch protection bound the blast radius, and the same accident risk already existed for every other agent column.
 
 ## Alternatives Considered
 

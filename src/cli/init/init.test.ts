@@ -71,9 +71,9 @@ const WORKSPACE_ID = '75eb33f5-5dd0-4328-b0e6-8bb3f4e0af91';
 const PROJECT_ID = '10033';
 
 describe('buildJiraBundle', () => {
-  it('produces exactly 4 rules', () => {
+  it('produces exactly 5 rules — one per agent, merger included', () => {
     const bundle = buildJiraBundle('acme-corp', 'acme-app', WORKSPACE_ID, PROJECT_ID);
-    expect(bundle.rules).toHaveLength(4);
+    expect(bundle.rules).toHaveLength(5);
   });
 
   it('sets cloud:true with no version or type fields', () => {

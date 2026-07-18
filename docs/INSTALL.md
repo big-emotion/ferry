@@ -181,7 +181,7 @@ On the `claude-code` execution path Ferry can run behind a single thin router in
 
 **Transition-ID secrets are not needed on this path.** Agents auto-resolve Jira transition ids at runtime from the status names in `ferry.config` (`workflow.agents.*.auto_transition*`). `FERRY_REVIEW_TRANSITION_ID`, `FERRY_ITER_TRANSITION_ID`, and `FERRY_APPROVE_TRANSITION_ID` remain supported as optional overrides. The merger is the exception: on the claude-code path it resolves its post-merge transition by status **name** (any transition named "Done" or "Closed", skipped silently otherwise) — `workflow.agents.merger.auto_transition_done` and the `FERRY_MERGE_DONE_TRANSITION_ID` override apply to the script path only.
 
-> **Merger note (ADR-0005):** moving a ticket into a "merge" column does nothing by design. The Merger is only triggered by the `ferry-merge` dispatch the Reviewer emits on approval — the any-column rule cannot reach it.
+> **Merger note (ADR-0005 rev. 2):** moving a ticket into the merge column (`workflow.agents.merger.trigger_column`, default "Ready to Merge") is an explicit merge order — the any-column rule reaches the Merger like every other agent. The Reviewer-emitted `ferry-merge` dispatch on approval still works independently of any Jira rule.
 
 **Migrating an existing install:** after enabling the router, delete the five legacy per-agent workflows (`ferry-refine.yml`, `ferry-dev.yml`, `ferry-review.yml`, `ferry-iterate.yml`, `ferry-merge.yml`) and the 4 per-column Jira rules. `ferry-router.yml` also listens for the legacy per-agent events, so keeping both means both workflows fire on every legacy dispatch.
 

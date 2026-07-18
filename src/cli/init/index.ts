@@ -167,6 +167,7 @@ async function main(): Promise<void> {
   const devStatus = await ask('Developer trigger status', DEFAULT_STATUS_NAMES.dev);
   const reviewStatus = await ask('Reviewer trigger status', DEFAULT_STATUS_NAMES.review);
   const iterateStatus = await ask('Iterator trigger status', DEFAULT_STATUS_NAMES.iterate);
+  const mergeStatus = await ask('Merger trigger status', DEFAULT_STATUS_NAMES.merge);
 
   print('');
   print('Auto-transitions (column to move to after each step, leave blank to disable):');
@@ -373,6 +374,8 @@ async function main(): Promise<void> {
       '    iterator:',
       `      trigger_column: "${iterateStatus || DEFAULT_STATUS_NAMES.iterate}"`,
       `      auto_transition: ${nullable(iteratorAutoTransition)}`,
+      '    merger:',
+      `      trigger_column: "${mergeStatus || DEFAULT_STATUS_NAMES.merge}"`,
       '',
     ].join('\n');
     writeFileSync(configPath, workflowYaml, 'utf8');
@@ -396,6 +399,7 @@ async function main(): Promise<void> {
       dev: devStatus || DEFAULT_STATUS_NAMES.dev,
       review: reviewStatus || DEFAULT_STATUS_NAMES.review,
       iterate: iterateStatus || DEFAULT_STATUS_NAMES.iterate,
+      merge: mergeStatus || DEFAULT_STATUS_NAMES.merge,
     });
   }
 

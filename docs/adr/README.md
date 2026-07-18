@@ -10,7 +10,7 @@ This directory contains Architecture Decision Records (ADRs) for the Ferry proje
 | [0002](./0002-ferry-bundles-committed.md)           | Ferry bundles committed to the repository                    | Accepted |
 | [0003](./0003-anthropic-messages-vs-agent-sdk.md)   | Anthropic Messages API over Agent SDK                        | Accepted |
 | [0004](./0004-idempotency-via-comment-markers.md)   | Idempotency via comment markers                              | Accepted |
-| [0005](./0005-no-auto-merge-invariant.md)           | No auto-merge invariant                                      | Accepted |
+| [0005](./0005-no-auto-merge-invariant.md)           | No auto-merge invariant (rev. 2: column-triggered Merger)    | Accepted |
 | [0006](./0006-claude-code-action-execution-path.md) | claude-code-action as the conditional default execution path | Accepted |
 | [0007](./0007-codex-cli-jira-mcp-wiring.md)         | codex-cli execution path uses Ferry-managed Jira MCP wiring  | Accepted |
 

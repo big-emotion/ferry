@@ -469,6 +469,7 @@ describe('loadFerryConfig', () => {
       expect(cfg.workflow.agents.reviewer.auto_transition_changes).toBe('Changes Requested');
       expect(cfg.workflow.agents.iterator.trigger_column).toBe('Changes Requested');
       expect(cfg.workflow.agents.iterator.auto_transition).toBe('In Review');
+      expect(cfg.workflow.agents.merger.trigger_column).toBe('Ready to Merge');
       expect(cfg.workflow.agents.merger.auto_transition_done).toBeNull();
     });
 
@@ -490,6 +491,32 @@ describe('loadFerryConfig', () => {
       expect(cfg.workflow.agents.reviewer.trigger_column).toBe('In Review');
       expect(cfg.workflow.agents.reviewer.auto_transition_changes).toBe('Changes Requested');
       expect(cfg.workflow.agents.merger.auto_transition_done).toBeNull();
+    });
+
+    it('allows overriding the merger trigger_column', () => {
+      mockConfigFile(
+        'ferry.config.json',
+        JSON.stringify({ workflow: { agents: { merger: { trigger_column: 'Prêt à merger' } } } }),
+      );
+      const cfg = loadFerryConfig('/repo');
+      expect(cfg.workflow.agents.merger.trigger_column).toBe('Prêt à merger');
+      expect(cfg.workflow.agents.merger.auto_transition_done).toBeNull();
+    });
+
+    it('throws on invalid merger trigger_column type', () => {
+      mockConfigFile(
+        'ferry.config.json',
+        JSON.stringify({ workflow: { agents: { merger: { trigger_column: 42 } } } }),
+      );
+      let thrown: FerryError | null = null;
+      try {
+        loadFerryConfig('/repo');
+      } catch (e) {
+        thrown = e as FerryError;
+      }
+      expect(thrown).toBeInstanceOf(FerryError);
+      const errors = thrown?.context?.errors as string[];
+      expect(errors.some((e) => e.includes('workflow.agents.merger.trigger_column'))).toBe(true);
     });
 
     it('allows setting auto_transition_done for merger', () => {

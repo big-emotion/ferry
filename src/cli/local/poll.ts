@@ -43,7 +43,7 @@ export async function fetchPollIssues(repoRoot: string): Promise<PollIssue[]> {
     config.workflow.agents.developer.trigger_column,
     config.workflow.agents.reviewer.trigger_column,
     config.workflow.agents.iterator.trigger_column,
-    'Ready to Merge',
+    config.workflow.agents.merger.trigger_column,
   ];
   const jql = buildPollJql(statuses);
   const response = await fetch(

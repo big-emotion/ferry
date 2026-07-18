@@ -15,6 +15,7 @@ const CUSTOM_COLUMNS: FerryConfig = {
         auto_transition_changes: 'CHANGES REQUESTED',
       },
       iterator: { trigger_column: 'CHANGES REQUESTED', auto_transition: 'Revue en cours' },
+      merger: { trigger_column: 'TO MERGE', auto_transition_done: null },
     },
   },
 };
@@ -41,6 +42,9 @@ describe('deriveAgentRole', () => {
     expect(deriveAgentRole('ferry-transition', 'Changes Requested', DEFAULT_FERRY_CONFIG)).toBe(
       'iterator',
     );
+    expect(deriveAgentRole('ferry-transition', 'Ready to Merge', DEFAULT_FERRY_CONFIG)).toBe(
+      'merger',
+    );
   });
 
   it('honors custom (localized) trigger columns, case-insensitively', () => {
@@ -55,11 +59,14 @@ describe('deriveAgentRole', () => {
     expect(deriveAgentRole('ferry-transition', 'Done', DEFAULT_FERRY_CONFIG)).toBe('none');
   });
 
-  it('NEVER maps a to_status to the merger, even a "To Merge" column (ADR-0005)', () => {
-    // The reviewer approve target lands on TO MERGE — moving a ticket there by
-    // hand must not trigger a merge; only the reviewer-emitted ferry-merge does.
-    expect(deriveAgentRole('ferry-transition', 'TO MERGE', CUSTOM_COLUMNS)).toBe('none');
-    expect(deriveAgentRole('ferry-transition', 'To Merge', DEFAULT_FERRY_CONFIG)).toBe('none');
+  it('maps the merge trigger column to the merger, like any other agent (ADR-0005 rev. 2)', () => {
+    // Moving a ticket into the merge column is an explicit human merge order —
+    // it triggers the Merger exactly like the reviewer-emitted ferry-merge does.
+    expect(deriveAgentRole('ferry-transition', 'TO MERGE', CUSTOM_COLUMNS)).toBe('merger');
+    expect(deriveAgentRole('ferry-transition', '  to merge ', CUSTOM_COLUMNS)).toBe('merger');
+    expect(deriveAgentRole('ferry-transition', 'Ready to Merge', DEFAULT_FERRY_CONFIG)).toBe(
+      'merger',
+    );
   });
 
   it('returns none for a missing/empty to_status or an unknown event type', () => {

@@ -56,21 +56,14 @@ function collectWorkflowColumns(raw: Record<string, unknown>): string[] | null {
     if (typeof val === 'string' && val.trim()) columns.push(val.trim());
   };
 
-  for (const agentKey of ['refiner', 'developer', 'reviewer', 'iterator']) {
+  for (const agentKey of ['refiner', 'developer', 'reviewer', 'iterator', 'merger']) {
     const agent = agents[agentKey] as Record<string, unknown> | undefined;
     if (!agent) continue;
     push(agent.trigger_column);
     push(agent.auto_transition);
     push(agent.auto_transition_approve);
     push(agent.auto_transition_changes);
-  }
-
-  // The merger has no trigger column (it only runs on the Reviewer-emitted
-  // ferry-merge dispatch, ADR-0005) but its optional post-merge done status
-  // (FR32) must exist on the board for auto-resolution to work.
-  const merger = agents.merger as Record<string, unknown> | undefined;
-  if (merger) {
-    push(merger.auto_transition_done);
+    push(agent.auto_transition_done);
   }
 
   return columns.length > 0 ? [...new Set(columns)] : null;

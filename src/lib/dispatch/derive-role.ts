@@ -59,12 +59,13 @@ export function roleToModelVar(role: AgentOutputRole): string {
  * Resolve which agent a dispatch targets.
  *
  * Legacy event types map directly. The generic `ferry-transition` event (single
- * any-column Jira rule) maps its `to_status` against the four
+ * any-column Jira rule) maps its `to_status` against the five
  * `workflow.agents.*.trigger_column` names — case-insensitive, trimmed.
  *
  * Returns 'none' when no agent is mapped: the router no-ops on statuses Ferry
- * does not own. The merger is deliberately unreachable from a status move —
- * only the Reviewer-emitted `ferry-merge` dispatch triggers it (ADR-0005).
+ * does not own. Moving a ticket into the merger's trigger_column is treated as
+ * an explicit human merge order, equivalent to the Reviewer-emitted
+ * `ferry-merge` dispatch (ADR-0005 rev. 2).
  */
 export function deriveAgentRole(
   eventType: string,
@@ -84,7 +85,7 @@ export function deriveAgentRole(
     [agents.developer.trigger_column, 'developer'],
     [agents.reviewer.trigger_column, 'reviewer'],
     [agents.iterator.trigger_column, 'iterator'],
-    // merger deliberately absent — ADR-0005 no-auto-merge invariant.
+    [agents.merger.trigger_column, 'merger'],
   ];
   const hit = columnToRole.find(([column]) => column.trim().toLowerCase() === wanted);
   return hit ? hit[1] : 'none';

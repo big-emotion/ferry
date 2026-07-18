@@ -30,7 +30,7 @@ export interface EventEnvelopeV1 {
   /**
    * Target status name for the generic `ferry-transition` event (single
    * any-column Jira rule). The router maps it to an agent via
-   * `workflow.agents.*.trigger_column`; never mapped to the merger (ADR-0005).
+   * `workflow.agents.*.trigger_column` — merger included (ADR-0005 rev. 2).
    */
   to_status?: string;
 }

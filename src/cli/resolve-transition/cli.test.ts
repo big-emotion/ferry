@@ -42,7 +42,9 @@ describe('targetStatusFor', () => {
   });
 
   it('maps merge/done to the merger auto_transition_done status', () => {
-    const cfg = cfgWith({ merger: { auto_transition_done: 'Done' } });
+    const cfg = cfgWith({
+      merger: { trigger_column: 'Ready to Merge', auto_transition_done: 'Done' },
+    });
     expect(targetStatusFor(cfg, 'merge', 'done')).toBe('Done');
     // Default is null — merger done-transition disabled.
     expect(targetStatusFor(DEFAULT_FERRY_CONFIG, 'merge', 'done')).toBeNull();

@@ -18,13 +18,13 @@
 
 ## Agent phases at a glance
 
-| Phase         | Jira column         | What the agent does                                                                                                                                    |
-| ------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Refiner**   | Refinement          | Reads the ticket, creates sub-tasks, awaits human approval                                                                                             |
-| **Developer** | In Development      | Reads approved sub-tasks, opens a draft PR on `ferry/<TICKET-KEY>` (e.g. `ferry/PROJ-42`)                                                              |
-| **Reviewer**  | In Review           | Reads PR diff (green CI only), posts fingerprinted findings                                                                                            |
-| **Iterator**  | Iteration           | Applies findings, re-triggers Reviewer (max 3 rounds by default; configurable via `limits.max_iterations`)                                             |
-| **Merger**    | In Review → approve | Squash-merges the approved PR via `gh pr merge` (triggered by the Reviewer's `ferry-merge` dispatch), optionally transitions the ticket to Done (FR32) |
+| Phase         | Jira column    | What the agent does                                                                                                                                                                                                          |
+| ------------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Refiner**   | Refinement     | Reads the ticket, creates sub-tasks, awaits human approval                                                                                                                                                                   |
+| **Developer** | In Development | Reads approved sub-tasks, opens a draft PR on `ferry/<TICKET-KEY>` (e.g. `ferry/PROJ-42`)                                                                                                                                    |
+| **Reviewer**  | In Review      | Reads PR diff (green CI only), posts fingerprinted findings                                                                                                                                                                  |
+| **Iterator**  | Iteration      | Applies findings, re-triggers Reviewer (max 3 rounds by default; configurable via `limits.max_iterations`)                                                                                                                   |
+| **Merger**    | Ready to Merge | Squash-merges the approved PR via `gh pr merge` (triggered by the Reviewer's `ferry-merge` dispatch on approve, or by the ticket moving into its column — ADR-0005 rev. 2), optionally transitions the ticket to Done (FR32) |
 
 ---
 
@@ -48,7 +48,7 @@ Jira column move / label / @mention
   PR merged by the Merger (FR32) — or merge it yourself if the Merger is disabled
 ```
 
-Four of Ferry's five agents **never merge**; the **Merger** (FR32) is the single gated exception — it runs `gh pr merge` only on a `ferry-merge` dispatch emitted by the Reviewer on approve, and only if your branch protection lets the Ferry app merge. Ferry otherwise **rarely moves Jira columns** autonomously. By default, these auto-transitions are enabled:
+Four of Ferry's five agents **never merge**; the **Merger** (FR32) is the single exception — it runs `gh pr merge` on the `ferry-merge` dispatch emitted by the Reviewer on approve or when a ticket moves into `workflow.agents.merger.trigger_column` (ADR-0005 rev. 2), and only if your branch protection lets the Ferry app merge. Ferry otherwise **rarely moves Jira columns** autonomously. By default, these auto-transitions are enabled:
 
 1. Developer → In Review (FR18)
 2. Reviewer → Changes Requested (FR24, on review findings)
