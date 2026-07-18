@@ -211,6 +211,15 @@ runs:
         # make the merger permanently unrunnable. Allow Ferry's own bot only
         # (not '*'); the action lower-cases and strips the [bot] suffix.
         allowed_bots: claude
+        # The App installation token carries no Actions scope by default, so
+        # `gh run list` / `gh run view --log-failed` return 403 for the agent:
+        # the Developer/Iterator cannot read failing CI logs and the Merger
+        # cannot verify the green state it gates the merge on (FR32, ADR-0005).
+        # additional_permissions requests actions:read via OIDC; the calling
+        # job's `permissions:` block must grant the matching `actions: read`
+        # ceiling (ferry-router.yml already does).
+        additional_permissions: |
+          actions: read
         prompt: ${{ steps.prompt.outputs.prompt }}
         claude_args: >-
           --verbose
