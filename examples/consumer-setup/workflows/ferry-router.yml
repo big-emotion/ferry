@@ -22,6 +22,10 @@
 #                     FERRY_RUNNER (default: "ubuntu-latest"; JSON string or array)
 
 name: Ferry — Router
+# The agent role is only known after the route job, but the dispatch event type,
+# ticket key, and target status uniquely identify each run in the Actions list —
+# otherwise every router run shows the same anonymous title (FER-27).
+run-name: ${{ github.event.action }} · ${{ github.event.client_payload.ticket_key || 'invalid-payload' }}${{ github.event.client_payload.to_status && format(' → {0}', github.event.client_payload.to_status) }}
 
 on:
   repository_dispatch:

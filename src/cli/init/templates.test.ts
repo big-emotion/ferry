@@ -776,4 +776,13 @@ describe('routerWorkflowTemplate — thin router (claude-code path)', () => {
       router.content.match(/big-emotion\/ferry\/\.github\/actions\/[a-z-]+@v0\.18\.2/g) ?? [];
     expect(ferryRefs.length).toBeGreaterThanOrEqual(4);
   });
+
+  it('sets a run-name identifying the run by event, ticket, and target status (FER-27)', () => {
+    // The role is unknown at start (resolved by the route job), but the event
+    // type + ticket + to_status make each Actions-list entry distinguishable.
+    expect(router.content).toMatch(/^run-name: /m);
+    expect(router.content).toContain('${{ github.event.action }}');
+    expect(router.content).toContain('${{ github.event.client_payload.ticket_key');
+    expect(router.content).toContain('github.event.client_payload.to_status');
+  });
 });
