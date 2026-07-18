@@ -11,6 +11,14 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.19.0] — 2026-07-18
+
+### Added
+
+- **Router runs are identifiable in the Actions list** — `ferry-router.yml` now sets a `run-name` built from the dispatch event type, ticket key, and target status, so the Actions list shows e.g. `ferry-transition · FER-25 → REFINEMENT` instead of repeated anonymous "Ferry — Router" titles (legacy per-agent events, which carry no `to_status`, render as `ferry-dev · FER-25`). The agent role is not part of the title because it is only resolved by the `route` job, after the run name is fixed.
+
+---
+
 ## [0.18.2] — 2026-07-18
 
 ### Fixed
@@ -535,7 +543,8 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
-[Unreleased]: https://github.com/big-emotion/ferry/compare/v0.18.2...HEAD
+[Unreleased]: https://github.com/big-emotion/ferry/compare/v0.19.0...HEAD
+[0.19.0]: https://github.com/big-emotion/ferry/releases/tag/v0.19.0
 [0.18.2]: https://github.com/big-emotion/ferry/releases/tag/v0.18.2
 [0.18.1]: https://github.com/big-emotion/ferry/releases/tag/v0.18.1
 [0.18.0]: https://github.com/big-emotion/ferry/releases/tag/v0.18.0

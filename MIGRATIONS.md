@@ -53,6 +53,14 @@ If there are no consumer-visible changes, omit the section (or note `(none — i
 
 ---
 
+## v0.18.2 → v0.19.0
+
+forge: github
+
+- **(info)** **Router runs now carry a `run-name`** so the Actions list identifies each run by event, ticket, and target status (e.g. `ferry-transition · FER-25 → REFINEMENT`). Re-run `npx -p @big-emotion/ferry@v0.19.0 ferry-update` (or copy `examples/consumer-setup/workflows/ferry-router.yml`) to pick it up. No behavior change; purely observability.
+
+---
+
 ## v0.18.1 → v0.18.2
 
 forge: github
