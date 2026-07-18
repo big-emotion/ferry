@@ -204,6 +204,13 @@ runs:
       with:
         claude_code_oauth_token: ${{ inputs.claude_code_oauth_token }}
         show_full_output: ${{ inputs.show_full_output == 'true' }}
+        # The merger is reached only by the ferry-merge event the Reviewer
+        # dispatches on approval (ADR-0005), so its run's actor is Ferry's own
+        # Claude App (claude[bot]) — never a human. claude-code-action's
+        # human-actor gate rejects bot actors unless allow-listed, which would
+        # make the merger permanently unrunnable. Allow Ferry's own bot only
+        # (not '*'); the action lower-cases and strips the [bot] suffix.
+        allowed_bots: claude
         prompt: ${{ steps.prompt.outputs.prompt }}
         claude_args: >-
           --verbose
