@@ -11,6 +11,14 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.1.1] — 2026-07-19
+
+### Fixed
+
+- **Every published CLI crashed with `Cannot find module 'yaml'` when it had to parse a YAML file.** Six source files load `yaml` at runtime via `createRequire` (config loading, `ferry-doctor` checks, `ferry-update`'s `ferry.local.yml` overrides); esbuild cannot bundle a dynamic `require`, so the module must resolve from the installed package's `node_modules` — but `yaml` was declared in `devDependencies`, which `npx` does not install. Observed on `ferry-update` v1.0.3 → v1.1.0 against a consumer repo carrying a `ferry.local.yml`; `ferry.config.yaml` consumers were equally affected. `yaml` is now a runtime dependency, and a new structural guard (`src/packaging.test.ts`) asserts every bare module specifier passed to `require()` in non-test source is declared in `dependencies` — locking the whole family, same class as the missing-bin gap fixed in v1.0.1.
+
+---
+
 ## [1.1.0] — 2026-07-18
 
 ### Added
@@ -585,7 +593,8 @@ First stable release. Ferry's public contract — the `event.v1` dispatch schema
 
 ---
 
-[Unreleased]: https://github.com/big-emotion/ferry/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/big-emotion/ferry/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/big-emotion/ferry/releases/tag/v1.1.1
 [1.1.0]: https://github.com/big-emotion/ferry/releases/tag/v1.1.0
 [1.0.3]: https://github.com/big-emotion/ferry/releases/tag/v1.0.3
 [1.0.2]: https://github.com/big-emotion/ferry/releases/tag/v1.0.2
