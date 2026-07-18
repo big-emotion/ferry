@@ -9,6 +9,10 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Three declared CLI binaries were missing from the published package.** `scripts/build-cli.mjs` hardcodes the list of esbuild entrypoints to bundle, and that list never included `ferry-resolve-transition`, `ferry-local`, or `ferry-codex-config` — even though all three are declared in `package.json` `bin`. Their `dist/cli/` bundles were therefore never emitted or shipped in the npm tarball. On the `claude-code` execution path this surfaced as the Developer, Reviewer, and Iterator agents crashing with `ferry-resolve-transition: not found` (exit 127) when resolving a ticket's `auto_transition` id; `ferry-local` and `ferry-codex-config` carried the same latent packaging gap. All three entrypoints are now built and packaged (verified via `npm pack --dry-run`).
+
 ---
 
 ## [1.0.0] — 2026-07-18

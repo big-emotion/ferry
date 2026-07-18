@@ -9,6 +9,9 @@ mkdirSync('dist/cli/agent', { recursive: true });
 mkdirSync('dist/cli/cost', { recursive: true });
 mkdirSync('dist/cli/jira-mcp', { recursive: true });
 mkdirSync('dist/cli/cc-prompt', { recursive: true });
+mkdirSync('dist/cli/local', { recursive: true });
+mkdirSync('dist/cli/codex-config', { recursive: true });
+mkdirSync('dist/cli/resolve-transition', { recursive: true });
 
 const shared = {
   bundle: true,
@@ -89,6 +92,21 @@ await Promise.all([
     outfile: 'dist/cli/cc-prompt/index.js',
     loader: { '.md': 'text' },
   }),
+  build({
+    ...shared,
+    entryPoints: ['src/cli/local/index.ts'],
+    outfile: 'dist/cli/local/index.js',
+  }),
+  build({
+    ...shared,
+    entryPoints: ['src/cli/codex-config/index.ts'],
+    outfile: 'dist/cli/codex-config/index.js',
+  }),
+  build({
+    ...shared,
+    entryPoints: ['src/cli/resolve-transition/index.ts'],
+    outfile: 'dist/cli/resolve-transition/index.js',
+  }),
 ]);
 
 chmodSync('dist/cli/init/index.js', 0o755);
@@ -102,5 +120,8 @@ chmodSync('dist/cli/cost/advice-cmd.js', 0o755);
 chmodSync('dist/cli/cost/stats.js', 0o755);
 chmodSync('dist/cli/jira-mcp/index.js', 0o755);
 chmodSync('dist/cli/cc-prompt/index.js', 0o755);
+chmodSync('dist/cli/local/index.js', 0o755);
+chmodSync('dist/cli/codex-config/index.js', 0o755);
+chmodSync('dist/cli/resolve-transition/index.js', 0o755);
 
 console.log('Built dist/cli/ bundles.');
