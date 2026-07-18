@@ -1,5 +1,5 @@
 # Copy this file to .github/workflows/ferry-refine.yml in your repository.
-# Replace @v1.0.3 with the Ferry release tag you want to pin.
+# Replace @v1.1.0 with the Ferry release tag you want to pin.
 # Required secrets: FERRY_JIRA_BASE_URL, FERRY_JIRA_EMAIL, FERRY_JIRA_API_TOKEN
 #                   ANTHROPIC_API_KEY    — required when FERRY_REFINER_PROVIDER=anthropic (default)
 #                   OPENAI_API_KEY       — required when FERRY_REFINER_PROVIDER=openai
@@ -19,7 +19,7 @@
 #                     post_agent_command (optional) — shell command to run after the agent (always runs)
 # claude-code path:   When execution_path=claude-code the Refiner runs as ONE direct
 #                     anthropics/claude-code-action call. The agent does its own Jira work
-#                     via the ferry-jira-mcp MCP server (npx -p @big-emotion/ferry@v1.0.3 ferry-jira-mcp).
+#                     via the ferry-jira-mcp MCP server (npx -p @big-emotion/ferry@v1.1.0 ferry-jira-mcp).
 #                     Cost tracking on this path is best-effort — audit token/cost are emitted as 0.
 
 name: Ferry — Refine
@@ -44,7 +44,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Validate event envelope
-        uses: big-emotion/ferry/.github/actions/ferry-envelope-validate@v1.0.3
+        uses: big-emotion/ferry/.github/actions/ferry-envelope-validate@v1.1.0
         with:
           payload: ${{ toJson(github.event.client_payload) }}
 
@@ -62,7 +62,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Resolve execution path
         id: route
-        uses: big-emotion/ferry/.github/actions/ferry-route@v1.0.3
+        uses: big-emotion/ferry/.github/actions/ferry-route@v1.1.0
         with:
           payload: ${{ toJson(github.event.client_payload) }}
           role: refiner
@@ -88,7 +88,7 @@ jobs:
             | tar -xz -C /usr/local/bin gitleaks
 
       - name: Run Refiner agent
-        uses: big-emotion/ferry/.github/actions/ferry-run-refiner@v1.0.3
+        uses: big-emotion/ferry/.github/actions/ferry-run-refiner@v1.1.0
         with:
           payload: ${{ toJson(github.event.client_payload) }}
           jira_base_url: ${{ secrets.FERRY_JIRA_BASE_URL }}
@@ -130,7 +130,7 @@ jobs:
       - name: Resolve agent prompt
         id: prompt
         run: >-
-          npx -y -p @big-emotion/ferry@v1.0.3 ferry-cc-prompt
+          npx -y -p @big-emotion/ferry@v1.1.0 ferry-cc-prompt
           --agent refiner
           --ticket-key "${{ github.event.client_payload.ticket_key }}"
           --run-id "${{ github.event.client_payload.event_id }}"
@@ -139,7 +139,7 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: ${{ steps.prompt.outputs.prompt }}
           claude_args: >-
-            --mcp-config '{"mcpServers":{"jira":{"command":"npx","args":["-y","-p","@big-emotion/ferry@v1.0.3","ferry-jira-mcp"],"env":{"FERRY_JIRA_BASE_URL":"${{ secrets.FERRY_JIRA_BASE_URL }}","FERRY_JIRA_EMAIL":"${{ secrets.FERRY_JIRA_EMAIL }}","FERRY_JIRA_API_TOKEN":"${{ secrets.FERRY_JIRA_API_TOKEN }}"}}}}'
+            --mcp-config '{"mcpServers":{"jira":{"command":"npx","args":["-y","-p","@big-emotion/ferry@v1.1.0","ferry-jira-mcp"],"env":{"FERRY_JIRA_BASE_URL":"${{ secrets.FERRY_JIRA_BASE_URL }}","FERRY_JIRA_EMAIL":"${{ secrets.FERRY_JIRA_EMAIL }}","FERRY_JIRA_API_TOKEN":"${{ secrets.FERRY_JIRA_API_TOKEN }}"}}}}'
             --permission-mode acceptEdits
             --disallowedTools 'Bash(gh pr merge),Bash(gh pr merge:*),Bash(gh pr close:*)'
             --model ${{ vars.FERRY_REFINER_MODEL || 'claude-sonnet-4-6' }}
@@ -156,7 +156,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Emit audit line
-        uses: big-emotion/ferry/.github/actions/ferry-emit-audit@v1.0.3
+        uses: big-emotion/ferry/.github/actions/ferry-emit-audit@v1.1.0
         with:
           ticket: ${{ github.event.client_payload.ticket_key }}
           phase: refine

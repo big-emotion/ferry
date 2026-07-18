@@ -11,6 +11,14 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.1.0] — 2026-07-18
+
+### Added
+
+- **Column-triggered Merger (ADR-0005 rev. 2).** Moving a ticket into `workflow.agents.merger.trigger_column` (new config field, default `"Ready to Merge"`) now routes the generic `ferry-transition` event to the Merger, exactly like the four other agents' trigger columns — a column move into the merge column is an explicit human merge order. The Reviewer-emitted `ferry-merge` dispatch on approve is unchanged; the column is an additional trigger path, and the `gh pr merge` deny-list for the four non-merger roles is untouched. `ferry-init` prompts for the Merger column and writes it to the generated config, `ferry-doctor` validates it against the Jira board, the legacy per-column Jira bundle ships a fifth rule for it, and the local runner's merge column is now config-driven instead of hardcoded.
+
+---
+
 ## [1.0.3] — 2026-07-18
 
 ### Fixed
@@ -577,7 +585,8 @@ First stable release. Ferry's public contract — the `event.v1` dispatch schema
 
 ---
 
-[Unreleased]: https://github.com/big-emotion/ferry/compare/v1.0.3...HEAD
+[Unreleased]: https://github.com/big-emotion/ferry/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/big-emotion/ferry/releases/tag/v1.1.0
 [1.0.3]: https://github.com/big-emotion/ferry/releases/tag/v1.0.3
 [1.0.2]: https://github.com/big-emotion/ferry/releases/tag/v1.0.2
 [1.0.1]: https://github.com/big-emotion/ferry/releases/tag/v1.0.1

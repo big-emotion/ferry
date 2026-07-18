@@ -1,5 +1,5 @@
 # Copy this file to .github/workflows/ferry-router.yml to use the thin router model.
-# Replace @v1.0.3 with the Ferry release tag you want to pin.
+# Replace @v1.1.0 with the Ferry release tag you want to pin.
 # NOTE: the router model (ferry-run-claude-agent, ferry-transition routing) ships in
 # Ferry >= v0.18.0 — pin that release or later; earlier tags lack the composite.
 # Execution path: claude-code — agents run via claude-code-action.
@@ -54,7 +54,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Validate event envelope
-        uses: big-emotion/ferry/.github/actions/ferry-envelope-validate@v1.0.3
+        uses: big-emotion/ferry/.github/actions/ferry-envelope-validate@v1.1.0
         with:
           payload: ${{ toJson(github.event.client_payload) }}
 
@@ -76,7 +76,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Resolve agent and execution path
         id: route
-        uses: big-emotion/ferry/.github/actions/ferry-route@v1.0.3
+        uses: big-emotion/ferry/.github/actions/ferry-route@v1.1.0
         with:
           payload: ${{ toJson(github.event.client_payload) }}
           event_type: ${{ github.event.action }}
@@ -103,7 +103,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Gate on CI status
         id: gate
-        uses: big-emotion/ferry/.github/actions/ferry-ci-gate@v1.0.3
+        uses: big-emotion/ferry/.github/actions/ferry-ci-gate@v1.1.0
         with:
           ticket_key: ${{ github.event.client_payload.ticket_key }}
           run_id: ${{ github.event.client_payload.event_id }}
@@ -137,10 +137,10 @@ jobs:
       id-token: write # required by anthropics/claude-code-action@v1 OIDC auth
     steps:
       - name: Run Ferry agent
-        uses: big-emotion/ferry/.github/actions/ferry-run-claude-agent@v1.0.3
+        uses: big-emotion/ferry/.github/actions/ferry-run-claude-agent@v1.1.0
         with:
           role: ${{ needs.route.outputs.cc_agent }}
-          ferry_version: v1.0.3
+          ferry_version: v1.1.0
           ticket_key: ${{ github.event.client_payload.ticket_key }}
           event_id: ${{ github.event.client_payload.event_id }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -184,7 +184,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Emit audit line
-        uses: big-emotion/ferry/.github/actions/ferry-emit-audit@v1.0.3
+        uses: big-emotion/ferry/.github/actions/ferry-emit-audit@v1.1.0
         with:
           ticket: ${{ github.event.client_payload.ticket_key }}
           phase: ${{ needs.route.outputs.phase }}
