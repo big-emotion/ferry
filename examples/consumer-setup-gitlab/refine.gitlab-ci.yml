@@ -9,7 +9,7 @@ ferry-refine:
     - if: '$FERRY_DISPATCH_TYPE == "ferry-refine"'
   variables:
     FERRY_AGENT_ROLE: refiner
-    FERRY_REFINER_MODEL: ${FERRY_REFINER_MODEL:-claude-sonnet-4-6}
+    FERRY_REFINER_MODEL: ${FERRY_REFINER_MODEL:-claude-opus-4-8}
   script:
     - npm install -g "@big-emotion/ferry@${FERRY_VERSION}"
     - ferry-agent run --role refiner

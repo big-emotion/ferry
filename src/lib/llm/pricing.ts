@@ -10,6 +10,8 @@ export const EUR_TO_USD = 1 / 0.93;
 
 // EUR/USD ≈ 0.93; rates pinned 2025-Q2
 const RATES: Record<string, TokenRates> = {
+  'anthropic/claude-opus-4-8': { inputPer1M: 4.65, outputPer1M: 23.25 },
+  'anthropic/claude-sonnet-5': { inputPer1M: 2.79, outputPer1M: 13.95 },
   'anthropic/claude-sonnet-4-6': { inputPer1M: 2.79, outputPer1M: 13.95 },
   'anthropic/claude-opus': { inputPer1M: 13.95, outputPer1M: 69.75 },
   'anthropic/claude-haiku': { inputPer1M: 0.23, outputPer1M: 1.16 },

@@ -74,19 +74,19 @@ All variables marked **wired** below are read directly by the standard consumer 
 
 #### Model and provider overrides
 
-| Variable                 | Default             | Wired?          | Affects         | Description                                                                                                                                                                |
-| ------------------------ | ------------------- | --------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `FERRY_DEV_MODEL`        | `claude-sonnet-4-6` | yes (`dev`)     | Developer agent | Override the model ID for the Developer. Wired via the `ferry_dev_model` composite action input.                                                                           |
-| `FERRY_DEV_PROVIDER`     | `anthropic`         | yes (`dev`)     | Developer agent | LLM provider override for the Developer (`anthropic` / `openai` / `google`). MCP integration requires `anthropic`.                                                         |
-| `FERRY_REVIEW_MODEL`     | `claude-sonnet-4-6` | yes (`review`)  | Reviewer agent  | Override the model ID for the Reviewer. Wired via the `ferry_review_model` composite action input.                                                                         |
-| `FERRY_REVIEW_PROVIDER`  | `anthropic`         | yes (`review`)  | Reviewer agent  | LLM provider override for the Reviewer (`anthropic` / `openai` / `google`). MCP integration requires `anthropic`.                                                          |
-| `FERRY_ITER_MODEL`       | `claude-sonnet-4-6` | yes (`iterate`) | Iterator agent  | Override the model ID for the Iterator. Wired via the `ferry_iter_model` composite action input.                                                                           |
-| `FERRY_ITER_PROVIDER`    | `anthropic`         | yes (`iterate`) | Iterator agent  | LLM provider override for the Iterator (`anthropic` / `openai` / `google`). MCP integration requires `anthropic`.                                                          |
-| `FERRY_REFINER_MODEL`    | `claude-sonnet-4-6` | yes (`refine`)  | Refiner agent   | Override the model ID for the Refiner. Wired via the `ferry_refiner_model` composite action input.                                                                         |
-| `FERRY_REFINER_PROVIDER` | `anthropic`         | yes (`refine`)  | Refiner agent   | LLM provider override for the Refiner (`anthropic` / `openai` / `google`).                                                                                                 |
-| `FERRY_MERGER_MODEL`     | `claude-sonnet-4-6` | yes (`merge`)   | Merger agent    | Override the model ID used by the Merger when generating a squash commit message. Wired via the `ferry_merger_model` composite action input.                               |
-| `FERRY_MERGER_PROVIDER`  | `anthropic`         | yes (`merge`)   | Merger agent    | LLM provider override for the Merger (`anthropic` / `openai` / `google`).                                                                                                  |
-| `FERRY_MERGE_STRATEGY`   | `squash`            | yes (`merge`)   | Merger agent    | Merge strategy passed to `gh pr merge`. Accepted values: `squash`, `merge`, `rebase`. Default `squash` keeps a linear history and folds sub-task commits into one message. |
+| Variable                 | Default           | Wired?          | Affects         | Description                                                                                                                                                                |
+| ------------------------ | ----------------- | --------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `FERRY_DEV_MODEL`        | `claude-sonnet-5` | yes (`dev`)     | Developer agent | Override the model ID for the Developer. Wired via the `ferry_dev_model` composite action input.                                                                           |
+| `FERRY_DEV_PROVIDER`     | `anthropic`       | yes (`dev`)     | Developer agent | LLM provider override for the Developer (`anthropic` / `openai` / `google`). MCP integration requires `anthropic`.                                                         |
+| `FERRY_REVIEW_MODEL`     | `claude-opus-4-8` | yes (`review`)  | Reviewer agent  | Override the model ID for the Reviewer. Wired via the `ferry_review_model` composite action input.                                                                         |
+| `FERRY_REVIEW_PROVIDER`  | `anthropic`       | yes (`review`)  | Reviewer agent  | LLM provider override for the Reviewer (`anthropic` / `openai` / `google`). MCP integration requires `anthropic`.                                                          |
+| `FERRY_ITER_MODEL`       | `claude-sonnet-5` | yes (`iterate`) | Iterator agent  | Override the model ID for the Iterator. Wired via the `ferry_iter_model` composite action input.                                                                           |
+| `FERRY_ITER_PROVIDER`    | `anthropic`       | yes (`iterate`) | Iterator agent  | LLM provider override for the Iterator (`anthropic` / `openai` / `google`). MCP integration requires `anthropic`.                                                          |
+| `FERRY_REFINER_MODEL`    | `claude-opus-4-8` | yes (`refine`)  | Refiner agent   | Override the model ID for the Refiner. Wired via the `ferry_refiner_model` composite action input.                                                                         |
+| `FERRY_REFINER_PROVIDER` | `anthropic`       | yes (`refine`)  | Refiner agent   | LLM provider override for the Refiner (`anthropic` / `openai` / `google`).                                                                                                 |
+| `FERRY_MERGER_MODEL`     | `claude-opus-4-8` | yes (`merge`)   | Merger agent    | Override the model ID used by the Merger when generating a squash commit message. Wired via the `ferry_merger_model` composite action input.                               |
+| `FERRY_MERGER_PROVIDER`  | `anthropic`       | yes (`merge`)   | Merger agent    | LLM provider override for the Merger (`anthropic` / `openai` / `google`).                                                                                                  |
+| `FERRY_MERGE_STRATEGY`   | `squash`          | yes (`merge`)   | Merger agent    | Merge strategy passed to `gh pr merge`. Accepted values: `squash`, `merge`, `rebase`. Default `squash` keeps a linear history and folds sub-task commits into one message. |
 
 #### Token and iteration limits
 
@@ -240,19 +240,19 @@ Ferry reads the config file from `GITHUB_WORKSPACE` (the checked-out repo root) 
   "models": {
     "refiner": {
       "provider": "anthropic",
-      "model": "claude-sonnet-4-6"
+      "model": "claude-opus-4-8"
     },
     "dev": {
       "provider": "anthropic",
-      "model": "claude-sonnet-4-6"
+      "model": "claude-sonnet-5"
     },
     "review": {
       "provider": "anthropic",
-      "model": "claude-sonnet-4-6"
+      "model": "claude-opus-4-8"
     },
     "iterate": {
       "provider": "anthropic",
-      "model": "claude-sonnet-4-6"
+      "model": "claude-sonnet-5"
     }
   },
   "limits": {
@@ -311,15 +311,15 @@ Ferry supports three LLM providers: **`anthropic`**, **`openai`**, and **`google
 | Cache-weighted token budget   | ✅          | ❌ (raw token sum) | ❌ (raw token sum) |
 | Expected cost per long run    | Baseline    | ~2–3× higher       | ~2–3× higher       |
 
-**Expected cost differential (approximate, relative to `claude-sonnet-4-6`):**
+**Expected cost differential (approximate, relative to `claude-sonnet-5`):**
 
-| Provider / model                  | Relative cost | Notes                                                    |
-| --------------------------------- | :-----------: | -------------------------------------------------------- |
-| `anthropic` / `claude-sonnet-4-6` |   baseline    | Recommended; prompt caching reduces repeat costs by ~80% |
-| `openai` / `gpt-4o`               |     ~1–2×     | No caching discount; good for refiner single-turn use    |
-| `openai` / `gpt-4o-mini`          |     ~0.2×     | Cost-effective for light refiner tasks                   |
-| `google` / `gemini-2.5-pro`       |    ~0.5–1×    | Competitive for long-context refiner calls               |
-| `google` / `gemini-2.5-flash`     |    ~0.05×     | Very low cost; good for high-volume refinement           |
+| Provider / model                | Relative cost | Notes                                                    |
+| ------------------------------- | :-----------: | -------------------------------------------------------- |
+| `anthropic` / `claude-sonnet-5` |   baseline    | Recommended; prompt caching reduces repeat costs by ~80% |
+| `openai` / `gpt-4o`             |     ~1–2×     | No caching discount; good for refiner single-turn use    |
+| `openai` / `gpt-4o-mini`        |     ~0.2×     | Cost-effective for light refiner tasks                   |
+| `google` / `gemini-2.5-pro`     |    ~0.5–1×    | Competitive for long-context refiner calls               |
+| `google` / `gemini-2.5-flash`   |    ~0.05×     | Very low cost; good for high-volume refinement           |
 
 > **HTTP MCP:** Anthropic's HTTP MCP beta connector (`type: url` servers in `AGENT_MCP_SERVERS`) is Anthropic-only. Configuring an HTTP MCP server for an OpenAI or Google run raises a hard error at startup. Use stdio MCP servers for cross-provider compatibility.
 >
@@ -329,16 +329,16 @@ Ferry supports three LLM providers: **`anthropic`**, **`openai`**, and **`google
 >
 > **MCP availability:** Even with `provider: anthropic`, only the Developer and Iterator agents load MCP servers from `AGENT_MCP_SERVERS`. The Refiner and Reviewer ignore MCP configuration regardless of provider.
 
-| Field                     | Default               | Description                                                                                                                                      |
-| ------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `models.refiner.provider` | `"anthropic"`         | LLM provider for the Refiner. Accepts `"anthropic"`, `"openai"`, or `"google"`.                                                                  |
-| `models.refiner.model`    | `"claude-sonnet-4-6"` | Model ID for the Refiner (overridden by `FERRY_REFINER_MODEL`). Use a model ID valid for your chosen provider (e.g. `gpt-4o`, `gemini-2.5-pro`). |
-| `models.dev.provider`     | `"anthropic"`         | LLM provider for the Developer. Accepts `"anthropic"`, `"openai"`, or `"google"`. Note: MCP server integration requires `"anthropic"`.           |
-| `models.dev.model`        | `"claude-sonnet-4-6"` | Model ID for the Developer (overridden by `FERRY_DEV_MODEL`). Use a model ID matching your chosen provider.                                      |
-| `models.review.provider`  | `"anthropic"`         | LLM provider for the Reviewer. Accepts `"anthropic"`, `"openai"`, or `"google"`. Note: MCP server integration requires `"anthropic"`.            |
-| `models.review.model`     | `"claude-sonnet-4-6"` | Model ID for the Reviewer (overridden by `FERRY_REVIEW_MODEL`). Use a model ID matching your chosen provider.                                    |
-| `models.iterate.provider` | `"anthropic"`         | LLM provider for the Iterator. Accepts `"anthropic"`, `"openai"`, or `"google"`. Note: MCP server integration requires `"anthropic"`.            |
-| `models.iterate.model`    | `"claude-sonnet-4-6"` | Model ID for the Iterator (overridden by `FERRY_ITER_MODEL`). Use a model ID matching your chosen provider.                                      |
+| Field                     | Default             | Description                                                                                                                                      |
+| ------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `models.refiner.provider` | `"anthropic"`       | LLM provider for the Refiner. Accepts `"anthropic"`, `"openai"`, or `"google"`.                                                                  |
+| `models.refiner.model`    | `"claude-opus-4-8"` | Model ID for the Refiner (overridden by `FERRY_REFINER_MODEL`). Use a model ID valid for your chosen provider (e.g. `gpt-4o`, `gemini-2.5-pro`). |
+| `models.dev.provider`     | `"anthropic"`       | LLM provider for the Developer. Accepts `"anthropic"`, `"openai"`, or `"google"`. Note: MCP server integration requires `"anthropic"`.           |
+| `models.dev.model`        | `"claude-sonnet-5"` | Model ID for the Developer (overridden by `FERRY_DEV_MODEL`). Use a model ID matching your chosen provider.                                      |
+| `models.review.provider`  | `"anthropic"`       | LLM provider for the Reviewer. Accepts `"anthropic"`, `"openai"`, or `"google"`. Note: MCP server integration requires `"anthropic"`.            |
+| `models.review.model`     | `"claude-opus-4-8"` | Model ID for the Reviewer (overridden by `FERRY_REVIEW_MODEL`). Use a model ID matching your chosen provider.                                    |
+| `models.iterate.provider` | `"anthropic"`       | LLM provider for the Iterator. Accepts `"anthropic"`, `"openai"`, or `"google"`. Note: MCP server integration requires `"anthropic"`.            |
+| `models.iterate.model`    | `"claude-sonnet-5"` | Model ID for the Iterator (overridden by `FERRY_ITER_MODEL`). Use a model ID matching your chosen provider.                                      |
 
 #### `limits`
 
@@ -933,7 +933,7 @@ Router workflow settings (all optional):
 | `FERRY_EXTRA_CLAUDE_ARGS`  | variable | _(empty)_          | Extra flags appended verbatim to `claude_args` — e.g. additional `--mcp-config '<json>'` blocks for consumer MCP servers.                                             |
 | `FERRY_CHECKOUT_TOKEN`     | secret   | _(workflow token)_ | PAT or App token used for checkout — and therefore for agent pushes — so pushed commits re-trigger CI: a `github-actions[bot]` push suppresses `pull_request` events. |
 
-Per-role models still come from `FERRY_REFINER_MODEL` / `FERRY_DEV_MODEL` / `FERRY_REVIEW_MODEL` / `FERRY_ITER_MODEL` / `FERRY_MERGER_MODEL` (default `claude-sonnet-4-6`) — the router picks the variable matching the resolved role. The `FERRY_REVIEW_TRANSITION_ID` / `FERRY_ITER_TRANSITION_ID` / `FERRY_APPROVE_TRANSITION_ID` secrets are optional overrides here: the composite auto-resolves those transition ids from the `workflow.agents.*` status names. The merger's post-merge move is the exception — on the claude-code path the agent name-matches a "Done"/"Closed" transition itself (see the Merger section); `auto_transition_done` and `FERRY_MERGE_DONE_TRANSITION_ID` apply to the script path.
+Per-role models still come from `FERRY_REFINER_MODEL` / `FERRY_DEV_MODEL` / `FERRY_REVIEW_MODEL` / `FERRY_ITER_MODEL` / `FERRY_MERGER_MODEL` (defaults: `claude-opus-4-8` for refiner/reviewer/merger, `claude-sonnet-5` for developer/iterator) — the router picks the variable matching the resolved role. The `FERRY_REVIEW_TRANSITION_ID` / `FERRY_ITER_TRANSITION_ID` / `FERRY_APPROVE_TRANSITION_ID` secrets are optional overrides here: the composite auto-resolves those transition ids from the `workflow.agents.*` status names. The merger's post-merge move is the exception — on the claude-code path the agent name-matches a "Done"/"Closed" transition itself (see the Merger section); `auto_transition_done` and `FERRY_MERGE_DONE_TRANSITION_ID` apply to the script path.
 
 ### How the codex-cli path runs
 
@@ -1020,12 +1020,12 @@ Run `ferry-update` to add the workflow stub automatically, or copy `examples/con
 
 ### Configuration
 
-| Setting                                   | Type     | Default             | Description                                                                                                                                                                                                                                                      |
-| ----------------------------------------- | -------- | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `FERRY_MERGE_STRATEGY` (var)              | variable | `squash`            | Merge strategy: `squash`, `merge`, or `rebase`. Passed directly to `gh pr merge`.                                                                                                                                                                                |
-| `FERRY_MERGER_MODEL` (var)                | variable | `claude-sonnet-4-6` | LLM model used to generate the squash commit message. Ignored when `FERRY_MERGE_STRATEGY` is not `squash`.                                                                                                                                                       |
-| `FERRY_MERGER_PROVIDER` (var)             | variable | `anthropic`         | LLM provider for commit-message generation (`anthropic` / `openai` / `google`). Ignored when `FERRY_MERGE_STRATEGY` is not `squash`.                                                                                                                             |
-| `FERRY_MERGE_DONE_TRANSITION_ID` (secret) | secret   | _(none)_            | **Optional override, script path.** Explicit Jira transition id for the post-merge move. Auto-resolved from `workflow.agents.merger.auto_transition_done` when unset (default `null` — the column is left unchanged post-merge). Unread on the claude-code path. |
+| Setting                                   | Type     | Default           | Description                                                                                                                                                                                                                                                      |
+| ----------------------------------------- | -------- | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `FERRY_MERGE_STRATEGY` (var)              | variable | `squash`          | Merge strategy: `squash`, `merge`, or `rebase`. Passed directly to `gh pr merge`.                                                                                                                                                                                |
+| `FERRY_MERGER_MODEL` (var)                | variable | `claude-opus-4-8` | LLM model used to generate the squash commit message. Ignored when `FERRY_MERGE_STRATEGY` is not `squash`.                                                                                                                                                       |
+| `FERRY_MERGER_PROVIDER` (var)             | variable | `anthropic`       | LLM provider for commit-message generation (`anthropic` / `openai` / `google`). Ignored when `FERRY_MERGE_STRATEGY` is not `squash`.                                                                                                                             |
+| `FERRY_MERGE_DONE_TRANSITION_ID` (secret) | secret   | _(none)_          | **Optional override, script path.** Explicit Jira transition id for the post-merge move. Auto-resolved from `workflow.agents.merger.auto_transition_done` when unset (default `null` — the column is left unchanged post-merge). Unread on the claude-code path. |
 
 Wiring caveats — only `FERRY_MERGER_MODEL` is wired into the `ferry-merge.yml` stub (passed as the composite's `ferry_merger_model` input):
 

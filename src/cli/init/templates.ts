@@ -46,7 +46,7 @@ export function workflowTemplates(
 #                                             (ADR-0006 §6 — anthropic_api_key is forbidden on this path)
 # Required variables: FERRY_AUDIT_ISSUE (GitHub Issue number for the audit log)
 # Optional variables: FERRY_REFINER_PROVIDER (default: anthropic; also: openai, google)
-#                     FERRY_REFINER_MODEL (default: claude-sonnet-4-6; use model ID matching your provider)
+#                     FERRY_REFINER_MODEL (default: claude-opus-4-8; use model ID matching your provider)
 #                     FERRY_RUNNER (default: "ubuntu-latest"; JSON string or array for self-hosted runners, e.g. '["self-hosted","X64"]')
 
 name: Ferry — Refine
@@ -126,7 +126,7 @@ jobs:
           google_api_key: \${{ secrets.GOOGLE_API_KEY }}
           github_token: \${{ github.token }}
           github_repo: \${{ github.repository }}
-          ferry_refiner_model: claude-sonnet-4-6
+          ferry_refiner_model: claude-opus-4-8
 
   run-agent-claude-code:
     name: Run Refiner agent (claude-code path)
@@ -161,7 +161,7 @@ jobs:
             --mcp-config '{"mcpServers":{"jira":{"command":"npx","args":["-y","-p","@big-emotion/ferry@${version}","ferry-jira-mcp"],"env":{"FERRY_JIRA_BASE_URL":"\${{ secrets.FERRY_JIRA_BASE_URL }}","FERRY_JIRA_EMAIL":"\${{ secrets.FERRY_JIRA_EMAIL }}","FERRY_JIRA_API_TOKEN":"\${{ secrets.FERRY_JIRA_API_TOKEN }}"}}}}'
             --permission-mode bypassPermissions
             --disallowedTools 'Bash(gh pr merge),Bash(gh pr merge:*),Bash(gh pr close:*)'
-            --model \${{ vars.FERRY_REFINER_MODEL || 'claude-sonnet-4-6' }}
+            --model \${{ vars.FERRY_REFINER_MODEL || 'claude-opus-4-8' }}
 
   run-agent-codex-cli:
     name: Run Refiner agent (codex-cli path)
@@ -213,7 +213,7 @@ jobs:
           ticket: \${{ github.event.client_payload.ticket_key }}
           phase: refine
           run_id: \${{ github.event.client_payload.event_id }}
-          model: claude-sonnet-4-6
+          model: claude-opus-4-8
           outcome: \${{ (needs.run-agent.result != 'skipped' && needs.run-agent.result) || (needs.run-agent-claude-code.result != 'skipped' && needs.run-agent-claude-code.result) || needs.run-agent-codex-cli.result }}
           # claude-code path does cost tracking best-effort by design — it emits no token/cost outputs.
           input_tokens: '0'
@@ -236,7 +236,7 @@ jobs:
 #                                             (ADR-0006 §6 — anthropic_api_key is forbidden on this path)
 # Required variables: FERRY_AUDIT_ISSUE (GitHub Issue number for the audit log)
 # Optional variables: FERRY_DEV_PROVIDER (default: anthropic; also: openai, google)
-#                     FERRY_DEV_MODEL (default: claude-sonnet-4-6; use model ID matching your provider)
+#                     FERRY_DEV_MODEL (default: claude-sonnet-5; use model ID matching your provider)
 #                     FERRY_RUNNER (default: "ubuntu-latest"; JSON string or array for self-hosted runners, e.g. '["self-hosted","X64"]')
 #
 # Note: MCP server support is not available for non-Anthropic providers in the Developer agent.
@@ -326,7 +326,7 @@ jobs:
           google_api_key: \${{ secrets.GOOGLE_API_KEY }}
           github_token: \${{ github.token }}
           github_repo: \${{ github.repository }}
-          ferry_dev_model: claude-sonnet-4-6
+          ferry_dev_model: claude-sonnet-5
 
   run-agent-claude-code:
     name: Run Developer agent (claude-code path)
@@ -364,7 +364,7 @@ jobs:
             --mcp-config '{"mcpServers":{"jira":{"command":"npx","args":["-y","-p","@big-emotion/ferry@${version}","ferry-jira-mcp"],"env":{"FERRY_JIRA_BASE_URL":"\${{ secrets.FERRY_JIRA_BASE_URL }}","FERRY_JIRA_EMAIL":"\${{ secrets.FERRY_JIRA_EMAIL }}","FERRY_JIRA_API_TOKEN":"\${{ secrets.FERRY_JIRA_API_TOKEN }}"}}}}'
             --permission-mode bypassPermissions
             --disallowedTools 'Bash(gh pr merge),Bash(gh pr merge:*),Bash(gh pr close:*)'
-            --model \${{ vars.FERRY_DEV_MODEL || 'claude-sonnet-4-6' }}
+            --model \${{ vars.FERRY_DEV_MODEL || 'claude-sonnet-5' }}
 
   run-agent-codex-cli:
     name: Run Developer agent (codex-cli path)
@@ -418,7 +418,7 @@ jobs:
           ticket: \${{ github.event.client_payload.ticket_key }}
           phase: dev
           run_id: \${{ github.event.client_payload.event_id }}
-          model: claude-sonnet-4-6
+          model: claude-sonnet-5
           outcome: \${{ (needs.run-agent.result != 'skipped' && needs.run-agent.result) || (needs.run-agent-claude-code.result != 'skipped' && needs.run-agent-claude-code.result) || needs.run-agent-codex-cli.result }}
           # claude-code path does cost tracking best-effort by design — it emits no token/cost outputs.
           input_tokens: \${{ needs.run-agent.outputs.input_tokens || '0' }}
@@ -441,7 +441,7 @@ jobs:
 #                                             (ADR-0006 §6 — anthropic_api_key is forbidden on this path)
 # Required variables: FERRY_AUDIT_ISSUE (GitHub Issue number for the audit log)
 # Optional variables: FERRY_REVIEW_PROVIDER (default: anthropic; also: openai, google)
-#                     FERRY_REVIEW_MODEL (default: claude-sonnet-4-6; use model ID matching your provider)
+#                     FERRY_REVIEW_MODEL (default: claude-opus-4-8; use model ID matching your provider)
 #                     FERRY_RUNNER (default: "ubuntu-latest"; JSON string or array for self-hosted runners, e.g. '["self-hosted","X64"]')
 #
 # Note: MCP server support is not available for non-Anthropic providers in the Reviewer agent.
@@ -533,7 +533,7 @@ jobs:
           google_api_key: \${{ secrets.GOOGLE_API_KEY }}
           github_token: \${{ github.token }}
           github_repo: \${{ github.repository }}
-          ferry_review_model: \${{ vars.FERRY_REVIEW_MODEL || 'claude-sonnet-4-6' }}
+          ferry_review_model: \${{ vars.FERRY_REVIEW_MODEL || 'claude-opus-4-8' }}
 
   ci-gate:
     name: Reviewer CI pre-gate
@@ -598,7 +598,7 @@ jobs:
             --mcp-config '{"mcpServers":{"jira":{"command":"npx","args":["-y","-p","@big-emotion/ferry@${version}","ferry-jira-mcp"],"env":{"FERRY_JIRA_BASE_URL":"\${{ secrets.FERRY_JIRA_BASE_URL }}","FERRY_JIRA_EMAIL":"\${{ secrets.FERRY_JIRA_EMAIL }}","FERRY_JIRA_API_TOKEN":"\${{ secrets.FERRY_JIRA_API_TOKEN }}"}}}}'
             --permission-mode bypassPermissions
             --disallowedTools 'Bash(gh pr merge),Bash(gh pr merge:*),Bash(gh pr close:*)'
-            --model \${{ vars.FERRY_REVIEW_MODEL || 'claude-sonnet-4-6' }}
+            --model \${{ vars.FERRY_REVIEW_MODEL || 'claude-opus-4-8' }}
 
   run-agent-codex-cli:
     name: Run Reviewer agent (codex-cli path)
@@ -654,7 +654,7 @@ jobs:
           ticket: \${{ github.event.client_payload.ticket_key }}
           phase: review
           run_id: \${{ github.event.client_payload.event_id }}
-          model: \${{ needs.run-agent.outputs.model || 'claude-sonnet-4-6' }}
+          model: \${{ needs.run-agent.outputs.model || 'claude-opus-4-8' }}
           outcome: \${{ (needs.run-agent.result != 'skipped' && needs.run-agent.result) || (needs.run-agent-claude-code.result != 'skipped' && needs.run-agent-claude-code.result) || (needs.run-agent-codex-cli.result != 'skipped' && needs.run-agent-codex-cli.result) || (needs.ci-gate.outputs.outcome == 'ci-red' && 'ci-red') || needs.run-agent-codex-cli.result || needs.run-agent-claude-code.result }}
           # claude-code path does cost tracking best-effort by design — it emits no token/cost outputs.
           input_tokens: \${{ needs.run-agent.outputs.input_tokens || '0' }}
@@ -677,7 +677,7 @@ jobs:
 #                                             (ADR-0006 §6 — anthropic_api_key is forbidden on this path)
 # Required variables: FERRY_AUDIT_ISSUE (GitHub Issue number for the audit log)
 # Optional variables: FERRY_ITER_PROVIDER (default: anthropic; also: openai, google)
-#                     FERRY_ITER_MODEL (default: claude-sonnet-4-6; use model ID matching your provider)
+#                     FERRY_ITER_MODEL (default: claude-sonnet-5; use model ID matching your provider)
 #                     FERRY_ITER_MAX_INPUT_TOKENS (default: 500000)
 #                     FERRY_RUNNER (default: "ubuntu-latest"; JSON string or array for self-hosted runners, e.g. '["self-hosted","X64"]')
 #
@@ -771,7 +771,7 @@ jobs:
           google_api_key: \${{ secrets.GOOGLE_API_KEY }}
           github_token: \${{ github.token }}
           github_repo: \${{ github.repository }}
-          ferry_iter_model: \${{ vars.FERRY_ITER_MODEL || 'claude-sonnet-4-6' }}
+          ferry_iter_model: \${{ vars.FERRY_ITER_MODEL || 'claude-sonnet-5' }}
           ferry_iter_max_input_tokens: \${{ vars.FERRY_ITER_MAX_INPUT_TOKENS || '500000' }}
 
   run-agent-claude-code:
@@ -810,7 +810,7 @@ jobs:
             --mcp-config '{"mcpServers":{"jira":{"command":"npx","args":["-y","-p","@big-emotion/ferry@${version}","ferry-jira-mcp"],"env":{"FERRY_JIRA_BASE_URL":"\${{ secrets.FERRY_JIRA_BASE_URL }}","FERRY_JIRA_EMAIL":"\${{ secrets.FERRY_JIRA_EMAIL }}","FERRY_JIRA_API_TOKEN":"\${{ secrets.FERRY_JIRA_API_TOKEN }}"}}}}'
             --permission-mode bypassPermissions
             --disallowedTools 'Bash(gh pr merge),Bash(gh pr merge:*),Bash(gh pr close:*)'
-            --model \${{ vars.FERRY_ITER_MODEL || 'claude-sonnet-4-6' }}
+            --model \${{ vars.FERRY_ITER_MODEL || 'claude-sonnet-5' }}
 
   run-agent-codex-cli:
     name: Run Iterator agent (codex-cli path)
@@ -864,7 +864,7 @@ jobs:
           ticket: \${{ github.event.client_payload.ticket_key }}
           phase: iterate
           run_id: \${{ github.event.client_payload.event_id }}
-          model: \${{ needs.run-agent.outputs.model || 'claude-sonnet-4-6' }}
+          model: \${{ needs.run-agent.outputs.model || 'claude-sonnet-5' }}
           outcome: \${{ (needs.run-agent.result != 'skipped' && needs.run-agent.result) || (needs.run-agent-claude-code.result != 'skipped' && needs.run-agent-claude-code.result) || needs.run-agent-codex-cli.result }}
           # claude-code path does cost tracking best-effort by design — it emits no token/cost outputs.
           input_tokens: \${{ needs.run-agent.outputs.input_tokens || '0' }}
@@ -886,7 +886,7 @@ jobs:
 #                                             (ADR-0006 §6 — anthropic_api_key is forbidden on this path)
 # Required variables: FERRY_AUDIT_ISSUE (GitHub Issue number for the audit log)
 # Optional variables: FERRY_MERGER_PROVIDER (default: anthropic; also: openai, google)
-#                     FERRY_MERGER_MODEL (default: claude-sonnet-4-6; use model ID matching your provider)
+#                     FERRY_MERGER_MODEL (default: claude-opus-4-8; use model ID matching your provider)
 #                     FERRY_RUNNER (default: "ubuntu-latest"; JSON string or array for self-hosted runners, e.g. '["self-hosted","X64"]')
 
 name: Ferry — Merge
@@ -968,7 +968,7 @@ jobs:
           google_api_key: \${{ secrets.GOOGLE_API_KEY }}
           github_token: \${{ github.token }}
           github_repo: \${{ github.repository }}
-          ferry_merger_model: \${{ vars.FERRY_MERGER_MODEL || 'claude-sonnet-4-6' }}
+          ferry_merger_model: \${{ vars.FERRY_MERGER_MODEL || 'claude-opus-4-8' }}
 
   run-agent-claude-code:
     name: Run Merger agent (claude-code path)
@@ -1005,7 +1005,7 @@ jobs:
             --mcp-config '{"mcpServers":{"jira":{"command":"npx","args":["-y","-p","@big-emotion/ferry@${version}","ferry-jira-mcp"],"env":{"FERRY_JIRA_BASE_URL":"\${{ secrets.FERRY_JIRA_BASE_URL }}","FERRY_JIRA_EMAIL":"\${{ secrets.FERRY_JIRA_EMAIL }}","FERRY_JIRA_API_TOKEN":"\${{ secrets.FERRY_JIRA_API_TOKEN }}"}}}}'
             --permission-mode bypassPermissions
             --disallowedTools 'Bash(gh pr close),Bash(gh pr close:*)'
-            --model \${{ vars.FERRY_MERGER_MODEL || 'claude-sonnet-4-6' }}
+            --model \${{ vars.FERRY_MERGER_MODEL || 'claude-opus-4-8' }}
 
   run-agent-codex-cli:
     name: Run Merger agent (codex-cli path)
@@ -1058,7 +1058,7 @@ jobs:
           ticket: \${{ github.event.client_payload.ticket_key }}
           phase: merge
           run_id: \${{ github.event.client_payload.event_id }}
-          model: \${{ needs.run-agent.outputs.model || 'claude-sonnet-4-6' }}
+          model: \${{ needs.run-agent.outputs.model || 'claude-opus-4-8' }}
           outcome: \${{ (needs.run-agent.result != 'skipped' && needs.run-agent.result) || (needs.run-agent-claude-code.result != 'skipped' && needs.run-agent-claude-code.result) || needs.run-agent-codex-cli.result }}
           # claude-code path does cost tracking best-effort by design — it emits no token/cost outputs.
           input_tokens: \${{ needs.run-agent.outputs.input_tokens || '0' }}
@@ -1095,7 +1095,8 @@ export function routerWorkflowTemplate(version: string): WorkflowEntry {
 # Required variables: FERRY_AUDIT_ISSUE (GitHub Issue number for the audit log)
 # Optional variables: FERRY_INTEGRATION_BRANCH (default: main)
 #                     FERRY_REFINER_MODEL / FERRY_DEV_MODEL / FERRY_REVIEW_MODEL /
-#                     FERRY_ITER_MODEL / FERRY_MERGER_MODEL (default: claude-sonnet-4-6)
+#                     FERRY_ITER_MODEL / FERRY_MERGER_MODEL (defaults: claude-opus-4-8
+#                     for refiner/reviewer/merger, claude-sonnet-5 for developer/iterator)
 #                     FERRY_PRE_AGENT_COMMAND (dependency bootstrap, e.g. "npm ci")
 #                     FERRY_EXTRA_CLAUDE_ARGS (extra claude_args, e.g. more --mcp-config)
 #                     FERRY_RUNNER (default: "ubuntu-latest"; JSON string or array)
@@ -1226,7 +1227,7 @@ jobs:
           jira_base_url: \${{ secrets.FERRY_JIRA_BASE_URL }}
           jira_email: \${{ secrets.FERRY_JIRA_EMAIL }}
           jira_api_token: \${{ secrets.FERRY_JIRA_API_TOKEN }}
-          model: \${{ vars[needs.route.outputs.model_var] || 'claude-sonnet-4-6' }}
+          model: \${{ vars[needs.route.outputs.model_var] || (contains(fromJSON('["refiner","reviewer","merger"]'), needs.route.outputs.role) && 'claude-opus-4-8' || 'claude-sonnet-5') }}
           integration_branch: \${{ vars.FERRY_INTEGRATION_BRANCH || 'main' }}
           checkout_token: \${{ secrets.FERRY_CHECKOUT_TOKEN }}
           review_transition_id: \${{ secrets.FERRY_REVIEW_TRANSITION_ID }}
@@ -1268,7 +1269,7 @@ jobs:
           ticket: \${{ github.event.client_payload.ticket_key }}
           phase: \${{ needs.route.outputs.phase }}
           run_id: \${{ github.event.client_payload.event_id }}
-          model: \${{ vars[needs.route.outputs.model_var] || 'claude-sonnet-4-6' }}
+          model: \${{ vars[needs.route.outputs.model_var] || (contains(fromJSON('["refiner","reviewer","merger"]'), needs.route.outputs.role) && 'claude-opus-4-8' || 'claude-sonnet-5') }}
           outcome: \${{ (needs.ci-gate.result != 'skipped' && needs.ci-gate.outputs.outcome == 'ci-red' && 'ci-red') || needs.run-agent.result }}
           # claude-code path does cost tracking best-effort by design — it emits no token/cost outputs.
           input_tokens: '0'

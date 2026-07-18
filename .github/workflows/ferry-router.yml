@@ -16,7 +16,8 @@
 # Required variables: FERRY_AUDIT_ISSUE (GitHub Issue number for the audit log)
 # Optional variables: FERRY_INTEGRATION_BRANCH (default: main)
 #                     FERRY_REFINER_MODEL / FERRY_DEV_MODEL / FERRY_REVIEW_MODEL /
-#                     FERRY_ITER_MODEL / FERRY_MERGER_MODEL (default: claude-sonnet-4-6)
+#                     FERRY_ITER_MODEL / FERRY_MERGER_MODEL (defaults: claude-opus-4-8
+#                     for refiner/reviewer/merger, claude-sonnet-5 for developer/iterator)
 #                     FERRY_PRE_AGENT_COMMAND (dependency bootstrap, e.g. "npm ci")
 #                     FERRY_EXTRA_CLAUDE_ARGS (extra claude_args, e.g. more --mcp-config)
 #                     FERRY_RUNNER (default: "ubuntu-latest"; JSON string or array)
@@ -147,7 +148,7 @@ jobs:
           jira_base_url: ${{ secrets.FERRY_JIRA_BASE_URL }}
           jira_email: ${{ secrets.FERRY_JIRA_EMAIL }}
           jira_api_token: ${{ secrets.FERRY_JIRA_API_TOKEN }}
-          model: ${{ vars[needs.route.outputs.model_var] || 'claude-sonnet-4-6' }}
+          model: ${{ vars[needs.route.outputs.model_var] || (contains(fromJSON('["refiner","reviewer","merger"]'), needs.route.outputs.role) && 'claude-opus-4-8' || 'claude-sonnet-5') }}
           integration_branch: ${{ vars.FERRY_INTEGRATION_BRANCH || 'main' }}
           checkout_token: ${{ secrets.FERRY_CHECKOUT_TOKEN }}
           review_transition_id: ${{ secrets.FERRY_REVIEW_TRANSITION_ID }}
@@ -189,7 +190,7 @@ jobs:
           ticket: ${{ github.event.client_payload.ticket_key }}
           phase: ${{ needs.route.outputs.phase }}
           run_id: ${{ github.event.client_payload.event_id }}
-          model: ${{ vars[needs.route.outputs.model_var] || 'claude-sonnet-4-6' }}
+          model: ${{ vars[needs.route.outputs.model_var] || (contains(fromJSON('["refiner","reviewer","merger"]'), needs.route.outputs.role) && 'claude-opus-4-8' || 'claude-sonnet-5') }}
           outcome: ${{ (needs.ci-gate.result != 'skipped' && needs.ci-gate.outputs.outcome == 'ci-red' && 'ci-red') || needs.run-agent.result }}
           # claude-code path does cost tracking best-effort by design — it emits no token/cost outputs.
           input_tokens: '0'

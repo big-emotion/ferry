@@ -184,10 +184,10 @@ export interface SafetyConfig {
 
 export const DEFAULT_FERRY_CONFIG: FerryConfig = {
   models: {
-    refiner: { provider: 'anthropic', model: 'claude-sonnet-4-6' },
-    dev: { provider: 'anthropic', model: 'claude-opus-4-5' },
-    review: { provider: 'anthropic', model: 'claude-sonnet-4-6' },
-    iterate: { provider: 'anthropic', model: 'claude-sonnet-4-6' },
+    refiner: { provider: 'anthropic', model: 'claude-opus-4-8' },
+    dev: { provider: 'anthropic', model: 'claude-sonnet-5' },
+    review: { provider: 'anthropic', model: 'claude-opus-4-8' },
+    iterate: { provider: 'anthropic', model: 'claude-sonnet-5' },
   },
   limits: {
     max_iterations: 3,

@@ -239,6 +239,6 @@ describe('workflowTemplates', () => {
     expect(dev?.content).toContain('claude_args: >-');
     expect(dev?.content).toContain('ferry-jira-mcp');
     // The model is interpolated from the per-agent variable, not hardcoded.
-    expect(dev?.content).toContain("--model ${{ vars.FERRY_DEV_MODEL || 'claude-sonnet-4-6' }}");
+    expect(dev?.content).toContain("--model ${{ vars.FERRY_DEV_MODEL || 'claude-sonnet-5' }}");
   });
 });

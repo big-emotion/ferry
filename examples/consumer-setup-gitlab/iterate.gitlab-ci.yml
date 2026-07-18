@@ -8,7 +8,7 @@ ferry-iterate:
     - if: '$FERRY_DISPATCH_TYPE == "ferry-iterate"'
   variables:
     FERRY_AGENT_ROLE: iterator
-    FERRY_ITER_MODEL: ${FERRY_ITER_MODEL:-claude-sonnet-4-6}
+    FERRY_ITER_MODEL: ${FERRY_ITER_MODEL:-claude-sonnet-5}
   script:
     - apk add --no-cache git
     - npm install -g "@big-emotion/ferry@${FERRY_VERSION}"
