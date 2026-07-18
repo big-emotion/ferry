@@ -696,3 +696,32 @@ describe('GitLab example docs — shipped command status (issue #406)', () => {
     expect(doc).toContain('ferry-doctor --forge gitlab');
   });
 });
+
+// ---------------------------------------------------------------------------
+// FER-26 — the shared composite must isolate npx from the checked-out repo, or
+// dogfooding (repo name == @big-emotion/ferry) resolves the local unbuilt
+// package and every agent tool (prompt, transition resolver, Jira MCP) fails.
+// ---------------------------------------------------------------------------
+
+describe('FER-26 — ferry-run-claude-agent isolates npx via --prefix', () => {
+  const ACTION = '.github/actions/ferry-run-claude-agent/action.yml';
+
+  it('has no bare `npx -y -p` call — every npx must pass --prefix first', async () => {
+    const action = await readFile(ACTION);
+    // A bare shell npx (not preceded by --prefix) resolves the local package.
+    expect(action, 'shell npx must use --prefix (FER-26)').not.toMatch(/npx -y -p/);
+  });
+
+  it('launches ferry-jira-mcp through npx --prefix in the --mcp-config', async () => {
+    const action = await readFile(ACTION);
+    expect(
+      action,
+      'the Jira MCP npx must isolate via --prefix, else dogfood agents lose Jira tools',
+    ).toContain('"command":"npx","args":["--prefix"');
+  });
+
+  it('isolates all three npx sites (prompt, transition resolver, Jira MCP)', async () => {
+    const action = await readFile(ACTION);
+    expect((action.match(/--prefix/g) ?? []).length).toBeGreaterThanOrEqual(3);
+  });
+});

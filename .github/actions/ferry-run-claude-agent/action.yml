@@ -143,8 +143,15 @@ runs:
         CHANGES_FALLBACK: ${{ inputs.changes_transition_id }}
       run: |
         set -euo pipefail
+        # Isolate npx from the checked-out repo. When Ferry dogfoods itself the
+        # repo IS @big-emotion/ferry, so a bare `npx -p @big-emotion/ferry@<v>`
+        # resolves the LOCAL (unbuilt) package and the bin is "command not found"
+        # (FER-26). --prefix installs and runs the published package from a
+        # neutral dir; the CLI still reads prompts/config from the repo cwd.
+        NPX_PREFIX="$RUNNER_TEMP/ferry-npx"
+        mkdir -p "$NPX_PREFIX"
         resolve() { # $1 agent  $2 kind  $3 fallback  $4 output-name
-          npx -y -p "$FERRY_PKG" ferry-resolve-transition \
+          npx --prefix "$NPX_PREFIX" -y -p "$FERRY_PKG" ferry-resolve-transition \
             --ticket-key "$TICKET_KEY" --agent "$1" --kind "$2" \
             --fallback-id "$3" --output-name "$4"
         }
@@ -168,12 +175,15 @@ runs:
         CHANGES_ID: ${{ steps.transitions.outputs.changes_id }}
       run: |
         set -euo pipefail
+        # See FER-26 note above: --prefix isolates npx from the dogfooded repo.
+        NPX_PREFIX="$RUNNER_TEMP/ferry-npx"
+        mkdir -p "$NPX_PREFIX"
         args=(--agent "$ROLE" --ticket-key "$TICKET_KEY" --run-id "$RUN_ID")
         case "$ROLE" in
           dev|iterate) args+=(--review-transition-id "$REVIEW_ID") ;;
           review)      args+=(--approve-transition-id "$APPROVE_ID" --changes-transition-id "$CHANGES_ID") ;;
         esac
-        npx -y -p "$FERRY_PKG" ferry-cc-prompt "${args[@]}"
+        npx --prefix "$NPX_PREFIX" -y -p "$FERRY_PKG" ferry-cc-prompt "${args[@]}"
     # The merger is the single agent allowed to run `gh pr merge` (FR32,
     # ADR-0005) — every other role has it structurally denied.
     - name: Assemble role guardrails
@@ -197,7 +207,7 @@ runs:
         prompt: ${{ steps.prompt.outputs.prompt }}
         claude_args: >-
           --verbose
-          --mcp-config '{"mcpServers":{"jira":{"command":"npx","args":["-y","-p","@big-emotion/ferry@${{ inputs.ferry_version }}","ferry-jira-mcp"],"env":{"FERRY_JIRA_BASE_URL":"${{ inputs.jira_base_url }}","FERRY_JIRA_EMAIL":"${{ inputs.jira_email }}","FERRY_JIRA_API_TOKEN":"${{ inputs.jira_api_token }}"}}}}'
+          --mcp-config '{"mcpServers":{"jira":{"command":"npx","args":["--prefix","${{ runner.temp }}/ferry-npx","-y","-p","@big-emotion/ferry@${{ inputs.ferry_version }}","ferry-jira-mcp"],"env":{"FERRY_JIRA_BASE_URL":"${{ inputs.jira_base_url }}","FERRY_JIRA_EMAIL":"${{ inputs.jira_email }}","FERRY_JIRA_API_TOKEN":"${{ inputs.jira_api_token }}"}}}}'
           --permission-mode bypassPermissions
           --disallowedTools '${{ steps.guardrails.outputs.disallowed }}'
           --model ${{ inputs.model }}
