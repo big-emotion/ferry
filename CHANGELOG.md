@@ -11,6 +11,16 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.0.0] — 2026-07-18
+
+First stable release. Ferry's public contract — the `event.v1` dispatch schema, the composite action interfaces (`ferry-run-*`, `ferry-route`, `ferry-envelope-validate`, `ferry-ci-gate`, `ferry-emit-audit`), the consumer CLI surface (`ferry-init` / `ferry-doctor` / `ferry-update` / `ferry-uninstall`), and the `ferry.config.yaml` schema — is now covered by [Semantic Versioning](https://semver.org/) stability guarantees. There are no functional changes since `0.19.0`; this release promotes the current router-model feature set to a stable line.
+
+### Changed
+
+- **Promoted to `1.0.0`.** The floating `@v1` tag and the `@big-emotion/ferry@v1` npm spec now resolve to a real `1.x` release line — previously `@v1` matched no published npm version (only `0.x` existed), so `npx -p @big-emotion/ferry@v1` failed to resolve. Consumers pinned to the default `v1` pick this up automatically on their next run; no migration is required.
+
+---
+
 ## [0.19.0] — 2026-07-18
 
 ### Added
@@ -543,7 +553,8 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
-[Unreleased]: https://github.com/big-emotion/ferry/compare/v0.19.0...HEAD
+[Unreleased]: https://github.com/big-emotion/ferry/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/big-emotion/ferry/releases/tag/v1.0.0
 [0.19.0]: https://github.com/big-emotion/ferry/releases/tag/v0.19.0
 [0.18.2]: https://github.com/big-emotion/ferry/releases/tag/v0.18.2
 [0.18.1]: https://github.com/big-emotion/ferry/releases/tag/v0.18.1
