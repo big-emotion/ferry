@@ -11,6 +11,14 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.18.1] — 2026-07-18
+
+### Fixed
+
+- **claude-code prompt overlay is no longer silently shadowed by a full override** — `resolveActionPrompt` now always appends `prompts/<agent>.<path>.local.md` on top of the base prompt (the `prompts/<agent>.<path>.md` full override when present, otherwise the bundled default), instead of ignoring the `.local.md` whenever a full override existed. A repo that ships its bundled prompt source at `prompts/<agent>.claude-code.md` (Ferry dogfooding itself) previously shadowed its own local overlay. Consumers who use only one of the two files are unaffected.
+
+---
+
 ## [0.18.0] — 2026-07-18
 
 ### Added
@@ -519,7 +527,8 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
-[Unreleased]: https://github.com/big-emotion/ferry/compare/v0.18.0...HEAD
+[Unreleased]: https://github.com/big-emotion/ferry/compare/v0.18.1...HEAD
+[0.18.1]: https://github.com/big-emotion/ferry/releases/tag/v0.18.1
 [0.18.0]: https://github.com/big-emotion/ferry/releases/tag/v0.18.0
 [0.17.0]: https://github.com/big-emotion/ferry/releases/tag/v0.17.0
 [0.16.0]: https://github.com/big-emotion/ferry/releases/tag/v0.16.0

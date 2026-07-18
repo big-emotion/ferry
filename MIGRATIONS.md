@@ -53,6 +53,14 @@ If there are no consumer-visible changes, omit the section (or note `(none — i
 
 ---
 
+## v0.18.0 → v0.18.1
+
+forge: both
+
+- **(info)** **A `prompts/<agent>.<path>.local.md` overlay now always applies, even when a full `prompts/<agent>.<path>.md` override exists.** Previously the `.local.md` was silently ignored whenever a full override was present. If you rely on that old shadowing behaviour, fold the local guidance into the full override file. Consumers who use only one of the two files are unaffected.
+
+---
+
 ## v0.17.x → v0.18.0
 
 forge: github
