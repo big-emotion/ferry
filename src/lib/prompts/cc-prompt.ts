@@ -26,15 +26,21 @@ export const CC_PROMPT_TOKENS: Record<CcAgent, readonly string[]> = {
 };
 
 export interface CcPromptResolution {
-  /** `override` when a consumer file was used, `local-overlay` when local guidance was appended, `bundled` when Ferry's default was. */
+  /** `override` when a consumer file replaced the default, `local-overlay` when a `.local.md` was appended on top, `bundled` when Ferry's default was used as-is. */
   source: 'override' | 'local-overlay' | 'bundled';
   text: string;
 }
 
 /**
- * Resolve a direct-action prompt for an agent: the consumer override at
- * `prompts/<agent>.<path>.md` (or under `FERRY_PROMPTS_DIR`) when present,
- * otherwise the `bundledDefault` passed in by the caller.
+ * Resolve a direct-action prompt for an agent. The base is the consumer full
+ * override at `prompts/<agent>.<path>.md` (or under `FERRY_PROMPTS_DIR`) when
+ * present, else the `bundledDefault`. A `prompts/<agent>.<path>.local.md` file
+ * is ALWAYS appended on top of that base — even when a full override exists.
+ *
+ * Appending unconditionally (rather than only when no override is present)
+ * removes a footgun: a repo that ships its bundled prompt source at
+ * `prompts/<agent>.<path>.md` (e.g. Ferry dogfooding itself) would otherwise
+ * silently shadow its own `.local.md` overlay.
  */
 export function resolveActionPrompt(
   actionPath: DirectActionPromptPath,
@@ -46,18 +52,18 @@ export function resolveActionPrompt(
 ): CcPromptResolution {
   const overridesDir = process.env.FERRY_PROMPTS_DIR || path.join(repoRoot, 'prompts');
   const overridePath = path.join(overridesDir, `${agent}.${actionPath}.md`);
-  if (_checkExists(overridePath)) {
-    return { source: 'override', text: _readFile(overridePath, 'utf8') };
-  }
+  const hasOverride = _checkExists(overridePath);
+  const base = hasOverride ? _readFile(overridePath, 'utf8') : bundledDefault;
+
   const localOverlayPath = path.join(overridesDir, `${agent}.${actionPath}.local.md`);
   if (_checkExists(localOverlayPath)) {
     const local = _readFile(localOverlayPath, 'utf8');
     return {
       source: 'local-overlay',
-      text: `${bundledDefault}\n\n## Project-specific guidance for ${agent} (${actionPath})\n\n${local}`,
+      text: `${base}\n\n## Project-specific guidance for ${agent} (${actionPath})\n\n${local}`,
     };
   }
-  return { source: 'bundled', text: bundledDefault };
+  return { source: hasOverride ? 'override' : 'bundled', text: base };
 }
 
 /** Backwards-compatible helper for the original claude-code prompt CLI/tests. */

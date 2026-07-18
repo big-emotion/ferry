@@ -68,13 +68,17 @@ describe('resolveCcPrompt', () => {
     });
   });
 
-  it('prefers a full override over a local claude-code overlay', () => {
+  it('appends the local overlay ON TOP of a full override (never silently shadowed)', () => {
     const check = (p: string) =>
       p === '/workspace/repo/prompts/dev.claude-code.md' ||
       p === '/workspace/repo/prompts/dev.claude-code.local.md';
     const read = vi.fn((p: string) => (p.endsWith('.local.md') ? 'LOCAL' : 'OVERRIDE'));
     const result = resolveCcPrompt('dev', REPO_ROOT, 'BUNDLED', check, read);
-    expect(result).toEqual({ source: 'override', text: 'OVERRIDE' });
+    // The full override replaces the bundled base; the .local.md is still appended.
+    expect(result).toEqual({
+      source: 'local-overlay',
+      text: 'OVERRIDE\n\n## Project-specific guidance for dev (claude-code)\n\nLOCAL',
+    });
   });
 
   it('appends a local codex-cli overlay when no full override exists', () => {
