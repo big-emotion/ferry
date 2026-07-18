@@ -91,8 +91,7 @@
     "prettier": "^3.0.0",
     "tsx": "^4.0.0",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.5",
-    "yaml": "^2.9.0"
+    "vitest": "^4.1.5"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.97.0",
@@ -102,7 +101,8 @@
     "ajv": "^8.0.0",
     "ajv-formats": "^3.0.1",
     "openai": "^6.34.0",
-    "ulid": "^3.0.2"
+    "ulid": "^3.0.2",
+    "yaml": "^2.9.0"
   },
   "engines": {
     "node": ">=20.0.0"
