@@ -378,7 +378,7 @@ Stable releases to consider rolling back to, in descending order:
 
 ### 5.3 Re-pin consumer workflows
 
-The consumer repo has four Ferry workflow stubs. Re-pin them all:
+The consumer repo has either the five per-agent Ferry workflow stubs (legacy model) or the single `ferry-router.yml` (router model, claude-code path). The `ferry-*.yml` glob below covers both — re-pin them all:
 
 ```bash
 # Replace the current pin with the target version

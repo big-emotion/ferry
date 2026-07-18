@@ -1,15 +1,32 @@
 import { execSync } from 'node:child_process';
+import { resolveExecutionPath } from './claude-code-path.js';
 import type { CheckResult } from '../types.js';
 
-const REQUIRED_SECRETS = [
+const BASE_REQUIRED_SECRETS = [
   'FERRY_APP_ID',
   'FERRY_PRIVATE_KEY',
   'FERRY_JIRA_BASE_URL',
   'FERRY_JIRA_EMAIL',
   'FERRY_JIRA_API_TOKEN',
-  'ANTHROPIC_API_KEY',
+];
+
+// The provider secret depends on the execution path: the claude-code path
+// authenticates with CLAUDE_CODE_OAUTH_TOKEN and FORBIDS ANTHROPIC_API_KEY
+// (ADR-0006 §6) — requiring the API key there would make a healthy install
+// permanently red while the token-exclusivity check asks to delete it.
+function requiredSecretsFor(repoRoot: string | undefined): string[] {
+  const path = repoRoot ? resolveExecutionPath(repoRoot) : 'script';
+  const providerSecret = path === 'claude-code' ? 'CLAUDE_CODE_OAUTH_TOKEN' : 'ANTHROPIC_API_KEY';
+  return [...BASE_REQUIRED_SECRETS, providerSecret];
+}
+
+// Optional overrides: when absent, agents auto-resolve transition ids from the
+// status names in ferry.config (workflow.agents.*) — see resolveConfiguredTransitionId.
+const OPTIONAL_TRANSITION_SECRETS = [
   'FERRY_REVIEW_TRANSITION_ID',
   'FERRY_ITER_TRANSITION_ID',
+  'FERRY_APPROVE_TRANSITION_ID',
+  'FERRY_MERGE_DONE_TRANSITION_ID',
 ];
 
 export function listRepoSecrets(repo: string): string[] {
@@ -25,7 +42,7 @@ export function listRepoSecrets(repo: string): string[] {
   }
 }
 
-export function checkSecrets(repo: string): CheckResult {
+export function checkSecrets(repo: string, repoRoot?: string): CheckResult {
   let existing: string[];
   try {
     existing = listRepoSecrets(repo);
@@ -38,13 +55,18 @@ export function checkSecrets(repo: string): CheckResult {
     };
   }
 
-  const missing = REQUIRED_SECRETS.filter((s) => !existing.includes(s));
+  const required = requiredSecretsFor(repoRoot);
+  const missing = required.filter((s) => !existing.includes(s));
 
   if (missing.length === 0) {
+    const anyTransitionOverride = OPTIONAL_TRANSITION_SECRETS.some((s) => existing.includes(s));
+    const autoResolveNote = anyTransitionOverride
+      ? ''
+      : ' (no transition-id override secrets set — ids auto-resolve from ferry.config status names)';
     return {
       label: 'Secrets present',
       status: 'green',
-      detail: `All ${REQUIRED_SECRETS.length} required secrets found`,
+      detail: `All ${required.length} required secrets found${autoResolveNote}`,
     };
   }
 

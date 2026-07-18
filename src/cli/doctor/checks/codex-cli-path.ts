@@ -146,13 +146,26 @@ export function checkWorkflowShape(opts: { repoRoot: string }): CheckResult {
   }
 
   const stale: string[] = [];
+  let anyPresent = false;
   for (const file of WORKFLOW_FILES) {
     const workflowPath = join(repoRoot, '.github', 'workflows', file);
     if (!existsSync(workflowPath)) continue;
+    anyPresent = true;
     const content = readFileSync(workflowPath, 'utf8');
     if (!content.includes('run-agent-codex-cli:') || !content.includes('openai/codex-action@')) {
       stale.push(file);
     }
+  }
+
+  // No workflows at all means the codex-cli path cannot run — never report green.
+  if (!anyPresent) {
+    return {
+      label: WORKFLOW_SHAPE_LABEL,
+      status: 'red',
+      detail:
+        'no Ferry workflows found — none of the per-agent workflow files exist in .github/workflows',
+      remedy: 'Run `npx -p @big-emotion/ferry ferry-init` to install the Ferry workflows',
+    };
   }
 
   if (stale.length === 0) {

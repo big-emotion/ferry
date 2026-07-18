@@ -55,6 +55,12 @@ If there are no consumer-visible changes, omit the section (or note `(none — i
 
 ## v0.17.x → v0.18.0
 
+forge: github
+
+- **(action)** **claude-code consumers may migrate to the thin router model.** Replace the five per-agent workflows (`ferry-refine.yml`, `ferry-dev.yml`, `ferry-review.yml`, `ferry-iterate.yml`, `ferry-merge.yml`) with the single `ferry-router.yml` — re-run `npx -p @big-emotion/ferry ferry-init` (with `execution_path: claude-code`) or copy `examples/consumer-setup/workflows/ferry-router.yml` by hand — and replace the 4 per-column Jira Automation rules with the single any-column `ferry-transition` rule (the regenerated `ferry-jira-automation-setup.md` walks through it). **Remove the legacy stubs after migrating**: `ferry-router.yml` also listens for the legacy per-agent events, so keeping both means both workflows fire on every legacy dispatch.
+- **(info)** **Transition-ID secrets are now optional overrides.** Agents auto-resolve Jira transition ids at runtime from the `workflow.agents.*.auto_transition*` status names in `ferry.config`; `FERRY_REVIEW_TRANSITION_ID`, `FERRY_ITER_TRANSITION_ID`, and `FERRY_APPROVE_TRANSITION_ID` are only needed to pin an explicit id. Existing secrets keep working unchanged.
+- **(info)** **New `workflow.agents.merger.auto_transition_done` config (FR32, script path).** Set it to a column name (default `null`) to have the Merger move the ticket after a successful merge — the transition id is auto-resolved. `FERRY_MERGE_DONE_TRANSITION_ID` stays supported as an explicit override. On the claude-code path the merger instead name-matches a "Done"/"Closed" transition itself.
+- **(info)** **The Merger remains unreachable from a Jira column move (ADR-0005).** The any-column router rule cannot trigger it — only the `ferry-merge` dispatch the Reviewer emits on approval does.
 - **(action)** **`codex-cli` workflow jobs are now generated for all five roles.** Run `npx -p @big-emotion/ferry@v0.18.0 ferry-update` to regenerate your workflow stubs so `path=codex-cli` resolves to a real `run-agent-codex-cli` job instead of silently skipping the agent phase.
 - **(info)** **Codex direct-action runs now use Ferry-managed Jira MCP wiring through `codex-home/config.toml`.** The generated workflows create `codex-home/config.toml` with `ferry-codex-config` and pass it to `openai/codex-action`. Jira credentials still come from the existing `FERRY_JIRA_*` secrets; no new Jira secret is required.
 

@@ -77,6 +77,31 @@ jobs:
       - uses: big-emotion/ferry/.github/actions/ferry-run-refiner@v0.17.0
 `;
 
+// Thin router model: one workflow listening for all ferry dispatch types,
+// delegating to the shared ferry-run-claude-agent composite.
+const ROUTER_WORKFLOW_CONTENT = `
+name: Ferry — Router
+on:
+  repository_dispatch:
+    types: [ferry-transition, ferry-refine, ferry-dev, ferry-review, ferry-iterate, ferry-merge]
+jobs:
+  run-agent:
+    steps:
+      - uses: big-emotion/ferry/.github/actions/ferry-run-claude-agent@v1
+`;
+
+// A ferry-router.yml that lost the shared composite call (hand-edited or corrupt).
+const ROUTER_MISSING_COMPOSITE_CONTENT = `
+name: Ferry — Router
+on:
+  repository_dispatch:
+    types: [ferry-refine]
+jobs:
+  run-agent:
+    steps:
+      - uses: anthropics/claude-code-action@v1
+`;
+
 const ALL_ANTHROPIC_CONFIG = {
   models: {
     refiner: { provider: 'anthropic', model: 'claude-sonnet-4-6' },
@@ -430,7 +455,7 @@ describe('checkWorkflowShape', () => {
     expect(res.remedy).toContain('ferry-update');
   });
 
-  it('skips missing workflow files (covered by the Workflow files check)', () => {
+  it('skips individually missing legacy files (covered by the Workflow files check)', () => {
     writeConfig(root, { execution_path: 'claude-code' });
     // Only write two of the four — the others are missing.
     writeWorkflow(root, 'ferry-dev.yml', CURRENT_WORKFLOW_CONTENT);
@@ -439,6 +464,52 @@ describe('checkWorkflowShape', () => {
     const res = checkWorkflowShape({ repoRoot: root });
     // The two present files pass; the two missing files are skipped.
     expect(res.status).toBe('green');
+  });
+
+  it('is red when neither the router nor any legacy workflow file exists', () => {
+    writeConfig(root, { execution_path: 'claude-code' });
+    mkdirSync(join(root, '.github', 'workflows'), { recursive: true });
+    const res = checkWorkflowShape({ repoRoot: root });
+    expect(res.status).toBe('red');
+    expect(res.detail).toContain('no Ferry workflows found');
+    expect(res.remedy).toContain('ferry-init');
+  });
+
+  it('is red when the workflows directory does not exist at all', () => {
+    writeConfig(root, { execution_path: 'claude-code' });
+    const res = checkWorkflowShape({ repoRoot: root });
+    expect(res.status).toBe('red');
+    expect(res.detail).toContain('no Ferry workflows found');
+  });
+
+  it('is green when ferry-router.yml has the router shape', () => {
+    writeConfig(root, { execution_path: 'claude-code' });
+    writeWorkflow(root, 'ferry-router.yml', ROUTER_WORKFLOW_CONTENT);
+    const res = checkWorkflowShape({ repoRoot: root });
+    expect(res.status).toBe('green');
+    expect(res.detail).toContain('ferry-router.yml');
+    expect(res.detail).toContain('ferry-run-claude-agent');
+  });
+
+  it('is yellow when ferry-router.yml is missing the ferry-run-claude-agent composite', () => {
+    writeConfig(root, { execution_path: 'claude-code' });
+    writeWorkflow(root, 'ferry-router.yml', ROUTER_MISSING_COMPOSITE_CONTENT);
+    const res = checkWorkflowShape({ repoRoot: root });
+    expect(res.status).toBe('yellow');
+    expect(res.detail).toContain('ferry-run-claude-agent');
+    expect(res.remedy).toContain('ferry-update');
+  });
+
+  it('validates the router shape only when ferry-router.yml coexists with stale legacy files', () => {
+    writeConfig(root, { execution_path: 'claude-code' });
+    writeWorkflow(root, 'ferry-router.yml', ROUTER_WORKFLOW_CONTENT);
+    // Leftover legacy stubs must not drag the router install to yellow.
+    for (const f of WORKFLOW_FILES) {
+      writeWorkflow(root, f, STALE_WRAPPER_CONTENT);
+    }
+    const res = checkWorkflowShape({ repoRoot: root });
+    expect(res.status).toBe('green');
+    expect(res.detail).toContain('ferry-router.yml');
   });
 
   it('does not check workflows when execution_path is script', () => {

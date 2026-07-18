@@ -3,15 +3,31 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { WorkflowItem, CompositeActionItem, AuditIssueState } from './types.js';
 
+/**
+ * Every workflow file any Ferry install model may have written: the single
+ * ferry-router.yml (router model), all legacy per-agent stubs, and the ops
+ * workflows under both their current names (examples/consumer-setup) and the
+ * historical ones — kept so pre-migration and mid-migration installs clean up
+ * fully.
+ */
 export const FERRY_WORKFLOW_FILES = [
+  'ferry-router.yml',
   'ferry-refine.yml',
   'ferry-dev.yml',
   'ferry-review.yml',
   'ferry-iterate.yml',
+  'ferry-merge.yml',
+  'ferry-reconcile.yml',
+  'ferry-cost-daily.yml',
   'ferry-reconciler.yml',
   'ferry-audit-daily.yml',
 ];
 
+/**
+ * The transition-id secrets are optional overrides since agents auto-resolve
+ * ids from ferry.config status names, but older installs set them — they stay
+ * in the sweep.
+ */
 export const FERRY_SECRETS = [
   'FERRY_APP_ID',
   'FERRY_PRIVATE_KEY',
@@ -20,6 +36,8 @@ export const FERRY_SECRETS = [
   'FERRY_JIRA_API_TOKEN',
   'FERRY_REVIEW_TRANSITION_ID',
   'FERRY_ITER_TRANSITION_ID',
+  'FERRY_APPROVE_TRANSITION_ID',
+  'FERRY_MERGE_DONE_TRANSITION_ID',
 ];
 
 export const ANTHROPIC_SECRET = 'ANTHROPIC_API_KEY';

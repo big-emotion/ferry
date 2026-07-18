@@ -38,7 +38,10 @@ inputs:
     description: Jira API token
     required: true
   ferry_iter_transition_id:
-    description: Jira transition id into the Changes Requested column (FR24)
+    description: >-
+      Explicit Jira transition id into the Changes Requested column (FR24).
+      Optional override — when empty, the id is auto-resolved from the
+      reviewer's auto_transition_changes status name in ferry.config.
     required: false
     default: ''
 outputs:
@@ -72,6 +75,12 @@ runs:
         FERRY_TICKET_KEY: ${{ inputs.ticket_key }}
         FERRY_PR_BRANCH: ${{ inputs.pr_branch }}
         FERRY_PR_NUMBER: ${{ inputs.pr_number }}
+        # FR24 transition resolution: explicit id wins, else auto-resolved from
+        # the reviewer's auto_transition_changes status name in ferry.config.
+        FERRY_ITER_TRANSITION_ID: ${{ inputs.ferry_iter_transition_id }}
+        FERRY_JIRA_BASE_URL: ${{ inputs.jira_base_url }}
+        FERRY_JIRA_EMAIL: ${{ inputs.jira_email }}
+        FERRY_JIRA_API_TOKEN: ${{ inputs.jira_api_token }}
     - name: Request changes when CI is red (FR24)
       if: steps.gate.outputs.outcome == 'ci-red'
       shell: bash
@@ -85,7 +94,9 @@ runs:
         FERRY_JIRA_BASE_URL: ${{ inputs.jira_base_url }}
         FERRY_JIRA_EMAIL: ${{ inputs.jira_email }}
         FERRY_JIRA_API_TOKEN: ${{ inputs.jira_api_token }}
-        FERRY_ITER_TRANSITION_ID: ${{ inputs.ferry_iter_transition_id }}
+        # Resolved by the gate step: explicit input override, else auto-resolved
+        # from ferry.config; empty = transition disabled.
+        FERRY_ITER_TRANSITION_ID: ${{ steps.gate.outputs.iter_transition_id }}
       run: |
         set -euo pipefail
         BRANCH="${FERRY_PR_BRANCH:-ferry/${FERRY_TICKET_KEY}}"

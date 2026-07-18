@@ -95,6 +95,72 @@ describe('Phase 3 — consumer workflow stubs (install-guide §3.1)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// 1b. Router model — consumer router workflow stub (claude-code path)
+// ---------------------------------------------------------------------------
+
+describe('Router model — consumer router workflow stub (INSTALL.md §Router model)', () => {
+  it('examples/consumer-setup/workflows/ferry-router.yml exists', async () => {
+    const exists = await fileExists('examples/consumer-setup/workflows/ferry-router.yml');
+    expect(exists, 'ferry-router.yml must exist for consumers to copy').toBe(true);
+  });
+
+  it('ferry-router.yml pins v0.18.0+ (the release that ships the composite), never @main', async () => {
+    const content = await readFile('examples/consumer-setup/workflows/ferry-router.yml');
+    // The router model does not exist at v0.17.0 — pinning it there would give
+    // consumers a workflow whose run-agent action cannot resolve.
+    expect(
+      content,
+      'ferry-router.yml must pin to v0.18.0 or later — earlier tags lack ferry-run-claude-agent',
+    ).toMatch(/@v0\.18\.0\b/);
+    expect(content, 'ferry-router.yml must not pin a pre-router tag').not.toMatch(/@v0\.17\.0\b/);
+    expect(content, 'ferry-router.yml must not use @main (use a release tag or a SHA)').not.toMatch(
+      /@main/,
+    );
+  });
+
+  it('ferry-router.yml calls composite actions directly (no secrets: inherit)', async () => {
+    const content = await readFile('examples/consumer-setup/workflows/ferry-router.yml');
+    expect(
+      content,
+      'ferry-router.yml must call composite actions directly — secrets: inherit does not work cross-org',
+    ).toContain('big-emotion/ferry/.github/actions/');
+    expect(content, 'ferry-router.yml must not use secrets: inherit').not.toContain(
+      'secrets: inherit',
+    );
+  });
+
+  it('ferry-router.yml triggers on ferry-transition plus the legacy per-agent events', async () => {
+    const content = await readFile('examples/consumer-setup/workflows/ferry-router.yml');
+    for (const eventType of [
+      'ferry-transition',
+      'ferry-refine',
+      'ferry-dev',
+      'ferry-review',
+      'ferry-iterate',
+      'ferry-merge',
+    ]) {
+      expect(content, `ferry-router.yml must listen for ${eventType}`).toContain(`- ${eventType}`);
+    }
+  });
+
+  it('ferry-router.yml runs agents through the shared ferry-run-claude-agent composite', async () => {
+    const content = await readFile('examples/consumer-setup/workflows/ferry-router.yml');
+    expect(content).toContain('big-emotion/ferry/.github/actions/ferry-run-claude-agent');
+  });
+
+  it('INSTALL.md documents the single any-column ferry-transition Jira rule', async () => {
+    const doc = await readFile('docs/INSTALL.md');
+    expect(doc, 'INSTALL.md must show the ferry-transition dispatch body').toContain(
+      '"event_type": "ferry-transition"',
+    );
+    expect(
+      doc,
+      'INSTALL.md must instruct to leave the From/To status filters empty (any-column rule)',
+    ).toMatch(/leave \*\*From status\*\* and \*\*To status\*\* \*\*empty\*\*/);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 2. Workflow stubs call the correct composite actions — Phase 3
 // ---------------------------------------------------------------------------
 
@@ -145,13 +211,15 @@ describe('Quick install — secret and variable names (INSTALL.md §Step 2)', ()
     'FERRY_JIRA_EMAIL',
     'FERRY_JIRA_API_TOKEN',
     'ANTHROPIC_API_KEY',
-    'FERRY_REVIEW_TRANSITION_ID',
-    'FERRY_ITER_TRANSITION_ID',
   ];
 
-  it('INSTALL.md documents all 6 required secrets', async () => {
+  // Auto-resolved from ferry.config status names since the router model shipped;
+  // they must stay documented because setting one still overrides the resolver.
+  const transitionOverrideSecrets = ['FERRY_REVIEW_TRANSITION_ID', 'FERRY_ITER_TRANSITION_ID'];
+
+  it('INSTALL.md documents the 4 required secrets and the 2 optional transition-id overrides', async () => {
     const doc = await readFile('docs/INSTALL.md');
-    for (const secret of requiredSecrets) {
+    for (const secret of [...requiredSecrets, ...transitionOverrideSecrets]) {
       expect(doc, `INSTALL.md must document secret ${secret}`).toContain(secret);
     }
   });
@@ -168,14 +236,14 @@ describe('Quick install — secret and variable names (INSTALL.md §Step 2)', ()
     );
   });
 
-  it('INSTALL.md checklist surfaces the 2 transition-ID secrets the wizard does NOT set', async () => {
+  it('INSTALL.md checklist presents transition-ID secrets as optional overrides (auto-resolved)', async () => {
     const doc = await readFile('docs/INSTALL.md');
     expect(doc).toMatch(/FERRY_REVIEW_TRANSITION_ID/);
     expect(doc).toMatch(/FERRY_ITER_TRANSITION_ID/);
     expect(
       doc,
-      'INSTALL.md checklist must explicitly note that 2 transition-ID secrets are set manually (the wizard does not set them)',
-    ).toMatch(/2 transition-ID secrets set manually/);
+      'INSTALL.md checklist must say transition-ID secrets are optional overrides, auto-resolved from ferry.config status names',
+    ).toMatch(/Transition-ID secrets: optional overrides — auto-resolved from ferry\.config/);
   });
 });
 
@@ -343,11 +411,16 @@ describe('Phase 4 — event_id format (INSTALL.md §Step 4)', () => {
     const eventSchema = req(path.join(repoRoot, 'src/schemas/event.v1.schema.json')) as any;
     const phaseEnum = eventSchema.properties.phase.enum as string[];
 
-    // The 4 phases triggered by Jira automation rules
+    // The 4 phases triggered by the legacy per-column Jira automation rules
     const jiraPhases = ['refine', 'dev', 'review', 'iterate'];
     for (const phase of jiraPhases) {
       expect(phaseEnum, `phase "${phase}" must be in event schema`).toContain(phase);
     }
+
+    // The router model's single any-column rule sends phase "transition"
+    expect(phaseEnum, 'phase "transition" must be in event schema (router model)').toContain(
+      'transition',
+    );
   });
 
   it('INSTALL.md documents the correct event_id format', async () => {
@@ -461,7 +534,7 @@ describe('Quick install — gated merge boundary (INSTALL.md)', () => {
 // ---------------------------------------------------------------------------
 
 describe('Supply-chain — no @main refs in consumer workflow templates (issue #77)', () => {
-  const agentStubs = ['ferry-refine', 'ferry-dev', 'ferry-review', 'ferry-iterate'];
+  const agentStubs = ['ferry-refine', 'ferry-dev', 'ferry-review', 'ferry-iterate', 'ferry-router'];
 
   for (const stub of agentStubs) {
     it(`examples/consumer-setup/workflows/${stub}.yml has no ferry-*@main composite action references`, async () => {

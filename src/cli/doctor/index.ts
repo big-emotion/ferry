@@ -150,13 +150,20 @@ GitLab options (when --forge gitlab):
   --trigger-token <token>      Pipeline trigger token (default: FERRY_GITLAB_PIPELINE_TRIGGER_TOKEN)
   -h, --help                   Show this help
 
+Checks are aware of both install models: the router model (a single
+ferry-router.yml listening for every ferry-* dispatch, claude-code path) and the
+legacy per-agent workflow stubs (ferry-refine.yml, ferry-dev.yml, ...).
+
 Checks run in order:
-  1.  Secrets present        — all 8 required repo secrets exist
+  1.  Secrets present        — all 6 required repo secrets exist (transition-id secrets are
+                               optional overrides; ids auto-resolve from ferry.config status names)
   2.  GitHub App             — mint installation token, verify permissions
   3.  Jira reachable         — /myself + project key resolution
   4.  LLM keys valid         — 1-token Anthropic sanity call
   5.  Synthetic dispatch     — trigger ferry-refine + poll for run start
-  6.  Workflow files         — compare .github/workflows/ferry-*.yml vs current release
+                               (polls ferry-router.yml when installed, else ferry-refine.yml)
+  6.  Workflow files         — compare installed workflows vs current release
+                               (ferry-router.yml alone on the router model, else the per-agent files)
   7.  Prompt overrides       — warn on full prompts/<agent>.md overrides; suggest .extra.md
   8.  Update available       — compare pinned ref in workflows to latest npm release
   9.  Config limits          — warn if limits.max_iterations is outside the recommended range (1–10)
@@ -168,7 +175,8 @@ Checks run in order:
   15. Claude-code path       — when execution_path = claude-code, CLAUDE_CODE_OAUTH_TOKEN present/valid
   16. CC path: token exclusivity — ANTHROPIC_API_KEY must not be set alongside CLAUDE_CODE_OAUTH_TOKEN (ADR-0006 §6)
   17. CC path: provider gate — all four agent providers must be anthropic when execution_path = claude-code
-  18. CC path: workflow shape — claude-code workflows use a direct claude-code-action call (no ferry-cc-prepare/apply)
+  18. CC path: workflow shape — ferry-router.yml routes through ferry-run-claude-agent, or legacy
+                               workflows use a direct claude-code-action call (no ferry-cc-prepare/apply)
   19. CC path: prompt overrides — report consumer prompts/<agent>.claude-code.md overrides resolved by ferry-cc-prompt
   20. Codex-cli path        — when execution_path = codex-cli, OPENAI_API_KEY present
   21. Codex path: provider gate — all configured codex-cli agent providers must be OpenAI
@@ -191,7 +199,7 @@ Exit code: 0 if all checks green/yellow, 1 if any check red.
   process.stdout.write(`\n  ferry doctor — checking ${config.repo}\n`);
 
   const results = await Promise.all([
-    checkSecrets(config.repo),
+    checkSecrets(config.repo, config.repoRoot),
     checkGitHubApp({
       appId: config.appId,
       privateKey: config.privateKey,
@@ -210,7 +218,11 @@ Exit code: 0 if all checks green/yellow, 1 if any check red.
       repoRoot: config.repoRoot,
       repo: config.repo,
     }),
-    checkSyntheticDispatch({ repo: config.repo, noDispatch: config.noDispatch }),
+    checkSyntheticDispatch({
+      repo: config.repo,
+      repoRoot: config.repoRoot,
+      noDispatch: config.noDispatch,
+    }),
     checkWorkflowDrift({ repoRoot: config.repoRoot, ferryVersion: config.ferryVersion }),
     checkPromptOverrides({ repoRoot: config.repoRoot }),
     checkUpdateAvailable({ repoRoot: config.repoRoot }),

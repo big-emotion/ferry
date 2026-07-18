@@ -190,4 +190,20 @@ describe('checkWorkflowShape', () => {
     expect(res.status).toBe('yellow');
     expect(res.detail).toContain('run-agent-codex-cli');
   });
+
+  it('is red when no workflow file exists at all', () => {
+    writeConfig(root, { execution_path: 'codex-cli' });
+    mkdirSync(join(root, '.github', 'workflows'), { recursive: true });
+    const res = checkWorkflowShape({ repoRoot: root });
+    expect(res.status).toBe('red');
+    expect(res.detail).toContain('no Ferry workflows found');
+    expect(res.remedy).toContain('ferry-init');
+  });
+
+  it('is red when the workflows directory does not exist', () => {
+    writeConfig(root, { execution_path: 'codex-cli' });
+    const res = checkWorkflowShape({ repoRoot: root });
+    expect(res.status).toBe('red');
+    expect(res.detail).toContain('no Ferry workflows found');
+  });
 });

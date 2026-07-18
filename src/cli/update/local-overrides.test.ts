@@ -2,12 +2,13 @@ import { describe, it, expect } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { parse as parseYaml } from 'yaml';
 import {
   validateLocalOverrides,
   loadLocalOverrides,
   applyLocalOverrides,
 } from './local-overrides.js';
-import { workflowTemplates } from '../init/templates.js';
+import { workflowTemplates, routerWorkflowTemplate } from '../init/templates.js';
 
 function makeTempDir(): string {
   return mkdtempSync(join(tmpdir(), 'ferry-local-overrides-test-'));
@@ -234,6 +235,82 @@ describe('applyLocalOverrides — review.ciGate: disabled', () => {
   it('original template still contains ci-gate (sanity check)', () => {
     expect(reviewTmpl.content).toContain('\n  ci-gate:\n');
     expect(reviewTmpl.content).toContain('    needs: [route, ci-gate]\n');
+  });
+});
+
+describe('applyLocalOverrides — router review.ciGate: disabled', () => {
+  const templates = [routerWorkflowTemplate('vTEST')];
+  const routerTmpl = templates[0]!;
+
+  function disabled(): string {
+    const result = applyLocalOverrides(templates, { review: { ciGate: 'disabled' } });
+    return result.find((t) => t.filename === 'ferry-router.yml')!.content;
+  }
+
+  it('original router template contains ci-gate (sanity check)', () => {
+    expect(routerTmpl.content).toContain('\n  ci-gate:\n');
+    expect(routerTmpl.content).toContain('    needs: [route, ci-gate]\n');
+    expect(routerTmpl.content).toContain('ferry-ci-gate@vTEST');
+  });
+
+  it('removes the ci-gate job and its ferry-ci-gate action reference', () => {
+    const content = disabled();
+    expect(content).not.toContain('ci-gate:');
+    expect(content).not.toContain('ferry-ci-gate@');
+  });
+
+  it('rewrites the run-agent needs and if to drop the reviewer proceed guard', () => {
+    const content = disabled();
+    expect(content).not.toContain("needs.ci-gate.outputs.proceed == 'true'");
+    expect(content).toContain(
+      '    needs: [route]\n' +
+        '    if: >-\n' +
+        "      needs.route.outputs.path == 'claude-code' &&\n" +
+        "      needs.route.outputs.role != 'none'\n",
+    );
+  });
+
+  it('rewrites the emit-audit needs, if, and outcome without ci-gate', () => {
+    const content = disabled();
+    expect(content).toContain(
+      '    needs: [route, run-agent]\n' +
+        '    if: >-\n' +
+        "      !cancelled() && needs.route.outputs.role != 'none' &&\n" +
+        "      needs.run-agent.result != 'skipped'\n",
+    );
+    expect(content).toContain('          outcome: ${{ needs.run-agent.result }}\n');
+  });
+
+  it('leaves no ci-gate reference anywhere in the router workflow', () => {
+    expect(disabled()).not.toContain('ci-gate');
+  });
+
+  it('survives a yaml.parse round-trip with the expected job set', () => {
+    const parsed = parseYaml(disabled()) as { jobs: Record<string, unknown> };
+    expect(Object.keys(parsed.jobs)).toEqual([
+      'gate-envelope',
+      'route',
+      'run-agent',
+      'unsupported-path',
+      'emit-audit',
+    ]);
+  });
+
+  it('is idempotent — applying twice gives the same result', () => {
+    const once = applyLocalOverrides(templates, { review: { ciGate: 'disabled' } });
+    const twice = applyLocalOverrides(once, { review: { ciGate: 'disabled' } });
+    expect(twice[0]!.content).toBe(once[0]!.content);
+  });
+
+  it('applies global.runner to the router template too', () => {
+    const result = applyLocalOverrides(templates, {
+      review: { ciGate: 'disabled' },
+      global: { runner: 'my-runner' },
+    });
+    const content = result[0]!.content;
+    expect(content).not.toContain('fromJSON(vars.FERRY_RUNNER');
+    expect(content).toContain('    runs-on: my-runner\n');
+    expect(content).not.toContain('ci-gate');
   });
 });
 

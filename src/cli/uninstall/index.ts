@@ -23,6 +23,7 @@ import {
   ANTHROPIC_SECRET,
   CLAUDE_CODE_OAUTH_SECRET,
   FERRY_VARIABLE,
+  FERRY_WORKFLOW_FILES,
   AUDIT_LABEL,
 } from './detect.js';
 import {
@@ -128,12 +129,15 @@ Options:
   -h, --help               Show this help
 
 What is removed by default:
-  • .github/workflows/ferry-*.yml (6 workflow files)
+  • .github/workflows/ferry-*.yml (${FERRY_WORKFLOW_FILES.length} workflow files:
+    ferry-router.yml plus the legacy per-agent stubs)
   • .github/actions/ferry-route/, ferry-ci-gate/ (composite actions)
   • Ferry entries in .github/CODEOWNERS (file kept; only Ferry lines removed)
   • Repo secrets: FERRY_APP_ID, FERRY_PRIVATE_KEY, FERRY_JIRA_BASE_URL,
-                  FERRY_JIRA_EMAIL, FERRY_JIRA_API_TOKEN,
-                  FERRY_REVIEW_TRANSITION_ID, FERRY_ITER_TRANSITION_ID
+                  FERRY_JIRA_EMAIL, FERRY_JIRA_API_TOKEN, and the optional
+                  transition-id overrides (FERRY_REVIEW_TRANSITION_ID,
+                  FERRY_ITER_TRANSITION_ID, FERRY_APPROVE_TRANSITION_ID,
+                  FERRY_MERGE_DONE_TRANSITION_ID)
   • Repo variable: ${FERRY_VARIABLE}
   • Label '${AUDIT_LABEL}' removed from audit-log issue (issue NOT closed)
 
@@ -377,8 +381,9 @@ Exit code: 0 on success, 1 on any error.
     print(`  ${step++}. Decide whether to delete the ${ANTHROPIC_SECRET} secret`);
     print(`     (gh secret delete ${ANTHROPIC_SECRET} --repo ${opts.repo})`);
   }
-  print(`  ${step++}. Disable or delete the 4 Jira Automation rules in the Jira UI`);
-  print('     (Project settings → Automation)');
+  print(`  ${step++}. Disable or delete the Ferry Jira Automation rule(s) in the Jira UI`);
+  print('     (single ferry-transition rule on the router model; 4 per-column rules');
+  print('     on legacy installs — Project settings → Automation)');
   print(`  ${step++}. Uninstall the GitHub App at https://github.com/settings/installations`);
   print(`  ${step}. Review repo-level workflow permissions if desired`);
   print('');

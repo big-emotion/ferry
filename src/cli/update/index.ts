@@ -12,9 +12,13 @@ import {
   printWarn,
   printSkip,
 } from '../init/prompt.js';
-import { workflowTemplates } from '../init/templates.js';
-import { buildManualSetupDoc } from '../init/steps/jira-bundle.js';
-import { detectInstalledVersion, computeWorkflowChanges } from './detect.js';
+import { buildManualSetupDoc, buildRouterManualSetupDoc } from '../init/steps/jira-bundle.js';
+import {
+  detectInstalledVersion,
+  detectWorkflowModel,
+  templatesForModel,
+  computeWorkflowChanges,
+} from './detect.js';
 import { getRelevantMigrations } from './migrations.js';
 import { runCredentialGate } from './credential-gate-run.js';
 import { extractJiraConfigFromSetupFile } from './extract-jira-config.js';
@@ -267,6 +271,8 @@ Options:
 
 What is updated:
   • .github/workflows/ferry-*.yml — re-rendered from templates at the new version
+    (the single ferry-router.yml on router installs; the per-agent stubs on
+    legacy installs)
   • Missing workflow files are added
   • ferry-jira-automation-setup.md — regenerated if it exists (format fixes, etc.)
 
@@ -277,7 +283,8 @@ What is NOT touched:
   • GitHub App installation
 
 Important:
-  • Direct edits inside .github/workflows/ferry-*.yml are not a durable customisation surface.
+  • Direct edits inside the Ferry workflow files (ferry-router.yml or the per-agent
+    ferry-*.yml stubs) are not a durable customisation surface.
     Ferry warns on unmanaged drift before overwrite; move supported workflow changes into ferry.local.yml.
 
 Exit code: 0 on success, 1 on error.
@@ -311,8 +318,23 @@ Exit code: 0 on success, 1 on error.
   const interactive = !!process.stdin.isTTY && !config.yes;
   print(`  From: ${fromVersion}  →  To: ${toVersion}`);
 
+  // Router vs legacy decides which template set the upgrade renders. A mixed
+  // repo (router + stale stubs) is managed as a router install — the leftover
+  // stubs are never regenerated; ferry-update never deletes them itself, so
+  // finishing the migration is surfaced as a follow-up on every exit path.
+  const workflowModel = detectWorkflowModel(config.repoRoot);
+  const modelFollowUps =
+    workflowModel === 'mixed'
+      ? [
+          'Legacy per-agent stubs still present alongside ferry-router.yml — remove them after migrating the Jira rule, or both will fire on legacy events.',
+        ]
+      : [];
+
   if (fromVersion === toVersion) {
     printSkip(`Already at ${toVersion} — nothing to do.`);
+    if (modelFollowUps.length > 0) {
+      printGitHubFollowUps(fromVersion, toVersion, modelFollowUps);
+    }
     closePrompt();
     process.exit(0);
   }
@@ -362,7 +384,9 @@ Exit code: 0 on success, 1 on error.
       dryRun: config.dryRun,
     });
     closePrompt();
-    if (gate.ran) printGitHubFollowUps(fromVersion, toVersion, gate.followUps);
+    if (gate.ran || modelFollowUps.length > 0) {
+      printGitHubFollowUps(fromVersion, toVersion, [...gate.followUps, ...modelFollowUps]);
+    }
     process.exit(0);
   }
 
@@ -418,7 +442,9 @@ Exit code: 0 on success, 1 on error.
       dryRun: true,
     });
     closePrompt();
-    if (gate.ran) printGitHubFollowUps(fromVersion, toVersion, gate.followUps);
+    if (gate.ran || modelFollowUps.length > 0) {
+      printGitHubFollowUps(fromVersion, toVersion, [...gate.followUps, ...modelFollowUps]);
+    }
     process.exit(0);
   }
 
@@ -459,7 +485,7 @@ Exit code: 0 on success, 1 on error.
   // ── Apply ─────────────────────────────────────────────────────────────────
   printStep(3, 3, 'Applying changes');
   const workflowDir = join(config.repoRoot, '.github', 'workflows');
-  const baseTemplates = workflowTemplates(toVersion);
+  const baseTemplates = templatesForModel(workflowModel, toVersion);
   const templates = localOverrides
     ? applyLocalOverrides(baseTemplates, localOverrides)
     : baseTemplates;
@@ -484,7 +510,12 @@ Exit code: 0 on success, 1 on error.
   if (jiraConfig) {
     try {
       const setupPath = join(config.repoRoot, 'ferry-jira-automation-setup.md');
-      const setupContent = buildManualSetupDoc(jiraConfig.owner, jiraConfig.repo);
+      // Router installs get the single any-column rule walkthrough; legacy and
+      // mixed repos keep the per-column doc until the Jira rule is migrated.
+      const setupContent =
+        workflowModel === 'router'
+          ? buildRouterManualSetupDoc(jiraConfig.owner, jiraConfig.repo)
+          : buildManualSetupDoc(jiraConfig.owner, jiraConfig.repo);
       writeFileSync(setupPath, setupContent, 'utf8');
       printSuccess('Regenerated ferry-jira-automation-setup.md');
     } catch (err) {
@@ -495,7 +526,10 @@ Exit code: 0 on success, 1 on error.
   }
 
   // ── Migration notes + credential-gate follow-ups ──────────────────────────
-  const hadFollowUps = printGitHubFollowUps(fromVersion, toVersion, gate.followUps);
+  const hadFollowUps = printGitHubFollowUps(fromVersion, toVersion, [
+    ...gate.followUps,
+    ...modelFollowUps,
+  ]);
 
   // ── Summary ───────────────────────────────────────────────────────────────
   print('');

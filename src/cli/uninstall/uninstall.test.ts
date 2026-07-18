@@ -99,16 +99,33 @@ describe('detectWorkflows', () => {
     cleanup(dir);
   });
 
-  it('returns all 6 ferry workflow filenames', () => {
+  it('detects the router workflow on a router-model install', () => {
     const dir = makeTempRepo();
-    const names = detectWorkflows(dir).map((w) => w.filename);
-    expect(names).toContain('ferry-refine.yml');
-    expect(names).toContain('ferry-dev.yml');
-    expect(names).toContain('ferry-review.yml');
-    expect(names).toContain('ferry-iterate.yml');
-    expect(names).toContain('ferry-reconciler.yml');
-    expect(names).toContain('ferry-audit-daily.yml');
+    writeFileSync(join(dir, '.github', 'workflows', 'ferry-router.yml'), 'name: test', 'utf8');
+
+    const result = detectWorkflows(dir);
+    expect(result.find((w) => w.filename === 'ferry-router.yml')?.present).toBe(true);
+    expect(result.find((w) => w.filename === 'ferry-refine.yml')?.present).toBe(false);
+
     cleanup(dir);
+  });
+
+  // Exact pin: the router workflow, every legacy agent stub (incl.
+  // ferry-merge.yml), and the ops workflows under current AND historical names
+  // must stay in the sweep so every install generation cleans up fully.
+  it('sweeps the router, all legacy agent stubs, and both ops-workflow name generations', () => {
+    expect(FERRY_WORKFLOW_FILES).toEqual([
+      'ferry-router.yml',
+      'ferry-refine.yml',
+      'ferry-dev.yml',
+      'ferry-review.yml',
+      'ferry-iterate.yml',
+      'ferry-merge.yml',
+      'ferry-reconcile.yml',
+      'ferry-cost-daily.yml',
+      'ferry-reconciler.yml',
+      'ferry-audit-daily.yml',
+    ]);
   });
 });
 
@@ -145,6 +162,22 @@ describe('detectCodeownersBlock', () => {
 describe('detectSecrets', () => {
   beforeEach(() => {
     vi.resetAllMocks();
+  });
+
+  // Exact pin: transition-id secrets stay in the sweep even though agents now
+  // auto-resolve ids from status names — they may exist as legacy overrides.
+  it('sweeps the core secrets and all four optional transition-id overrides', () => {
+    expect(FERRY_SECRETS).toEqual([
+      'FERRY_APP_ID',
+      'FERRY_PRIVATE_KEY',
+      'FERRY_JIRA_BASE_URL',
+      'FERRY_JIRA_EMAIL',
+      'FERRY_JIRA_API_TOKEN',
+      'FERRY_REVIEW_TRANSITION_ID',
+      'FERRY_ITER_TRANSITION_ID',
+      'FERRY_APPROVE_TRANSITION_ID',
+      'FERRY_MERGE_DONE_TRANSITION_ID',
+    ]);
   });
 
   it('excludes ANTHROPIC_SECRET when includeAnthropic is false', () => {
@@ -339,6 +372,23 @@ describe('removeWorkflows', () => {
     expect(existsSync(join(workflowDir, 'ferry-dev.yml'))).toBe(false);
     expect(opts.actions).toContain('Deleted .github/workflows/ferry-refine.yml');
     expect(opts.actions).toContain('Deleted .github/workflows/ferry-dev.yml');
+
+    cleanup(dir);
+  });
+
+  it('deletes ferry-router.yml and ferry-merge.yml when present', () => {
+    const dir = makeTempRepo();
+    const workflowDir = join(dir, '.github', 'workflows');
+    writeFileSync(join(workflowDir, 'ferry-router.yml'), 'name: test', 'utf8');
+    writeFileSync(join(workflowDir, 'ferry-merge.yml'), 'name: test', 'utf8');
+
+    const opts = makeOpts();
+    removeWorkflows(dir, detectWorkflows(dir), opts);
+
+    expect(existsSync(join(workflowDir, 'ferry-router.yml'))).toBe(false);
+    expect(existsSync(join(workflowDir, 'ferry-merge.yml'))).toBe(false);
+    expect(opts.actions).toContain('Deleted .github/workflows/ferry-router.yml');
+    expect(opts.actions).toContain('Deleted .github/workflows/ferry-merge.yml');
 
     cleanup(dir);
   });

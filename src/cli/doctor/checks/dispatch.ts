@@ -1,8 +1,14 @@
 import { execSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import type { CheckResult } from '../types.js';
 
 const PROBE_TICKET = 'FERRY-DOCTOR-0';
+// The probe always sends ferry-refine: the router listens for the legacy
+// per-agent event types too, so one event type covers both install models.
 const PROBE_EVENT_TYPE = 'ferry-refine';
+const ROUTER_WORKFLOW_FILE = 'ferry-router.yml';
+const LEGACY_PROBE_WORKFLOW_FILE = 'ferry-refine.yml';
 const POLL_INTERVAL_MS = parseInt(process.env.FERRY_DISPATCH_POLL_INTERVAL_MS ?? '', 10) || 3_000;
 const POLL_TIMEOUT_MS = parseInt(process.env.FERRY_DISPATCH_PROBE_TIMEOUT_MS ?? '', 10) || 45_000;
 
@@ -34,10 +40,17 @@ function triggerDispatch(repo: string, eventId: string): void {
   });
 }
 
-function listRecentRuns(repo: string, after: number): WorkflowRun[] {
+/** Router installs carry a single ferry-router.yml; legacy installs poll ferry-refine.yml. */
+function resolveProbeWorkflowFile(repoRoot: string): string {
+  return existsSync(join(repoRoot, '.github', 'workflows', ROUTER_WORKFLOW_FILE))
+    ? ROUTER_WORKFLOW_FILE
+    : LEGACY_PROBE_WORKFLOW_FILE;
+}
+
+function listRecentRuns(repo: string, workflowFile: string, after: number): WorkflowRun[] {
   try {
     const out = execSync(
-      `gh run list --repo ${repo} --workflow ferry-refine.yml --limit 5 --json databaseId,status,conclusion,url,headBranch,event`,
+      `gh run list --repo ${repo} --workflow ${workflowFile} --limit 5 --json databaseId,status,conclusion,url,headBranch,event`,
       { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] },
     );
     const runs = JSON.parse(out) as WorkflowRun[];
@@ -53,9 +66,10 @@ function sleep(ms: number): Promise<void> {
 
 export async function checkSyntheticDispatch(opts: {
   repo: string;
+  repoRoot: string;
   noDispatch: boolean;
 }): Promise<CheckResult> {
-  const { repo, noDispatch } = opts;
+  const { repo, repoRoot, noDispatch } = opts;
 
   if (noDispatch) {
     return {
@@ -66,12 +80,13 @@ export async function checkSyntheticDispatch(opts: {
     };
   }
 
+  const probeWorkflowFile = resolveProbeWorkflowFile(repoRoot);
   const eventId = `doctor-${Date.now()}`;
 
   // Record highest existing run ID before triggering
   let baselineId = 0;
   try {
-    const existing = listRecentRuns(repo, 0);
+    const existing = listRecentRuns(repo, probeWorkflowFile, 0);
     baselineId = existing.reduce((max, r) => Math.max(max, r.databaseId), 0);
   } catch {
     // ignore
@@ -96,8 +111,7 @@ export async function checkSyntheticDispatch(opts: {
         label: 'Synthetic dispatch',
         status: 'red',
         detail: `Repo "${repo}" not found or dispatch not allowed`,
-        remedy:
-          'Verify the repo name is correct and `ferry-refine.yml` is committed to the default branch',
+        remedy: `Verify the repo name is correct and \`${probeWorkflowFile}\` is committed to the default branch`,
       };
     }
     return {
@@ -114,7 +128,7 @@ export async function checkSyntheticDispatch(opts: {
 
   while (Date.now() < deadline) {
     await sleep(POLL_INTERVAL_MS);
-    const newRuns = listRecentRuns(repo, baselineId);
+    const newRuns = listRecentRuns(repo, probeWorkflowFile, baselineId);
     if (newRuns.length > 0) {
       foundRun = newRuns[0];
       break;
@@ -126,8 +140,7 @@ export async function checkSyntheticDispatch(opts: {
       label: 'Synthetic dispatch',
       status: 'yellow',
       detail: 'Dispatch sent but no workflow run appeared within 45 s',
-      remedy:
-        'Verify ferry-refine.yml exists on the default branch and triggers on `ferry-refine` events. Check the Actions tab manually.',
+      remedy: `Verify ${probeWorkflowFile} exists on the default branch and triggers on \`ferry-refine\` events. Check the Actions tab manually.`,
     };
   }
 
@@ -136,7 +149,7 @@ export async function checkSyntheticDispatch(opts: {
 
   // Give the run a few more seconds to progress past the initial gate step
   await sleep(6_000);
-  const updatedRuns = listRecentRuns(repo, baselineId);
+  const updatedRuns = listRecentRuns(repo, probeWorkflowFile, baselineId);
   const updated = updatedRuns.find((r) => r.databaseId === confirmedRun.databaseId) ?? confirmedRun;
 
   const runUrl = updated.url;

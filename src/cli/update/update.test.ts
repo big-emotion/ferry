@@ -10,10 +10,15 @@ vi.mock('node:child_process', () => ({
   execSync: vi.fn(),
 }));
 
-import { detectInstalledVersion, computeWorkflowChanges } from './detect.js';
+import {
+  detectInstalledVersion,
+  detectWorkflowModel,
+  templatesForModel,
+  computeWorkflowChanges,
+} from './detect.js';
 import { applyLocalOverrides } from './local-overrides.js';
 import { getRelevantMigrations } from './migrations.js';
-import { workflowTemplates } from '../init/templates.js';
+import { workflowTemplates, routerWorkflowTemplate } from '../init/templates.js';
 
 function makeTempRepo(): string {
   const dir = mkdtempSync(join(tmpdir(), 'ferry-update-test-'));
@@ -75,6 +80,80 @@ describe('detectInstalledVersion', () => {
     );
     expect(detectInstalledVersion(dir)).toBeUndefined();
     cleanup(dir);
+  });
+
+  it('detects version from a router-only repo', () => {
+    const dir = makeTempRepo();
+    const router = routerWorkflowTemplate('v0.6.0');
+    writeFileSync(join(dir, '.github', 'workflows', router.filename), router.content, 'utf8');
+    expect(detectInstalledVersion(dir)).toBe('v0.6.0');
+    cleanup(dir);
+  });
+
+  it('prefers the router pin over stale legacy stubs on a mid-migration repo', () => {
+    const dir = makeTempRepo();
+    const router = routerWorkflowTemplate('v0.7.0');
+    writeFileSync(join(dir, '.github', 'workflows', router.filename), router.content, 'utf8');
+    writeFileSync(
+      join(dir, '.github', 'workflows', 'ferry-refine.yml'),
+      'jobs:\n  refine:\n    uses: big-emotion/ferry/.github/workflows/refine.yml@v0.6.0\n',
+      'utf8',
+    );
+    expect(detectInstalledVersion(dir)).toBe('v0.7.0');
+    cleanup(dir);
+  });
+});
+
+// ── detectWorkflowModel / templatesForModel ───────────────────────────────────
+
+describe('detectWorkflowModel', () => {
+  it('returns router when only ferry-router.yml exists', () => {
+    const dir = makeTempRepo();
+    writeFileSync(join(dir, '.github', 'workflows', 'ferry-router.yml'), 'name: r\n', 'utf8');
+    expect(detectWorkflowModel(dir)).toBe('router');
+    cleanup(dir);
+  });
+
+  it('returns legacy when only per-agent stubs exist', () => {
+    const dir = makeTempRepo();
+    writeFileSync(join(dir, '.github', 'workflows', 'ferry-refine.yml'), 'name: r\n', 'utf8');
+    expect(detectWorkflowModel(dir)).toBe('legacy');
+    cleanup(dir);
+  });
+
+  it('returns legacy when no workflow files exist (fresh repo defaults to the full set)', () => {
+    const dir = makeTempRepo();
+    expect(detectWorkflowModel(dir)).toBe('legacy');
+    cleanup(dir);
+  });
+
+  it('returns mixed when the router and any legacy stub coexist', () => {
+    const dir = makeTempRepo();
+    writeFileSync(join(dir, '.github', 'workflows', 'ferry-router.yml'), 'name: r\n', 'utf8');
+    writeFileSync(join(dir, '.github', 'workflows', 'ferry-merge.yml'), 'name: m\n', 'utf8');
+    expect(detectWorkflowModel(dir)).toBe('mixed');
+    cleanup(dir);
+  });
+});
+
+describe('templatesForModel', () => {
+  it('returns only the router template for the router model', () => {
+    const entries = templatesForModel('router', 'v0.6.0');
+    expect(entries.map((e) => e.filename)).toEqual(['ferry-router.yml']);
+    expect(entries[0]!.content).toBe(routerWorkflowTemplate('v0.6.0').content);
+  });
+
+  it('returns the legacy per-agent set only for the legacy model', () => {
+    const legacyNames = workflowTemplates('v0.6.0').map((e) => e.filename);
+    expect(templatesForModel('legacy', 'v0.6.0').map((e) => e.filename)).toEqual(legacyNames);
+    expect(legacyNames).not.toContain('ferry-router.yml');
+  });
+
+  it('manages mixed repos as router installs — deleted legacy stubs are never regenerated', () => {
+    // Recreating removed stubs would resurrect the per-agent model mid-migration.
+    expect(templatesForModel('mixed', 'v0.6.0').map((e) => e.filename)).toEqual([
+      'ferry-router.yml',
+    ]);
   });
 });
 
@@ -163,6 +242,60 @@ describe('computeWorkflowChanges', () => {
     const changes = computeWorkflowChanges(dir, 'v0.3.1', { fromVersion: 'v0.3.0' });
     const change = changes.find((c) => c.filename === tmpl.filename);
     expect(change?.status).toBe('drifted');
+    cleanup(dir);
+  });
+
+  it('upgrades only ferry-router.yml on a router-model repo', () => {
+    const dir = makeTempRepo();
+    const router = routerWorkflowTemplate('v0.3.0');
+    writeFileSync(join(dir, '.github', 'workflows', router.filename), router.content, 'utf8');
+
+    const changes = computeWorkflowChanges(dir, 'v0.3.1');
+    expect(changes.map((c) => c.filename)).toEqual(['ferry-router.yml']);
+    expect(changes[0]!.status).toBe('updated');
+    cleanup(dir);
+  });
+
+  it('reports ferry-router.yml unchanged when it already matches the target version', () => {
+    const dir = makeTempRepo();
+    const router = routerWorkflowTemplate('v0.3.1');
+    writeFileSync(join(dir, '.github', 'workflows', router.filename), router.content, 'utf8');
+
+    const changes = computeWorkflowChanges(dir, 'v0.3.1');
+    expect(changes).toEqual([{ filename: 'ferry-router.yml', status: 'unchanged', diff: '' }]);
+    cleanup(dir);
+  });
+
+  it('classifies router drift against the fromVersion baseline', () => {
+    const dir = makeTempRepo();
+    const router = routerWorkflowTemplate('v0.3.0');
+    writeFileSync(
+      join(dir, '.github', 'workflows', router.filename),
+      `${router.content}\n# local unmanaged edit\n`,
+      'utf8',
+    );
+
+    const changes = computeWorkflowChanges(dir, 'v0.3.1', { fromVersion: 'v0.3.0' });
+    expect(changes.find((c) => c.filename === 'ferry-router.yml')?.status).toBe('drifted');
+    cleanup(dir);
+  });
+
+  it('upgrades only the router on a mixed repo — leftover legacy stubs are untouched', () => {
+    const dir = makeTempRepo();
+    const router = routerWorkflowTemplate('v0.3.0');
+    writeFileSync(join(dir, '.github', 'workflows', router.filename), router.content, 'utf8');
+    const legacy = workflowTemplates('v0.3.0');
+    writeFileSync(
+      join(dir, '.github', 'workflows', legacy[0]!.filename),
+      legacy[0]!.content,
+      'utf8',
+    );
+
+    const changes = computeWorkflowChanges(dir, 'v0.3.1', { fromVersion: 'v0.3.0' });
+    expect(changes.map((c) => c.filename)).toEqual(['ferry-router.yml']);
+    expect(changes[0]!.status).toBe('updated');
+    // The leftover stub is neither upgraded nor recreated — removing it is the
+    // consumer's migration step, surfaced as a follow-up.
     cleanup(dir);
   });
 

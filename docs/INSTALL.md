@@ -75,6 +75,10 @@ gh secret set FERRY_JIRA_BASE_URL         --body "https://YOUR-ORG.atlassian.net
 gh secret set FERRY_JIRA_EMAIL            --body "you@example.com"
 gh secret set FERRY_JIRA_API_TOKEN        --body "<atlassian-api-token>"
 gh secret set ANTHROPIC_API_KEY           --body "<sk-ant-...>"
+
+# Optional — explicit transition-id overrides. Ferry auto-resolves transition ids
+# at runtime from the status names in ferry.config (workflow.agents.*), so these
+# are only needed to pin an id the status-name match cannot handle:
 gh secret set FERRY_REVIEW_TRANSITION_ID  --body "<jira-transition-id-to-in-review>"
 gh secret set FERRY_ITER_TRANSITION_ID    --body "<jira-transition-id-to-changes-requested>"
 ```
@@ -90,6 +94,13 @@ gh api -X PUT /repos/YOUR_ORG/YOUR_REPO/actions/permissions/workflow \
 Or via the UI: **Settings → Actions → General → Workflow permissions → Read and write**.
 
 ### Step 4 — Connect Jira → GitHub
+
+Pick the wiring model that matches your execution path:
+
+- **Router model** — ONE `ferry-router.yml` workflow + ONE any-column Jira Automation rule. Recommended for `execution_path: claude-code`; see [Router model (recommended for claude-code)](#router-model-recommended-for-claude-code) below.
+- **Legacy per-agent model** — five per-agent workflows + 4 per-column Jira Automation rules. Still the model for the `script` and `codex-cli` execution paths.
+
+#### Legacy per-agent model (script / codex-cli paths)
 
 Create 4 Jira automation rules manually — one per Ferry column. For each rule:
 
@@ -130,6 +141,49 @@ Set `event_type` and `phase` to `ferry-dev` / `ferry-review` / `ferry-iterate` f
 > **PAT:** Use a GitHub fine-grained PAT with **Contents: write** on `YOUR_ORG/YOUR_REPO`. Marking `Authorization` as secret keeps the token out of Jira's audit log.
 
 > **Generated reference files:** `ferry-init` writes `ferry-jira-automation-setup.md` (per-rule UI walkthrough) and `ferry-jira-automation-rules.beta.json` into your repo root. The Markdown file mirrors the steps above. The JSON can be loaded via **Automation → ⋮ → Import rules**, but that feature is beta and breaks across Jira Cloud releases — treat it as a reference only.
+
+---
+
+## Router model (recommended for claude-code)
+
+On the `claude-code` execution path Ferry can run behind a single thin router instead of the five per-agent workflows:
+
+- **One workflow** — `.github/workflows/ferry-router.yml` listens for every Ferry `repository_dispatch` type (`ferry-transition`, the legacy per-agent events, and `ferry-merge`), maps the event to an agent via `ferry.config` (`workflow.agents.*.trigger_column`), and runs it through the shared `big-emotion/ferry/.github/actions/ferry-run-claude-agent` composite. The router only supports `execution_path: claude-code` — on the `script` / `codex-cli` paths it fails with guidance to generate the per-agent workflows instead.
+- **One Jira Automation rule** — fires on **any** status change and sends the target status in the payload. The router ignores statuses Ferry does not own, so renaming or adding Jira columns never requires touching Jira again.
+
+> **Availability:** the router model ships in Ferry **v0.18.0** — pin `@v0.18.0` or later in `ferry-router.yml`; earlier tags do not contain the `ferry-run-claude-agent` composite.
+
+`ferry-init` installs both automatically when `execution_path: claude-code`: it writes `ferry-router.yml` and generates the single-rule walkthrough in `ferry-jira-automation-setup.md`. To wire it by hand instead:
+
+1. Copy [`examples/consumer-setup/workflows/ferry-router.yml`](../examples/consumer-setup/workflows/ferry-router.yml) to `.github/workflows/ferry-router.yml`.
+2. Create **one** Jira Automation rule:
+   - **Trigger:** "Issue transitioned" — leave **From status** and **To status** **empty** (no filter: every transition fires; the router no-ops on unmapped statuses)
+   - **Action:** "Send web request" — same URL, method, and headers as the legacy rules above
+   - **Custom body:**
+
+```json
+{
+  "event_type": "ferry-transition",
+  "client_payload": {
+    "version": "v1",
+    "event_id": "{{issue.key}}-{{issue.id}}",
+    "ticket_key": "{{issue.key}}",
+    "phase": "transition",
+    "source": "jira-column",
+    "ts": "{{now.jiraDate}}",
+    "issue_type": "{{issue.issuetype.name}}",
+    "to_status": "{{issue.status.name}}"
+  }
+}
+```
+
+3. Save and **enable** the rule.
+
+**Transition-ID secrets are not needed on this path.** Agents auto-resolve Jira transition ids at runtime from the status names in `ferry.config` (`workflow.agents.*.auto_transition*`). `FERRY_REVIEW_TRANSITION_ID`, `FERRY_ITER_TRANSITION_ID`, and `FERRY_APPROVE_TRANSITION_ID` remain supported as optional overrides. The merger is the exception: on the claude-code path it resolves its post-merge transition by status **name** (any transition named "Done" or "Closed", skipped silently otherwise) — `workflow.agents.merger.auto_transition_done` and the `FERRY_MERGE_DONE_TRANSITION_ID` override apply to the script path only.
+
+> **Merger note (ADR-0005):** moving a ticket into a "merge" column does nothing by design. The Merger is only triggered by the `ferry-merge` dispatch the Reviewer emits on approval — the any-column rule cannot reach it.
+
+**Migrating an existing install:** after enabling the router, delete the five legacy per-agent workflows (`ferry-refine.yml`, `ferry-dev.yml`, `ferry-review.yml`, `ferry-iterate.yml`, `ferry-merge.yml`) and the 4 per-column Jira rules. `ferry-router.yml` also listens for the legacy per-agent events, so keeping both means both workflows fire on every legacy dispatch.
 
 ---
 
@@ -277,7 +331,7 @@ Refresh pinned SHAs every 1–2 months, or configure [Dependabot for GitHub Acti
 
 ## Smoke test
 
-Create a **Story** ticket in Jira and move it to **Refinement**. Within ~5 seconds the `Ferry — Refine` workflow should appear in GitHub Actions. Approve the sub-tasks, move the ticket to **In Development**, and watch the loop: Developer opens a draft PR and auto-transitions the ticket to _In Review_ (FR18); Reviewer runs when CI is green and either marks the PR ready and adds the `ferry:approved` label (FR24) or transitions to _Changes Requested_ (FR24); Iterator applies findings and transitions back to _In Review_ (FR28). On approval the Reviewer also dispatches `ferry-merge`, and the **Merger** squash-merges the PR — optionally moving the ticket to Done when `FERRY_MERGE_DONE_TRANSITION_ID` is set (FR32).
+Create a **Story** ticket in Jira and move it to **Refinement**. Within ~5 seconds the `Ferry — Refine` workflow should appear in GitHub Actions. Approve the sub-tasks, move the ticket to **In Development**, and watch the loop: Developer opens a draft PR and auto-transitions the ticket to _In Review_ (FR18); Reviewer runs when CI is green and either marks the PR ready and adds the `ferry:approved` label (FR24) or transitions to _Changes Requested_ (FR24); Iterator applies findings and transitions back to _In Review_ (FR28). On approval the Reviewer also dispatches `ferry-merge`, and the **Merger** squash-merges the PR — optionally moving the ticket to Done when `workflow.agents.merger.auto_transition_done` is configured in `ferry.config` (or the `FERRY_MERGE_DONE_TRANSITION_ID` override secret is set) (FR32).
 
 **Merging is gated, not unconditional** — the Merger squash-merges only on Reviewer approval and only if your branch protection lets the Ferry app merge (the `ferry:approved` label is not a formal PR review approval). Otherwise the approved PR waits for you to merge it yourself.
 
@@ -310,11 +364,14 @@ git push
 [ ] 6 secrets set by ferry-init (verify with: gh secret list | grep FERRY)
     FERRY_APP_ID, FERRY_PRIVATE_KEY, FERRY_JIRA_BASE_URL, FERRY_JIRA_EMAIL,
     FERRY_JIRA_API_TOKEN, ANTHROPIC_API_KEY
-[ ] 2 transition-ID secrets set manually (the wizard does NOT set these)
-    FERRY_REVIEW_TRANSITION_ID  — Jira transition ID into "In Review"
-    FERRY_ITER_TRANSITION_ID    — Jira transition ID into "Changes Requested"
+[ ] Transition-ID secrets: optional overrides — auto-resolved from ferry.config
+    status names (router and script paths); set only to pin an explicit id
+    FERRY_REVIEW_TRANSITION_ID  — override for the transition into "In Review"
+    FERRY_ITER_TRANSITION_ID    — override for the transition into "Changes Requested"
 [ ] Workflow permissions = read+write
-[ ] 4 Jira automation rules created manually in Jira UI and enabled
+[ ] Jira automation wiring created in the Jira UI and enabled
+    Router model: 1 any-column ferry-transition rule (claude-code path)
+    Legacy model: 4 per-column rules (script / codex-cli paths)
 [ ] Smoke test passed (ferry-refine green, draft PR opened)
 [ ] ferry-reconcile.yml added (required)
 [ ] ferry-cost-daily.yml added (required)

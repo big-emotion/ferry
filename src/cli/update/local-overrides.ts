@@ -7,11 +7,12 @@ const _require = createRequire(import.meta.url);
 
 export interface LocalOverridesReview {
   /**
-   * When set to `"disabled"`, the `ci-gate` pre-gate job is omitted from
-   * `ferry-review.yml` and all references to its outputs are removed. This
-   * makes the Reviewer agent run unconditionally on the claude-code path,
-   * without waiting for CI to go green or a PR to exist — useful when the
-   * review event can fire before CI has reported.
+   * When set to `"disabled"`, the `ci-gate` pre-gate job is omitted — from
+   * `ferry-review.yml` on legacy installs and from `ferry-router.yml` on the
+   * router model — and all references to its outputs are removed. This makes
+   * the Reviewer agent run unconditionally on the claude-code path, without
+   * waiting for CI to go green or a PR to exist — useful when the review
+   * event can fire before CI has reported.
    */
   ciGate?: 'disabled';
 }
@@ -147,8 +148,9 @@ export function applyLocalOverrides(
       content = applyGlobalRunner(content, overrides.global.runner);
     }
 
-    if (tmpl.filename === 'ferry-review.yml' && overrides.review?.ciGate === 'disabled') {
-      content = applyReviewCiGateDisabled(content);
+    if (overrides.review?.ciGate === 'disabled') {
+      if (tmpl.filename === 'ferry-review.yml') content = applyReviewCiGateDisabled(content);
+      if (tmpl.filename === 'ferry-router.yml') content = applyRouterCiGateDisabled(content);
     }
 
     return { filename: tmpl.filename, content };
@@ -214,6 +216,55 @@ function applyReviewCiGateDisabled(content: string): string {
   result = result.replace(
     "          outcome: ${{ (needs.run-agent.result != 'skipped' && needs.run-agent.result) || (needs.run-agent-claude-code.result != 'skipped' && needs.run-agent-claude-code.result) || (needs.run-agent-codex-cli.result != 'skipped' && needs.run-agent-codex-cli.result) || (needs.ci-gate.outputs.outcome == 'ci-red' && 'ci-red') || needs.run-agent-codex-cli.result || needs.run-agent-claude-code.result }}\n",
     "          outcome: ${{ (needs.run-agent.result != 'skipped' && needs.run-agent.result) || (needs.run-agent-claude-code.result != 'skipped' && needs.run-agent-claude-code.result) || needs.run-agent-codex-cli.result }}\n",
+  );
+
+  return result;
+}
+
+/**
+ * Router variant of the ci-gate removal for `ferry-router.yml`. Unlike the
+ * legacy review stub, the router hosts a single `run-agent` job for every
+ * role, so disabling the gate rewrites the role-conditional guard on that one
+ * job (and the audit job's ci-red short-circuit) instead of per-path jobs.
+ * Every replacement targets exact template text, so a second application is a
+ * no-op (idempotent).
+ */
+function applyRouterCiGateDisabled(content: string): string {
+  // 1. Remove the ci-gate job block, including its leading explainer comment.
+  let result = content.replace(/\n\n  # Reviewer CI pre-gate:[\s\S]*?(?=\n\n  run-agent:)/, '');
+
+  // 2. run-agent: drop ci-gate from needs and the reviewer proceed guard from
+  //    if. Without ci-gate in needs, the !cancelled() skip-eligibility escape
+  //    (and its comment) is no longer needed.
+  result = result.replace(
+    '    needs: [route, ci-gate]\n' +
+      '    # !cancelled() keeps this job eligible when ci-gate is skipped (non-reviewer roles).\n' +
+      '    if: >-\n' +
+      "      !cancelled() && needs.route.outputs.path == 'claude-code' &&\n" +
+      "      needs.route.outputs.role != 'none' &&\n" +
+      "      (needs.route.outputs.role != 'reviewer' || needs.ci-gate.outputs.proceed == 'true')\n",
+    '    needs: [route]\n' +
+      '    if: >-\n' +
+      "      needs.route.outputs.path == 'claude-code' &&\n" +
+      "      needs.route.outputs.role != 'none'\n",
+  );
+
+  // 3. emit-audit: drop ci-gate from needs and the ci-red short-circuit from if.
+  result = result.replace(
+    '    needs: [route, ci-gate, run-agent]\n' +
+      '    if: >-\n' +
+      "      !cancelled() && needs.route.outputs.role != 'none' &&\n" +
+      "      (needs.run-agent.result != 'skipped' || (needs.ci-gate.result != 'skipped' && needs.ci-gate.outputs.outcome == 'ci-red'))\n",
+    '    needs: [route, run-agent]\n' +
+      '    if: >-\n' +
+      "      !cancelled() && needs.route.outputs.role != 'none' &&\n" +
+      "      needs.run-agent.result != 'skipped'\n",
+  );
+
+  // 4. emit-audit outcome: without the gate, the agent result is the only source.
+  result = result.replace(
+    "          outcome: ${{ (needs.ci-gate.result != 'skipped' && needs.ci-gate.outputs.outcome == 'ci-red' && 'ci-red') || needs.run-agent.result }}\n",
+    '          outcome: ${{ needs.run-agent.result }}\n',
   );
 
   return result;

@@ -35,15 +35,18 @@ Add these under **Settings → Secrets and variables → Actions → Secrets** i
 
 > **Legacy aliases:** `FERRY_OPENAI_KEY` and `FERRY_GOOGLE_AI_KEY` are accepted as fallbacks for backwards compatibility, but `OPENAI_API_KEY` / `GOOGLE_API_KEY` are the canonical names used by the workflow stubs.
 
-### Required for specific agents
+### Transition-id overrides (optional)
 
-| Secret                           | Used by             | Description                                                                                                                                                                                         |
-| -------------------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `FERRY_REVIEW_TRANSITION_ID`     | Developer, Iterator | Jira transition ID that moves a ticket **into** the **In Review** column (FR18 / FR28). Find it via the Jira REST API: `GET /rest/api/3/issue/{key}/transitions`.                                   |
-| `FERRY_ITER_TRANSITION_ID`       | Reviewer            | Jira transition ID that moves a ticket **into** the **Changes Requested** column (FR24, when the reviewer requests changes). Same API call as above.                                                |
-| `FERRY_MERGE_DONE_TRANSITION_ID` | Merger              | **Optional.** Jira transition ID that moves a ticket into a configured column after a successful merge (FR32). When omitted, Ferry leaves the ticket in its current column. Same API call as above. |
+All transition-id secrets are **optional overrides**. Agents auto-resolve Jira transition ids at runtime from the status names configured in `workflow.agents.*` (via `resolveConfiguredTransitionId`), so a fresh install needs none of these. Set one only to pin an explicit id when the status-name match cannot handle your board.
 
-> **Finding Jira transition IDs:** Call `GET https://<your-domain>.atlassian.net/rest/api/3/issue/<TICKET-KEY>/transitions` with Basic Auth. The response lists available transitions with their `id` and `name`. Use the ID (a number string like `"31"`) for the secret value.
+| Secret                           | Used by             | Description                                                                                                                                                                                                                                                    |
+| -------------------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `FERRY_REVIEW_TRANSITION_ID`     | Developer, Iterator | Override for the transition **into** the **In Review** column (FR18 / FR28). Auto-resolved from `workflow.agents.developer.auto_transition` / `workflow.agents.iterator.auto_transition` when unset.                                                           |
+| `FERRY_ITER_TRANSITION_ID`       | Reviewer            | Override for the transition **into** the **Changes Requested** column (FR24). Auto-resolved from `workflow.agents.reviewer.auto_transition_changes` when unset.                                                                                                |
+| `FERRY_APPROVE_TRANSITION_ID`    | Reviewer            | Override for the on-approval transition (FR24). Auto-resolved from `workflow.agents.reviewer.auto_transition_approve` when unset (default `null` — no transition).                                                                                             |
+| `FERRY_MERGE_DONE_TRANSITION_ID` | Merger              | Override for the post-merge transition (FR32, script path). Auto-resolved from `workflow.agents.merger.auto_transition_done` when unset (default `null` — the ticket stays in its current column). The claude-code merger name-matches "Done"/"Closed" itself. |
+
+> **Finding Jira transition IDs:** only needed for the optional explicit overrides above — the normal path is to configure status names in `workflow.agents.*` and let Ferry resolve the ids. If you do need one, call `GET https://<your-domain>.atlassian.net/rest/api/3/issue/<TICKET-KEY>/transitions` with Basic Auth. The response lists available transitions with their `id` and `name`. Use the ID (a number string like `"31"`) for the secret value.
 
 ---
 
@@ -723,22 +726,25 @@ workflow:
     iterator:
       trigger_column: 'Changes Requested'
       auto_transition: 'In Review' # FR28 — set null to disable
+    merger:
+      auto_transition_done: null # FR32 — set to a column (e.g. 'Done') to move the ticket after merge
 ```
 
 **Defaults reproduce today's behavior exactly** (FR18, FR24, FR28 all enabled with the column names above).
 
-| Field                                              | Default               | Description                                                                                                                                                                             |
-| -------------------------------------------------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `workflow.agents.refiner.trigger_column`           | `"Refinement"`        | Jira column that triggers the Refiner. Used by `ferry-doctor` to validate column existence.                                                                                             |
-| `workflow.agents.developer.trigger_column`         | `"In Development"`    | Jira column that triggers the Developer.                                                                                                                                                |
-| `workflow.agents.developer.auto_transition`        | `"In Review"`         | Column to move the ticket into after the Developer finishes (FR18). Set to `null` to disable — humans drive the transition. Requires `FERRY_REVIEW_TRANSITION_ID` secret when non-null. |
-| `workflow.agents.reviewer.trigger_column`          | `"In Review"`         | Jira column that triggers the Reviewer.                                                                                                                                                 |
-| `workflow.agents.reviewer.auto_transition_approve` | `null`                | Column to move the ticket into when the Reviewer approves. `null` = no transition (default). Requires `FERRY_APPROVE_TRANSITION_ID` secret when non-null.                               |
-| `workflow.agents.reviewer.auto_transition_changes` | `"Changes Requested"` | Column to move the ticket into when the Reviewer requests changes (FR24). Set to `null` to disable. Requires `FERRY_ITER_TRANSITION_ID` secret when non-null.                           |
-| `workflow.agents.iterator.trigger_column`          | `"Changes Requested"` | Jira column that triggers the Iterator.                                                                                                                                                 |
-| `workflow.agents.iterator.auto_transition`         | `"In Review"`         | Column to move the ticket into after the Iterator finishes (FR28). Set to `null` to disable. Requires `FERRY_REVIEW_TRANSITION_ID` secret when non-null.                                |
+| Field                                              | Default               | Description                                                                                                                                                                                                                                                                                                                                                                                                |
+| -------------------------------------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `workflow.agents.refiner.trigger_column`           | `"Refinement"`        | Jira column that triggers the Refiner. Used by `ferry-doctor` to validate column existence.                                                                                                                                                                                                                                                                                                                |
+| `workflow.agents.developer.trigger_column`         | `"In Development"`    | Jira column that triggers the Developer.                                                                                                                                                                                                                                                                                                                                                                   |
+| `workflow.agents.developer.auto_transition`        | `"In Review"`         | Column to move the ticket into after the Developer finishes (FR18). Set to `null` to disable — humans drive the transition. The transition id is auto-resolved from this status name at runtime; `FERRY_REVIEW_TRANSITION_ID` is an optional explicit override.                                                                                                                                            |
+| `workflow.agents.reviewer.trigger_column`          | `"In Review"`         | Jira column that triggers the Reviewer.                                                                                                                                                                                                                                                                                                                                                                    |
+| `workflow.agents.reviewer.auto_transition_approve` | `null`                | Column to move the ticket into when the Reviewer approves. `null` = no transition (default). The transition id is auto-resolved from this status name at runtime; `FERRY_APPROVE_TRANSITION_ID` is an optional explicit override.                                                                                                                                                                          |
+| `workflow.agents.reviewer.auto_transition_changes` | `"Changes Requested"` | Column to move the ticket into when the Reviewer requests changes (FR24). Set to `null` to disable. The transition id is auto-resolved from this status name at runtime; `FERRY_ITER_TRANSITION_ID` is an optional explicit override.                                                                                                                                                                      |
+| `workflow.agents.iterator.trigger_column`          | `"Changes Requested"` | Jira column that triggers the Iterator.                                                                                                                                                                                                                                                                                                                                                                    |
+| `workflow.agents.iterator.auto_transition`         | `"In Review"`         | Column to move the ticket into after the Iterator finishes (FR28). Set to `null` to disable. The transition id is auto-resolved from this status name at runtime; `FERRY_REVIEW_TRANSITION_ID` is an optional explicit override.                                                                                                                                                                           |
+| `workflow.agents.merger.auto_transition_done`      | `null`                | Column to move the ticket into after a successful merge (FR32), **script path**. `null` = the ticket stays in its current column. The transition id is auto-resolved from this status name at runtime; `FERRY_MERGE_DONE_TRANSITION_ID` is an optional explicit override. On the claude-code path the merger instead name-matches a "Done"/"Closed" transition itself (skipped silently when none exists). |
 
-> **Finding Jira transition IDs for custom columns:** Call `GET https://<your-domain>.atlassian.net/rest/api/3/issue/<TICKET-KEY>/transitions` with Basic Auth. Match the transition `name` to your target column and use the `id` field as the secret value.
+> **Custom columns need no id lookup:** Ferry matches the status names above against the ticket's available transitions at runtime (`resolveConfiguredTransitionId`). Only when you set one of the optional `FERRY_*_TRANSITION_ID` overrides do you need an id — call `GET https://<your-domain>.atlassian.net/rest/api/3/issue/<TICKET-KEY>/transitions` with Basic Auth, match the transition `name` to your target column, and use the `id` field as the secret value.
 
 > **`ferry-doctor` validates columns:** When `workflow.agents` is present in your config, `ferry-doctor` calls the Jira API to confirm each `trigger_column` and `auto_transition` value exists in your project. Run `ferry-doctor` after changing column names.
 
@@ -905,6 +911,28 @@ For a `ferry:claude-code` ticket each agent job is **one direct call** into `ant
 
 Authentication is `CLAUDE_CODE_OAUTH_TOKEN` only — `ANTHROPIC_API_KEY` is **forbidden** on this path ([ADR-0006](./adr/0006-claude-code-action-execution-path.md) §6). The provider gate still applies: the claude-code path is only available to an Anthropic-only consumer configuration.
 
+### Router model (`ferry-router.yml` + `ferry-run-claude-agent`)
+
+On the claude-code path, `ferry-init` installs a single thin router workflow instead of the five per-agent stubs (see the install steps in [INSTALL.md → Router model](./INSTALL.md#router-model-recommended-for-claude-code); a hand-copyable stub lives at `examples/consumer-setup/workflows/ferry-router.yml`). `ferry-router.yml` listens for all six `repository_dispatch` types — `ferry-transition` (sent by the single any-column Jira rule) plus the legacy `ferry-refine` / `ferry-dev` / `ferry-review` / `ferry-iterate` events and the Reviewer-emitted `ferry-merge` — and runs these jobs:
+
+1. **`gate-envelope`** validates the payload (`ferry-envelope-validate`).
+2. **`route`** calls `ferry-route` with the dispatch `event_type` and resolves both the execution path **and the agent**: for `ferry-transition` events it maps the payload's `to_status` to a role via `workflow.agents.*.trigger_column`, and resolves `role: none` (a no-op) for statuses Ferry does not own — so renaming or adding Jira columns never requires touching Jira again.
+3. **`ci-gate`** runs for the reviewer only ([`ferry-ci-gate`](#ferry-ci-gate-reviewer-ci-pre-gate), same FR24 behavior as the legacy review stub).
+4. **`run-agent`** calls the shared role-parameterized `big-emotion/ferry/.github/actions/ferry-run-claude-agent` composite. It absorbs everything the per-agent stubs used to inline: target-branch resolution (`ferry/<ticket>`, or the most recent open PR referencing the ticket; refiner/dev start from the integration branch), checkout, optional dependency bootstrap, Jira transition-id auto-resolution (`ferry-resolve-transition`), prompt resolution (`ferry-cc-prompt`), role guardrails (`gh pr merge` denied for every role except the Merger, `gh pr close` denied for all — ADR-0005/FR32), the single `anthropics/claude-code-action` call, and execution-log upload.
+5. **`unsupported-path`** fails with guidance when the resolved path is `script` or `codex-cli` — the router only supports `execution_path: claude-code`; those paths keep the per-agent workflows generated by `ferry-init`.
+6. **`emit-audit`** posts the audit line for the resolved phase.
+
+Router workflow settings (all optional):
+
+| Setting                    | Type     | Default            | Description                                                                                                                                                           |
+| -------------------------- | -------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `FERRY_INTEGRATION_BRANCH` | variable | `main`             | Branch the Refiner and Developer check out — the base for new work.                                                                                                   |
+| `FERRY_PRE_AGENT_COMMAND`  | variable | _(empty)_          | Shell command run after checkout, before the agent — dependency bootstrap (e.g. `npm ci`) so the agent can run the project's local gates.                             |
+| `FERRY_EXTRA_CLAUDE_ARGS`  | variable | _(empty)_          | Extra flags appended verbatim to `claude_args` — e.g. additional `--mcp-config '<json>'` blocks for consumer MCP servers.                                             |
+| `FERRY_CHECKOUT_TOKEN`     | secret   | _(workflow token)_ | PAT or App token used for checkout — and therefore for agent pushes — so pushed commits re-trigger CI: a `github-actions[bot]` push suppresses `pull_request` events. |
+
+Per-role models still come from `FERRY_REFINER_MODEL` / `FERRY_DEV_MODEL` / `FERRY_REVIEW_MODEL` / `FERRY_ITER_MODEL` / `FERRY_MERGER_MODEL` (default `claude-sonnet-4-6`) — the router picks the variable matching the resolved role. The `FERRY_REVIEW_TRANSITION_ID` / `FERRY_ITER_TRANSITION_ID` / `FERRY_APPROVE_TRANSITION_ID` secrets are optional overrides here: the composite auto-resolves those transition ids from the `workflow.agents.*` status names. The merger's post-merge move is the exception — on the claude-code path the agent name-matches a "Done"/"Closed" transition itself (see the Merger section); `auto_transition_done` and `FERRY_MERGE_DONE_TRANSITION_ID` apply to the script path.
+
 ### How the codex-cli path runs
 
 For a `ferry:codex-cli` ticket each agent job is one direct `openai/codex-action@v1` call. The workflow resolves the role prompt with `ferry-action-prompt --path codex-cli`, generates `codex-home/config.toml` with `ferry-codex-config`, and passes that `codex-home` directory to the action. Ferry owns the Jira bridge here too: Codex has **no native Jira-label integration**, so the agent reaches Jira only through Ferry's `ferry-jira-mcp` server declared in `codex-home/config.toml`.
@@ -967,7 +995,7 @@ The Merger is Ferry's fifth agent. It runs as a lightweight, **deterministic** G
 1. Reads the `ferry:approved` label on the PR.
 2. Generates a squash commit message from the PR title, body, and Jira ticket key (LLM-assisted; skipped for `merge` / `rebase` strategies).
 3. Runs `gh pr merge` with the configured merge strategy and auto-delete-branch.
-4. On success, optionally calls the Jira API to move the ticket using `FERRY_MERGE_DONE_TRANSITION_ID`.
+4. On success, optionally moves the ticket (FR32). Script path: the transition id is auto-resolved from `workflow.agents.merger.auto_transition_done` in `ferry.config`, with `FERRY_MERGE_DONE_TRANSITION_ID` as an optional explicit override — when neither is set, the ticket stays in its column. Claude-code path: the agent name-matches a transition called "Done" or "Closed" and skips silently when none exists.
 5. Emits a `[ferry:merger:<run-id>] merged PR #<N>` audit comment on the Jira ticket.
 
 If the merge fails (e.g. merge conflicts, CI still pending, branch-protection rejection — see below), the Merger posts a `[ferry:merger:<run-id>] merge failed: <reason>` Jira comment and exits non-zero. The `ferry:approved` label is **not removed** — re-triggering the Merger or merging manually are both valid recovery paths.
@@ -990,14 +1018,17 @@ Run `ferry-update` to add the workflow stub automatically, or copy `examples/con
 
 ### Configuration
 
-| Setting                                   | Type     | Default             | Description                                                                                                                                  |
-| ----------------------------------------- | -------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `FERRY_MERGE_STRATEGY` (var)              | variable | `squash`            | Merge strategy: `squash`, `merge`, or `rebase`. Passed directly to `gh pr merge`.                                                            |
-| `FERRY_MERGER_MODEL` (var)                | variable | `claude-sonnet-4-6` | LLM model used to generate the squash commit message. Ignored when `FERRY_MERGE_STRATEGY` is not `squash`.                                   |
-| `FERRY_MERGER_PROVIDER` (var)             | variable | `anthropic`         | LLM provider for commit-message generation (`anthropic` / `openai` / `google`). Ignored when `FERRY_MERGE_STRATEGY` is not `squash`.         |
-| `FERRY_MERGE_DONE_TRANSITION_ID` (secret) | secret   | _(none)_            | **Optional.** Jira transition ID that moves the ticket after a successful merge. When omitted, the Jira column is left unchanged post-merge. |
+| Setting                                   | Type     | Default             | Description                                                                                                                                                                                                                                                      |
+| ----------------------------------------- | -------- | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `FERRY_MERGE_STRATEGY` (var)              | variable | `squash`            | Merge strategy: `squash`, `merge`, or `rebase`. Passed directly to `gh pr merge`.                                                                                                                                                                                |
+| `FERRY_MERGER_MODEL` (var)                | variable | `claude-sonnet-4-6` | LLM model used to generate the squash commit message. Ignored when `FERRY_MERGE_STRATEGY` is not `squash`.                                                                                                                                                       |
+| `FERRY_MERGER_PROVIDER` (var)             | variable | `anthropic`         | LLM provider for commit-message generation (`anthropic` / `openai` / `google`). Ignored when `FERRY_MERGE_STRATEGY` is not `squash`.                                                                                                                             |
+| `FERRY_MERGE_DONE_TRANSITION_ID` (secret) | secret   | _(none)_            | **Optional override, script path.** Explicit Jira transition id for the post-merge move. Auto-resolved from `workflow.agents.merger.auto_transition_done` when unset (default `null` — the column is left unchanged post-merge). Unread on the claude-code path. |
 
-All four values are wired into the `ferry-merge.yml` stub. Set `FERRY_MERGE_DONE_TRANSITION_ID` as a repository **secret** (not a variable — it is a Jira credential). The model and strategy are repository **variables**.
+Wiring caveats — only `FERRY_MERGER_MODEL` is wired into the `ferry-merge.yml` stub (passed as the composite's `ferry_merger_model` input):
+
+- The post-merge transition needs no stub wiring: the agent auto-resolves the id from `workflow.agents.merger.auto_transition_done`, and the `ferry-run-merger` composite exposes an optional `ferry_merge_done_transition_id` input for consumers who want to pass the explicit `FERRY_MERGE_DONE_TRANSITION_ID` override. If you use the override, keep it a repository **secret** (not a variable — it is Jira workflow data passed alongside credentials).
+- `FERRY_MERGE_STRATEGY` and `FERRY_MERGER_PROVIDER` are **not** wired into the `ferry-merge.yml` stub. The agent reads `FERRY_MERGE_STRATEGY` from the job environment (defaulting to `squash`), so to change it add an `env:` mapping on the merge job yourself (e.g. `FERRY_MERGE_STRATEGY: ${{ vars.FERRY_MERGE_STRATEGY }}`).
 
 ### Branch-protection caveat
 

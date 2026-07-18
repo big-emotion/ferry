@@ -2,8 +2,9 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
-import { workflowTemplates } from '../init/templates.js';
+import { workflowTemplates, routerWorkflowTemplate } from '../init/templates.js';
 import { applyLocalOverrides, type LocalOverrides } from './local-overrides.js';
+import type { WorkflowEntry } from '../init/types.js';
 import type { WorkflowChange } from './types.js';
 
 const FERRY_WORKFLOW_PATTERN = /uses:\s+big-emotion\/ferry\/.+@(v[\w.-]+)/;
@@ -15,7 +16,10 @@ const FERRY_WORKFLOW_PATTERN = /uses:\s+big-emotion\/ferry\/.+@(v[\w.-]+)/;
 export function detectInstalledVersion(repoRoot: string): string | undefined {
   const workflowDir = join(repoRoot, '.github', 'workflows');
 
+  // Router first: on a router install it is the only Ferry workflow, and on a
+  // mid-migration repo its pin (the newest install step) wins over stale stubs.
   for (const candidate of [
+    'ferry-router.yml',
     'ferry-refine.yml',
     'ferry-dev.yml',
     'ferry-review.yml',
@@ -29,6 +33,41 @@ export function detectInstalledVersion(repoRoot: string): string | undefined {
   }
 
   return undefined;
+}
+
+/**
+ * Which install model the consumer repo is on. Router installs carry the
+ * single ferry-router.yml; legacy installs the per-agent stubs. Both at once
+ * is a mid-migration repo ("mixed").
+ */
+export type WorkflowModel = 'router' | 'legacy' | 'mixed';
+
+const LEGACY_AGENT_STUB_FILES = [
+  'ferry-refine.yml',
+  'ferry-dev.yml',
+  'ferry-review.yml',
+  'ferry-iterate.yml',
+  'ferry-merge.yml',
+];
+
+export function detectWorkflowModel(repoRoot: string): WorkflowModel {
+  const workflowDir = join(repoRoot, '.github', 'workflows');
+  const hasRouter = existsSync(join(workflowDir, 'ferry-router.yml'));
+  const hasLegacyStubs = LEGACY_AGENT_STUB_FILES.some((f) => existsSync(join(workflowDir, f)));
+  if (hasRouter) return hasLegacyStubs ? 'mixed' : 'router';
+  return 'legacy';
+}
+
+/**
+ * Template set matching the install model. Mixed repos are managed as ROUTER
+ * installs: the router is the migration target, so it gets upgraded and the
+ * leftover legacy stubs are never regenerated — recreating deleted stubs would
+ * resurrect the per-agent model mid-migration (and in script shape on a
+ * claude-code install). Removing them is the consumer's remaining migration
+ * step, surfaced as a follow-up by ferry-update.
+ */
+export function templatesForModel(model: WorkflowModel, version: string): WorkflowEntry[] {
+  return model === 'legacy' ? workflowTemplates(version) : [routerWorkflowTemplate(version)];
 }
 
 export interface ComputeWorkflowChangeOptions {
@@ -50,13 +89,14 @@ export function computeWorkflowChanges(
   options?: LocalOverrides | ComputeWorkflowChangeOptions,
 ): WorkflowChange[] {
   const workflowDir = join(repoRoot, '.github', 'workflows');
-  const base = workflowTemplates(toVersion);
+  const model = detectWorkflowModel(repoRoot);
+  const base = templatesForModel(model, toVersion);
   const normalized = normalizeOptions(options);
   const templates = normalized.overrides ? applyLocalOverrides(base, normalized.overrides) : base;
   const baselineTemplates = normalized.fromVersion
     ? normalized.overrides
-      ? applyLocalOverrides(workflowTemplates(normalized.fromVersion), normalized.overrides)
-      : workflowTemplates(normalized.fromVersion)
+      ? applyLocalOverrides(templatesForModel(model, normalized.fromVersion), normalized.overrides)
+      : templatesForModel(model, normalized.fromVersion)
     : null;
   const changes: WorkflowChange[] = [];
 

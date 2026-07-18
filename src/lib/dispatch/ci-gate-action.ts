@@ -25,6 +25,9 @@ import { appendFileSync } from 'node:fs';
 import { Octokit } from '@octokit/rest';
 
 import { gateCi, type CiStatus } from '../../agents/reviewer/ci-gate.js';
+import { loadFerryConfig } from '../config.js';
+import { createTrackerFromEnv } from '../io/tracker/factory.js';
+import { resolveConfiguredTransitionId } from '../io/tracker/transition-match.js';
 import { createLogger } from '../logger/index.js';
 
 const logger = createLogger('', 'ferry:ci-gate');
@@ -89,6 +92,39 @@ export interface CiGateActionResult {
   failureSummary: string;
 }
 
+/**
+ * The FR24 changes-transition id the gate applies when CI is red. Explicit
+ * FERRY_ITER_TRANSITION_ID wins; otherwise the id is auto-resolved from the
+ * reviewer's auto_transition_changes status name in ferry.config. Resolution
+ * failure is non-fatal — the gate decision must never be blocked by it — so
+ * this returns '' and warns instead of throwing.
+ */
+export async function resolveChangesTransitionId(ticketKey: string): Promise<string> {
+  const explicit = process.env.FERRY_ITER_TRANSITION_ID?.trim();
+  if (explicit) return explicit;
+  if (
+    !process.env.FERRY_JIRA_BASE_URL ||
+    !process.env.FERRY_JIRA_EMAIL ||
+    !process.env.FERRY_JIRA_API_TOKEN
+  ) {
+    return '';
+  }
+  try {
+    const cfg = loadFerryConfig(process.cwd());
+    const tracker = createTrackerFromEnv();
+    return await resolveConfiguredTransitionId({
+      ticketKey,
+      targetStatusName: cfg.workflow.agents.reviewer.auto_transition_changes,
+      fetchTransitions: (key) => tracker.getTransitions(key),
+    });
+  } catch (err) {
+    logger.warn('FR24 transition auto-resolution failed — ticket will not be transitioned', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return '';
+  }
+}
+
 export async function runCiGateAction(): Promise<CiGateActionResult> {
   const token = process.env.GITHUB_TOKEN || requireEnv('FERRY_GITHUB_TOKEN');
   const { owner, repo } = parseRepo(requireEnv('FERRY_GITHUB_REPO'));
@@ -123,6 +159,7 @@ export async function runCiGateAction(): Promise<CiGateActionResult> {
       writeOutput('proceed', String(outcome.proceed));
       writeOutput('outcome', outcome.outcome);
       writeOutput('failure_summary', '');
+      writeOutput('iter_transition_id', '');
       return { proceed: outcome.proceed, outcome: outcome.outcome, failureSummary: '' };
     }
     headSha = data[0].head.sha;
@@ -159,6 +196,10 @@ export async function runCiGateAction(): Promise<CiGateActionResult> {
   writeOutput('proceed', String(decision.proceed));
   writeOutput('outcome', decision.outcome);
   writeOutput('failure_summary', decision.outcome === 'ci-red' ? failureSummary : '');
+  writeOutput(
+    'iter_transition_id',
+    decision.outcome === 'ci-red' ? await resolveChangesTransitionId(ticketKey) : '',
+  );
 
   process.stdout.write(
     `ferry-ci-gate: ticket=${ticketKey} branch=${branch} status=${status} outcome=${decision.outcome} proceed=${decision.proceed}\n`,

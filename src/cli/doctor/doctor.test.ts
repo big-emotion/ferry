@@ -155,6 +155,65 @@ describe('checkWorkflowDrift', () => {
 
     rmSync(repoRoot, { recursive: true, force: true });
   });
+
+  it('returns green for a router install without any legacy per-agent file', async () => {
+    const { routerWorkflowTemplate } = await import('../init/templates.js');
+    const repoRoot = mkdtempSync(join(tmpdir(), 'ferry-doctor-router-'));
+    const workflowDir = join(repoRoot, '.github', 'workflows');
+    mkdirSync(workflowDir, { recursive: true });
+
+    const router = routerWorkflowTemplate('v1');
+    writeFileSync(join(workflowDir, router.filename), router.content, 'utf8');
+
+    const result = checkWorkflowDrift({ repoRoot, ferryVersion: 'v1' });
+    expect(result.status).toBe('green');
+    expect(result.detail).toContain('ferry-router.yml');
+    expect(result.detail).toContain('router model');
+
+    rmSync(repoRoot, { recursive: true, force: true });
+  });
+
+  it('returns yellow when ferry-router.yml drifts from the current template', async () => {
+    const { routerWorkflowTemplate } = await import('../init/templates.js');
+    const repoRoot = mkdtempSync(join(tmpdir(), 'ferry-doctor-router-drift-'));
+    const workflowDir = join(repoRoot, '.github', 'workflows');
+    mkdirSync(workflowDir, { recursive: true });
+
+    const router = routerWorkflowTemplate('v1');
+    writeFileSync(
+      join(workflowDir, router.filename),
+      router.content + '\n# extra line — simulated drift\n',
+      'utf8',
+    );
+
+    const result = checkWorkflowDrift({ repoRoot, ferryVersion: 'v1' });
+    expect(result.status).toBe('yellow');
+    expect(result.detail).toContain('ferry-router.yml');
+    expect(result.remedy).toContain('ferry-update');
+
+    rmSync(repoRoot, { recursive: true, force: true });
+  });
+
+  it('flags leftover legacy stubs alongside ferry-router.yml (double-fire hazard)', async () => {
+    const { workflowTemplates, routerWorkflowTemplate } = await import('../init/templates.js');
+    const repoRoot = mkdtempSync(join(tmpdir(), 'ferry-doctor-router-mixed-'));
+    const workflowDir = join(repoRoot, '.github', 'workflows');
+    mkdirSync(workflowDir, { recursive: true });
+
+    const router = routerWorkflowTemplate('v1');
+    writeFileSync(join(workflowDir, router.filename), router.content, 'utf8');
+    // Both the router and a leftover stub listen for legacy events — every
+    // legacy dispatch runs twice until the stub is removed.
+    const [legacy] = workflowTemplates('v1');
+    writeFileSync(join(workflowDir, legacy!.filename), legacy!.content, 'utf8');
+
+    const result = checkWorkflowDrift({ repoRoot, ferryVersion: 'v1' });
+    expect(result.status).toBe('yellow');
+    expect(result.detail).toContain('Legacy per-agent stubs still present');
+    expect(result.detail).toContain(legacy!.filename);
+
+    rmSync(repoRoot, { recursive: true, force: true });
+  });
 });
 
 // ── checkPromptOverrides ──────────────────────────────────────────────────────

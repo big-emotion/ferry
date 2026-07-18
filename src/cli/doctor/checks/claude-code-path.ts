@@ -15,7 +15,9 @@ const WORKFLOW_SHAPE_LABEL = 'CC path: workflow shape';
 const OAUTH_SECRET = 'CLAUDE_CODE_OAUTH_TOKEN';
 const API_KEY_SECRET = 'ANTHROPIC_API_KEY';
 
-const WORKFLOW_FILES = [
+const ROUTER_WORKFLOW_FILE = 'ferry-router.yml';
+
+const LEGACY_WORKFLOW_FILES = [
   'ferry-refine.yml',
   'ferry-dev.yml',
   'ferry-review.yml',
@@ -265,11 +267,13 @@ export function checkProviderGate(opts: { repoRoot: string }): CheckResult {
 }
 
 /**
- * Check workflow shape: when `execution_path = claude-code`, the four consumer
- * workflows must use the simplified claude-code shape — a single
- * `anthropics/claude-code-action@` step with NO `ferry-cc-prepare` /
- * `ferry-cc-apply` wrapper steps. Workflows still containing the old
- * prepare/apply wrapper chain are stale and need `ferry-update`.
+ * Check workflow shape: when `execution_path = claude-code`, the consumer either
+ * runs the thin router model (a single `ferry-router.yml` dispatching every
+ * agent through the shared `ferry-run-claude-agent` composite) or the legacy
+ * per-agent stubs (four files, each a single `anthropics/claude-code-action@`
+ * step with NO `ferry-cc-prepare` / `ferry-cc-apply` wrapper steps). The router
+ * takes precedence when present; when neither model is installed, the path
+ * cannot run at all — that is a red, not a silent pass.
  */
 export function checkWorkflowShape(opts: { repoRoot: string }): CheckResult {
   const { repoRoot } = opts;
@@ -284,15 +288,44 @@ export function checkWorkflowShape(opts: { repoRoot: string }): CheckResult {
   }
 
   const workflowDir = join(repoRoot, '.github', 'workflows');
+
+  const routerPath = join(workflowDir, ROUTER_WORKFLOW_FILE);
+  if (existsSync(routerPath)) {
+    const content = readFileSync(routerPath, 'utf8');
+    const missingMarkers = [
+      ['ferry-run-claude-agent', /ferry-run-claude-agent/],
+      ['repository_dispatch', /repository_dispatch/],
+    ]
+      .filter(([, re]) => !(re as RegExp).test(content))
+      .map(([marker]) => marker as string);
+
+    if (missingMarkers.length > 0) {
+      return {
+        label: WORKFLOW_SHAPE_LABEL,
+        status: 'yellow',
+        detail: `${ROUTER_WORKFLOW_FILE} is present but does not look like the Ferry router — missing: ${missingMarkers.join(', ')}`,
+        remedy: `Run \`npx -p @big-emotion/ferry ferry-update\` to regenerate ${ROUTER_WORKFLOW_FILE}, or \`ferry-init --overwrite\` to re-run full setup`,
+      };
+    }
+
+    return {
+      label: WORKFLOW_SHAPE_LABEL,
+      status: 'green',
+      detail: `${ROUTER_WORKFLOW_FILE} uses the router model — repository_dispatch routed through the shared ferry-run-claude-agent composite`,
+    };
+  }
+
   const stale: string[] = [];
   const missingStep: string[] = [];
+  let anyLegacyPresent = false;
 
-  for (const filename of WORKFLOW_FILES) {
+  for (const filename of LEGACY_WORKFLOW_FILES) {
     const filePath = join(workflowDir, filename);
     if (!existsSync(filePath)) {
-      // Missing workflow files are flagged by the "Workflow files" check — skip here.
+      // Individually missing legacy files are flagged by the "Workflow files" check — skip here.
       continue;
     }
+    anyLegacyPresent = true;
     const content = readFileSync(filePath, 'utf8');
 
     // Stale: still carries the deleted prepare/apply wrapper chain.
@@ -305,6 +338,15 @@ export function checkWorkflowShape(opts: { repoRoot: string }): CheckResult {
     if (!/claude-code-action@/.test(content)) {
       missingStep.push(filename);
     }
+  }
+
+  if (!anyLegacyPresent) {
+    return {
+      label: WORKFLOW_SHAPE_LABEL,
+      status: 'red',
+      detail: `no Ferry workflows found — neither ${ROUTER_WORKFLOW_FILE} nor the legacy per-agent files exist in .github/workflows`,
+      remedy: `Run \`npx -p @big-emotion/ferry ferry-init\` to install the Ferry workflows`,
+    };
   }
 
   if (stale.length > 0) {
@@ -330,6 +372,6 @@ export function checkWorkflowShape(opts: { repoRoot: string }): CheckResult {
   return {
     label: WORKFLOW_SHAPE_LABEL,
     status: 'green',
-    detail: `All four workflow files use the simplified claude-code shape (a single claude-code-action step, no ferry-cc-prepare/ferry-cc-apply wrappers)`,
+    detail: `Legacy per-agent workflow files use the simplified claude-code shape (a single claude-code-action step, no ferry-cc-prepare/ferry-cc-apply wrappers)`,
   };
 }
