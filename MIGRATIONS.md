@@ -53,6 +53,14 @@ If there are no consumer-visible changes, omit the section (or note `(none — i
 
 ---
 
+## v0.18.1 → v0.18.2
+
+forge: github
+
+- **(none — internal composite fix; no consumer action)** The `ferry-run-claude-agent` composite now isolates its `npx` tool calls via `--prefix`. This only affects a repo that shares Ferry's package name (Ferry dogfooding itself); regular consumers are unaffected.
+
+---
+
 ## v0.18.0 → v0.18.1
 
 forge: both

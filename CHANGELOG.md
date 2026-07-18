@@ -11,6 +11,14 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.18.2] — 2026-07-18
+
+### Fixed
+
+- **`ferry-run-claude-agent` isolates its `npx` tool calls to a neutral prefix (`--prefix`)** — when Ferry runs on a checkout of a repository that shares its package name (`@big-emotion/ferry` dogfooding itself), a bare `npx -p @big-emotion/ferry@<v>` resolved the local, unbuilt package and every agent tool (`ferry-cc-prompt`, `ferry-resolve-transition`, and the `ferry-jira-mcp` launch in `--mcp-config`) failed with "command not found". All three now run through `npx --prefix "$RUNNER_TEMP/ferry-npx"`, which installs and runs the published package from a neutral directory; the CLIs still read prompts/config from the repo working directory, so consumer prompt resolution is unaffected.
+
+---
+
 ## [0.18.1] — 2026-07-18
 
 ### Fixed
@@ -527,7 +535,8 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
-[Unreleased]: https://github.com/big-emotion/ferry/compare/v0.18.1...HEAD
+[Unreleased]: https://github.com/big-emotion/ferry/compare/v0.18.2...HEAD
+[0.18.2]: https://github.com/big-emotion/ferry/releases/tag/v0.18.2
 [0.18.1]: https://github.com/big-emotion/ferry/releases/tag/v0.18.1
 [0.18.0]: https://github.com/big-emotion/ferry/releases/tag/v0.18.0
 [0.17.0]: https://github.com/big-emotion/ferry/releases/tag/v0.17.0
