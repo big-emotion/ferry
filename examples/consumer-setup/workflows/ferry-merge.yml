@@ -7,7 +7,7 @@
 #                   CLAUDE_CODE_OAUTH_TOKEN — required only when execution_path=claude-code
 #                                             (ADR-0006 §6 — anthropic_api_key is forbidden on this path).
 # Required variables: FERRY_AUDIT_ISSUE (GitHub Issue number for the audit log)
-# Optional variables: FERRY_MERGER_MODEL (default: claude-sonnet-4-6; use model ID matching your provider)
+# Optional variables: FERRY_MERGER_MODEL (default: claude-opus-4-8; use model ID matching your provider)
 #                     FERRY_MERGER_PROVIDER (default: anthropic; also: openai, google)
 #                     FERRY_RUNNER (default: "ubuntu-latest"; JSON string or array for self-hosted runners, e.g. '["self-hosted","X64"]')
 # claude-code path:   When execution_path=claude-code the Merger runs as ONE direct
@@ -25,7 +25,7 @@
 #                                             (ADR-0006 §6 — anthropic_api_key is forbidden on this path)
 # Required variables: FERRY_AUDIT_ISSUE (GitHub Issue number for the audit log)
 # Optional variables: FERRY_MERGER_PROVIDER (default: anthropic; also: openai, google)
-#                     FERRY_MERGER_MODEL (default: claude-sonnet-4-6; use model ID matching your provider)
+#                     FERRY_MERGER_MODEL (default: claude-opus-4-8; use model ID matching your provider)
 #                     FERRY_RUNNER (default: "ubuntu-latest"; JSON string or array for self-hosted runners, e.g. '["self-hosted","X64"]')
 
 name: Ferry — Merge
@@ -107,7 +107,7 @@ jobs:
           google_api_key: ${{ secrets.GOOGLE_API_KEY }}
           github_token: ${{ github.token }}
           github_repo: ${{ github.repository }}
-          ferry_merger_model: ${{ vars.FERRY_MERGER_MODEL || 'claude-sonnet-4-6' }}
+          ferry_merger_model: ${{ vars.FERRY_MERGER_MODEL || 'claude-opus-4-8' }}
 
   run-agent-claude-code:
     name: Run Merger agent (claude-code path)
@@ -144,7 +144,7 @@ jobs:
             --mcp-config '{"mcpServers":{"jira":{"command":"npx","args":["-y","-p","@big-emotion/ferry@v1.1.1","ferry-jira-mcp"],"env":{"FERRY_JIRA_BASE_URL":"${{ secrets.FERRY_JIRA_BASE_URL }}","FERRY_JIRA_EMAIL":"${{ secrets.FERRY_JIRA_EMAIL }}","FERRY_JIRA_API_TOKEN":"${{ secrets.FERRY_JIRA_API_TOKEN }}"}}}}'
             --permission-mode bypassPermissions
             --disallowedTools 'Bash(gh pr close),Bash(gh pr close:*)'
-            --model ${{ vars.FERRY_MERGER_MODEL || 'claude-sonnet-4-6' }}
+            --model ${{ vars.FERRY_MERGER_MODEL || 'claude-opus-4-8' }}
 
   emit-audit:
     name: Emit audit line
@@ -163,7 +163,7 @@ jobs:
           ticket: ${{ github.event.client_payload.ticket_key }}
           phase: merge
           run_id: ${{ github.event.client_payload.event_id }}
-          model: ${{ needs.run-agent.outputs.model || 'claude-sonnet-4-6' }}
+          model: ${{ needs.run-agent.outputs.model || 'claude-opus-4-8' }}
           outcome: ${{ needs.run-agent.result != 'skipped' && needs.run-agent.result || needs.run-agent-claude-code.result }}
           # claude-code path does cost tracking best-effort by design — it emits no token/cost outputs.
           input_tokens: ${{ needs.run-agent.outputs.input_tokens || '0' }}

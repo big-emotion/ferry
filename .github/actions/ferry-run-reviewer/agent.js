@@ -373,6 +373,8 @@ import { appendFileSync } from "node:fs";
 // src/lib/llm/pricing.ts
 var EUR_TO_USD = 1 / 0.93;
 var RATES = {
+  "anthropic/claude-opus-4-8": { inputPer1M: 4.65, outputPer1M: 23.25 },
+  "anthropic/claude-sonnet-5": { inputPer1M: 2.79, outputPer1M: 13.95 },
   "anthropic/claude-sonnet-4-6": { inputPer1M: 2.79, outputPer1M: 13.95 },
   "anthropic/claude-opus": { inputPer1M: 13.95, outputPer1M: 69.75 },
   "anthropic/claude-haiku": { inputPer1M: 0.23, outputPer1M: 1.16 },
@@ -602,10 +604,10 @@ import { createRequire as createRequire2 } from "node:module";
 var _require2 = createRequire2(import.meta.url);
 var DEFAULT_FERRY_CONFIG = {
   models: {
-    refiner: { provider: "anthropic", model: "claude-sonnet-4-6" },
-    dev: { provider: "anthropic", model: "claude-opus-4-5" },
-    review: { provider: "anthropic", model: "claude-sonnet-4-6" },
-    iterate: { provider: "anthropic", model: "claude-sonnet-4-6" }
+    refiner: { provider: "anthropic", model: "claude-opus-4-8" },
+    dev: { provider: "anthropic", model: "claude-sonnet-5" },
+    review: { provider: "anthropic", model: "claude-opus-4-8" },
+    iterate: { provider: "anthropic", model: "claude-sonnet-5" }
   },
   limits: {
     max_iterations: 3,

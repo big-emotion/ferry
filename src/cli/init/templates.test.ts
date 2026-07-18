@@ -211,11 +211,11 @@ describe('workflowTemplates — claude-code path single-step shape', () => {
     // A consumer who sets the per-agent FERRY_*_MODEL variable must be honoured
     // on the claude-code path too — the model must never be hardcoded.
     const modelVars: Record<string, string> = {
-      'ferry-refine.yml': "--model ${{ vars.FERRY_REFINER_MODEL || 'claude-sonnet-4-6' }}",
-      'ferry-dev.yml': "--model ${{ vars.FERRY_DEV_MODEL || 'claude-sonnet-4-6' }}",
-      'ferry-review.yml': "--model ${{ vars.FERRY_REVIEW_MODEL || 'claude-sonnet-4-6' }}",
-      'ferry-iterate.yml': "--model ${{ vars.FERRY_ITER_MODEL || 'claude-sonnet-4-6' }}",
-      'ferry-merge.yml': "--model ${{ vars.FERRY_MERGER_MODEL || 'claude-sonnet-4-6' }}",
+      'ferry-refine.yml': "--model ${{ vars.FERRY_REFINER_MODEL || 'claude-opus-4-8' }}",
+      'ferry-dev.yml': "--model ${{ vars.FERRY_DEV_MODEL || 'claude-sonnet-5' }}",
+      'ferry-review.yml': "--model ${{ vars.FERRY_REVIEW_MODEL || 'claude-opus-4-8' }}",
+      'ferry-iterate.yml': "--model ${{ vars.FERRY_ITER_MODEL || 'claude-sonnet-5' }}",
+      'ferry-merge.yml': "--model ${{ vars.FERRY_MERGER_MODEL || 'claude-opus-4-8' }}",
     };
     for (const tmpl of workflowTemplates('v1')) {
       const expected = modelVars[tmpl.filename];
@@ -224,8 +224,9 @@ describe('workflowTemplates — claude-code path single-step shape', () => {
         tmpl.content,
         `${tmpl.filename}: --model not interpolated from the model var`,
       ).toContain(expected);
+      const bareModel = /'([^']+)'/.exec(expected)![1];
       expect(tmpl.content, `${tmpl.filename}: --model is still hardcoded`).not.toContain(
-        '--model claude-sonnet-4-6\n',
+        `--model ${bareModel}\n`,
       );
     }
   });
@@ -714,7 +715,7 @@ describe('routerWorkflowTemplate — thin router (claude-code path)', () => {
 
   it('resolves the model dynamically from the role model_var', () => {
     expect(router.content).toContain(
-      "model: ${{ vars[needs.route.outputs.model_var] || 'claude-sonnet-4-6' }}",
+      'model: ${{ vars[needs.route.outputs.model_var] || (contains(fromJSON(\'["refiner","reviewer","merger"]\'), needs.route.outputs.role) && \'claude-opus-4-8\' || \'claude-sonnet-5\') }}',
     );
   });
 

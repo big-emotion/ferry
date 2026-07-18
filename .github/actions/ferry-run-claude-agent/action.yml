@@ -35,7 +35,7 @@ inputs:
   model:
     description: Model id passed to --model
     required: false
-    default: claude-sonnet-4-6
+    default: claude-sonnet-5
   integration_branch:
     description: Branch refiner/dev check out (the base for new work)
     required: false

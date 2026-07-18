@@ -181,10 +181,10 @@ import { createRequire as createRequire2 } from "node:module";
 var _require2 = createRequire2(import.meta.url);
 var DEFAULT_FERRY_CONFIG = {
   models: {
-    refiner: { provider: "anthropic", model: "claude-sonnet-4-6" },
-    dev: { provider: "anthropic", model: "claude-opus-4-5" },
-    review: { provider: "anthropic", model: "claude-sonnet-4-6" },
-    iterate: { provider: "anthropic", model: "claude-sonnet-4-6" }
+    refiner: { provider: "anthropic", model: "claude-opus-4-8" },
+    dev: { provider: "anthropic", model: "claude-sonnet-5" },
+    review: { provider: "anthropic", model: "claude-opus-4-8" },
+    iterate: { provider: "anthropic", model: "claude-sonnet-5" }
   },
   limits: {
     max_iterations: 3,

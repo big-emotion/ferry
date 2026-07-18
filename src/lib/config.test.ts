@@ -48,10 +48,10 @@ describe('loadFerryConfig', () => {
     it('defaults include all four models', () => {
       mockNoConfigFile();
       const cfg = loadFerryConfig('/repo');
-      expect(cfg.models.refiner.model).toBe('claude-sonnet-4-6');
-      expect(cfg.models.dev.model).toBe('claude-opus-4-5');
-      expect(cfg.models.review.model).toBe('claude-sonnet-4-6');
-      expect(cfg.models.iterate.model).toBe('claude-sonnet-4-6');
+      expect(cfg.models.refiner.model).toBe('claude-opus-4-8');
+      expect(cfg.models.dev.model).toBe('claude-sonnet-5');
+      expect(cfg.models.review.model).toBe('claude-opus-4-8');
+      expect(cfg.models.iterate.model).toBe('claude-sonnet-5');
     });
 
     it('defaults include oscillation cap of 3', () => {

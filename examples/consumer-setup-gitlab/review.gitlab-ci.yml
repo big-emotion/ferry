@@ -8,7 +8,7 @@ ferry-review:
     - if: '$FERRY_DISPATCH_TYPE == "ferry-review"'
   variables:
     FERRY_AGENT_ROLE: reviewer
-    FERRY_REVIEW_MODEL: ${FERRY_REVIEW_MODEL:-claude-sonnet-4-6}
+    FERRY_REVIEW_MODEL: ${FERRY_REVIEW_MODEL:-claude-opus-4-8}
   script:
     - npm install -g "@big-emotion/ferry@${FERRY_VERSION}"
     - ferry-agent run --role reviewer

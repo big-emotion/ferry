@@ -30,7 +30,7 @@ ferry-refine:
     - if: '$FERRY_DISPATCH_TYPE == "ferry-refine"'
   variables:
     FERRY_AGENT_ROLE: refiner
-    FERRY_REFINER_MODEL: \${FERRY_REFINER_MODEL:-claude-sonnet-4-6}
+    FERRY_REFINER_MODEL: \${FERRY_REFINER_MODEL:-claude-opus-4-8}
   script:
     - npm install -g "@big-emotion/ferry@\${FERRY_VERSION}"
     - ferry-agent run --role refiner
@@ -46,7 +46,7 @@ ferry-dev:
     - if: '$FERRY_DISPATCH_TYPE == "ferry-dev"'
   variables:
     FERRY_AGENT_ROLE: developer
-    FERRY_DEV_MODEL: \${FERRY_DEV_MODEL:-claude-sonnet-4-6}
+    FERRY_DEV_MODEL: \${FERRY_DEV_MODEL:-claude-sonnet-5}
   script:
     - apk add --no-cache git
     - npm install -g "@big-emotion/ferry@\${FERRY_VERSION}"
@@ -63,7 +63,7 @@ ferry-review:
     - if: '$FERRY_DISPATCH_TYPE == "ferry-review"'
   variables:
     FERRY_AGENT_ROLE: reviewer
-    FERRY_REVIEW_MODEL: \${FERRY_REVIEW_MODEL:-claude-sonnet-4-6}
+    FERRY_REVIEW_MODEL: \${FERRY_REVIEW_MODEL:-claude-opus-4-8}
   script:
     - npm install -g "@big-emotion/ferry@\${FERRY_VERSION}"
     - ferry-agent run --role reviewer
@@ -79,7 +79,7 @@ ferry-iterate:
     - if: '$FERRY_DISPATCH_TYPE == "ferry-iterate"'
   variables:
     FERRY_AGENT_ROLE: iterator
-    FERRY_ITER_MODEL: \${FERRY_ITER_MODEL:-claude-sonnet-4-6}
+    FERRY_ITER_MODEL: \${FERRY_ITER_MODEL:-claude-sonnet-5}
   script:
     - apk add --no-cache git
     - npm install -g "@big-emotion/ferry@\${FERRY_VERSION}"
