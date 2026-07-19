@@ -11,10 +11,11 @@ npm run lint                                        # Run ESLint
 npm run format:check                                # Check Prettier formatting
 npm test                                            # Run all tests with Vitest
 npx vitest run src/path/to/test.test.ts            # Run a single test file
+npm run build:cli                                   # Bundle src/cli/** → dist/cli/ (the published npm package)
 npm run build:ferry                                 # Build .ferry/ action bundles from src/
 ```
 
-There is no dedicated `build` command for the main codebase — `npm run typecheck` is the compile-time gate. All CI gates (typecheck, lint, format, tests, gitleaks) must pass on push and PRs to `main`.
+`npm run typecheck` (`tsc --noEmit`) is the compile-time gate — there is no `tsc`-emit build. Two esbuild bundlers instead produce the two shipped artifacts: `build:cli` → `dist/cli/` (published to npm, run automatically by `prepublishOnly`) and `build:ferry` → `.ferry/` (the GitHub Actions runtime bundles, committed). All CI gates (typecheck, lint, format, tests, gitleaks) must pass on push and PRs to `main`.
 
 ## Project Overview
 
@@ -45,13 +46,14 @@ All external interactions (GitHub, Jira, LLM) go through shared IO helpers. **Cr
 
 This decoupling allows mocking and testing without touching real APIs.
 
-### 3. **Agent Entrypoints** (`src/agents/refiner/`, `developer/`, `reviewer/`, `iterator/`)
+### 3. **Agent Entrypoints** (`src/agents/refiner/`, `developer/`, `reviewer/`, `iterator/`, `merger/`)
 
 Each agent is a separate implementation. Key patterns:
 
 - Agents define their own LLM schemas (e.g., `src/agents/refiner/schema.ts`, or inline tool-call schemas in `src/agents/reviewer/review-loop.ts`)
 - Agent code is linted to forbid direct Octokit/Jira imports
 - Reviewer agent has a CI gate (`src/agents/reviewer/ci-gate.ts`) that blocks reviews when CI is red; its pure `gateCi()` resolver is reused by the `ferry-ci-gate` composite on the claude-code path
+- The Merger (`src/agents/merger/index.ts` + `merge-action.ts`) is the sole agent allowed to run `gh pr merge` (ADR-0005); `gh pr close` stays denied on every path
 
 ### 4. **Scheduled Work** (`src/reconciler/`, `src/cost-governance/`)
 
@@ -64,20 +66,31 @@ The only workflow files in this repo are the dogfood consumer install (`ferry-ro
 
 ### 5. **Composite Actions** (`.github/actions/`)
 
-The bundled composite actions are `ferry-envelope-validate`, `ferry-route`, `ferry-emit-audit`, `ferry-ci-gate` (the reviewer CI pre-gate on the claude-code path), and `ferry-run-{refiner,developer,reviewer,iterator}`. Workflows are thin — most logic lives in `src/agents/**` / `src/lib/dispatch/**` and is invoked via these actions. On the `claude-code` execution path each agent runs as a single direct `anthropics/claude-code-action` call (no Ferry composite) — see `docs/CONFIGURATION.md`.
+The bundled composite actions are `ferry-envelope-validate`, `ferry-route`, `ferry-emit-audit`, `ferry-ci-gate` (the reviewer CI pre-gate on the claude-code path), `ferry-run-{refiner,developer,reviewer,iterator,merger}` (the bundled-script path), and `ferry-run-claude-agent` (the shared wrapper for the claude-code path). Workflows are thin — most logic lives in `src/agents/**` / `src/lib/dispatch/**` and is invoked via these actions.
+
+**Three execution paths** resolve per ticket from the consumer's config / Jira label (`src/lib/cc-wrappers/routing.ts`); each role has a matching workflow job gated on the routed `path`:
+
+1. **Bundled script** (default, multi-provider) — `node agent.js run --role <role>` via `ferry-run-*`, the deterministic loop calling `src/lib/llm/`. Only path with per-run EUR cost caps and Anthropic/OpenAI/Google routing.
+2. **`claude-code`** (Anthropic-only) — a direct `anthropics/claude-code-action` call; the Ferry contract (envelope, schema, audit, cost) lives in deterministic steps that bracket it (ADR-0006).
+3. **`codex-cli`** — a SHA-pinned `openai/codex-action` call; Jira access is bridged by the `ferry-jira-mcp` server wired through a generated `codex-home/config.toml` (ADR-0007).
+
+See `docs/CONFIGURATION.md` and `docs/adr/` for the full path model.
 
 ### 6. **CLI Entrypoints** (`src/cli/`)
 
-Four consumer-facing CLIs are exposed via `package.json` `bin`:
+`package.json` `bin` exposes ~15 executables (all bundled into `dist/cli/` by `build:cli`); `docs/CLI.md` is the full reference. The consumer-facing setup CLIs are:
 
 - `ferry-init` (`src/cli/init/`) — scaffolds Ferry into a new consumer repo
 - `ferry-doctor` (`src/cli/doctor/`) — diagnoses configuration issues in a consumer repo
 - `ferry-update` (`src/cli/update/`) — upgrades pinned Ferry refs in consumer workflows; reads `MIGRATIONS.md` and prints required follow-ups
 - `ferry-uninstall` (`src/cli/uninstall/`) — removes Ferry workflows, secrets, and variables from a consumer repo
+- `ferry-local` (`src/cli/local/`) — runs an agent locally against a ticket without GitHub Actions (see `docs/LOCAL-RUNNER.md`)
 
-Run locally with `npm run ferry-init` / `npm run ferry-doctor` / `npm run ferry-update` / `npm run ferry-uninstall` (uses `tsx`).
+The rest are runtime/plumbing bins invoked by workflows or operators, not typed by hand: `ferry-agent` (`src/cli/agent/` — the bundled-script agent loop), `ferry-cost-*` (`src/cli/cost/` — spend reporting/reconciliation/advice/stats), `ferry-codex-config` (`src/cli/codex-config/` — generates the Codex `config.toml`), `ferry-cc-prompt` / `ferry-action-prompt` (`src/cli/cc-prompt/` — assembles the claude-code/codex prompt), and `ferry-resolve-transition` (`src/cli/resolve-transition/`).
 
-A fifth bin, `ferry-jira-mcp` (`src/jira-mcp/`), is a stdio MCP server — not a CLI. It wraps the Jira IO layer (token-auth via the `FERRY_JIRA_*` env) and exposes the Jira tools the `claude-code`-path agents call (`get_issue`, `list_subtasks`, `create_subtask`, `get_transitions`, `transition_issue`, `post_comment`). Consumer claude-code workflows launch it via `npx -p @big-emotion/ferry ferry-jira-mcp`.
+Run any of them locally via the matching `npm run ferry-*` script (uses `tsx`). Scheduled-work entrypoints live outside `src/cli/`: `src/reconciler/run.ts` and `src/cost-governance/run.ts` (see §4).
+
+`ferry-jira-mcp` (`src/jira-mcp/`) is a stdio MCP server — not a CLI. It wraps the Jira IO layer (token-auth via the `FERRY_JIRA_*` env) and exposes the Jira tools the `claude-code`- and `codex-cli`-path agents call (`get_issue`, `list_subtasks`, `create_subtask`, `get_transitions`, `transition_issue`, `post_comment`). Consumer workflows launch it via `npx -p @big-emotion/ferry ferry-jira-mcp`.
 
 ## Language & Module Rules
 
@@ -137,10 +150,12 @@ External writes use standardized prefixes for idempotency:
 
 ## Deployment
 
-Building the distributable `.ferry/` bundles:
+Two esbuild bundles ship from `src/`, for two different consumers:
 
 ```bash
-npm run build:ferry
+npm run build:ferry   # → .ferry/   — the GitHub Actions runtime bundles (committed)
+npm run build:cli     # → dist/cli/ — the published npm package (bin entrypoints)
 ```
 
-This compiles TypeScript source in `src/` into bundled JavaScript in `.ferry/`. The built files are committed and are what GitHub Actions actually execute. Do not edit `.ferry/` files directly — all changes go in `src/` and are built.
+- **`.ferry/`** is committed and is what GitHub Actions actually execute. Do not edit `.ferry/` files directly — all changes go in `src/` and are rebuilt. The `version` npm hook re-runs `build:ferry` and force-adds the bundles on every release; `npm run check:bundle` fails CI if the committed bundles are stale.
+- **`dist/cli/`** is `.gitignore`d and built on demand — `prepublishOnly` runs `build:cli`, and the `files` allowlist ships only `dist/cli/`. Some agent bins keep the LLM SDKs (`@anthropic-ai/sdk`, `@google/genai`, `openai`) and `@modelcontextprotocol/sdk` external — they are declared runtime `dependencies`, resolved by `npx` alongside the published package.
