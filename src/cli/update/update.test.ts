@@ -219,7 +219,7 @@ describe('computeWorkflowChanges', () => {
 
   it('no-op update returns all unchanged when all files match', () => {
     const dir = makeTempRepo();
-    const templates = workflowTemplates('v0.3.1');
+    const templates = applyLocalOverrides(workflowTemplates('v0.3.1'), {});
     for (const tmpl of templates) {
       writeFileSync(join(dir, '.github', 'workflows', tmpl.filename), tmpl.content, 'utf8');
     }
@@ -258,7 +258,7 @@ describe('computeWorkflowChanges', () => {
 
   it('reports ferry-router.yml unchanged when it already matches the target version', () => {
     const dir = makeTempRepo();
-    const router = routerWorkflowTemplate('v0.3.1');
+    const router = applyLocalOverrides([routerWorkflowTemplate('v0.3.1')], {})[0]!;
     writeFileSync(join(dir, '.github', 'workflows', router.filename), router.content, 'utf8');
 
     const changes = computeWorkflowChanges(dir, 'v0.3.1');
@@ -282,7 +282,7 @@ describe('computeWorkflowChanges', () => {
 
   it('upgrades only the router on a mixed repo — leftover legacy stubs are untouched', () => {
     const dir = makeTempRepo();
-    const router = routerWorkflowTemplate('v0.3.0');
+    const router = applyLocalOverrides([routerWorkflowTemplate('v0.3.0')], {})[0]!;
     writeFileSync(join(dir, '.github', 'workflows', router.filename), router.content, 'utf8');
     const legacy = workflowTemplates('v0.3.0');
     writeFileSync(

@@ -191,10 +191,9 @@ When `ferry-update` runs, it reads `ferry.local.yml` (if present) and applies th
 version: 1 # required; must be 1
 
 review:
-  # Disable the CI pre-gate on the claude-code path.
-  # Use this when the review event can fire before CI has reported or before
-  # a PR exists, and you want the Reviewer to run unconditionally.
-  ciGate: disabled
+  # Restore the CI pre-gate on the claude-code path. Off by default — the
+  # Reviewer runs regardless of CI status, and only the Merger gates on it.
+  ciGate: enabled
 
 global:
   # Pin the runner across all Ferry workflow files.
@@ -208,11 +207,13 @@ All top-level keys are optional.
 
 ### Supported overrides
 
-#### `review.ciGate: disabled`
+#### `review.ciGate` — `enabled` | `disabled` (default: `disabled`)
 
-Removes the `ci-gate` job from `ferry-review.yml` and rewrites the downstream `needs:`/`if:`/`outcome:` expressions so the Reviewer agent (`run-agent-claude-code`) runs unconditionally on the `claude-code` execution path.
+Controls whether the `ci-gate` job is rendered into `ferry-router.yml` (router model) or `ferry-review.yml` (legacy stubs). **Ferry omits it by default**, so the Reviewer agent runs on the `claude-code` path whatever CI says.
 
-**When to use:** The built-in `ci-gate` treats "no PR found" or "CI checks still pending" as `proceed=false`, blocking the review silently. In Jira-driven flows where the `ferry-review` dispatch can fire before the developer's PR has been opened or before the consumer's CI has a result, this produces missed reviews with no audit signal. Setting `ciGate: disabled` removes the gate entirely.
+**Why off by default.** The gate treats "no PR found" and "CI checks still pending" as `proceed=false`. Because a Jira-driven `ferry-review` dispatch routinely fires before the developer's PR exists or before CI has a result, the gate silently swallowed reviews with no audit signal — a red or merely slow pipeline could deadlock a ticket permanently. Ferry's phase model puts the CI responsibility elsewhere: the Developer, Reviewer, and Iterator all run unconditionally, the true CI state travels on the PR as the `ci-green` / `ci-failing` labels, and the **Merger** is the single agent that gates on green (and repairs CI and conflicts before landing). See ADR-0005.
+
+Set `ciGate: enabled` to restore the pre-gate — it then blocks the review and requests changes itself (FR24) while required checks are red.
 
 #### `global.runner`
 

@@ -7,14 +7,18 @@ const _require = createRequire(import.meta.url);
 
 export interface LocalOverridesReview {
   /**
-   * When set to `"disabled"`, the `ci-gate` pre-gate job is omitted — from
-   * `ferry-review.yml` on legacy installs and from `ferry-router.yml` on the
-   * router model — and all references to its outputs are removed. This makes
-   * the Reviewer agent run unconditionally on the claude-code path, without
-   * waiting for CI to go green or a PR to exist — useful when the review
-   * event can fire before CI has reported.
+   * Whether to render the reviewer `ci-gate` pre-gate job — into
+   * `ferry-review.yml` on legacy installs, `ferry-router.yml` on the router
+   * model.
+   *
+   * **Defaults to `"disabled"`.** Only the Merger gates on CI; the Reviewer
+   * and Iterator must run whatever CI says, so that a red, pending, or
+   * unreadable pipeline can never deadlock a ticket — the true CI state
+   * travels on the PR via the `ci-green` / `ci-failing` labels instead. Set
+   * `"enabled"` to restore the pre-gate, which blocks the review and requests
+   * changes itself (FR24) while required checks are red.
    */
-  ciGate?: 'disabled';
+  ciGate?: 'enabled' | 'disabled';
 }
 
 export interface LocalOverridesGlobal {
@@ -83,8 +87,14 @@ export function validateLocalOverrides(raw: unknown): ValidationResult {
       errors.push('review: must be a mapping');
     } else {
       const review = obj.review as Record<string, unknown>;
-      if (review.ciGate !== undefined && review.ciGate !== 'disabled') {
-        errors.push(`review.ciGate: must be "disabled" (got ${String(review.ciGate)})`);
+      if (
+        review.ciGate !== undefined &&
+        review.ciGate !== 'disabled' &&
+        review.ciGate !== 'enabled'
+      ) {
+        errors.push(
+          `review.ciGate: must be "enabled" or "disabled" (got ${String(review.ciGate)})`,
+        );
       }
     }
   }
@@ -121,7 +131,7 @@ export function validateLocalOverrides(raw: unknown): ValidationResult {
   if (obj.review && typeof obj.review === 'object' && !Array.isArray(obj.review)) {
     const review = obj.review as Record<string, unknown>;
     const r: LocalOverridesReview = {};
-    if (review.ciGate === 'disabled') r.ciGate = 'disabled';
+    if (review.ciGate === 'disabled' || review.ciGate === 'enabled') r.ciGate = review.ciGate;
     if (Object.keys(r).length > 0) value.review = r;
   }
 
@@ -148,7 +158,8 @@ export function applyLocalOverrides(
       content = applyGlobalRunner(content, overrides.global.runner);
     }
 
-    if (overrides.review?.ciGate === 'disabled') {
+    // Default-off: the pre-gate is rendered only on an explicit opt-in.
+    if (overrides.review?.ciGate !== 'enabled') {
       if (tmpl.filename === 'ferry-review.yml') content = applyReviewCiGateDisabled(content);
       if (tmpl.filename === 'ferry-router.yml') content = applyRouterCiGateDisabled(content);
     }

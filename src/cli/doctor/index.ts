@@ -28,6 +28,7 @@ import {
   checkWorkflowShape as checkCodexWorkflowShape,
 } from './checks/codex-cli-path.js';
 import { checkClaudeCodePromptOverrides } from './checks/claude-code-prompts.js';
+import { checkPrLabels } from './checks/pr-labels.js';
 import { renderTable } from './table.js';
 import { parseGitLabConfig, runGitLabDoctor } from './gitlab/index.js';
 import type { DoctorConfig } from './types.js';
@@ -250,6 +251,7 @@ Exit code: 0 if all checks green/yellow, 1 if any check red.
     checkProviderGate({ repoRoot: config.repoRoot }),
     checkWorkflowShape({ repoRoot: config.repoRoot }),
     checkClaudeCodePromptOverrides({ repoRoot: config.repoRoot }),
+    checkPrLabels({ repo: config.repo }),
     checkCodexCliPath({
       repoRoot: config.repoRoot,
       repo: config.repo,

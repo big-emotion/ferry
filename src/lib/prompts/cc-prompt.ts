@@ -18,7 +18,7 @@ export const DIRECT_ACTION_PROMPT_PATHS: readonly DirectActionPromptPath[] = [
  * at runtime. Tokens are bare uppercase identifiers embedded in the prompt text.
  */
 export const CC_PROMPT_TOKENS: Record<CcAgent, readonly string[]> = {
-  refiner: ['TICKET_KEY', 'RUN_ID'],
+  refiner: ['TICKET_KEY', 'RUN_ID', 'DEV_COLUMN'],
   dev: ['TICKET_KEY', 'RUN_ID', 'REVIEW_TRANSITION_ID'],
   review: ['TICKET_KEY', 'RUN_ID', 'APPROVE_TRANSITION_ID', 'CHANGES_TRANSITION_ID'],
   iterate: ['TICKET_KEY', 'RUN_ID', 'REVIEW_TRANSITION_ID'],

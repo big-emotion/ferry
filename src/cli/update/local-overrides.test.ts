@@ -366,3 +366,29 @@ describe('applyLocalOverrides — combined overrides', () => {
     expect(review.content).toContain('    runs-on: my-runner\n');
   });
 });
+
+describe('applyLocalOverrides — ci-gate is off by default', () => {
+  const templates = [routerWorkflowTemplate('vTEST')];
+
+  it('omits the reviewer CI pre-gate when no override is declared', () => {
+    const router = applyLocalOverrides(templates, {})[0]!;
+    expect(router.content).not.toContain('ferry-ci-gate@');
+  });
+
+  it('keeps the pre-gate only when review.ciGate is explicitly enabled', () => {
+    const router = applyLocalOverrides(templates, { review: { ciGate: 'enabled' } })[0]!;
+    expect(router.content).toContain('ferry-ci-gate@');
+    expect(router.content).toContain("needs.ci-gate.outputs.proceed == 'true'");
+  });
+
+  it('still accepts the legacy explicit disabled value', () => {
+    const router = applyLocalOverrides(templates, { review: { ciGate: 'disabled' } })[0]!;
+    expect(router.content).not.toContain('ferry-ci-gate@');
+  });
+
+  it('validates "enabled" as a legal review.ciGate value', () => {
+    const r = validateLocalOverrides({ review: { ciGate: 'enabled' } });
+    expect(r.valid).toBe(true);
+    if (r.valid) expect(r.value.review?.ciGate).toBe('enabled');
+  });
+});

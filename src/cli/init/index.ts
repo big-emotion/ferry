@@ -22,12 +22,14 @@ import { installWorkflows, scaffoldCodeowners } from './steps/workflows.js';
 import { stepJiraBundle, stepRouterJiraBundle, DEFAULT_STATUS_NAMES } from './steps/jira-bundle.js';
 import { resolveJiraWorkspaceId, resolveJiraProjectId } from './steps/jira-resolve.js';
 import { stepVerify } from './steps/verify.js';
+import { stepPrLabels } from './steps/pr-labels.js';
+import { loadLocalOverrides, applyLocalOverrides } from '../update/local-overrides.js';
 import { EXECUTION_PATH_QUESTION, parseExecutionPathChoice } from './steps/execution-path.js';
 import type { ExecutionPath, FerryConfig, LlmProvider } from './types.js';
 
 const FERRY_VERSION_DEFAULT = 'v1';
 
-const TOTAL_STEPS = 5;
+const TOTAL_STEPS = 6;
 
 function detectRepo(): string | undefined {
   try {
@@ -297,9 +299,14 @@ async function main(): Promise<void> {
   // claude-code installs the thin router model: one workflow, one Jira rule,
   // transition ids auto-resolved from config. script/codex keep per-agent stubs.
   const useRouter = config.executionPath === 'claude-code';
-  const templates = useRouter
-    ? [routerWorkflowTemplate(config.ferryVersion)]
-    : workflowTemplates(config.ferryVersion, config.executionPath);
+  // Rendered, not raw: the reviewer ci-gate is omitted unless ferry.local.yml
+  // opts in, so a fresh install matches what ferry-update would later write.
+  const templates = applyLocalOverrides(
+    useRouter
+      ? [routerWorkflowTemplate(config.ferryVersion)]
+      : workflowTemplates(config.ferryVersion, config.executionPath),
+    loadLocalOverrides(repoRoot) ?? {},
+  );
   const workflowDir = join(repoRoot, '.github', 'workflows');
   installWorkflows(workflowDir, templates, overwrite);
   scaffoldCodeowners(repoRoot, owner);
@@ -389,8 +396,16 @@ async function main(): Promise<void> {
     printSkip('ferry.config.yaml already exists — skipping (use --overwrite to replace)');
   }
 
-  // ── Step 4: Jira automation bundle ────────────────────────────────────────
-  printStep(4, TOTAL_STEPS, 'Generating Jira Automation import bundle');
+  // ── Step 4: PR labels ─────────────────────────────────────────────────────
+  printStep(4, TOTAL_STEPS, `Creating Ferry PR labels on ${fullRepo}`);
+  const labelsResult = await stepPrLabels(fullRepo);
+  if (!labelsResult.ok) {
+    printError(labelsResult.reason);
+    print('Agents label PRs best-effort — Ferry still runs, but PR state will be less visible.');
+  }
+
+  // ── Step 5: Jira automation bundle ────────────────────────────────────────
+  printStep(5, TOTAL_STEPS, 'Generating Jira Automation import bundle');
   if (useRouter) {
     stepRouterJiraBundle(repoRoot, owner, repo, config.jiraWorkspaceId, config.jiraProjectId);
   } else {
@@ -403,8 +418,8 @@ async function main(): Promise<void> {
     });
   }
 
-  // ── Step 5: Verify ────────────────────────────────────────────────────────
-  printStep(5, TOTAL_STEPS, 'Verifying provider API key');
+  // ── Step 6: Verify ────────────────────────────────────────────────────────
+  printStep(6, TOTAL_STEPS, 'Verifying provider API key');
   const verifyResult =
     config.executionPath === 'claude-code'
       ? ((): { ok: true } => {

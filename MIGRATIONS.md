@@ -53,6 +53,28 @@ If there are no consumer-visible changes, omit the section (or note `(none — i
 
 ---
 
+## v1.1.x → v1.2.0
+
+forge: github
+
+- **(action)** **Ferry now creates six PR labels** — `ready-for-review`, `needs-rereview`, `approved`, `changes-requested`, `ci-green`, `ci-failing`. The Developer, Reviewer, and Iterator apply them so PR state is visible without opening the checks tab, and the Merger gates on `approved`. `ferry-init` creates them on a fresh install; on an existing repo run `ferry-doctor`, which now reports any that are missing along with the exact `gh label create` commands. Labelling is best-effort — Ferry still runs without them, you just lose the signal.
+
+- **(action)** **The reviewer CI pre-gate is now OFF by default.** Previously `ferry-router.yml` rendered a `ci-gate` job that blocked the Reviewer while required checks were red — and, because the gate reads "no PR yet" and "checks still pending" as _do not proceed_, a Jira-driven review dispatch could deadlock a ticket with no audit signal. Only the **Merger** gates on CI now; it also repairs conflicts and drives CI green (bounded to 5 attempts) before landing. Re-run `ferry-update` to re-render the workflow. To keep the old behavior, declare it explicitly in `ferry.local.yml`:
+
+  ```yaml
+  version: 1
+  review:
+    ciGate: enabled
+  ```
+
+  Consumers who already set `ciGate: disabled` need no change — the value stays valid and is now the default.
+
+- **(info)** **The Refiner transitions the parent into the Developer's trigger column**, read from `workflow.agents.developer.trigger_column` in your `ferry.config.json`. It previously aimed at a generic "To Do / Ready for Dev" post-refine column, which on boards where _To Do_ sits _before_ Refinement moved the ticket backward and stalled the pipeline silently. It now matches on the transition's **target status**, never the transition's name, and leaves the ticket in place (saying so in the audit comment) rather than guessing.
+
+- **(info)** **Bundled agent prompts gained default behaviors** previously only available as per-repo `prompts/<agent>.<path>.local.md` overlays: a `**Confidence (self-critique):** N/10` line on every audit comment, PR resolution from the checked-out branch instead of an assumed `ferry/<TICKET>` branch, and the Developer closing its story's planning sub-tasks once the parent reaches In Review. If your overlay already adds one of these, it now stacks on top of the default — trim the duplicate.
+
+---
+
 ## v0.18.2 → v0.19.0
 
 forge: github
