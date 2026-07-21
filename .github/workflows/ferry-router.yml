@@ -52,7 +52,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Validate event envelope
         uses: big-emotion/ferry/.github/actions/ferry-envelope-validate@v1.2.0
@@ -74,7 +74,7 @@ jobs:
       model_var: ${{ steps.route.outputs.model_var }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Resolve agent and execution path
         id: route
         uses: big-emotion/ferry/.github/actions/ferry-route@v1.2.0
@@ -101,7 +101,7 @@ jobs:
       outcome: ${{ steps.gate.outputs.outcome }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Gate on CI status
         id: gate
         uses: big-emotion/ferry/.github/actions/ferry-ci-gate@v1.2.0
@@ -183,7 +183,7 @@ jobs:
       issues: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Emit audit line
         uses: big-emotion/ferry/.github/actions/ferry-emit-audit@v1.2.0
         with:
