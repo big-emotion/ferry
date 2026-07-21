@@ -9,6 +9,10 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+---
+
+## [1.2.0] — 2026-07-21
+
 ### Changed
 
 - **Agents ship the behavior consumers previously had to hand-write as prompt overlays.** Five behaviors that were only available as per-repo `prompts/<agent>.<path>.local.md` files are now bundled defaults on both direct-action paths: a `**Confidence (self-critique):** N/10` line appended to every audit comment, a mandatory PR label protocol (`ready-for-review`, `needs-rereview`, `approved`, `changes-requested`, `ci-green`, `ci-failing`), the Developer closing its story's planning sub-tasks once the parent reaches In Review, PR resolution from the checked-out branch instead of an assumed `ferry/<TICKET>` branch, and a Merger that syncs the base branch, resolves conflicts, and drives CI green (bounded to 5 fix-and-push iterations) before landing an approved PR.
@@ -614,7 +618,8 @@ First stable release. Ferry's public contract — the `event.v1` dispatch schema
 
 ---
 
-[Unreleased]: https://github.com/big-emotion/ferry/compare/v1.1.2...HEAD
+[Unreleased]: https://github.com/big-emotion/ferry/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/big-emotion/ferry/releases/tag/v1.2.0
 [1.1.2]: https://github.com/big-emotion/ferry/releases/tag/v1.1.2
 [1.1.1]: https://github.com/big-emotion/ferry/releases/tag/v1.1.1
 [1.1.0]: https://github.com/big-emotion/ferry/releases/tag/v1.1.0

@@ -140,7 +140,7 @@ The pre-agent step runs in `GITHUB_WORKSPACE` (your checked-out repo root), afte
 ```yaml
 - name: Run Developer agent
   id: run-developer
-  uses: big-emotion/ferry/.github/actions/ferry-run-developer@v1.1.2
+  uses: big-emotion/ferry/.github/actions/ferry-run-developer@v1.2.0
   with:
     payload: ${{ toJson(github.event.client_payload) }}
     # ... required inputs ...
@@ -163,7 +163,7 @@ steps:
       key: ${{ runner.os }}-node-${{ hashFiles('package-lock.json') }}
 
   - name: Run Developer agent
-    uses: big-emotion/ferry/.github/actions/ferry-run-developer@v1.1.2
+    uses: big-emotion/ferry/.github/actions/ferry-run-developer@v1.2.0
     with:
       payload: ${{ toJson(github.event.client_payload) }}
       # ... required inputs ...

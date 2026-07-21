@@ -232,7 +232,7 @@ include:
 
 Under **Settings → CI/CD → Variables**, create:
 
-- `FERRY_VERSION` — pinned Ferry version, e.g. `v1.1.2`
+- `FERRY_VERSION` — pinned Ferry version, e.g. `v1.2.0`
 - `FERRY_JIRA_BASE_URL`, `FERRY_JIRA_EMAIL`, `FERRY_JIRA_API_TOKEN`
 - `FERRY_GITLAB_TOKEN`, `FERRY_GITLAB_PIPELINE_TRIGGER_TOKEN`
 - `FERRY_REVIEW_TRANSITION_ID`, `FERRY_ITER_TRANSITION_ID`, `FERRY_APPROVE_TRANSITION_ID`
@@ -320,8 +320,8 @@ npx -p @big-emotion/ferry ferry-uninstall --forge gitlab --apply
 Pin the installed stubs to an exact commit SHA rather than the floating tag:
 
 ```bash
-LATEST_SHA=$(gh api repos/big-emotion/ferry/git/refs/tags/v1.1.2 --jq '.object.sha')
-sed -i.bak "s|@v1.1.2|@${LATEST_SHA}|g" .github/workflows/ferry-*.yml && rm .github/workflows/ferry-*.yml.bak
+LATEST_SHA=$(gh api repos/big-emotion/ferry/git/refs/tags/v1.2.0 --jq '.object.sha')
+sed -i.bak "s|@v1.2.0|@${LATEST_SHA}|g" .github/workflows/ferry-*.yml && rm .github/workflows/ferry-*.yml.bak
 git add .github/workflows/ && git commit -m "chore(ferry): pin to SHA ${LATEST_SHA}"
 ```
 
@@ -343,11 +343,11 @@ Add two scheduled maintenance workflows after your smoke test passes:
 
 ```bash
 # Stale-ticket reconciler — required, runs every 30 min
-curl -fsSL "https://raw.githubusercontent.com/big-emotion/ferry/v1.1.2/examples/consumer-setup/workflows/ferry-reconcile.yml" \
+curl -fsSL "https://raw.githubusercontent.com/big-emotion/ferry/v1.2.0/examples/consumer-setup/workflows/ferry-reconcile.yml" \
   -o ".github/workflows/ferry-reconcile.yml"
 
 # Daily cost check — required, runs at 06:00 UTC
-curl -fsSL "https://raw.githubusercontent.com/big-emotion/ferry/v1.1.2/examples/consumer-setup/workflows/ferry-cost-daily.yml" \
+curl -fsSL "https://raw.githubusercontent.com/big-emotion/ferry/v1.2.0/examples/consumer-setup/workflows/ferry-cost-daily.yml" \
   -o ".github/workflows/ferry-cost-daily.yml"
 
 git add .github/workflows/ferry-reconcile.yml .github/workflows/ferry-cost-daily.yml
