@@ -9,6 +9,19 @@ Ferry uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Agents ship the behavior consumers previously had to hand-write as prompt overlays.** Five behaviors that were only available as per-repo `prompts/<agent>.<path>.local.md` files are now bundled defaults on both direct-action paths: a `**Confidence (self-critique):** N/10` line appended to every audit comment, a mandatory PR label protocol (`ready-for-review`, `needs-rereview`, `approved`, `changes-requested`, `ci-green`, `ci-failing`), the Developer closing its story's planning sub-tasks once the parent reaches In Review, PR resolution from the checked-out branch instead of an assumed `ferry/<TICKET>` branch, and a Merger that syncs the base branch, resolves conflicts, and drives CI green (bounded to 5 fix-and-push iterations) before landing an approved PR.
+- **The reviewer CI pre-gate is off by default.** `review.ciGate` in `ferry.local.yml` now accepts `enabled` | `disabled` and defaults to `disabled`; the `ci-gate` job is rendered only on an explicit opt-in. The Reviewer and Iterator run whatever CI says so a red, pending, or unreadable pipeline cannot deadlock a ticket — the true state travels on the PR as labels, and the Merger is the single CI gate (ADR-0005).
+
+### Fixed
+
+- **The Refiner no longer transitions the parent backward into the backlog.** It now moves the ticket into `workflow.agents.developer.trigger_column` (substituted into the prompt as `DEV_COLUMN`, read from the consumer's `ferry.config.json`) and matches on the transition's **target status** rather than the transition's name. The previous prompt aimed at a generic "To Do / Ready for Dev" post-refine column, which on any board where _To Do_ precedes Refinement moved the ticket backward, where no downstream agent picked it up.
+
+### Added
+
+- **`ferry-init` creates the six Ferry PR labels**, and `ferry-doctor` reports any that are missing with the exact `gh label create` commands to fix them.
+
 ---
 
 ## [1.1.2] — 2026-07-19

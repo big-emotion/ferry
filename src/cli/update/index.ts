@@ -486,9 +486,7 @@ Exit code: 0 on success, 1 on error.
   printStep(3, 3, 'Applying changes');
   const workflowDir = join(config.repoRoot, '.github', 'workflows');
   const baseTemplates = templatesForModel(workflowModel, toVersion);
-  const templates = localOverrides
-    ? applyLocalOverrides(baseTemplates, localOverrides)
-    : baseTemplates;
+  const templates = applyLocalOverrides(baseTemplates, localOverrides ?? {});
 
   let errors = 0;
   for (const tmpl of templates) {

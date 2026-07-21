@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { loadFerryConfig } from '../../lib/config.js';
 import {
   resolveActionPrompt,
   substituteTokens,
@@ -30,10 +31,20 @@ const FLAG_FOR_TOKEN: Record<string, string> = {
   REVIEW_TRANSITION_ID: '--review-transition-id',
   APPROVE_TRANSITION_ID: '--approve-transition-id',
   CHANGES_TRANSITION_ID: '--changes-transition-id',
+  DEV_COLUMN: '--dev-column',
 };
 
 /** Tokens that must be supplied and non-empty — always present in a dispatch payload. */
 const REQUIRED_TOKENS = new Set(['TICKET_KEY', 'RUN_ID']);
+
+/**
+ * Tokens whose value is read from the consumer's `ferry.config.json` when the
+ * flag is absent, so the workflow does not have to thread board vocabulary
+ * through the composite action. An explicit flag still wins.
+ */
+const CONFIG_DERIVED_TOKENS: Record<string, (repoRoot: string) => string> = {
+  DEV_COLUMN: (repoRoot) => loadFerryConfig(repoRoot).workflow.agents.developer.trigger_column,
+};
 
 function getArg(argv: string[], flag: string): string | undefined {
   const idx = argv.indexOf(flag);
@@ -54,6 +65,8 @@ export function parseArgs(argv: string[]): CcPromptArgs {
     throw new UsageError(`--agent must be one of: ${CC_AGENTS.join(', ')}`);
   }
 
+  const repoRoot = getArg(argv, '--repo-root') || process.env.GITHUB_WORKSPACE || process.cwd();
+
   const values: Record<string, string> = {};
   for (const token of CC_PROMPT_TOKENS[agent as CcAgent]) {
     const flag = FLAG_FOR_TOKEN[token];
@@ -63,6 +76,8 @@ export function parseArgs(argv: string[]): CcPromptArgs {
         throw new UsageError(`${flag} is required and must be non-empty`);
       }
       values[token] = raw;
+    } else if (CONFIG_DERIVED_TOKENS[token]) {
+      values[token] = raw || CONFIG_DERIVED_TOKENS[token](repoRoot);
     } else {
       // Transition ids may be empty — e.g. a consumer who disables the
       // reviewer approve transition passes an empty APPROVE_TRANSITION_ID.
@@ -73,7 +88,7 @@ export function parseArgs(argv: string[]): CcPromptArgs {
   return {
     path: actionPath as DirectActionPromptPath,
     agent: agent as CcAgent,
-    repoRoot: getArg(argv, '--repo-root') || process.env.GITHUB_WORKSPACE || process.cwd(),
+    repoRoot,
     outputName: getArg(argv, '--output-name') || 'prompt',
     values,
   };

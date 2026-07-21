@@ -153,6 +153,10 @@ describe('CC_PROMPT_TOKENS', () => {
     expect(CC_PROMPT_TOKENS.dev).toContain('REVIEW_TRANSITION_ID');
     expect(CC_PROMPT_TOKENS.iterate).toContain('REVIEW_TRANSITION_ID');
   });
+
+  it('declares the developer column token for the refiner', () => {
+    expect(CC_PROMPT_TOKENS.refiner).toContain('DEV_COLUMN');
+  });
 });
 
 describe('bundled prompt ↔ CC_PROMPT_TOKENS coupling', () => {

@@ -92,11 +92,13 @@ export function computeWorkflowChanges(
   const model = detectWorkflowModel(repoRoot);
   const base = templatesForModel(model, toVersion);
   const normalized = normalizeOptions(options);
-  const templates = normalized.overrides ? applyLocalOverrides(base, normalized.overrides) : base;
+  // Always applied: some rendering decisions (the reviewer ci-gate) have a
+  // default that differs from the raw template, so an absent ferry.local.yml
+  // is not the same as "render the template verbatim".
+  const overrides = normalized.overrides ?? {};
+  const templates = applyLocalOverrides(base, overrides);
   const baselineTemplates = normalized.fromVersion
-    ? normalized.overrides
-      ? applyLocalOverrides(templatesForModel(model, normalized.fromVersion), normalized.overrides)
-      : templatesForModel(model, normalized.fromVersion)
+    ? applyLocalOverrides(templatesForModel(model, normalized.fromVersion), overrides)
     : null;
   const changes: WorkflowChange[] = [];
 

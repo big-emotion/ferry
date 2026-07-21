@@ -23,6 +23,7 @@ Options:
   --review-transition-id   FR18 / FR28 transition id (dev, iterate)
   --approve-transition-id  FR24 approve transition id (review; may be empty)
   --changes-transition-id  FR24 changes transition id (review)
+  --dev-column             Developer trigger column (refiner; defaults to ferry.config.json)
   --repo-root              Consumer repo root (default: $GITHUB_WORKSPACE or cwd)
   --output-name            GITHUB_OUTPUT key (default: prompt)
   -h, --help               Show this help

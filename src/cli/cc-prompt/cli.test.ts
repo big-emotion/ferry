@@ -1,3 +1,6 @@
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import {
   parseArgs,
@@ -9,7 +12,7 @@ import {
 import type { CcAgent } from '../../lib/prompts/cc-prompt.js';
 
 const BUNDLED: Record<CcAgent, string> = {
-  refiner: 'refiner default TICKET_KEY RUN_ID',
+  refiner: 'refiner default TICKET_KEY RUN_ID DEV_COLUMN',
   dev: 'dev default TICKET_KEY RUN_ID REVIEW_TRANSITION_ID',
   review: 'review TICKET_KEY RUN_ID APPROVE_TRANSITION_ID CHANGES_TRANSITION_ID',
   iterate: 'iterate TICKET_KEY RUN_ID REVIEW_TRANSITION_ID',
@@ -78,6 +81,36 @@ describe('parseArgs', () => {
   it('defaults a missing transition flag to an empty string', () => {
     const args = parseArgs(['--agent', 'dev', '--ticket-key', 'X-1', '--run-id', 'y']);
     expect(args.values.REVIEW_TRANSITION_ID).toBe('');
+  });
+
+  it('resolves the refiner DEV_COLUMN from the consumer ferry.config.json', () => {
+    const repoRoot = mkdtempSync(join(tmpdir(), 'ferry-cc-prompt-'));
+    writeFileSync(
+      join(repoRoot, 'ferry.config.json'),
+      JSON.stringify({
+        workflow: { agents: { developer: { trigger_column: 'IN DEVELOPMENT' } } },
+      }),
+    );
+    const args = parseArgs(['--agent', 'refiner', '--ticket-key', 'X-1', '--run-id', 'y', '--repo-root', repoRoot]); // prettier-ignore
+    expect(args.values.DEV_COLUMN).toBe('IN DEVELOPMENT');
+  });
+
+  it('falls back to the default developer column when the repo has no config', () => {
+    const repoRoot = mkdtempSync(join(tmpdir(), 'ferry-cc-prompt-'));
+    const args = parseArgs(['--agent', 'refiner', '--ticket-key', 'X-1', '--run-id', 'y', '--repo-root', repoRoot]); // prettier-ignore
+    expect(args.values.DEV_COLUMN).toBe('In Development');
+  });
+
+  it('lets --dev-column win over the config file', () => {
+    const repoRoot = mkdtempSync(join(tmpdir(), 'ferry-cc-prompt-'));
+    writeFileSync(
+      join(repoRoot, 'ferry.config.json'),
+      JSON.stringify({
+        workflow: { agents: { developer: { trigger_column: 'IN DEVELOPMENT' } } },
+      }),
+    );
+    const args = parseArgs(['--agent', 'refiner', '--ticket-key', 'X-1', '--run-id', 'y', '--repo-root', repoRoot, '--dev-column', 'Ready for Dev']); // prettier-ignore
+    expect(args.values.DEV_COLUMN).toBe('Ready for Dev');
   });
 
   it('honours --output-name', () => {
