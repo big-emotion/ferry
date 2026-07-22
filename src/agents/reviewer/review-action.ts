@@ -31,8 +31,26 @@ import {
 import { countPriorIterations } from './changes-guard.js';
 import type { EventEnvelopeV1 } from '../../lib/envelope/types.js';
 import type { Logger } from '../../lib/agent-runtime/index.js';
+import type { FerryConfig } from '../../lib/config.js';
 
 const REPO_ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
+
+/**
+ * Per-run budget for the reviewer's agent loop. The reviewer defaults to an
+ * Opus-class model, so — like the developer and iterator — it must carry a
+ * per-run input-token and EUR ceiling, not only an iteration/output cap.
+ * review-action previously built the loop with just reviewer_max_iterations
+ * and reviewer_max_tokens, leaving no maxInputTokens/maxCostEur: a review could
+ * run the full reviewer_max_iterations of an Opus model with no spend bound.
+ */
+export function reviewerLoopLimits(limits: FerryConfig['limits']) {
+  return {
+    maxIterations: limits.reviewer_max_iterations,
+    maxTokens: limits.reviewer_max_tokens,
+    maxInputTokens: limits.max_tokens_per_run,
+    maxCostEur: limits.max_cost_eur_per_run,
+  };
+}
 
 export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<void> {
   const { ticket_key: ticketKey, event_id: eventId } = envelope;
@@ -262,8 +280,7 @@ export async function main(envelope: EventEnvelopeV1, logger: Logger): Promise<v
     provider,
     model,
     thinking: thinkingOverride,
-    maxIterations: effectiveCfg.limits.reviewer_max_iterations,
-    maxTokens: effectiveCfg.limits.reviewer_max_tokens,
+    ...reviewerLoopLimits(effectiveCfg.limits),
     executeTool,
     logger,
   });

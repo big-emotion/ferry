@@ -1,5 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import { countPriorIterations } from './changes-guard.js';
+import { reviewerLoopLimits } from './review-action.js';
+import { DEFAULT_FERRY_CONFIG } from '../../lib/config.js';
+
+describe('reviewer loop budget — reviewerLoopLimits', () => {
+  it('bounds the reviewer per run with an input-token and EUR ceiling, not just iteration/output caps', () => {
+    const limits = reviewerLoopLimits(DEFAULT_FERRY_CONFIG.limits);
+    expect(limits.maxIterations).toBe(DEFAULT_FERRY_CONFIG.limits.reviewer_max_iterations);
+    expect(limits.maxTokens).toBe(DEFAULT_FERRY_CONFIG.limits.reviewer_max_tokens);
+    // Regression guard: the Opus-class reviewer must carry the same per-run
+    // ceilings the developer and iterator do (previously it had neither).
+    expect(limits.maxInputTokens).toBe(DEFAULT_FERRY_CONFIG.limits.max_tokens_per_run);
+    expect(limits.maxCostEur).toBe(DEFAULT_FERRY_CONFIG.limits.max_cost_eur_per_run);
+  });
+});
 
 const iteratorComment = (n: number) =>
   `[ferry:iterator:abc${n}] Iteration ${n} complete. Pushed fixes to PR#42. Moved back to Review.`;

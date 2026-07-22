@@ -10119,6 +10119,14 @@ function countPriorIterations(existingComments) {
 
 // src/agents/reviewer/review-action.ts
 var REPO_ROOT3 = process.env.GITHUB_WORKSPACE ?? process.cwd();
+function reviewerLoopLimits(limits) {
+  return {
+    maxIterations: limits.reviewer_max_iterations,
+    maxTokens: limits.reviewer_max_tokens,
+    maxInputTokens: limits.max_tokens_per_run,
+    maxCostEur: limits.max_cost_eur_per_run
+  };
+}
 async function main3(envelope, logger) {
   const { ticket_key: ticketKey, event_id: eventId } = envelope;
   const { owner, repo, runner, tracker, ferryCfg: initialCfg } = createGitHubContext(REPO_ROOT3);
@@ -10300,8 +10308,7 @@ async function main3(envelope, logger) {
     provider,
     model,
     thinking: thinkingOverride,
-    maxIterations: effectiveCfg.limits.reviewer_max_iterations,
-    maxTokens: effectiveCfg.limits.reviewer_max_tokens,
+    ...reviewerLoopLimits(effectiveCfg.limits),
     executeTool: executeTool2,
     logger
   });

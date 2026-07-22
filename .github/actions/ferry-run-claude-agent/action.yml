@@ -36,6 +36,15 @@ inputs:
     description: Model id passed to --model
     required: false
     default: claude-sonnet-5
+  max_turns:
+    description: >-
+      Upper bound on agent turns, passed to claude as --max-turns. Without it a
+      hung or looping agent runs to the job's timeout-minutes ceiling (up to
+      120 min) with no turn cap. Defaults to the script path's Developer/
+      Iterator ceiling (200) so no legitimate run regresses; lower it per role
+      from the caller to tighten cost.
+    required: false
+    default: '200'
   integration_branch:
     description: Branch refiner/dev check out (the base for new work)
     required: false
@@ -227,6 +236,7 @@ runs:
           --permission-mode bypassPermissions
           --disallowedTools '${{ steps.guardrails.outputs.disallowed }}'
           --model ${{ inputs.model }}
+          --max-turns ${{ inputs.max_turns }}
           ${{ inputs.extra_claude_args }}
     # if: always() still fires on job cancellation/timeout, so a hung run keeps
     # its execution log. Guard on a non-empty output — a hard-killed step sets none.
