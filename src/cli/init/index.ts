@@ -15,7 +15,7 @@ import {
 } from './prompt.js';
 import { resolveForgeFromArgv } from '../lib/forge.js';
 import { runGitLabInit } from './gitlab/wizard.js';
-import { workflowTemplates, routerWorkflowTemplate } from './templates.js';
+import { workflowTemplates, routerWorkflowTemplate, opsWorkflowTemplates } from './templates.js';
 import { stepGitHubApp } from './steps/github-app.js';
 import { buildSecrets, stepSecrets } from './steps/secrets.js';
 import { installWorkflows, scaffoldCodeowners } from './steps/workflows.js';
@@ -23,13 +23,14 @@ import { stepJiraBundle, stepRouterJiraBundle, DEFAULT_STATUS_NAMES } from './st
 import { resolveJiraWorkspaceId, resolveJiraProjectId } from './steps/jira-resolve.js';
 import { stepVerify } from './steps/verify.js';
 import { stepPrLabels } from './steps/pr-labels.js';
+import { stepAuditIssue, stepWorkflowPermissions } from './steps/repo-setup.js';
 import { loadLocalOverrides, applyLocalOverrides } from '../update/local-overrides.js';
 import { EXECUTION_PATH_QUESTION, parseExecutionPathChoice } from './steps/execution-path.js';
 import type { ExecutionPath, FerryConfig, LlmProvider } from './types.js';
 
 const FERRY_VERSION_DEFAULT = 'v1';
 
-const TOTAL_STEPS = 6;
+const TOTAL_STEPS = 7;
 
 function detectRepo(): string | undefined {
   try {
@@ -301,10 +302,16 @@ async function main(): Promise<void> {
   const useRouter = config.executionPath === 'claude-code';
   // Rendered, not raw: the reviewer ci-gate is omitted unless ferry.local.yml
   // opts in, so a fresh install matches what ferry-update would later write.
+  // The two ops workflows (reconciler + daily cost check) ship on every path —
+  // both production requirements — so they are written alongside the agent
+  // workflows here rather than left as a manual curl step.
   const templates = applyLocalOverrides(
-    useRouter
-      ? [routerWorkflowTemplate(config.ferryVersion)]
-      : workflowTemplates(config.ferryVersion, config.executionPath),
+    [
+      ...(useRouter
+        ? [routerWorkflowTemplate(config.ferryVersion)]
+        : workflowTemplates(config.ferryVersion, config.executionPath)),
+      ...opsWorkflowTemplates(config.ferryVersion),
+    ],
     loadLocalOverrides(repoRoot) ?? {},
   );
   const workflowDir = join(repoRoot, '.github', 'workflows');
@@ -418,8 +425,23 @@ async function main(): Promise<void> {
     });
   }
 
-  // ── Step 6: Verify ────────────────────────────────────────────────────────
-  printStep(6, TOTAL_STEPS, 'Verifying provider API key');
+  // ── Step 6: Repository setup (audit log + workflow permissions) ───────────
+  printStep(6, TOTAL_STEPS, 'Repository setup: audit log + workflow permissions');
+  const auditIssueResult = stepAuditIssue(fullRepo, overwrite);
+  if (!auditIssueResult.ok) {
+    printError(auditIssueResult.reason);
+    print('Create the audit issue and set FERRY_AUDIT_ISSUE manually, or re-run with --overwrite.');
+  }
+  const workflowPermsResult = stepWorkflowPermissions(fullRepo, overwrite);
+  if (!workflowPermsResult.ok) {
+    printError(workflowPermsResult.reason);
+    print(
+      'Set it in the UI: Settings → Actions → General → Workflow permissions → Read and write.',
+    );
+  }
+
+  // ── Step 7: Verify ────────────────────────────────────────────────────────
+  printStep(7, TOTAL_STEPS, 'Verifying provider API key');
   const verifyResult =
     config.executionPath === 'claude-code'
       ? ((): { ok: true } => {
@@ -454,9 +476,7 @@ async function main(): Promise<void> {
     print('        Upload ferry-jira-automation-rules.beta.json');
   }
   print('  3. Set spend caps on provider billing pages (see links above)');
-  print('  4. Set FERRY_AUDIT_ISSUE repository variable to a GitHub Issue number');
-  print('     for the audit log (create a blank issue and use its number)');
-  let nextStep = 5;
+  let nextStep = 4;
   if (needsOpenAI) {
     print(`  ${nextStep++}. OpenAI key was set as OPENAI_API_KEY secret.`);
     print(
