@@ -1074,6 +1074,161 @@ jobs:
 }
 
 /**
+ * The two scheduled operations workflows every production install must ship:
+ * the stale-ticket reconciler and the daily cost check. They are byte-identical
+ * to the committed `examples/consumer-setup/workflows/ferry-{reconcile,cost-daily}.yml`
+ * fixtures with the pinned `FERRY_REF` swapped for the install's `${version}`,
+ * so `ferry-init` can write them directly instead of telling consumers to curl
+ * them. Kept as embedded strings because the npm package ships only `dist/` —
+ * `examples/` is not available at runtime.
+ */
+export function opsWorkflowTemplates(version: string): WorkflowEntry[] {
+  return [
+    {
+      filename: 'ferry-reconcile.yml',
+      content: `# Copy this file to .github/workflows/ferry-reconcile.yml in your repository.
+# Update the FERRY_REF value below to the Ferry release you have pinned.
+#
+# Required variables: FERRY_AUDIT_ISSUE
+# Optional variables: FERRY_JIRA_PROJECT (Jira project key, e.g. "CHAN")
+#                     FERRY_RUNNER (default: "ubuntu-latest"; JSON string or array for self-hosted runners, e.g. '["self-hosted","X64"]')
+# Required secrets (if FERRY_JIRA_PROJECT is set): FERRY_JIRA_BASE_URL,
+#                                                    FERRY_JIRA_EMAIL,
+#                                                    FERRY_JIRA_API_TOKEN
+#
+# Opt-out: delete this file or rename the workflow to disable scheduling.
+
+name: Ferry — Reconciler
+
+on:
+  schedule:
+    - cron: '*/30 * * * *' # every 30 min — adjust as needed
+  workflow_dispatch: {}
+
+concurrency:
+  group: ferry-reconciler
+  cancel-in-progress: false
+
+env:
+  FERRY_REF: ${version} # pin to the same release you use for the agent stubs
+
+jobs:
+  reconcile:
+    name: Sweep for stalled tickets
+    runs-on: \${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
+    permissions:
+      contents: read
+      issues: write
+      actions: write
+
+    steps:
+      - name: Checkout consumer repo (for .ferry/ state files)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Checkout Ferry source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: big-emotion/ferry
+          ref: \${{ env.FERRY_REF }}
+          path: _ferry_src
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '20'
+
+      - name: Install Ferry dependencies
+        run: npm ci --prefer-offline
+        working-directory: _ferry_src
+
+      - name: Run reconciler sweep
+        run: npx tsx src/reconciler/run.ts
+        working-directory: _ferry_src
+        env:
+          GITHUB_TOKEN: \${{ github.token }}
+          GITHUB_REPOSITORY: \${{ github.repository }}
+          FERRY_AUDIT_ISSUE: \${{ vars.FERRY_AUDIT_ISSUE }}
+          # Tells the reconciler where to find .ferry/ state files (consumer repo root)
+          FERRY_WORKSPACE: \${{ github.workspace }}
+          FERRY_JIRA_BASE_URL: \${{ secrets.FERRY_JIRA_BASE_URL }}
+          FERRY_JIRA_EMAIL: \${{ secrets.FERRY_JIRA_EMAIL }}
+          FERRY_JIRA_API_TOKEN: \${{ secrets.FERRY_JIRA_API_TOKEN }}
+          FERRY_JIRA_PROJECT: \${{ vars.FERRY_JIRA_PROJECT }}
+`,
+    },
+    {
+      filename: 'ferry-cost-daily.yml',
+      content: `# Copy this file to .github/workflows/ferry-cost-daily.yml in your repository.
+# Update the FERRY_REF value below to the Ferry release you have pinned.
+#
+# Required variables: FERRY_AUDIT_ISSUE
+# Optional variables: FERRY_SPEND_CAP_EUR (monthly EUR cap — default 200 EUR)
+#                     FERRY_RUNNER (default: "ubuntu-latest"; JSON string or array for self-hosted runners, e.g. '["self-hosted","X64"]')
+# Optional secrets (to apply ferry:paused to Jira tickets on threshold breach):
+#   FERRY_JIRA_BASE_URL, FERRY_JIRA_EMAIL, FERRY_JIRA_API_TOKEN
+#
+# Production deployments must include this workflow to enforce cost governance.
+# To disable: delete this file or rename the workflow.
+
+name: Ferry — Cost Daily Check
+
+on:
+  schedule:
+    - cron: '0 6 * * *' # daily at 06:00 UTC — adjust as needed
+  workflow_dispatch: {}
+
+concurrency:
+  group: ferry-cost-daily
+  cancel-in-progress: false
+
+env:
+  FERRY_REF: ${version} # pin to the same release you use for the agent stubs
+
+jobs:
+  cost-check:
+    name: Check provider spend against cap
+    runs-on: \${{ fromJSON(vars.FERRY_RUNNER || '"ubuntu-latest"') }}
+    permissions:
+      contents: read
+      issues: write
+
+    steps:
+      - name: Checkout consumer repo
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Checkout Ferry source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: big-emotion/ferry
+          ref: \${{ env.FERRY_REF }}
+          path: _ferry_src
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '20'
+
+      - name: Install Ferry dependencies
+        run: npm ci --prefer-offline
+        working-directory: _ferry_src
+
+      - name: Run daily cost check
+        run: npx tsx src/cost-governance/run.ts
+        working-directory: _ferry_src
+        env:
+          GITHUB_TOKEN: \${{ github.token }}
+          GITHUB_REPOSITORY: \${{ github.repository }}
+          FERRY_AUDIT_ISSUE: \${{ vars.FERRY_AUDIT_ISSUE }}
+          FERRY_SPEND_CAP_EUR: \${{ vars.FERRY_SPEND_CAP_EUR }}
+          FERRY_JIRA_BASE_URL: \${{ secrets.FERRY_JIRA_BASE_URL }}
+          FERRY_JIRA_EMAIL: \${{ secrets.FERRY_JIRA_EMAIL }}
+          FERRY_JIRA_API_TOKEN: \${{ secrets.FERRY_JIRA_API_TOKEN }}
+`,
+    },
+  ];
+}
+
+/**
  * The thin router workflow (claude-code path). One any-column Jira rule sends
  * `ferry-transition` with `to_status`; ferry-route maps it to an agent via
  * `workflow.agents.*.trigger_column` and the shared ferry-run-claude-agent

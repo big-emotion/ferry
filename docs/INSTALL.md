@@ -38,25 +38,28 @@ After the wizard finishes, complete the manual setup for your forge.
 
 ## GitHub Actions install
 
-After the wizard finishes, complete four manual steps:
+`ferry-init` automates most of the setup. Steps 1 and 3 below now run automatically inside the wizard — verify them. Step 2 (secrets) is also set by the wizard. Step 4 (the Jira wiring) still needs you by hand.
 
-### Step 1 — Create the audit issue
+### Step 1 — Audit issue (automatic)
 
-Ferry appends a one-line journal entry to a dedicated GitHub Issue after every agent run:
+`ferry-init` creates a dedicated GitHub Issue titled **"Ferry audit log"** to serve as Ferry's append-only journal — the agents append one line per run — and points the `FERRY_AUDIT_ISSUE` repository variable at its number. **You do not need to do this by hand.** Re-running `ferry-init --overwrite` recreates the issue and repoints the variable.
+
+Verify:
+
+```bash
+gh variable list --repo YOUR_ORG/YOUR_REPO | grep FERRY_AUDIT_ISSUE
+```
+
+If you skipped the wizard or want to recreate it manually, the equivalent commands are:
 
 ```bash
 gh issue create \
   --repo YOUR_ORG/YOUR_REPO \
-  --title "Ferry Audit Log (#1)" \
-  --body "Do not close. Ferry writes audit comments here." \
-  --label ferry \
-  --label "ferry:audit-log:active"
-```
+  --title "Ferry audit log" \
+  --body "Ferry's append-only audit log. Do not close."
 
-Note the returned issue number, then set the variable:
-
-```bash
-gh variable set FERRY_AUDIT_ISSUE --body "<issue-number>"
+# then point the variable at the issue number gh printed
+gh variable set FERRY_AUDIT_ISSUE --repo YOUR_ORG/YOUR_REPO --body "<issue-number>"
 ```
 
 ### Step 2 — Verify secrets
@@ -83,15 +86,16 @@ gh secret set FERRY_REVIEW_TRANSITION_ID  --body "<jira-transition-id-to-in-revi
 gh secret set FERRY_ITER_TRANSITION_ID    --body "<jira-transition-id-to-changes-requested>"
 ```
 
-### Step 3 — Enable workflow permissions
+### Step 3 — Workflow permissions (automatic)
+
+`ferry-init` sets the repository's default workflow permissions to **read + write** so the agents can push branches and open PRs on `${{ github.token }}`. **You do not need to do this by hand.** Re-run `ferry-init --overwrite` to force it back to read + write.
+
+Verify via the UI: **Settings → Actions → General → Workflow permissions** should read **Read and write**. To re-apply manually:
 
 ```bash
 gh api -X PUT /repos/YOUR_ORG/YOUR_REPO/actions/permissions/workflow \
-  -f default_workflow_permissions=write \
-  -F can_approve_pull_request_reviews=true
+  -f default_workflow_permissions=write
 ```
-
-Or via the UI: **Settings → Actions → General → Workflow permissions → Read and write**.
 
 ### Step 4 — Connect Jira → GitHub
 
@@ -339,7 +343,15 @@ Create a **Story** ticket in Jira and move it to **Refinement**. Within ~5 secon
 
 ## Operations setup (required)
 
-Add two scheduled maintenance workflows after your smoke test passes:
+`ferry-init` writes both required scheduled maintenance workflows into `.github/workflows/` alongside the agent workflows — the stale-ticket reconciler (`ferry-reconcile.yml`, runs every 30 min) and the daily cost check (`ferry-cost-daily.yml`, runs at 06:00 UTC). **You do not need to curl them.** Just commit them with everything else:
+
+```bash
+git add .github/workflows/ferry-reconcile.yml .github/workflows/ferry-cost-daily.yml
+git commit -m "chore(ferry): add reconciler and cost-daily workflows (required)"
+git push
+```
+
+To fetch or refresh them by hand — for example after pinning a new release — copy from the pinned tag (`ferry-init --overwrite` also rewrites them if they drift):
 
 ```bash
 # Stale-ticket reconciler — required, runs every 30 min
@@ -349,10 +361,6 @@ curl -fsSL "https://raw.githubusercontent.com/big-emotion/ferry/v1.2.0/examples/
 # Daily cost check — required, runs at 06:00 UTC
 curl -fsSL "https://raw.githubusercontent.com/big-emotion/ferry/v1.2.0/examples/consumer-setup/workflows/ferry-cost-daily.yml" \
   -o ".github/workflows/ferry-cost-daily.yml"
-
-git add .github/workflows/ferry-reconcile.yml .github/workflows/ferry-cost-daily.yml
-git commit -m "chore(ferry): add reconciler and cost-daily workflows (required)"
-git push
 ```
 
 ---
@@ -360,7 +368,7 @@ git push
 ## Install checklist
 
 ```
-[ ] Audit issue created + FERRY_AUDIT_ISSUE variable set
+[ ] Audit issue + FERRY_AUDIT_ISSUE variable (auto by ferry-init — verify: gh variable list | grep FERRY_AUDIT_ISSUE)
 [ ] 6 secrets set by ferry-init (verify with: gh secret list | grep FERRY)
     FERRY_APP_ID, FERRY_PRIVATE_KEY, FERRY_JIRA_BASE_URL, FERRY_JIRA_EMAIL,
     FERRY_JIRA_API_TOKEN, ANTHROPIC_API_KEY
@@ -368,13 +376,13 @@ git push
     status names (router and script paths); set only to pin an explicit id
     FERRY_REVIEW_TRANSITION_ID  — override for the transition into "In Review"
     FERRY_ITER_TRANSITION_ID    — override for the transition into "Changes Requested"
-[ ] Workflow permissions = read+write
+[ ] Workflow permissions = read+write (auto by ferry-init — verify in Settings → Actions → General)
 [ ] Jira automation wiring created in the Jira UI and enabled
     Router model: 1 any-column ferry-transition rule (claude-code path)
     Legacy model: 4 per-column rules (script / codex-cli paths)
 [ ] Smoke test passed (ferry-refine green, draft PR opened)
-[ ] ferry-reconcile.yml added (required)
-[ ] ferry-cost-daily.yml added (required)
+[ ] ferry-reconcile.yml present — written by ferry-init (required)
+[ ] ferry-cost-daily.yml present — written by ferry-init (required)
 [ ] ferry-doctor reports green (npx -p @big-emotion/ferry ferry-doctor)
 ```
 

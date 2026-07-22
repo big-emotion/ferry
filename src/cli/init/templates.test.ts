@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import url from 'node:url';
 import { parse as parseYaml } from 'yaml';
-import { workflowTemplates, routerWorkflowTemplate } from './templates.js';
+import { workflowTemplates, routerWorkflowTemplate, opsWorkflowTemplates } from './templates.js';
+
+const repoRoot = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), '../../..');
 
 const AGENT_FILES = [
   'ferry-refine.yml',
@@ -672,6 +677,60 @@ describe('workflowTemplates — execution path variants', () => {
     for (const tmpl of workflowTemplates('v1', 'claude-code')) {
       expect(tmpl.content).toContain('# Execution path: claude-code');
     }
+  });
+});
+
+describe('opsWorkflowTemplates — scheduled operations workflows', () => {
+  const OPS_FILES = ['ferry-reconcile.yml', 'ferry-cost-daily.yml'];
+
+  it('returns exactly the reconciler and cost-daily entries', () => {
+    expect(opsWorkflowTemplates('v1').map((t) => t.filename)).toEqual(OPS_FILES);
+  });
+
+  it('each entry is structurally valid GitHub Actions YAML', () => {
+    for (const tmpl of opsWorkflowTemplates('v1.2.0')) {
+      assertValidWorkflowYaml(tmpl.content, tmpl.filename);
+    }
+  });
+
+  it('matches the committed examples/ fixtures byte-for-byte at the pinned version', () => {
+    // The generated content must stay identical to the fixtures src/install-guide.test.ts
+    // checks, so consumers who copy either source get the same workflow. The only
+    // substitution is the FERRY_REF pin, which equals the fixture's v1.2.0 here.
+    for (const tmpl of opsWorkflowTemplates('v1.2.0')) {
+      const fixture = readFileSync(
+        path.join(repoRoot, 'examples/consumer-setup/workflows', tmpl.filename),
+        'utf8',
+      );
+      expect(tmpl.content, `${tmpl.filename}: drifted from examples/ fixture`).toBe(fixture);
+    }
+  });
+
+  it('interpolates FERRY_REF from the install version (not the literal fixture pin)', () => {
+    for (const tmpl of opsWorkflowTemplates('v0.19.0')) {
+      expect(tmpl.content, `${tmpl.filename}: FERRY_REF not interpolated`).toContain(
+        'FERRY_REF: v0.19.0',
+      );
+      expect(tmpl.content, `${tmpl.filename}: leftover fixture pin`).not.toContain(
+        'FERRY_REF: v1.2.0',
+      );
+    }
+  });
+
+  it('preserves the scheduling, permission, and audit invariants the install guide asserts', () => {
+    const [reconcile, costDaily] = opsWorkflowTemplates('v1');
+    for (const tmpl of [reconcile, costDaily]) {
+      expect(tmpl.content, `${tmpl.filename}: missing schedule`).toContain('schedule:');
+      expect(tmpl.content, `${tmpl.filename}: missing cron`).toContain('cron:');
+      expect(tmpl.content, `${tmpl.filename}: missing permissions`).toContain('permissions:');
+      expect(tmpl.content, `${tmpl.filename}: missing issues: write`).toContain('issues: write');
+      expect(tmpl.content, `${tmpl.filename}: missing FERRY_AUDIT_ISSUE`).toContain(
+        'FERRY_AUDIT_ISSUE',
+      );
+    }
+    expect(reconcile.content).toContain('src/reconciler/run.ts');
+    expect(costDaily.content).toContain('src/cost-governance/run.ts');
+    expect(costDaily.content).toContain('FERRY_SPEND_CAP_EUR');
   });
 });
 
