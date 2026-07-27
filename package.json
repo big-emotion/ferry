@@ -79,7 +79,7 @@
     "version": "npm run build:ferry && git add -f .ferry/ && git add .github/actions/ferry-envelope-validate/ .github/actions/ferry-emit-audit/ .github/actions/ferry-route/ .github/actions/ferry-ci-gate/ .github/actions/ferry-run-refiner/ .github/actions/ferry-run-developer/ .github/actions/ferry-run-reviewer/ .github/actions/ferry-run-iterator/ .github/actions/ferry-run-merger/"
   },
   "devDependencies": {
-    "@types/node": "^25.6.0",
+    "@types/node": "^26.1.2",
     "@typescript-eslint/eslint-plugin": "^8.0.0",
     "@typescript-eslint/parser": "^8.0.0",
     "@vitest/coverage-v8": "^4.1.5",
@@ -90,7 +90,7 @@
     "lint-staged": "^17.0.4",
     "prettier": "^3.0.0",
     "tsx": "^4.0.0",
-    "typescript": "^6.0.3",
+    "typescript": "^7.0.2",
     "vitest": "^4.1.5"
   },
   "dependencies": {
