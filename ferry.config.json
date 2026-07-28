@@ -1,5 +1,11 @@
 {
   "execution_path": "claude-code",
+  "models": {
+    "refiner": { "provider": "anthropic", "model": "claude-opus-4-8" },
+    "dev": { "provider": "anthropic", "model": "claude-sonnet-5" },
+    "review": { "provider": "anthropic", "model": "claude-opus-4-8" },
+    "iterate": { "provider": "anthropic", "model": "claude-sonnet-5" }
+  },
   "ticket_types": {
     "refine_allowlist": ["Tâche"],
     "dev_allowlist": ["Tâche"]
@@ -14,7 +20,7 @@
         "auto_transition_changes": "CHANGES REQUESTED"
       },
       "iterator": { "trigger_column": "CHANGES REQUESTED", "auto_transition": "Revue en cours" },
-      "merger": { "auto_transition_done": "Terminé(e)" }
+      "merger": { "trigger_column": "TO MERGE", "auto_transition_done": "Terminé(e)" }
     }
   }
 }
