@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { loadFerryConfig, parseFerryConfigJson, DEFAULT_FERRY_CONFIG } from './config.js';
 import { FerryError } from './errors/index.js';
+import { shouldSkipForTaskType } from './dispatch/routing.js';
 
 const { mockExistsSync, mockReadFileSync } = vi.hoisted(() => ({
   mockExistsSync: vi.fn<(p: unknown) => boolean>(),
@@ -885,5 +887,30 @@ describe('execution_path + routing config (ADR-0006, #300)', () => {
 
   it('rejects a non-object routing', () => {
     expect(() => parseFerryConfigJson(JSON.stringify({ routing: 'fast' }))).toThrow(FerryError);
+  });
+});
+
+// FER-4/FER-37: FER is a Jira team-managed project whose only issue types are
+// Tâche, Epic, and Sous-tâche — Ferry's default ticket_types allowlist
+// (["Story", "Bug", "Spike"]) matches none of them, which would silently skip
+// every dispatch on this repo. Locks in that the root config overrides the
+// allowlist, and that the ticket-type skip path Ferry actually enforces at
+// runtime (shouldSkipForTaskType, keyed off the literal "Task" issue type)
+// does not treat a FER "Tâche" ticket as skippable.
+describe('FER repo root ferry.config.json — Tâche allowlist (FER-4)', () => {
+  it('refine_allowlist and dev_allowlist both include "Tâche"', async () => {
+    const { readFileSync: actualReadFileSync } =
+      await vi.importActual<typeof import('node:fs')>('node:fs');
+    const rootConfigPath = fileURLToPath(new URL('../../ferry.config.json', import.meta.url));
+    const content = actualReadFileSync(rootConfigPath, 'utf8');
+
+    const cfg = parseFerryConfigJson(content);
+
+    expect(cfg.ticket_types.refine_allowlist).toContain('Tâche');
+    expect(cfg.ticket_types.dev_allowlist).toContain('Tâche');
+  });
+
+  it('a "Tâche" ticket is not skipped by the runtime ticket-type filter', () => {
+    expect(shouldSkipForTaskType('Tâche')).toEqual({ skip: false });
   });
 });
