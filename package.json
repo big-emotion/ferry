@@ -94,7 +94,7 @@
     "vitest": "^4.1.5"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.97.0",
+    "@anthropic-ai/sdk": "^0.112.4",
     "@google/genai": "^2.0.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@octokit/rest": "^22.0.1",
